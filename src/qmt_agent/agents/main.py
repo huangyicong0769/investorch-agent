@@ -1,5 +1,7 @@
 from agents import Agent, OpenAIResponsesModel
 
+from qmt_agent.tools import get_current_time
+
 from .prompts import MAIN_AGENT_INSTRUCTIONS
 
 
@@ -8,6 +10,9 @@ def create_agent(model: OpenAIResponsesModel) -> Agent:
         name="QMT Agent",
         instructions=MAIN_AGENT_INSTRUCTIONS,
         model=model,
+        tools=[
+            get_current_time,
+        ],
     )
 
 
