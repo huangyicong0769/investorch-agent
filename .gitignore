@@ -1,0 +1,67 @@
+# Python-generated files
+__pycache__/
+*.py[cod]
+*.pyc.*
+*.pyd
+*.pyo
+*$py.class
+*.so
+
+# Build and packaging artifacts
+build/
+dist/
+site/
+wheels/
+.eggs/
+*.egg
+*.egg-info/
+pip-wheel-metadata/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Local environment and secrets
+.env
+.env.*
+.envrc
+!.envsample
+!.env.example
+
+# Python tool caches
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.pyre/
+.hypothesis/
+.tox/
+.nox/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.cache/
+
+# Type checker and interpreter metadata
+dmypy.json
+
+# Test, notebook, and runtime outputs
+.ipynb_checkpoints/
+logs/
+*.log
+tmp/
+temp/
+
+# Local databases and data dumps
+*.db
+*.sqlite
+*.sqlite3
+
+# Editor and OS files
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
