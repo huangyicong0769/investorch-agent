@@ -1,11 +1,12 @@
 from agents import Agent, OpenAIResponsesModel
+from agents.mcp import MCPServer
 
 from qmt_agent.tools import get_current_time
 
 from .prompts import MAIN_AGENT_INSTRUCTIONS
 
 
-def create_agent(model: OpenAIResponsesModel) -> Agent:
+def create_agent(model: OpenAIResponsesModel, mcp_servers: list[MCPServer] | None = None) -> Agent:
     return Agent(
         name="QMT Agent",
         instructions=MAIN_AGENT_INSTRUCTIONS,
@@ -13,6 +14,7 @@ def create_agent(model: OpenAIResponsesModel) -> Agent:
         tools=[
             get_current_time,
         ],
+        mcp_servers=mcp_servers or [],
     )
 
 

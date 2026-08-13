@@ -1,23 +1,26 @@
 import asyncio
 import os
+from pathlib import Path
 
 from agents import (
     OpenAIResponsesModel,
     Runner,
     SQLiteSession,
 )
+from agents.mcp import MCPServerManager
 from dotenv import load_dotenv
 from openai import AsyncOpenAI
 
 from qmt_agent.agents.main import create_agent
+from qmt_agent.mcp import load_mcp_servers
 
 
 async def main():
     load_dotenv()
 
     client = AsyncOpenAI(
-        api_key=os.environ.get("DEEPSEEK_API_KEY"),
-        base_url=os.environ.get("DEEPSEEK_BASE_URL"),
+        api_key=os.environ["DEEPSEEK_API_KEY"],
+        base_url=os.environ["DEEPSEEK_BASE_URL"],
     )
 
     model = OpenAIResponsesModel(
@@ -25,27 +28,38 @@ async def main():
         openai_client=client,
     )
 
-    agent = create_agent(model=model)
+    mcp_servers = load_mcp_servers(
+        Path("config/mcp.toml")
+    )
 
     session = SQLiteSession(
         "local_cli",
         "qmt_agent_sessions.db",
     )
 
-    while True:
-        user_input = input("You: ").strip()
+    async with MCPServerManager(mcp_servers, strict=True) as mcp_manager:
 
-        if user_input.lower() in ["exit", "quit"]:
-            print("Exiting...")
-            break
-
-        result = await Runner.run(
-            agent,
-            user_input,
-            session=session,
+        agent = create_agent(
+            model=model,
+            mcp_servers=mcp_manager.active_servers,
         )
 
-        print("Agent: ", result.final_output)
+        while True:
+            user_input = (
+                await asyncio.to_thread(input, "You: ")
+            ).strip()
+
+            if user_input.lower() in ["exit", "quit"]:
+                print("Exiting...")
+                break
+
+            result = await Runner.run(
+                agent,
+                user_input,
+                session=session,
+            )
+
+            print("Agent: ", result.final_output)
 
 if __name__ == "__main__":
     from agents import set_tracing_disabled
