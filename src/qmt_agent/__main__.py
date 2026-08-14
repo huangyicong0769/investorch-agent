@@ -29,8 +29,6 @@ from qmt_agent.storage.sessions import (
 SESSION_DB = "qmt_agent_sessions.db"
 
 async def generate_session_title(title_agent: Agent, history: list[TResponseInputItem]) -> str:
-    
-
     result = await Runner.run(
         title_agent,
         [
