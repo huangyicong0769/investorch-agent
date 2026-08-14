@@ -8,6 +8,7 @@ dependencies = [
     "openai-agents>=0.20.0",
     "python-dotenv>=1.2.2",
     "toml>=0.10.2",
+    "tomlkit>=0.15.1",
 ]
 
 [build-system]

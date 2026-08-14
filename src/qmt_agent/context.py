@@ -3,6 +3,8 @@ from typing import Literal
 
 from typing_extensions import TypedDict
 
+from qmt_agent.config import AppConfig
+
 TodoStatus = Literal[
     "pending",
     "in_progress",
@@ -16,4 +18,5 @@ class TodoItem(TypedDict):
 
 @dataclass
 class AgentContext:
+    config: AppConfig
     todos: list[TodoItem] = field(default_factory=list)

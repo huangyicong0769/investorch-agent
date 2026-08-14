@@ -1,5 +1,4 @@
 import asyncio
-import os
 import uuid
 from pathlib import Path
 
@@ -11,7 +10,6 @@ from agents import (
     TResponseInputItem,
 )
 from agents.mcp import MCPServerManager
-from dotenv import load_dotenv
 from openai import AsyncOpenAI
 
 from qmt_agent.agents import (
@@ -20,6 +18,7 @@ from qmt_agent.agents import (
     create_title_agent,
 )
 from qmt_agent.cli import parse_command
+from qmt_agent.config import load_config
 from qmt_agent.context import AgentContext
 from qmt_agent.mcp import load_mcp_servers
 from qmt_agent.observability import print_run_events
@@ -32,7 +31,6 @@ from qmt_agent.storage.sessions import (
     set_session_title,
 )
 
-SESSION_DB = "qmt_agent_sessions.db"
 
 async def generate_session_title(title_agent: Agent, history: list[TResponseInputItem]) -> str:
     result = await Runner.run(
@@ -53,10 +51,10 @@ async def generate_session_title(title_agent: Agent, history: list[TResponseInpu
     return title
 
 
-async def ensure_session_title(title_agent: Agent, session: SQLiteSession) -> None:
+async def ensure_session_title(title_agent: Agent, session: SQLiteSession, session_db : str | Path) -> None:
     existing_title = await asyncio.to_thread(
         get_session_title,
-        SESSION_DB,
+        session_db,
         session.session_id,
     )
 
@@ -73,37 +71,42 @@ async def ensure_session_title(title_agent: Agent, session: SQLiteSession) -> No
 
     await asyncio.to_thread(
         set_session_title,
-        SESSION_DB,
+        session_db,
         session.session_id,
         title,
     )
 
 
 async def main():
-    load_dotenv()
+    config = load_config()
 
     client = AsyncOpenAI(
-        api_key=os.environ["DEEPSEEK_API_KEY"],
-        base_url=os.environ["DEEPSEEK_BASE_URL"],
+        api_key=config.secret("DEEPSEEK_API_KEY"),
+        base_url=config["model.base_url"],
     )
 
     model = OpenAIResponsesModel(
-        model=os.environ.get("DEEPSEEK_MODEL", "deepseek-v4-flash"),
+        model=config["model.name"],
         openai_client=client,
     )
 
     mcp_servers = load_mcp_servers(
-        Path("config/mcp.toml")
+        config.mcp_config_path,
+        variables=config.secrets,
     )
+
+    config.state_dir.mkdir(parents=True, exist_ok=True)
+
+    session_db = config.sessions_db
 
     await asyncio.to_thread(
         init_session_metadata,
-        SESSION_DB,
+        session_db,
     )
 
     session = SQLiteSession(
         uuid.uuid4().hex,
-        SESSION_DB,
+        session_db,
     )
 
     title_agent = create_title_agent(model)
@@ -133,7 +136,7 @@ async def main():
                         case "session":
                             title = await asyncio.to_thread(
                                 get_session_title,
-                                SESSION_DB,
+                                session_db,
                                 session.session_id,
                             )
                             print(f"Current session ID: {session.session_id}")
@@ -145,7 +148,7 @@ async def main():
                             session_id = uuid.uuid4().hex
                             session = SQLiteSession(
                                 session_id,
-                                SESSION_DB,
+                                session_db,
                             )
                             print(f"Started new session: {session_id}")
 
@@ -154,7 +157,7 @@ async def main():
                             if not command.args:
                                 sessions = (await asyncio.to_thread(
                                     list_sessions,
-                                    SESSION_DB,
+                                    session_db,
                                 ))
 
                                 print("Available sessions:")
@@ -170,7 +173,7 @@ async def main():
 
                             matches = await asyncio.to_thread(
                                 find_session_ids,
-                                SESSION_DB,
+                                session_db,
                                 session_id,
                             )
 
@@ -191,12 +194,12 @@ async def main():
                             session.close()
                             session = SQLiteSession(
                                 session_id,
-                                SESSION_DB,
+                                session_db,
                             )
 
                             title = await asyncio.to_thread(
                                 get_session_title,
-                                SESSION_DB,
+                                session_db,
                                 session_id,
                             )
                             print(f"Resumed session: {session_id}")
@@ -207,7 +210,7 @@ async def main():
                             if not command.args:
                                 title = await asyncio.to_thread(
                                     get_session_title,
-                                    SESSION_DB,
+                                    session_db,
                                     session.session_id,
                                 )
                                 if title:
@@ -220,7 +223,7 @@ async def main():
 
                             await asyncio.to_thread(
                                 set_session_title,
-                                SESSION_DB,
+                                session_db,
                                 session.session_id,
                                 title,
                             )
@@ -232,7 +235,7 @@ async def main():
                             await session.clear_session()
                             await asyncio.to_thread(
                                 delete_session_metadata,
-                                SESSION_DB,
+                                session_db,
                                 session_id,
                             )
 
@@ -240,7 +243,7 @@ async def main():
                             session_id = uuid.uuid4().hex
                             session = SQLiteSession(
                                 session_id,
-                                SESSION_DB,
+                                session_db,
                             )
                             print(f"Cleared session and started new session: {session_id}")
 
@@ -260,7 +263,7 @@ async def main():
                     agent,
                     user_input,
                     session=session,
-                    context=AgentContext(),
+                    context=AgentContext(config=config),
                 )
 
                 await print_run_events(
@@ -273,6 +276,7 @@ async def main():
                 await ensure_session_title(
                     title_agent=title_agent,
                     session=session,
+                    session_db=session_db,
                 )
     finally:
         session.close()
