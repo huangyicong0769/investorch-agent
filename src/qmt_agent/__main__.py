@@ -1,5 +1,6 @@
 import asyncio
 import os
+import uuid
 from pathlib import Path
 
 from agents import (
@@ -12,8 +13,10 @@ from dotenv import load_dotenv
 from openai import AsyncOpenAI
 
 from qmt_agent.agents.main import create_agent
+from qmt_agent.cli import parse_command
 from qmt_agent.mcp import load_mcp_servers
 
+SESSION_DB = "qmt_agent_sessions.db"
 
 async def main():
     load_dotenv()
@@ -34,7 +37,7 @@ async def main():
 
     session = SQLiteSession(
         "local_cli",
-        "qmt_agent_sessions.db",
+        SESSION_DB,
     )
 
     async with MCPServerManager(mcp_servers, strict=True) as mcp_manager:
@@ -49,9 +52,36 @@ async def main():
                 await asyncio.to_thread(input, "You: ")
             ).strip()
 
-            if user_input.lower() in ["exit", "quit"]:
-                print("Exiting...")
-                break
+            command = parse_command(user_input)
+
+            if command:
+                match command.name:
+                    case "session":
+                        print(f"Current session ID: {session.session_id}")
+
+                    case "new":
+                        session.close()
+                        session_id = command.args[0] if command.args else uuid.uuid4().hex
+                        session = SQLiteSession(
+                            session_id,
+                            SESSION_DB,
+                        )
+                        print(f"Started new session: {session_id}")
+
+                    case "clear":
+                        raise NotImplementedError("Session clearing is not implemented yet.")
+
+                    case "exit":
+                        print("Exiting...")
+                        break
+
+                    case "help":
+                        raise NotImplementedError("Help command is not implemented yet.")
+
+                    case _:
+                        print(f"Unknown command: /{command.name}. For help, type /help.")
+
+                continue
 
             result = await Runner.run(
                 agent,
