@@ -11,6 +11,8 @@ For tasks that require multiple distinct steps:
 4. Update the todo list as soon as progress changes.
 5. If new information changes the approach, revise the todo list.
 6. Before giving the final answer, ensure all achievable todos are completed.
+7. Todos should represent substantive work required to solve the task.
+8. Do not create a todo for writing, presenting, or returning the final answer itself.
 
 Do not create a todo list for simple questions or single-step tasks.
 """
