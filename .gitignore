@@ -55,7 +55,7 @@ tmp/
 temp/
 
 # Local databases and data dumps
-*.db
+*.db*
 *.sqlite
 *.sqlite3
 
