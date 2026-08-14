@@ -21,24 +21,23 @@ def create_agent(model: OpenAIResponsesModel, mcp_servers: list[MCPServer] | Non
 
 
 if __name__ == "__main__":
-    import os
-
     from agents import Runner, set_tracing_disabled
-    from dotenv import load_dotenv
     from openai import AsyncOpenAI
 
-    load_dotenv()
+    from qmt_agent.config import load_config
 
     set_tracing_disabled(True)
-    
+
+    config = load_config()
+
     client = AsyncOpenAI(
-        api_key = os.environ.get("DEEPSEEK_API_KEY"),
-        base_url = os.environ.get("DEEPSEEK_BASE_URL"),
+        api_key=config.secret("DEEPSEEK_API_KEY"),
+        base_url=config["model.base_url"],
     )
 
     model = OpenAIResponsesModel(
-        model = os.environ.get("DEEPSEEK_MODEL", "deepseek-v4-flash"),
-        openai_client = client,
+        model=config["model.name"],
+        openai_client=client,
     )
 
     agent = create_agent(model)
@@ -48,6 +47,7 @@ if __name__ == "__main__":
     result = Runner.run_sync(
         agent,
         user_input,
+        context=AgentContext(config=config),
     )
 
     print("Agent:", result.final_output)
