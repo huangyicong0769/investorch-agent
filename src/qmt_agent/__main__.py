@@ -16,7 +16,9 @@ from openai import AsyncOpenAI
 
 from qmt_agent.agents import create_agent, create_title_agent
 from qmt_agent.cli import parse_command
+from qmt_agent.context import AgentContext
 from qmt_agent.mcp import load_mcp_servers
+from qmt_agent.observability import print_run_events
 from qmt_agent.storage.sessions import (
     delete_session_metadata,
     find_session_ids,
@@ -249,11 +251,14 @@ async def main():
 
                     continue
 
-                result = await Runner.run(
+                result = Runner.run_streamed(
                     agent,
                     user_input,
                     session=session,
+                    context=AgentContext(),
                 )
+
+                await print_run_events(result)
 
                 print("Agent: ", result.final_output)
 
