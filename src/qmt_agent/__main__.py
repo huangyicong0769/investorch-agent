@@ -37,7 +37,7 @@ async def main():
     )
 
     session = SQLiteSession(
-        "local_cli",
+        uuid.uuid4().hex,
         SESSION_DB,
     )
 
