@@ -1,44 +1,103 @@
 import json
 
+from agents import Agent, Runner
 from openai.types.responses import ResponseReasoningTextDeltaEvent
 
+SUMMARY_THRESHOLD = 1000
 
-async def print_run_events(result) -> None:
-    reasoning_started = False
+async def _summarize_trace(summary_agent: Agent, kind: str, text: str,) -> str:
+    result = await Runner.run(
+        summary_agent,
+        f"""Content type: {kind}.\nSummarize the following execution content:\n{text}""",
+    )
+
+    summary = str(result.final_output).strip()
+
+    if not summary:
+        raise ValueError("Summary agent returned an empty summary.")
+
+    return summary
+
+
+async def _print_trace_content(summary_agent: Agent, kind: str, text: str,) -> None:
+    if len(text) <= SUMMARY_THRESHOLD:
+        print(f"\n[{kind}]")
+        print(text)
+        return
+
+    try:
+        summary = await _summarize_trace(
+            summary_agent,
+            kind,
+            text,
+        )
+    except Exception as e:
+        # Observability should never break the main agent run.
+        print(f"\n[{kind}]")
+        print(text)
+        print(f"[summary failed: {e}]")
+        return
+
+    print(f"\n[{kind} summary]")
+    print(summary)
+    print(f"[original: {len(text)} chars]")
+
+
+async def _flush_reasoning(summary_agent: Agent, reasoning_parts: list[str],) -> None:
+    if not reasoning_parts:
+        return
+
+    reasoning = "".join(reasoning_parts)
+    reasoning_parts.clear()
+
+    await _print_trace_content(
+        summary_agent,
+        "reasoning",
+        reasoning,
+    )
+
+
+async def print_run_events(result, summary_agent: Agent,) -> None:
+    reasoning_parts: list[str] = []
 
     async for event in result.stream_events():
 
-        # Agent changed
         if event.type == "agent_updated_stream_event":
+            await _flush_reasoning(
+                summary_agent,
+                reasoning_parts,
+            )
+
             print(f"\n[agent] {event.new_agent.name}")
             continue
 
-        # Low-level model stream:
-        # only keep reasoning text, ignore final-answer token deltas.
         if event.type == "raw_response_event":
-            if isinstance(event.data, ResponseReasoningTextDeltaEvent):
-                if not reasoning_started:
-                    print("\n[reasoning]")
-                    reasoning_started = True
-
-                print(
-                    event.data.delta,
-                    end="",
-                    flush=True,
-                )
+            if isinstance(
+                event.data,
+                ResponseReasoningTextDeltaEvent,
+            ):
+                reasoning_parts.append(event.data.delta)
 
             continue
 
-        # From here on only semantic run items.
         if event.type != "run_item_stream_event":
             continue
 
-        item = event.item
+        if event.name == "reasoning_item_created":
+            await _flush_reasoning(
+                summary_agent,
+                reasoning_parts,
+            )
+            continue
 
-        # Close the reasoning line before displaying an action.
-        if reasoning_started:
-            print()
-            reasoning_started = False
+        # Be defensive in case a provider does not emit
+        # reasoning_item_created exactly as expected.
+        await _flush_reasoning(
+            summary_agent,
+            reasoning_parts,
+        )
+
+        item = event.item
 
         if event.name == "tool_called":
             print(f"\n[action] {item.tool_name}")
@@ -62,13 +121,18 @@ async def print_run_events(result) -> None:
                     print(arguments)
 
         elif event.name == "tool_output":
-            print(f"\n[observation]")
-            print(item.output)
+            output = str(item.output)
 
-        elif event.name == "reasoning_item_created":
-            # Already streamed through ResponseReasoningTextDeltaEvent.
-            pass
+            await _print_trace_content(
+                summary_agent,
+                "observation",
+                output,
+            )
 
         elif event.name == "message_output_created":
-            # Final answer will be printed from result.final_output.
             pass
+
+    await _flush_reasoning(
+        summary_agent,
+        reasoning_parts,
+    )

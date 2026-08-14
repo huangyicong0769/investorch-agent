@@ -14,7 +14,11 @@ from agents.mcp import MCPServerManager
 from dotenv import load_dotenv
 from openai import AsyncOpenAI
 
-from qmt_agent.agents import create_agent, create_title_agent
+from qmt_agent.agents import (
+    create_agent,
+    create_summary_agent,
+    create_title_agent,
+)
 from qmt_agent.cli import parse_command
 from qmt_agent.context import AgentContext
 from qmt_agent.mcp import load_mcp_servers
@@ -103,6 +107,7 @@ async def main():
     )
 
     title_agent = create_title_agent(model)
+    summary_agent = create_summary_agent(model)
 
     try:
         async with MCPServerManager(mcp_servers) as mcp_manager:
@@ -258,7 +263,10 @@ async def main():
                     context=AgentContext(),
                 )
 
-                await print_run_events(result)
+                await print_run_events(
+                    result,
+                    summary_agent=summary_agent,
+                )
 
                 print("Agent: ", result.final_output)
 
