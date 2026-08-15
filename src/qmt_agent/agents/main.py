@@ -1,8 +1,8 @@
 from agents import Agent, OpenAIResponsesModel
 from agents.mcp import MCPServer
 
+from qmt_agent import tools
 from qmt_agent.context import AgentContext
-from qmt_agent.tools import get_current_time, write_todos
 
 from .prompts import MAIN_AGENT_INSTRUCTIONS
 
@@ -13,8 +13,10 @@ def create_agent(model: OpenAIResponsesModel, mcp_servers: list[MCPServer] | Non
         instructions=MAIN_AGENT_INSTRUCTIONS,
         model=model,
         tools=[
-            get_current_time,
-            write_todos,
+            tools.get_config,
+            tools.get_current_time,
+            tools.update_config,
+            tools.write_todos,
         ],
         mcp_servers=mcp_servers or [],
     )

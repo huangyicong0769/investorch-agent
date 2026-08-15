@@ -77,6 +77,17 @@ async def ensure_session_title(title_agent: Agent, session: SQLiteSession, sessi
     )
 
 
+def ask_tool_approval(tool_name: str, arguments: str | None) -> bool:
+    print(f"\n[approval] {tool_name}")
+
+    if arguments:
+        print(arguments)
+
+    answer = input("Approve? [y/N]: ").strip().lower()
+
+    return answer in {"y", "yes"}
+
+
 async def main():
     config = load_config()
 
@@ -266,10 +277,34 @@ async def main():
                     context=AgentContext(config=config),
                 )
 
-                await print_run_events(
-                    result,
-                    summary_agent=summary_agent,
-                )
+                while True:
+                    await print_run_events(
+                        result,
+                        summary_agent=summary_agent,
+                    )
+
+                    if not result.interruptions:
+                        break
+
+                    state = result.to_state()
+
+                    for interruption in result.interruptions:
+                        approved = await asyncio.to_thread(
+                            ask_tool_approval,
+                            interruption.name or "unknown_tool",
+                            interruption.arguments,
+                        )
+
+                        if approved:
+                            state.approve(interruption, always_approve=False)
+                        else:
+                            state.reject(interruption, rejection_message=("The user rejected this configuration change."))
+
+                    result = Runner.run_streamed(
+                        agent,
+                        state,
+                        session=session,
+                    )
 
                 print("Agent: ", result.final_output)
 
