@@ -183,6 +183,7 @@ def load_mcp_servers(path: str | Path, variables: Mapping[str, str] | None = Non
                     "cache_tools_list",
                     False,
                 ),
+                client_session_timeout_seconds=server.get("timeout", 5.0)
             )
         )
 
