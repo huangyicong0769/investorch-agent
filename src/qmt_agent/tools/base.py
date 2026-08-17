@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import ast
+import math
+import operator
 import shutil
 from datetime import datetime
 from pathlib import Path
@@ -15,6 +18,47 @@ MAX_FULL_READ_BYTES = 64 * 1024
 MAX_READ_CHARS = 64 * 1024
 MAX_SEARCH_RESULTS = 50
 MAX_SEARCH_SNIPPET_CHARS = 300
+
+MAX_CALCULATE_EXPRESSION_CHARS = 1000
+MAX_CALCULATE_NODES = 100
+MAX_CALCULATE_INTEGER_BITS = 4096
+MAX_CALCULATE_ABS_EXPONENT = 10_000
+
+_CALCULATE_BINARY_OPERATORS = {
+    ast.Add: operator.add,
+    ast.Sub: operator.sub,
+    ast.Mult: operator.mul,
+    ast.Div: operator.truediv,
+    ast.FloorDiv: operator.floordiv,
+    ast.Mod: operator.mod,
+    ast.Pow: operator.pow,
+}
+
+_CALCULATE_UNARY_OPERATORS = {
+    ast.UAdd: operator.pos,
+    ast.USub: operator.neg,
+}
+
+_CALCULATE_CONSTANTS = {
+    "pi": math.pi,
+    "e": math.e,
+    "tau": math.tau,
+}
+
+_CALCULATE_FUNCTIONS = {
+    "abs": abs,
+    "round": round,
+    "sqrt": math.sqrt,
+    "log": math.log,
+    "log10": math.log10,
+    "exp": math.exp,
+    "sin": math.sin,
+    "cos": math.cos,
+    "tan": math.tan,
+    "floor": math.floor,
+    "ceil": math.ceil,
+}
+
 
 @tool
 def get_current_time(timezone: str = "Asia/Shanghai") -> str:
@@ -33,6 +77,54 @@ def get_current_time(timezone: str = "Asia/Shanghai") -> str:
 ExploreOperation = Literal["list", "read", "search"]
 
 EditOperation = Literal["create", "append", "replace"]
+
+
+@tool
+def calculate(expression: str) -> dict[str, Any]:
+    """
+    Evaluate a mathematical expression safely and deterministically.
+
+    Supported syntax:
+    - Arithmetic: +, -, *, /, //, %, **
+    - Unary signs: +x, -x
+    - Constants: pi, e, tau
+    - Functions: abs, round, sqrt, log, log10, exp,
+      sin, cos, tan, floor, ceil
+
+    Python statements, variables, attribute access, indexing,
+    comprehensions, imports, and arbitrary function calls are not allowed.
+
+    Args:
+        expression: Mathematical expression to evaluate.
+
+    Returns:
+        A dictionary containing the original expression and numeric result.
+    """
+    expression = expression.strip()
+
+    if not expression:
+        raise ValueError("expression cannot be empty")
+
+    if len(expression) > MAX_CALCULATE_EXPRESSION_CHARS:
+        raise ValueError(f"expression exceeds {MAX_CALCULATE_EXPRESSION_CHARS} characters")
+
+    try:
+        tree = ast.parse(expression, mode="eval")
+    except SyntaxError as exc:
+        raise ValueError(f"Invalid mathematical expression: {exc.msg}") from exc
+
+    node_count = sum(1 for _ in ast.walk(tree))
+
+    if node_count > MAX_CALCULATE_NODES:
+        raise ValueError(f"expression is too complex; maximum AST nodes is {MAX_CALCULATE_NODES}")
+
+    result = _evaluate_calculation_node(tree.body)
+    _validate_calculation_number(result)
+
+    return {
+        "expression": expression,
+        "result": result,
+    }
 
 
 @tool
@@ -285,6 +377,100 @@ def delete(
         }
 
     raise ValueError(f"Unsupported workspace entry: {path}")
+
+
+def _evaluate_calculation_node(node: ast.AST) -> int | float:
+    if isinstance(node, ast.Constant):
+        value = node.value
+
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise TypeError("Only integer and floating-point literals are allowed")
+
+        _validate_calculation_number(value)
+        return value
+
+    if isinstance(node, ast.BinOp):
+        operator_function = _CALCULATE_BINARY_OPERATORS.get(type(node.op))
+
+        if operator_function is None:
+            raise ValueError(f"Unsupported binary operator: {type(node.op).__name__}")
+
+        left = _evaluate_calculation_node(node.left)
+        right = _evaluate_calculation_node(node.right)
+
+        if isinstance(node.op, ast.Pow) and abs(right) > MAX_CALCULATE_ABS_EXPONENT:
+            raise ValueError(f"Exponent is too large; maximum absolute exponent is {MAX_CALCULATE_ABS_EXPONENT}")
+
+        try:
+            result = operator_function(left, right)
+        except (ArithmeticError, ValueError, OverflowError) as exc:
+            raise ValueError(f"Calculation failed: {exc}") from exc
+
+        _validate_calculation_number(result)
+        return result
+
+    if isinstance(node, ast.UnaryOp):
+        operator_function = _CALCULATE_UNARY_OPERATORS.get(type(node.op))
+
+        if operator_function is None:
+            raise ValueError(f"Unsupported unary operator: {type(node.op).__name__}")
+
+        operand = _evaluate_calculation_node(node.operand)
+        result = operator_function(operand)
+
+        _validate_calculation_number(result)
+        return result
+
+    if isinstance(node, ast.Name):
+        if node.id not in _CALCULATE_CONSTANTS:
+            raise ValueError(
+                f"Unknown constant: {node.id}"
+            )
+
+        return _CALCULATE_CONSTANTS[node.id]
+
+    if isinstance(node, ast.Call):
+        if not isinstance(node.func, ast.Name):
+            raise TypeError("Only direct calls to supported functions are allowed")
+
+        function = _CALCULATE_FUNCTIONS.get(node.func.id)
+
+        if function is None:
+            raise ValueError(f"Unsupported function: {node.func.id}")
+
+        if node.keywords:
+            raise ValueError("Keyword arguments are not supported")
+
+        arguments = [_evaluate_calculation_node(argument) for argument in node.args]
+
+        try:
+            result = function(*arguments)
+        except (ArithmeticError, TypeError, ValueError) as exc:
+            raise ValueError(f"{node.func.id} failed: {exc}") from exc
+
+        _validate_calculation_number(result)
+        return result
+
+    raise ValueError(f"Unsupported expression syntax: {type(node).__name__}")
+
+
+def _validate_calculation_number(value: int | float,) -> None:
+    if isinstance(value, bool):
+        raise TypeError("Boolean values are not supported")
+
+    if isinstance(value, int):
+        if value.bit_length() > MAX_CALCULATE_INTEGER_BITS:
+            raise ValueError(f"Integer result is too large; maximum bit length is {MAX_CALCULATE_INTEGER_BITS}")
+
+        return
+
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            raise ValueError("Calculation produced a non-finite result")
+
+        return
+
+    raise ValueError(f"Calculation produced unsupported type: {type(value).__name__}")
 
 
 def _resolve_workspace_path(workspace_root: str | Path, path: str) -> Path:

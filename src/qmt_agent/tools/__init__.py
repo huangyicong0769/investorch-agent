@@ -1,4 +1,5 @@
 from .base import (
+    calculate,
     delete,
     edit,
     explore,
@@ -13,6 +14,7 @@ from .mcp import (
 from .todo import write_todos
 
 __all__ = (
+    "calculate",
     "configure_mcp_server",
     "delete",
     "edit",

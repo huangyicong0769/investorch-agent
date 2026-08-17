@@ -13,6 +13,7 @@ def create_agent(model: OpenAIResponsesModel, mcp_servers: list[MCPServer] | Non
         instructions=MAIN_AGENT_INSTRUCTIONS,
         model=model,
         tools=[
+            tools.calculate,
             tools.configure_mcp_server,
             tools.delete,
             tools.edit,
