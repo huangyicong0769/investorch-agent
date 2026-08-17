@@ -9,8 +9,5 @@ state = ".qmt"
 name = "deepseek-v4-flash"
 base_url = "https://api.deepseek.com"
 
-[mcp]
-config = "config/mcp.toml"
-
 [observability]
 summary_enabled = true

@@ -1,10 +1,18 @@
 from .config import get_config, update_config
+from .mcp import (
+    configure_mcp_server,
+    list_mcp_servers,
+    remove_mcp_server,
+)
 from .time import get_current_time
 from .todo import write_todos
 
 __all__ = (
+    "configure_mcp_server",
     "get_config",
     "get_current_time",
+    "list_mcp_servers",
+    "remove_mcp_server",
     "update_config",
     "write_todos",
 )

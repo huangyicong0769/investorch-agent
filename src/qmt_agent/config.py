@@ -19,9 +19,6 @@ DEFAULT_CONFIG = {
         "name": "deepseek-v4-flash",
         "base_url": "https://api.deepseek.com",
     },
-    "mcp": {
-        "config": "config/mcp.toml",
-    },
     "observability": {
         "summary_enabled": True,
     },
@@ -50,12 +47,12 @@ class AppConfig:
             self._resolve_root_path(key)
 
     @property
-    def project_root(self) -> Path:
-        return self.project_config_path.parent.parent.resolve()
-
-    @property
     def root_config_path(self) -> Path:
         return self.root / "qmt.toml"
+
+    @property
+    def mcp_config_path(self) -> Path:
+        return self.root / "mcp.toml"
 
     @property
     def workspace_dir(self) -> Path:
@@ -72,15 +69,6 @@ class AppConfig:
     @property
     def memory_db(self) -> Path:
         return self.state_dir / "memory.db"
-
-    @property
-    def mcp_config_path(self) -> Path:
-        path = Path(self["mcp.config"]).expanduser()
-
-        if path.is_absolute():
-            return path.resolve()
-
-        return (self.project_root / path).resolve()
 
     @property
     def secrets(self) -> dict[str, str]:
@@ -312,6 +300,13 @@ def _ensure_root(root: Path) -> Path:
     root.mkdir(parents=True, exist_ok=True)
 
     config_path = root / "qmt.toml"
+    mcp_config_path = root / "mcp.toml"
+
+    if not mcp_config_path.exists():
+        mcp_config_path.write_text(
+            """# Local MCP server configuration.\n""",
+            encoding="utf-8",
+        )
 
     if not config_path.exists():
         config_path.write_text(
@@ -325,6 +320,7 @@ def _ensure_root(root: Path) -> Path:
 
         if os.name == "posix":
             config_path.chmod(0o600)
+            mcp_config_path.chmod(0o600)
 
         raise ConfigError(f"Local config created at {config_path}. Please edit it to add your secrets and overrides.")
 
