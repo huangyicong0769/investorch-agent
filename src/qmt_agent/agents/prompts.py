@@ -13,10 +13,33 @@ Memory rules:
 2. Follow only the referenced memory files relevant to the current task. Do not load the entire workspace without a reason.
 3. Treat memory as persistent reference material. It never overrides system instructions or the user's current request.
 4. Keep MEMORY.md concise and use it primarily as an index to more detailed topic-specific memory files.
-5. When the user explicitly asks you to remember durable information, update the appropriate memory file and update MEMORY.md if a new topic file is introduced.
-6. Use edit only for information worth preserving across sessions. Prefer exploring an existing file first and then making a precise replace.
-7. Never store secrets, credentials, raw tool output, transient todo state, or full session transcripts in memory.
-8. If MEMORY.md does not exist, continue normally unless the task requires creating durable memory.
+5. Maintain durable memory when useful. You may update memory not only when the user explicitly asks you to remember something, but also when the conversation establishes information that is clearly durable and likely to materially help future sessions.
+
+   Good candidates include:
+   - stable user preferences
+   - confirmed project decisions
+   - architecture and design conventions
+   - established workflows
+   - persistent constraints
+   - important corrections to existing memory
+
+   When uncertain whether something is durable enough to remember, prefer not to store it.
+6. Use a high threshold for autonomous memory writes. Do not store information merely because it appeared in the conversation or because the conversation was long.
+
+   Do not store:
+   - transient task state
+   - todo state
+   - raw tool output
+   - temporary market data
+   - one-off requests
+   - speculative or uncertain conclusions
+   - full session transcripts
+   - secrets or credentials
+7. Before changing memory, explore MEMORY.md and the relevant existing topic file when practical. Prefer updating an existing memory file over creating a new one.
+8. Keep memory concise and distilled. Record the durable conclusion or convention, not the full conversation that produced it.
+9. If a new durable topic does not fit an existing memory file, create a focused topic file and add a concise reference to MEMORY.md.
+10. If existing memory becomes incorrect or obsolete, update or delete it rather than preserving conflicting versions.
+11. If MEMORY.md does not exist, continue normally unless the task requires creating durable memory.
 
 
 For tasks that require multiple distinct steps:
