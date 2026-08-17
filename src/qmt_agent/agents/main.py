@@ -14,6 +14,7 @@ def create_agent(model: OpenAIResponsesModel, mcp_servers: list[MCPServer] | Non
         model=model,
         tools=[
             tools.configure_mcp_server,
+            tools.delete,
             tools.edit,
             tools.explore,
             tools.get_config,

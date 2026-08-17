@@ -1,4 +1,5 @@
 from .base import (
+    delete,
     edit,
     explore,
     get_current_time,
@@ -13,6 +14,7 @@ from .todo import write_todos
 
 __all__ = (
     "configure_mcp_server",
+    "delete",
     "edit",
     "explore",
     "get_config",

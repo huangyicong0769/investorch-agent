@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shutil
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
@@ -204,6 +205,86 @@ def edit(
         "operation": operation,
         "size": target.stat().st_size,
     }
+
+
+@tool(needs_approval=True)
+def delete(
+    context: RunContextWrapper[AgentContext],
+    path: str,
+    recursive: bool = False,
+) -> dict[str, Any]:
+    """
+    Delete a file or directory from the persistent user workspace.
+
+    This operation always requires user approval.
+
+    Behavior:
+    - Files are deleted directly.
+    - Empty directories are deleted directly.
+    - Non-empty directories require recursive=true.
+    - The workspace root itself can never be deleted.
+    - Symbolic links are not supported.
+
+    Args:
+        path: Workspace-relative file or directory path.
+
+        recursive: If true, allow deletion of a non-empty directory. Has no effect when deleting a file.
+
+    Returns:
+        A dictionary describing the deleted workspace entry.
+    """
+    root = context.context.config.workspace_dir.expanduser().resolve()
+
+    relative = Path(path)
+
+    if relative.is_absolute():
+        raise ValueError("Workspace paths must be relative")
+
+    target = root / relative
+
+    if target == root:
+        raise ValueError("Workspace root cannot be deleted")
+
+    # Do not follow a final symlink during deletion.
+    if target.is_symlink():
+        raise ValueError("Deleting symbolic links is not supported")
+
+    resolved = target.resolve()
+
+    if not resolved.is_relative_to(root):
+        raise ValueError(f"Path escapes workspace: {path}")
+
+    if not resolved.exists():
+        raise ValueError(f"Workspace path does not exist: {path}")
+
+    display_path = _display_path(root, resolved,)
+
+    if resolved.is_file():
+        resolved.unlink()
+
+        return {
+            "path": display_path,
+            "type": "file",
+            "deleted": True,
+        }
+
+    if resolved.is_dir():
+        if recursive:
+            shutil.rmtree(resolved)
+        else:
+            try:
+                resolved.rmdir()
+            except OSError as exc:
+                raise ValueError("Directory is not empty. Set recursive=true to delete it and all contents.") from exc
+
+        return {
+            "path": display_path,
+            "type": "directory",
+            "recursive": recursive,
+            "deleted": True,
+        }
+
+    raise ValueError(f"Unsupported workspace entry: {path}")
 
 
 def _resolve_workspace_path(workspace_root: str | Path, path: str) -> Path:
