@@ -1,0 +1,15 @@
+# QMT Agent Memory
+
+This file is the entry point for durable cross-session memory.
+
+## System
+
+- [Configuration system](memory/configuration.md)
+
+## Memory
+
+- Keep this file concise and use it primarily as an index.
+- Store detailed durable knowledge in topic-specific Markdown files.
+- Read only the memory relevant to the current task.
+- Never store secrets or credentials in memory.
+- Runtime state, raw tool output, todo state, and full session transcripts are not long-term memory.

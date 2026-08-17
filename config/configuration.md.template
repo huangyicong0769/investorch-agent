@@ -1,0 +1,119 @@
+# QMT Agent Configuration System
+
+This document describes the durable design and operating rules of the QMT Agent configuration system.
+It documents configuration semantics, not live configuration values.
+Use `get_config` when the current effective value matters.
+Never store secret values in this file.
+
+## Configuration Layers
+
+Effective application configuration is built from these layers, from lowest to highest priority:
+
+1. Built-in defaults in `qmt_agent.config.DEFAULT_CONFIG`
+2. Repository configuration at `config/qmt.toml`
+3. Local instance configuration at `<root>/qmt.toml`
+4. Runtime-only changes to the current `AppConfig`
+
+A persistent runtime update is written to `<root>/qmt.toml` and therefore becomes part of the local instance configuration for later processes.
+
+## Root Directory
+
+The repository configuration defines `paths.root`.
+`paths.root` is bootstrap configuration.
+The local `<root>/qmt.toml` must not redefine it.
+The root contains local QMT Agent state including:
+
+- `qmt.toml`
+- `mcp.toml`
+- the configured workspace directory
+- the configured state directory
+
+These files are outside the Git repository.
+
+## Root-relative Paths
+
+`paths.workspace` and `paths.state` are relative to `paths.root`.
+They must not be absolute and must not escape the root.
+The SQLite session database is stored under the state directory.
+Long-term Agent memory does not use a database.
+Long-term memory is maintained as Markdown in the workspace, with `MEMORY.md` as the entry point.
+
+## Project Configuration
+
+Repository defaults live in:
+`config/qmt.toml`
+Project configuration may be committed to Git and must not contain secrets.
+
+## Local Configuration
+
+Machine- and user-specific overrides live in:
+`<root>/qmt.toml`
+Secrets live in its `[secrets]` table.
+Secret values must never be copied into workspace memory.
+
+## Reading Configuration
+
+Use `get_config` to inspect effective application configuration.
+Secret values returned to the Agent are redacted.
+Prefer `get_config` over memory whenever the current effective value matters.
+
+## Modifying Configuration
+
+Use `update_config` for Agent-managed changes to normal application configuration.
+Configuration modification requires user approval.
+
+Rules:
+
+- `paths.root` cannot be changed at runtime.
+- Unknown normal configuration keys cannot be created.
+- Values must retain their expected type.
+- Root-relative paths are validated before being applied.
+- `persist=true` writes the override to `<root>/qmt.toml`.
+- `persist=false` only changes the current `AppConfig`.
+
+The Agent-facing config tool does not modify secrets.
+Secrets must currently be edited outside that tool.
+
+## MCP Configuration
+
+MCP server configuration is local instance state and is stored separately at:
+`<root>/mcp.toml`
+It is not tracked by Git.
+The currently supported transport is:
+`streamable_http`
+Use:
+
+- `list_mcp_servers` to inspect configured servers
+- `configure_mcp_server` to add or update a server
+- `remove_mcp_server` to remove a server
+
+MCP configuration changes require user approval.
+
+## MCP Secrets
+
+Real secret values should not be written directly into `mcp.toml`.
+Reference configured secrets with placeholders such as:
+`${TAVILY_API_KEY}`
+The real value belongs in the `[secrets]` table of `<root>/qmt.toml`.
+MCP loading expands these placeholders from AppConfig secrets.
+
+## Initialization
+
+Persistent local runtime state is initialized separately from configuration loading.
+Project-provided bootstrap workspace files are copied into the user workspace during its initial bootstrap.
+Bootstrap files never overwrite existing user-owned workspace files.
+After bootstrap, workspace memory belongs to the user and the Agent. Project bootstrap files are not automatically synced over it.
+
+## Design Principles
+
+Keep the configuration system explicit and small.
+
+Prefer:
+
+- repository defaults
+- local overrides
+- runtime mutation
+- explicit Agent tools
+- user approval for side effects
+
+Do not introduce Provider, Registry, Adapter, or Manager layers unless a concrete requirement makes them necessary.

@@ -20,13 +20,13 @@ from qmt_agent.agents import (
 from qmt_agent.cli import parse_command
 from qmt_agent.config import load_config
 from qmt_agent.context import AgentContext
+from qmt_agent.initializer import initialize
 from qmt_agent.mcp import load_mcp_servers
 from qmt_agent.observability import print_run_events
 from qmt_agent.storage.sessions import (
     delete_session_metadata,
     find_session_ids,
     get_session_title,
-    init_session_metadata,
     list_sessions,
     set_session_title,
 )
@@ -91,6 +91,13 @@ def ask_tool_approval(tool_name: str, arguments: str | None) -> bool:
 async def main():
     config = load_config()
 
+    if initialize(config):
+        print(
+            f"QMT Agent initialized at {config.root}\n"
+            f"Please configure required secrets in {config.root_config_path} and start QMT Agent again."
+        )
+        return
+
     client = AsyncOpenAI(
         api_key=config.secret("DEEPSEEK_API_KEY"),
         base_url=config["model.base_url"],
@@ -106,14 +113,7 @@ async def main():
         variables=config.secrets,
     )
 
-    config.state_dir.mkdir(parents=True, exist_ok=True)
-
     session_db = config.sessions_db
-
-    await asyncio.to_thread(
-        init_session_metadata,
-        session_db,
-    )
 
     session = SQLiteSession(
         uuid.uuid4().hex,

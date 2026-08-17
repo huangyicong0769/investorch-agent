@@ -46,6 +46,8 @@ class AppConfig:
         for key in ROOT_RELATIVE_PATHS:
             self._resolve_root_path(key)
 
+        _ = self.bootstrap_files
+
     @property
     def root_config_path(self) -> Path:
         return self.root / "qmt.toml"
@@ -65,6 +67,61 @@ class AppConfig:
     @property
     def sessions_db(self) -> Path:
         return self.state_dir / "sessions.db"
+
+    @property
+    def bootstrap_files(self,) -> list[tuple[Path, Path]]:
+        """
+        Return configured bootstrap files as:
+
+            (source_template, workspace_target)
+
+        Source paths are relative to config/qmt.toml.
+        Target paths are relative to the user workspace.
+        """
+        raw_files = self._data.get("bootstrap", {}).get("files", [])
+
+        if not isinstance(raw_files, list):
+            raise ConfigError("bootstrap.files must be an array")
+
+        config_dir = self.project_config_path.parent.resolve()
+
+        files: list[tuple[Path, Path]] = []
+
+        for index, raw_file in enumerate(raw_files):
+            if not isinstance(raw_file, dict):
+                raise ConfigError("bootstrap.files entries must be tables")
+
+            source = raw_file.get("source")
+            target = raw_file.get("target")
+
+            if not isinstance(source, str) or not source:
+                raise ConfigError(f"bootstrap.files[{index}].source must be a non-empty string")
+
+            if not isinstance(target, str) or not target:
+                raise ConfigError(f"bootstrap.files[{index}].target must be a non-empty string")
+
+            source_relative = Path(source)
+
+            if source_relative.is_absolute():
+                raise ConfigError("Bootstrap source paths must be relative to config/qmt.toml")
+
+            source_path = (config_dir / source_relative).resolve()
+
+            if not source_path.is_relative_to(config_dir):
+                raise ConfigError(f"Bootstrap source escapes config directory: {source}")
+
+            if not source_path.is_file():
+                raise ConfigError(f"Bootstrap template not found: {source_path}")
+
+            target_path = _resolve_under_root(
+                self.workspace_dir,
+                target,
+                f"bootstrap.files[{index}].target",
+            )
+
+            files.append((source_path, target_path))
+
+        return files
 
     @property
     def secrets(self) -> dict[str, str]:
@@ -130,6 +187,9 @@ class AppConfig:
         """
         if key == "paths.root":
             raise ConfigError("paths.root cannot be changed at runtime")
+
+        if key.startswith("bootstrap."):
+            raise ConfigError("bootstrap cannot be changed at runtime")
 
         section, name = _split_key(key)
 
@@ -217,13 +277,27 @@ def load_config(project_config_path: str | Path = "config/qmt.toml") -> AppConfi
 
     root = root.resolve()
 
-    root_config_path = _ensure_root(root)
+    if root.exists() and not root.is_dir():
+        raise ConfigError(
+            f"paths.root is not a directory: {root}"
+        )
 
-    root_data = _read_toml(root_config_path)
+    root_config_path = root / "qmt.toml"
+
+    if root_config_path.exists():
+        if not root_config_path.is_file():
+            raise ConfigError(f"Local config path is not a file: {root_config_path}")
+
+        root_data = _read_toml(root_config_path)
+    else:
+        root_data = {}
 
     # root/qmt.toml cannot redirect itself.
     if "root" in root_data.get("paths", {}):
         raise ConfigError("paths.root must only be defined in config/qmt.toml")
+
+    if "bootstrap" in root_data:
+        raise ConfigError("[bootstrap] must only be defined in config/qmt.toml")
 
     data = _merge(DEFAULT_CONFIG, project_data, root_data)
 
@@ -287,37 +361,3 @@ def _resolve_under_root(root: Path, value: str, key: str) -> Path:
         raise ConfigError(f"{key} escapes paths.root: {value}")
 
     return resolved
-
-
-def _ensure_root(root: Path) -> Path:
-    if root.exists() and not root.is_dir():
-        raise ConfigError(f"paths.root is not a directory: {root}")
-
-    root.mkdir(parents=True, exist_ok=True)
-
-    config_path = root / "qmt.toml"
-    mcp_config_path = root / "mcp.toml"
-
-    if not mcp_config_path.exists():
-        mcp_config_path.write_text(
-            """# Local MCP server configuration.\n""",
-            encoding="utf-8",
-        )
-
-    if not config_path.exists():
-        config_path.write_text(
-            """# Local QMT Agent configuration.
-# Overrides config/qmt.toml and stores local secrets.
-
-[secrets]
-""",
-            encoding="utf-8",
-        )
-
-        if os.name == "posix":
-            config_path.chmod(0o600)
-            mcp_config_path.chmod(0o600)
-
-        raise ConfigError(f"Local config created at {config_path}. Please edit it to add your secrets and overrides.")
-
-    return config_path

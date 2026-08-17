@@ -11,3 +11,11 @@ base_url = "https://api.deepseek.com"
 
 [observability]
 summary_enabled = true
+
+[[bootstrap.files]]
+source = "MEMORY.md.template"
+target = "MEMORY.md"
+
+[[bootstrap.files]]
+source = "configuration.md.template"
+target = "memory/configuration.md"
