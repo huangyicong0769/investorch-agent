@@ -1,8 +1,0 @@
-[[servers]]
-name = "tavily"
-transport = "streamable_http"
-url = "https://mcp.tavily.com/mcp/"
-cache_tools_list = true
-
-[servers.headers]
-Authorization = "Bearer ${TAVILY_API_KEY}"
