@@ -67,10 +67,6 @@ class AppConfig:
         return self.state_dir / "sessions.db"
 
     @property
-    def memory_db(self) -> Path:
-        return self.state_dir / "memory.db"
-
-    @property
     def secrets(self) -> dict[str, str]:
         return dict(self._data.get("secrets", {}))
 

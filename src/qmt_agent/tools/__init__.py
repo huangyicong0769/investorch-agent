@@ -1,4 +1,8 @@
-from .base import get_current_time
+from .base import (
+    edit,
+    explore,
+    get_current_time,
+)
 from .config import get_config, update_config
 from .mcp import (
     configure_mcp_server,
@@ -9,6 +13,8 @@ from .todo import write_todos
 
 __all__ = (
     "configure_mcp_server",
+    "edit",
+    "explore",
     "get_config",
     "get_current_time",
     "list_mcp_servers",
