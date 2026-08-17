@@ -298,7 +298,7 @@ async def main():
                         if approved:
                             state.approve(interruption, always_approve=False)
                         else:
-                            state.reject(interruption, rejection_message=("The user rejected this configuration change."))
+                            state.reject(interruption, rejection_message=("The user rejected this tool action."))
 
                     result = Runner.run_streamed(
                         agent,
