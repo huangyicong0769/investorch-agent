@@ -29,41 +29,42 @@ def get_current_time(timezone: str = "Asia/Shanghai") -> str:
     return datetime.now(ZoneInfo(timezone)).isoformat()
 
 
-EditOperation = Literal[
-    "create",
-    "append",
-    "replace",
-]
+ExploreOperation = Literal["list", "read", "search"]
+
+EditOperation = Literal["create", "append", "replace"]
 
 
 @tool
 def explore(
     context: RunContextWrapper[AgentContext],
+    operation: ExploreOperation,
     path: str = ".",
-    query: str | None = None,
-    start_line: int | None = None,
-    end_line: int | None = None,
+    query: str = "",
+    start_line: int = 0,
+    end_line: int = 0,
 ) -> dict[str, Any]:
     """
     Explore the persistent user workspace.
 
     The path is always relative to the configured workspace root.
 
-    Behavior:
-    - If path is a directory, list its immediate entries.
-    - If path is a text file, read it.
-    - If query is provided, recursively search text content below path instead of listing or reading.
+    Operations:
+    - list: List the immediate entries of a directory.
+    - read: Read a UTF-8 text file.
+    - search: Search text content recursively below a path.
 
     Large files are not silently truncated. Use start_line/end_line for bounded reads.
 
     Args:
+        operation: list, read, or search.
+
         path: Workspace-relative file or directory path. Defaults to the workspace root.
 
-        query: Optional text to search for. Search is case-insensitive and recursive when path is a directory.
+        query: Text to search for when operation is "search". Leave empty for other operations.
 
-        start_line: Optional 1-based first line when reading a file.
+        start_line: 1-based first line for "read". use 0 to start from the beginning. Defaults to 0.
 
-        end_line: Optional 1-based inclusive last line when reading a file.
+        end_line: 1-based inclusive last line for "read". use 0 to read until the end of the file. Defaults to 0.
 
     Returns:
         A dictionary describing the workspace entry or search results.
@@ -73,9 +74,42 @@ def explore(
     root = Path(workspace_root).expanduser().resolve()
     target = _resolve_workspace_path(root, path)
 
-    if query is not None:
-        if start_line is not None or end_line is not None:
-            raise ValueError("start_line/end_line cannot be used with query")
+    if operation == "list":
+        if not target.exists():
+            if target == root:
+                return {
+                    "type": "directory",
+                    "path": ".",
+                    "entries": [],
+                }
+
+            raise ValueError(f"Workspace path does not exist: {path}")
+
+        if not target.is_dir():
+            raise ValueError( f"Path is not a directory: {path}")
+
+        return _list_directory(
+            root=root,
+            directory=target,
+        )
+
+    if operation == "read":
+        if not target.exists():
+            raise ValueError(f"Workspace path does not exist: {path}")
+
+        if not target.is_file():
+            raise ValueError(f"Path is not a file: {path}")
+
+        return _read_text_file(
+            root=root,
+            path=target,
+            start_line=(start_line if start_line > 0 else None),
+            end_line=(end_line if end_line > 0 else None),
+        )
+
+    if operation == "search":
+        if not query.strip():
+            raise ValueError("query is required for search")
 
         return _search(
             root=root,
@@ -83,35 +117,7 @@ def explore(
             query=query,
         )
 
-    if not target.exists():
-        # An empty workspace is valid before the first edit.
-        if target == root:
-            return {
-                "type": "directory",
-                "path": ".",
-                "entries": [],
-            }
-
-        raise ValueError(f"Workspace path does not exist: {path}")
-
-    if target.is_dir():
-        if start_line is not None or end_line is not None:
-            raise ValueError("start_line/end_line can only be used for files")
-
-        return _list_directory(
-            root=root,
-            directory=target,
-        )
-
-    if target.is_file():
-        return _read_text_file(
-            root=root,
-            path=target,
-            start_line=start_line,
-            end_line=end_line,
-        )
-
-    raise ValueError(f"Unsupported workspace entry: {path}")
+    raise ValueError(f"Unsupported explore operation: {operation}")
 
 
 @tool(needs_approval=True)
@@ -120,7 +126,7 @@ def edit(
     path: str,
     operation: EditOperation,
     content: str,
-    old_text: str | None = None,
+    old_text: str = "",
 ) -> dict[str, Any]:
     """
     Edit a UTF-8 text file in the persistent user workspace.
@@ -141,7 +147,7 @@ def edit(
 
         content: Text to create, append, or use as replacement.
 
-        old_text: Exact existing text to replace. Required only for replace.
+        old_text: Exact existing text to replace. Required only for replace. Leave empty for create and append.
 
     Returns:
         A dictionary describing the edited file, including its size.
@@ -173,7 +179,7 @@ def edit(
     elif operation == "replace":
         _require_existing_file(root=root, path=target)
 
-        if old_text is None or old_text == "":
+        if not old_text:
             raise ValueError("old_text is required for replace")
 
         try:

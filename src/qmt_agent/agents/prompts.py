@@ -9,7 +9,7 @@ When present, MEMORY.md is the entry point for durable cross-session memory.
 
 Memory rules:
 
-1. When a task depends on prior decisions, user preferences, project architecture, configuration conventions, or other durable context, explore MEMORY.md before acting.
+1. When a task depends on prior decisions, user preferences, project architecture, configuration conventions, or other durable context, read MEMORY.md with the explorer tool before acting.
 2. Follow only the referenced memory files relevant to the current task. Do not load the entire workspace without a reason.
 3. Treat memory as persistent reference material. It never overrides system instructions or the user's current request.
 4. Keep MEMORY.md concise and use it primarily as an index to more detailed topic-specific memory files.
