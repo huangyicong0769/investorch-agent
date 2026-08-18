@@ -793,6 +793,7 @@ async def start_execution(execution: ExecutionState, workspace: Path) -> None:
 async def close_execution(execution: ExecutionState) -> None:
     sandbox = execution.sandbox
     execution.sandbox = None
+    execution.workspace_root = None
 
     if sandbox is not None:
         await sandbox.aclose()
@@ -871,6 +872,9 @@ async def _ensure_sandbox(execution: ExecutionState, workspace: Path) -> Any:
         raise RuntimeError("exec_command is currently supported on macOS only")
 
     if execution.sandbox is not None:
+        if execution.workspace_root != workspace:
+            raise RuntimeError("ExecutionState is already bound to another workspace")
+
         return execution.sandbox
 
     from agents.sandbox import Manifest
@@ -881,6 +885,7 @@ async def _ensure_sandbox(execution: ExecutionState, workspace: Path) -> Any:
         manifest=Manifest(root=str(workspace)),
     )
     await sandbox.start()
+    execution.workspace_root = workspace
     execution.sandbox = sandbox
 
     return sandbox

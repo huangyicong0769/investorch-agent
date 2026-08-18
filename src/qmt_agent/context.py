@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Literal
 
 from typing_extensions import TypedDict
@@ -34,6 +35,7 @@ class BackgroundJob:
 
 @dataclass
 class ExecutionState:
+    workspace_root: Path | None = None
     sandbox: Any | None = None
     background_jobs: dict[int, BackgroundJob] = field(default_factory=dict)
 
