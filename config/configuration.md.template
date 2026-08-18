@@ -132,8 +132,6 @@ Project-provided bootstrap workspace files are copied into the user workspace du
 Bootstrap files never overwrite existing user-owned workspace files.
 After bootstrap, workspace memory belongs to the user and the Agent. Project bootstrap files are not automatically synced over it.
 
-`qmt-agent --sync` is the explicit exception: after local configuration is available, it runs the restricted bootstrap synchronization flow, merges each configured template into its exact workspace target with backups for existing files, reports the result, and exits instead of entering the interactive Agent loop.
-
 ## Design Principles
 
 Keep the configuration system explicit and small.
