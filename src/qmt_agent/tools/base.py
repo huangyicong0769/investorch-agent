@@ -645,6 +645,7 @@ def _read_text_file(
         raise ValueError(f"File is {size} bytes. Specify start_line and end_line to read a bounded range.")
 
     selected: list[str] = []
+    selected_chars = 0
     total_lines = 0
 
     try:
@@ -658,6 +659,11 @@ def _read_text_file(
                 if end_line is not None and line_number > end_line:
                     continue
 
+                selected_chars += len(line)
+
+                if selected_chars > max_read_chars:
+                    raise ValueError("Requested text range is too large. Use a smaller start_line/end_line range.")
+
                 selected.append(line)
 
     except UnicodeDecodeError as exc:
@@ -667,9 +673,6 @@ def _read_text_file(
         raise ValueError(f"start_line {effective_start} exceeds file length {total_lines}")
 
     content = "".join(selected)
-
-    if len(content) > max_read_chars:
-        raise ValueError("Requested text range is too large. Use a smaller start_line/end_line range.")
 
     if total_lines == 0:
         actual_start = 0
