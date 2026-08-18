@@ -1,3 +1,4 @@
+import argparse
 import shlex
 from dataclasses import dataclass
 
@@ -6,6 +7,18 @@ from dataclasses import dataclass
 class Command:
     name: str
     args: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class StartupOptions:
+    sync: bool = False
+
+
+def parse_startup_args(argv: list[str] | None = None) -> StartupOptions:
+    parser = argparse.ArgumentParser(description="Run QMT Agent.")
+    parser.add_argument("--sync", action="store_true", help="Merge bootstrap templates with the model and exit.")
+    args = parser.parse_args(argv)
+    return StartupOptions(sync=args.sync)
 
 
 def parse_command(text: str) -> Command | None:

@@ -13,14 +13,17 @@ from agents.mcp import MCPServerManager
 from openai import AsyncOpenAI
 
 from qmt_agent.agents import (
+    build_bootstrap_sync_prompt,
     create_agent,
+    create_bootstrap_sync_agent,
     create_summary_agent,
     create_title_agent,
+    run_bootstrap_sync,
 )
-from qmt_agent.cli import parse_command
+from qmt_agent.cli import parse_command, parse_startup_args
 from qmt_agent.config import load_config
 from qmt_agent.context import AgentContext, ExecutionState
-from qmt_agent.initializer import initialize
+from qmt_agent.initializer import initialize, sync_bootstrap_files
 from qmt_agent.mcp import load_mcp_servers
 from qmt_agent.observability import print_run_events
 from qmt_agent.storage.sessions import (
@@ -94,14 +97,37 @@ def ask_tool_approval(tool_name: str, arguments: str | None) -> bool:
     return answer in {"y", "yes"}
 
 
-async def main():
+async def main(sync: bool = False):
     config = load_config()
 
-    if initialize(config):
+    if initialize(config, copy_bootstrap=not sync):
         print(
             f"QMT Agent initialized at {config.root}\n"
             f"Please configure required secrets in {config.root_config_path} and start QMT Agent again."
         )
+        return
+
+    if sync:
+        client = AsyncOpenAI(
+            api_key=config.secret("DEEPSEEK_API_KEY"),
+            base_url=config["model.base_url"],
+        )
+
+        model = OpenAIResponsesModel(
+            model=config["model.name"],
+            openai_client=client,
+        )
+
+        agent = create_bootstrap_sync_agent(model)
+
+        async def merge_target(target: Path, template: str, exists: bool) -> None:
+            context = AgentContext(config=config, execution=ExecutionState())
+            prompt = build_bootstrap_sync_prompt(target, config.workspace_dir, template, exists)
+            await run_bootstrap_sync(agent, context, prompt, target)
+
+        result = await sync_bootstrap_files(config, merge_target)
+        backup = result.backup_dir or "none"
+        print(f"Bootstrap files synchronized: created={result.created}, updated={result.updated}, unchanged={result.unchanged}, backup={backup}")
         return
 
     client = AsyncOpenAI(
@@ -332,7 +358,8 @@ async def main():
             session.close()
 
 if __name__ == "__main__":
+    startup_options = parse_startup_args()
     from agents import set_tracing_disabled
 
     set_tracing_disabled(True)
-    asyncio.run(main())
+    asyncio.run(main(sync=startup_options.sync))

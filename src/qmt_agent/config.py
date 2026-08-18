@@ -84,6 +84,7 @@ class AppConfig:
         config_dir = self.project_config_path.parent.resolve()
 
         files: list[tuple[Path, Path]] = []
+        seen_targets: set[Path] = set()
 
         for index, raw_file in enumerate(raw_files):
             if not isinstance(raw_file, dict):
@@ -111,11 +112,21 @@ class AppConfig:
             if not source_path.is_file():
                 raise ConfigError(f"Bootstrap template not found: {source_path}")
 
-            target_path = _resolve_under_root(
-                self.workspace_dir,
-                target,
-                f"bootstrap.files[{index}].target",
-            )
+            target_relative = Path(target).expanduser()
+
+            if target_relative.is_absolute():
+                raise ConfigError(f"bootstrap.files[{index}].target must be relative to workspace")
+
+            lexical_target = Path(os.path.normpath(str(self.workspace_dir / target_relative)))
+            if lexical_target.is_symlink():
+                raise ConfigError(f"Bootstrap target is not a regular file: {lexical_target}")
+
+            target_path = _resolve_under_root(self.workspace_dir, target, f"bootstrap.files[{index}].target")
+
+            if target_path in seen_targets:
+                raise ConfigError(f"Duplicate bootstrap target: {target}")
+
+            seen_targets.add(target_path)
 
             files.append((source_path, target_path))
 
