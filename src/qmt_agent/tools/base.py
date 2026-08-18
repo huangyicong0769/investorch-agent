@@ -8,7 +8,7 @@ import shlex
 import shutil
 import sys
 import uuid
-from datetime import datetime, timezone, UTC
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 from zoneinfo import ZoneInfo
@@ -16,7 +16,7 @@ from zoneinfo import ZoneInfo
 from agents import RunContextWrapper
 from agents.decorators import tool
 
-from qmt_agent.context import AgentContext, BackgroundJob
+from qmt_agent.context import AgentContext, BackgroundJob, ExecutionState
 
 MAX_FULL_READ_BYTES = 64 * 1024
 MAX_READ_CHARS = 64 * 1024
@@ -119,11 +119,12 @@ async def exec_command(
             raise ValueError(f"timeout_seconds cannot exceed {MAX_EXEC_COMMAND_TIMEOUT_SECONDS}")
 
     workspace = context.context.config.workspace_dir.expanduser().resolve()
-    sandbox = await _ensure_sandbox(context.context, workspace)
+    execution = context.context.execution
+    sandbox = await _ensure_sandbox(execution, workspace)
 
     if background:
         return await _start_background_command(
-            context=context.context,
+            execution=execution,
             sandbox=sandbox,
             workspace=workspace,
             command=command,
@@ -775,26 +776,25 @@ def _validate_utf8_file(path: Path) -> None:
         raise ValueError("File is not valid UTF-8 text") from exc
 
 
-async def start_execution(context: AgentContext) -> None:
-    workspace = context.config.workspace_dir.expanduser().resolve()
-    await _ensure_sandbox(context, workspace)
+async def start_execution(execution: ExecutionState, workspace: Path) -> None:
+    await _ensure_sandbox(execution, workspace.expanduser().resolve())
 
 
-async def close_execution(context: AgentContext) -> None:
-    sandbox = context.sandbox
-    context.sandbox = None
+async def close_execution(execution: ExecutionState) -> None:
+    sandbox = execution.sandbox
+    execution.sandbox = None
 
     if sandbox is not None:
         await sandbox.aclose()
 
 
-async def list_background_jobs(context: AgentContext) -> list[BackgroundJob]:
-    sandbox = context.sandbox
+async def list_background_jobs(execution: ExecutionState) -> list[BackgroundJob]:
+    sandbox = execution.sandbox
 
     if sandbox is None:
-        return _sorted_background_jobs(context)
+        return _sorted_background_jobs(execution)
 
-    for job in context.background_jobs.values():
+    for job in execution.background_jobs.values():
         if job.exit_code is not None or job.process_id is None:
             continue
 
@@ -812,7 +812,7 @@ async def list_background_jobs(context: AgentContext) -> list[BackgroundJob]:
             job.finished_at = datetime.now(UTC)
             job.process_id = None
 
-    return _sorted_background_jobs(context)
+    return _sorted_background_jobs(execution)
 
 
 def format_background_jobs(jobs: list[BackgroundJob]) -> str:
@@ -832,8 +832,8 @@ def format_background_jobs(jobs: list[BackgroundJob]) -> str:
     return "\n".join(lines)
 
 
-def _sorted_background_jobs(context: AgentContext) -> list[BackgroundJob]:
-    return sorted(context.background_jobs.values(), key=lambda job: job.started_at)
+def _sorted_background_jobs(execution: ExecutionState) -> list[BackgroundJob]:
+    return sorted(execution.background_jobs.values(), key=lambda job: job.started_at)
 
 
 def _format_elapsed(job: BackgroundJob) -> str:
@@ -856,12 +856,12 @@ def _process_is_running(pid: int) -> bool:
     return True
 
 
-async def _ensure_sandbox(context: AgentContext, workspace: Path) -> Any:
+async def _ensure_sandbox(execution: ExecutionState, workspace: Path) -> Any:
     if sys.platform != "darwin":
         raise RuntimeError("exec_command is currently supported on macOS only")
 
-    if context.sandbox is not None:
-        return context.sandbox
+    if execution.sandbox is not None:
+        return execution.sandbox
 
     from agents.sandbox import Manifest
     from agents.sandbox.sandboxes.unix_local import UnixLocalSandboxClient
@@ -871,13 +871,13 @@ async def _ensure_sandbox(context: AgentContext, workspace: Path) -> Any:
         manifest=Manifest(root=str(workspace)),
     )
     await sandbox.start()
-    context.sandbox = sandbox
+    execution.sandbox = sandbox
 
     return sandbox
 
 
 async def _start_background_command(
-    context: AgentContext,
+    execution: ExecutionState,
     sandbox: Any,
     workspace: Path,
     command: str,
@@ -919,7 +919,7 @@ async def _start_background_command(
         exit_code=update.exit_code,
         finished_at=(now if update.exit_code is not None else None),
     )
-    context.background_jobs[pid] = job
+    execution.background_jobs[pid] = job
 
     result = {
         "background": True,

@@ -18,8 +18,8 @@ from qmt_agent.agents import (
     create_title_agent,
 )
 from qmt_agent.cli import parse_command
-from qmt_agent.config import AppConfig, load_config
-from qmt_agent.context import AgentContext
+from qmt_agent.config import load_config
+from qmt_agent.context import AgentContext, ExecutionState
 from qmt_agent.initializer import initialize
 from qmt_agent.mcp import load_mcp_servers
 from qmt_agent.observability import print_run_events
@@ -94,16 +94,6 @@ def ask_tool_approval(tool_name: str, arguments: str | None) -> bool:
     return answer in {"y", "yes"}
 
 
-async def create_session_context(config: AppConfig, previous: AgentContext | None = None) -> AgentContext:
-    if previous:
-        await close_execution(previous)
-
-    context = AgentContext(config=config)
-    await start_execution(context)
-
-    return context
-
-
 async def main():
     config = load_config()
 
@@ -138,9 +128,11 @@ async def main():
 
     title_agent = create_title_agent(model)
     summary_agent = create_summary_agent(model)
-    agent_context = await create_session_context(config)
+    execution = ExecutionState()
 
     try:
+        await start_execution(execution, config.workspace_dir)
+
         async with MCPServerManager(mcp_servers) as mcp_manager:
 
             agent = create_agent(
@@ -175,7 +167,6 @@ async def main():
                             session.close()
                             session_id = uuid.uuid4().hex
                             session = SQLiteSession(session_id, session_db)
-                            agent_context = await create_session_context(config, agent_context)
                             print(f"Started new session: {session_id}")
 
                         case "resume":
@@ -219,7 +210,6 @@ async def main():
 
                             session.close()
                             session = SQLiteSession(session_id, session_db)
-                            agent_context = await create_session_context(config, agent_context)
 
                             title = await asyncio.to_thread(
                                 get_session_title,
@@ -269,11 +259,10 @@ async def main():
                                 session_id,
                                 session_db,
                             )
-                            agent_context = await create_session_context(config, agent_context)
                             print(f"Cleared session and started new session: {session_id}")
 
                         case "ps":
-                            jobs = await list_background_jobs(agent_context)
+                            jobs = await list_background_jobs(execution)
                             print(format_background_jobs(jobs))
 
                         case "exit":
@@ -298,6 +287,7 @@ async def main():
 
                     continue
 
+                agent_context = AgentContext(config=config, execution=execution)
                 result = Runner.run_streamed(
                     agent,
                     user_input,
@@ -343,7 +333,7 @@ async def main():
                 )
     finally:
         try:
-            await close_execution(agent_context)
+            await close_execution(execution)
         finally:
             session.close()
 

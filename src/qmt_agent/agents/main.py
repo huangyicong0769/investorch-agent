@@ -2,7 +2,7 @@ from agents import Agent, OpenAIResponsesModel
 from agents.mcp import MCPServer
 
 from qmt_agent import tools
-from qmt_agent.context import AgentContext
+from qmt_agent.context import AgentContext, ExecutionState
 
 from .prompts import MAIN_AGENT_INSTRUCTIONS
 
@@ -58,17 +58,18 @@ if __name__ == "__main__":
     user_input = input("You ")
 
     async def run_once():
-        context = AgentContext(config=config)
+        execution = ExecutionState()
 
         try:
-            await start_execution(context)
+            await start_execution(execution, config.workspace_dir)
+            context = AgentContext(config=config, execution=execution)
             return await Runner.run(
                 agent,
                 user_input,
                 context=context,
             )
         finally:
-            await close_execution(context)
+            await close_execution(execution)
 
     result = asyncio.run(run_once())
 

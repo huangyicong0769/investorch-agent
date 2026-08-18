@@ -33,8 +33,13 @@ class BackgroundJob:
 
 
 @dataclass
-class AgentContext:
-    config: AppConfig
-    todos: list[TodoItem] = field(default_factory=list)
+class ExecutionState:
     sandbox: Any | None = None
     background_jobs: dict[int, BackgroundJob] = field(default_factory=dict)
+
+
+@dataclass
+class AgentContext:
+    config: AppConfig
+    execution: ExecutionState
+    todos: list[TodoItem] = field(default_factory=list)
