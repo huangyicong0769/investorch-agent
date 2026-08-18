@@ -18,6 +18,16 @@ The runtime policy values listed below are TOML-only; they have no Python fallba
 
 A persistent runtime update is written to `<root>/qmt.toml` and therefore becomes part of the local instance configuration for later processes.
 
+## Configuration Lifecycle
+
+| lifecycle | keys | behavior |
+| --- | --- | --- |
+| immutable | `paths.root`, `bootstrap.*` | Cannot be changed through runtime configuration. |
+| restart-required | `paths.workspace`, `paths.state`, `model.name`, `model.base_url`, `mcp.default_timeout_seconds` | `persist=false` is rejected. `persist=true` writes the next-start value but does not change the current runtime; restart QMT Agent to apply it. |
+| hot | runtime policy and observability settings not listed above | Validated and applied to the current `AppConfig`; persistence is optional. |
+
+`get_config` reports the value currently used by this process. A persisted restart-required update therefore continues to report the old value until the application is restarted.
+
 ## Root Directory
 
 The repository configuration defines `paths.root`.
@@ -36,6 +46,7 @@ These files are outside the Git repository.
 
 `paths.workspace` and `paths.state` are relative to `paths.root`.
 They must not be absolute and must not escape the root.
+Both must be strict subdirectories of the root and must not equal or contain one another after path resolution.
 The SQLite session database is stored under the state directory.
 Long-term Agent memory does not use a database.
 Long-term memory is maintained as Markdown in the workspace, with `MEMORY.md` as the entry point.
@@ -77,7 +88,9 @@ Configuration modification requires user approval.
 
 Rules:
 
-- `paths.root` cannot be changed at runtime.
+- `paths.root` and `bootstrap.*` cannot be changed at runtime.
+- Restart-required keys must use `persist=true`; the returned result reports `requires_restart=true` and `applied=false`.
+- Hot keys report `applied=true` when the current runtime is updated.
 - Unknown normal configuration keys cannot be created.
 - Values must retain their expected type. Strings, booleans, integers, and floating-point values are supported.
 - Root-relative paths are validated before being applied.
@@ -118,6 +131,8 @@ Persistent local runtime state is initialized separately from configuration load
 Project-provided bootstrap workspace files are copied into the user workspace during its initial bootstrap.
 Bootstrap files never overwrite existing user-owned workspace files.
 After bootstrap, workspace memory belongs to the user and the Agent. Project bootstrap files are not automatically synced over it.
+
+`qmt-agent --sync` is the explicit exception: after local configuration is available, it runs the restricted bootstrap synchronization flow, merges each configured template into its exact workspace target with backups for existing files, reports the result, and exits instead of entering the interactive Agent loop.
 
 ## Design Principles
 

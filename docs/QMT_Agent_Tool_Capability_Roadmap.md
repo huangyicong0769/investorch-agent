@@ -90,6 +90,11 @@
 ```text
 get_current_time
 write_todos
+calculate
+explore
+edit
+delete
+exec_command
 ```
 
 ### 3.3 已接入 MCP 外部能力
@@ -123,6 +128,25 @@ trading.py
 原则仍然是：
 
 > 真实需求出现后再实现；不因为文件已经存在而提前制造 API。
+
+### 当前状态（2026-08-18）
+
+本轮 General Tools stabilization 已完成以下通用能力：
+
+```text
+calculate                         → completed
+explore(list/read/search)         → completed
+edit(create/append/replace)       → completed
+delete                            → completed
+exec_command(foreground/background) → completed
+```
+
+`exec_command` 是唯一的通用 shell 入口；任意 Python、Polars、NumPy、CLI
+和结构化数据处理都通过它在 Workspace 中执行，不另建 `run_python` 或
+`inspect_table/query_table/summarize_table` DSL Tool。
+
+后续通用层以稳定性维护为主，下一阶段可进入真实的 Market / Portfolio /
+Trading 需求。
 
 ---
 
@@ -188,17 +212,20 @@ place_order         = Domain + Side-effect
 - 不作为长期 Session 数据存储。
 - 不为了 todo 创建独立持久化系统。
 
-### 5.2 下一步候选：Calculator
+### 5.2 `calculate`（已完成）
 
 需要一个确定性的通用计算能力，但 API 应保持粗粒度。
 
-建议方向：
+当前 Tool API：
 
 ```text
 calculate(expression)
 ```
 
 或 SDK / MCP 已有等价能力时直接复用。
+
+当前实现提供受限、确定性的算术表达式求值，并带有表达式、AST、整数位数
+和指数边界校验。
 
 适合：
 
@@ -236,7 +263,7 @@ percentage_change()
 
 ## 6. Phase B — Workspace / Filesystem Tools
 
-这是下一阶段最优先的能力。
+这是当前已经完成并持续稳定的通用能力。
 
 目标：让 Agent 从“聊天 + 搜索”升级为能够读取、组织和产出用户本地工作材料的执行器。
 
@@ -269,12 +296,10 @@ symlink escape（如实际实现涉及）
 
 ### 6.2 Read-only 文件能力
 
-优先实现：
+当前由单一 `explore` Tool 提供：
 
 ```text
-list_directory
-read_text_file
-search_files
+explore(operation="list" | "read" | "search")
 ```
 
 #### `list_directory`
@@ -320,30 +345,22 @@ VectorStore
 
 ### 6.3 Side-effect 文件能力
 
-第二批实现：
+当前由 `edit` / `delete` Tool 提供：
 
 ```text
-write_text_file
-move_file
-delete_file
+edit(create | append | replace)
+delete
 ```
 
-#### `write_text_file`
+#### `edit`
 
 职责：
 
-- 新建 / 覆盖明确文件
+- 新建、追加或精确替换 UTF-8 文本文件
 - 保存 Agent 生成的文本结果
+- 通过审批流程执行副作用操作
 
-第一版应明确是否允许覆盖已有文件；如果会破坏已有内容，则进入授权流程。
-
-#### `move_file`
-
-职责：
-
-- Workspace 内重命名 / 移动文件
-
-#### `delete_file`
+#### `delete`
 
 职责：
 
@@ -353,10 +370,8 @@ delete_file
 
 ### 6.4 第一版不做的文件能力
 
-暂不实现：
+旧的独立文件 Tool 计划已被当前实现取代；不再新增平行 wrapper。仍暂不实现：
 
-- 任意 shell command
-- 任意操作系统命令
 - 全磁盘搜索
 - 文件系统 watcher
 - 自动 embedding / indexing
@@ -368,6 +383,10 @@ delete_file
 ## 7. Phase C — Structured File / Data Tools
 
 目标：让 Agent 能够处理研究、回测和后续量化工作中常见的结构化文件，而不立刻进入 Data Pool。
+
+当前不预建专用 Structured Data DSL。需要处理 JSON、TOML、CSV、TSV 或表格
+时，优先由 `exec_command` 调用 Python 标准库、Polars、Pandas 或其他成熟
+CLI / Python 生态；真实业务需求出现后再设计有独立语义的 Tool。
 
 推荐顺序：
 
@@ -484,21 +503,14 @@ Tool 应表达 Agent 真正需要的能力，而库函数只是 Tool 内部实�
 
 ### 8.2 第一阶段能力
 
-通用计算：
+通用计算（已完成）：
 
 ```text
-calculator
+calculate
 ```
 
-结构化数据操作：
-
-```text
-inspect_table
-query_table
-summarize_table
-```
-
-以上只是概念 API，最终名称在实现时根据真实需求确定。
+结构化数据操作不预建概念 API；通过 `exec_command` 使用成熟库，避免提前
+锁定 `inspect_table/query_table/summarize_table`。
 
 ### 8.3 表格数据处理建议
 
@@ -513,22 +525,9 @@ summarize_table
 
 ### 8.4 Python 执行
 
-受控 Python 执行未来可能非常有价值，例如：
-
-- 临时数据分析
-- 快速研究验证
-- 图表计算
-- 数学建模
-
-但它会显著扩大执行权限，因此当前阶段暂缓。
-
-在没有明确 sandbox / approval 边界之前，不提供：
-
-```text
-run_python(arbitrary_code)
-```
-
-更不提供任意 shell。
+临时数据分析、快速研究验证、图表计算和数学建模统一通过已审批的
+`exec_command` 执行。`run_python(arbitrary_code)` 不是独立 Tool；不要为
+它再建一层 wrapper。
 
 ---
 
@@ -822,6 +821,11 @@ Trading Agent
 ```text
 [✓] get_current_time
 [✓] write_todos
+[✓] calculate
+[✓] explore(list/read/search)
+[✓] edit(create/append/replace)
+[✓] delete
+[✓] exec_command(foreground/background)
 [✓] Plan-Solve prompt
 [✓] runtime observability
 [✓] reasoning/action/observation
@@ -829,13 +833,11 @@ Trading Agent
 [✓] Tavily MCP
 ```
 
-### Stage 1 — 通用 Workspace
+### Stage 1 — 通用 Workspace（已完成）
 
 ```text
-[ ] list_directory
-[ ] read_text_file
-[ ] search_files
-[ ] Workspace Root path boundary
+[✓] explore(list/read/search)
+[✓] Workspace Root path boundary
 ```
 
 验收：
@@ -846,13 +848,12 @@ Trading Agent
 - Agent 无法逃逸 Workspace Root。
 - 所有行为可观察。
 
-### Stage 2 — 文件 Side-effect + Approval
+### Stage 2 — 文件 Side-effect + Approval（已完成）
 
 ```text
-[ ] write_text_file
-[ ] move_file
-[ ] delete_file
-[ ] side-effect approval path
+[✓] edit(create/append/replace)
+[✓] delete
+[✓] side-effect approval path
 ```
 
 验收：
@@ -862,13 +863,11 @@ Trading Agent
 - Agent 无法写到 Workspace 外。
 - error / rejection 能正常回到 Agent。
 
-### Stage 3 — Structured Data
+### Stage 3 — Structured Data（按需，不预建 DSL）
 
 ```text
-[ ] CSV / TSV inspect
-[ ] CSV / TSV query / filter / sort
-[ ] basic aggregation
-[ ] JSON / TOML reliability where needed
+[✓] exec_command + Python ecosystem
+[ ] dedicated structured-data Tool after a real domain requirement
 ```
 
 验收：
@@ -877,10 +876,10 @@ Trading Agent
 - 确定性筛选 / 聚合由代码完成。
 - 结果可被 Agent 继续推理。
 
-### Stage 4 — Generic Calculation
+### Stage 4 — Generic Calculation（已完成）
 
 ```text
-[ ] calculator
+[✓] calculate
 [ ] date / interval calculation when needed
 [ ] structured statistical summaries
 ```
@@ -1049,30 +1048,15 @@ Tool error
 
 ## 20. 当前下一步
 
-按照本文档，下一项推荐开发任务是：
+本轮 General Tools stabilization 已完成。按照本文档，下一项推荐开发任务是：
 
 ```text
-Workspace / Filesystem Read-only v1
+Market / Portfolio / Trading 的第一个真实业务需求
 ```
 
-范围只包括：
-
-```text
-list_directory
-read_text_file
-search_files
-Workspace Root boundary
-```
-
-暂时不加入写入、删除、shell、Data Pool 和 Multi-Agent。
-
-这一步完成后，再根据真实使用体验决定是否进入：
-
-```text
-Filesystem Side-effect + Approval
-```
-
-而不是继续提前设计更远的系统。
+通用 Tool 层进入冻结和维护状态；结构化数据仍优先通过
+`exec_command` + 成熟 Python 生态完成，不提前设计 DSL、Data Pool 或
+Multi-Agent。
 
 ---
 
