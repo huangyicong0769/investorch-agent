@@ -412,6 +412,15 @@ def _require_int(data: dict[str, Any], key: str, *, minimum: int = 0) -> int:
     return value
 
 
+def _require_bool(data: dict[str, Any], key: str) -> bool:
+    value = _required_config_value(data, key)
+
+    if type(value) is not bool:
+        raise ConfigError(f"{key} must be a boolean")
+
+    return value
+
+
 def _require_number(data: dict[str, Any], key: str, *, minimum: float = 0) -> int | float:
     value = _required_config_value(data, key)
 
@@ -423,6 +432,14 @@ def _require_number(data: dict[str, Any], key: str, *, minimum: float = 0) -> in
 
 def _validate_config_data(data: dict[str, Any], root: Path) -> None:
     _require_string(data, "paths.root")
+    _require_string(data, "model.name")
+    _require_string(data, "model.base_url")
+
+    _require_bool(data, "observability.summary_enabled")
+
+    secrets = data.get("secrets", {})
+    if not isinstance(secrets, dict) or any(not isinstance(value, str) for value in secrets.values()):
+        raise ConfigError("secrets values must be strings")
 
     workspace = _resolve_under_root(root, _require_string(data, "paths.workspace"), "paths.workspace")
     state = _resolve_under_root(root, _require_string(data, "paths.state"), "paths.state")
