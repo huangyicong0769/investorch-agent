@@ -175,8 +175,8 @@ Side-effect
 例如：
 
 ```text
-read_text_file      = Workspace + Read-only
-write_text_file     = Workspace + Side-effect
+explore             = Workspace + Read-only
+edit                = Workspace + Side-effect
 get_portfolio       = Domain + Read-only
 place_order         = Domain + Side-effect
 ```
@@ -302,7 +302,7 @@ symlink escape（如实际实现涉及）
 explore(operation="list" | "read" | "search")
 ```
 
-#### `list_directory`
+#### `explore(operation="list")`
 
 职责：
 
@@ -315,7 +315,7 @@ explore(operation="list" | "read" | "search")
 - 自动递归整个 Workspace
 - 建索引
 
-#### `read_text_file`
+#### `explore(operation="read")`
 
 职责：
 
@@ -325,7 +325,7 @@ explore(operation="list" | "read" | "search")
 
 大输出仍由现有 observability Summary Agent 负责“人类展示压缩”；不要因为 CLI 显示问题改变 Tool 实际返回给 Main Agent 的内容语义。
 
-#### `search_files`
+#### `explore(operation="search")`
 
 职责：
 
@@ -412,7 +412,7 @@ write_json
 read_toml
 ```
 
-但如果 `read_text_file` + Agent 已经足够处理小型配置文件，不必为了格式完整性强行创建独立 Tool。
+但如果 `explore(operation="read")` + Agent 已经足够处理小型配置文件，不必为了格式完整性强行创建独立 Tool。
 
 判断标准：
 
@@ -476,7 +476,7 @@ PDF 不视为“普通文本格式”。
 
 都会让读取和理解复杂化。
 
-因此 PDF 应单独设计与验证，而不是作为 `read_text_file` 的一个扩展名。
+因此 PDF 应单独设计与验证，而不是作为 `explore(operation="read")` 的一个扩展名。
 
 进入 PDF 阶段时优先复用成熟 PDF 能力，而不是自研解析器。
 
@@ -551,10 +551,10 @@ PDF / Report
 
 ### 9.1 第一阶段
 
-依靠：
+文本类输出依靠：
 
 ```text
-write_text_file
+edit(create | append | replace)
 ```
 
 即可覆盖：
@@ -639,18 +639,16 @@ Read-only：
 
 ```text
 get_current_time
-read_text_file
-list_directory
-search_files
-inspect_table
+calculate
+explore(list | read | search)
 ```
 
 Side-effect：
 
 ```text
-write_text_file
-move_file
-delete_file
+edit(create | append | replace)
+delete
+exec_command
 ```
 
 ### 11.3 未来交易工具自然复用同一心智模型
