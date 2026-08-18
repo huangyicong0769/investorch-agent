@@ -9,10 +9,12 @@ Never store secret values in this file.
 
 Effective application configuration is built from these layers, from lowest to highest priority:
 
-1. Built-in defaults in `qmt_agent.config.DEFAULT_CONFIG`
+1. Built-in defaults in `qmt_agent.config.DEFAULT_CONFIG` for legacy application settings
 2. Repository configuration at `config/qmt.toml`
 3. Local instance configuration at `<root>/qmt.toml`
 4. Runtime-only changes to the current `AppConfig`
+
+The runtime policy values listed below are TOML-only; they have no Python fallback.
 
 A persistent runtime update is written to `<root>/qmt.toml` and therefore becomes part of the local instance configuration for later processes.
 
@@ -44,6 +46,17 @@ Repository defaults live in:
 `config/qmt.toml`
 Project configuration may be committed to Git and must not contain secrets.
 
+The runtime policy sections below are TOML-only and must be present in the effective configuration:
+
+- `[runtime].default_timezone`
+- `[execution].default_timeout_seconds`, `max_timeout_seconds`, and `background_job_dir`
+- `[explore].max_full_read_bytes`, `max_read_chars`, `max_search_results`, and `max_search_snippet_chars`
+- `[calculate].max_expression_chars`, `max_nodes`, `max_integer_bits`, and `max_abs_exponent`
+- `[observability].summary_threshold`
+- `[mcp].default_timeout_seconds`
+
+They are validated at startup and again before an update is persisted. `background_job_dir` must remain relative to the configured workspace.
+
 ## Local Configuration
 
 Machine- and user-specific overrides live in:
@@ -66,8 +79,9 @@ Rules:
 
 - `paths.root` cannot be changed at runtime.
 - Unknown normal configuration keys cannot be created.
-- Values must retain their expected type.
+- Values must retain their expected type. Strings, booleans, integers, and floating-point values are supported.
 - Root-relative paths are validated before being applied.
+- Runtime policy values must satisfy their type, range, and cross-field constraints before being applied.
 - `persist=true` writes the override to `<root>/qmt.toml`.
 - `persist=false` only changes the current `AppConfig`.
 
@@ -96,6 +110,7 @@ Reference configured secrets with placeholders such as:
 `${TAVILY_API_KEY}`
 The real value belongs in the `[secrets]` table of `<root>/qmt.toml`.
 MCP loading expands these placeholders from AppConfig secrets.
+The application-level `mcp.default_timeout_seconds` is used only when a server does not define its own `timeout`. Changes to this default affect MCP connections after QMT Agent is restarted.
 
 ## Initialization
 

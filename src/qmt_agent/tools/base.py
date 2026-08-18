@@ -18,20 +18,7 @@ from agents.decorators import tool
 
 from qmt_agent.context import AgentContext, BackgroundJob, ExecutionState
 
-MAX_FULL_READ_BYTES = 64 * 1024
-MAX_READ_CHARS = 64 * 1024
-MAX_SEARCH_RESULTS = 50
-MAX_SEARCH_SNIPPET_CHARS = 300
-
-DEFAULT_EXEC_COMMAND_TIMEOUT_SECONDS = 30
-MAX_EXEC_COMMAND_TIMEOUT_SECONDS = 300
-BACKGROUND_JOB_DIR = ".qmt-processes"
 BACKGROUND_PID_MARKER = "__QMT_PID__="
-
-MAX_CALCULATE_EXPRESSION_CHARS = 1000
-MAX_CALCULATE_NODES = 100
-MAX_CALCULATE_INTEGER_BITS = 4096
-MAX_CALCULATE_ABS_EXPONENT = 10_000
 
 _CALCULATE_BINARY_OPERATORS = {
     ast.Add: operator.add,
@@ -70,16 +57,19 @@ _CALCULATE_FUNCTIONS = {
 
 
 @tool
-def get_current_time(timezone: str = "Asia/Shanghai") -> str:
+def get_current_time(context: RunContextWrapper[AgentContext], timezone: str | None = None) -> str:
     """
     Get the current local date and time.
 
     Args:
-        timezone (str): The IANA timezone to use for the current time. Default is "Asia/Shanghai".
+        timezone (str): The IANA timezone to use for the current time. Defaults to runtime.default_timezone.
 
     Returns:
         str: The current local date and time as a string.
     """
+    if timezone is None:
+        timezone = context.context.config["runtime.default_timezone"]
+
     return datetime.now(ZoneInfo(timezone)).isoformat()
 
 
@@ -88,7 +78,7 @@ async def exec_command(
     context: RunContextWrapper[AgentContext],
     command: str,
     background: bool = False,
-    timeout_seconds: int = DEFAULT_EXEC_COMMAND_TIMEOUT_SECONDS,
+    timeout_seconds: int | None = None,
 ) -> dict[str, Any]:
     """
     Execute a shell command in the persistent user workspace.
@@ -100,7 +90,7 @@ async def exec_command(
 
         background: Start the command in the background and return immediately. Defaults to false.
 
-        timeout_seconds: Maximum wall-clock execution time for foreground commands in seconds. It is ignored for background commands. Defaults to 30 seconds.
+        timeout_seconds: Maximum wall-clock execution time for foreground commands in seconds. It is ignored for background commands. Defaults to execution.default_timeout_seconds.
 
     Returns:
         Foreground commands return stdout, stderr, and exit_code. Background commands return the PID, running state, and log paths.
@@ -111,12 +101,17 @@ async def exec_command(
     if not command.strip():
         raise ValueError("command cannot be empty")
 
+    config = context.context.config
+    if timeout_seconds is None:
+        timeout_seconds = config["execution.default_timeout_seconds"]
+
     if not background:
         if timeout_seconds < 1:
             raise ValueError("timeout_seconds must be at least 1")
 
-        if timeout_seconds > MAX_EXEC_COMMAND_TIMEOUT_SECONDS:
-            raise ValueError(f"timeout_seconds cannot exceed {MAX_EXEC_COMMAND_TIMEOUT_SECONDS}")
+        max_timeout_seconds = config["execution.max_timeout_seconds"]
+        if timeout_seconds > max_timeout_seconds:
+            raise ValueError(f"timeout_seconds cannot exceed {max_timeout_seconds}")
 
     workspace = context.context.config.workspace_dir.expanduser().resolve()
     execution = context.context.execution
@@ -127,6 +122,7 @@ async def exec_command(
             execution=execution,
             sandbox=sandbox,
             workspace=workspace,
+            background_job_dir=config.background_job_dir,
             command=command,
         )
 
@@ -149,7 +145,7 @@ EditOperation = Literal["create", "append", "replace"]
 
 
 @tool
-def calculate(expression: str) -> dict[str, Any]:
+def calculate(context: RunContextWrapper[AgentContext], expression: str) -> dict[str, Any]:
     """
     Evaluate a mathematical expression safely and deterministically.
 
@@ -164,7 +160,7 @@ def calculate(expression: str) -> dict[str, Any]:
     comprehensions, imports, and arbitrary function calls are not allowed.
 
     Args:
-        expression: Mathematical expression to evaluate.
+        expression: Mathematical expression to evaluate. Safety limits come from the calculate config section.
 
     Returns:
         A dictionary containing the original expression and numeric result.
@@ -174,8 +170,14 @@ def calculate(expression: str) -> dict[str, Any]:
     if not expression:
         raise ValueError("expression cannot be empty")
 
-    if len(expression) > MAX_CALCULATE_EXPRESSION_CHARS:
-        raise ValueError(f"expression exceeds {MAX_CALCULATE_EXPRESSION_CHARS} characters")
+    config = context.context.config
+    max_expression_chars = config["calculate.max_expression_chars"]
+    max_nodes = config["calculate.max_nodes"]
+    max_integer_bits = config["calculate.max_integer_bits"]
+    max_abs_exponent = config["calculate.max_abs_exponent"]
+
+    if len(expression) > max_expression_chars:
+        raise ValueError(f"expression exceeds {max_expression_chars} characters")
 
     try:
         tree = ast.parse(expression, mode="eval")
@@ -184,11 +186,11 @@ def calculate(expression: str) -> dict[str, Any]:
 
     node_count = sum(1 for _ in ast.walk(tree))
 
-    if node_count > MAX_CALCULATE_NODES:
-        raise ValueError(f"expression is too complex; maximum AST nodes is {MAX_CALCULATE_NODES}")
+    if node_count > max_nodes:
+        raise ValueError(f"expression is too complex; maximum AST nodes is {max_nodes}")
 
-    result = _evaluate_calculation_node(tree.body)
-    _validate_calculation_number(result)
+    result = _evaluate_calculation_node(tree.body, max_abs_exponent, max_integer_bits)
+    _validate_calculation_number(result, max_integer_bits)
 
     return {
         "expression": expression,
@@ -215,7 +217,7 @@ def explore(
     - read: Read a UTF-8 text file.
     - search: Search text content recursively below a path.
 
-    Large files are not silently truncated. Use start_line/end_line for bounded reads.
+    Large files are not silently truncated. Use start_line/end_line for bounded reads. Read and search limits come from the explore config section.
 
     Args:
         operation: list, read, or search.
@@ -231,7 +233,8 @@ def explore(
     Returns:
         A dictionary describing the workspace entry or search results.
     """
-    workspace_root = context.context.config.workspace_dir
+    config = context.context.config
+    workspace_root = config.workspace_dir
 
     root = Path(workspace_root).expanduser().resolve()
     target = _resolve_workspace_path(root, path)
@@ -267,6 +270,8 @@ def explore(
             path=target,
             start_line=(start_line if start_line > 0 else None),
             end_line=(end_line if end_line > 0 else None),
+            max_full_read_bytes=config["explore.max_full_read_bytes"],
+            max_read_chars=config["explore.max_read_chars"],
         )
 
     if operation == "search":
@@ -277,6 +282,8 @@ def explore(
             root=root,
             target=target,
             query=query,
+            max_results=config["explore.max_search_results"],
+            max_snippet_chars=config["explore.max_search_snippet_chars"],
         )
 
     raise ValueError(f"Unsupported explore operation: {operation}")
@@ -314,7 +321,8 @@ def edit(
     Returns:
         A dictionary describing the edited file, including its size.
     """
-    workspace_root = context.context.config.workspace_dir
+    config = context.context.config
+    workspace_root = config.workspace_dir
 
     root = Path(workspace_root).expanduser().resolve()
     target = _resolve_workspace_path(root, path)
@@ -448,14 +456,14 @@ def delete(
     raise ValueError(f"Unsupported workspace entry: {path}")
 
 
-def _evaluate_calculation_node(node: ast.AST) -> int | float:
+def _evaluate_calculation_node(node: ast.AST, max_abs_exponent: int, max_integer_bits: int) -> int | float:
     if isinstance(node, ast.Constant):
         value = node.value
 
         if isinstance(value, bool) or not isinstance(value, (int, float)):
             raise TypeError("Only integer and floating-point literals are allowed")
 
-        _validate_calculation_number(value)
+        _validate_calculation_number(value, max_integer_bits)
         return value
 
     if isinstance(node, ast.BinOp):
@@ -464,18 +472,18 @@ def _evaluate_calculation_node(node: ast.AST) -> int | float:
         if operator_function is None:
             raise ValueError(f"Unsupported binary operator: {type(node.op).__name__}")
 
-        left = _evaluate_calculation_node(node.left)
-        right = _evaluate_calculation_node(node.right)
+        left = _evaluate_calculation_node(node.left, max_abs_exponent, max_integer_bits)
+        right = _evaluate_calculation_node(node.right, max_abs_exponent, max_integer_bits)
 
-        if isinstance(node.op, ast.Pow) and abs(right) > MAX_CALCULATE_ABS_EXPONENT:
-            raise ValueError(f"Exponent is too large; maximum absolute exponent is {MAX_CALCULATE_ABS_EXPONENT}")
+        if isinstance(node.op, ast.Pow) and abs(right) > max_abs_exponent:
+            raise ValueError(f"Exponent is too large; maximum absolute exponent is {max_abs_exponent}")
 
         try:
             result = operator_function(left, right)
         except (ArithmeticError, ValueError, OverflowError) as exc:
             raise ValueError(f"Calculation failed: {exc}") from exc
 
-        _validate_calculation_number(result)
+        _validate_calculation_number(result, max_integer_bits)
         return result
 
     if isinstance(node, ast.UnaryOp):
@@ -484,10 +492,10 @@ def _evaluate_calculation_node(node: ast.AST) -> int | float:
         if operator_function is None:
             raise ValueError(f"Unsupported unary operator: {type(node.op).__name__}")
 
-        operand = _evaluate_calculation_node(node.operand)
+        operand = _evaluate_calculation_node(node.operand, max_abs_exponent, max_integer_bits)
         result = operator_function(operand)
 
-        _validate_calculation_number(result)
+        _validate_calculation_number(result, max_integer_bits)
         return result
 
     if isinstance(node, ast.Name):
@@ -510,26 +518,26 @@ def _evaluate_calculation_node(node: ast.AST) -> int | float:
         if node.keywords:
             raise ValueError("Keyword arguments are not supported")
 
-        arguments = [_evaluate_calculation_node(argument) for argument in node.args]
+        arguments = [_evaluate_calculation_node(argument, max_abs_exponent, max_integer_bits) for argument in node.args]
 
         try:
             result = function(*arguments)
         except (ArithmeticError, TypeError, ValueError) as exc:
             raise ValueError(f"{node.func.id} failed: {exc}") from exc
 
-        _validate_calculation_number(result)
+        _validate_calculation_number(result, max_integer_bits)
         return result
 
     raise ValueError(f"Unsupported expression syntax: {type(node).__name__}")
 
 
-def _validate_calculation_number(value: int | float,) -> None:
+def _validate_calculation_number(value: int | float, max_integer_bits: int) -> None:
     if isinstance(value, bool):
         raise TypeError("Boolean values are not supported")
 
     if isinstance(value, int):
-        if value.bit_length() > MAX_CALCULATE_INTEGER_BITS:
-            raise ValueError(f"Integer result is too large; maximum bit length is {MAX_CALCULATE_INTEGER_BITS}")
+        if value.bit_length() > max_integer_bits:
+            raise ValueError(f"Integer result is too large; maximum bit length is {max_integer_bits}")
 
         return
 
@@ -616,6 +624,8 @@ def _read_text_file(
     *,
     start_line: int | None,
     end_line: int | None,
+    max_full_read_bytes: int,
+    max_read_chars: int,
 ) -> dict[str, Any]:
     if start_line is not None and start_line < 1:
         raise ValueError("start_line must be >= 1")
@@ -631,7 +641,7 @@ def _read_text_file(
     size = path.stat().st_size
 
     # Do not silently truncate a large full-file read.
-    if size > MAX_FULL_READ_BYTES and end_line is None:
+    if size > max_full_read_bytes and end_line is None:
         raise ValueError(f"File is {size} bytes. Specify start_line and end_line to read a bounded range.")
 
     selected: list[str] = []
@@ -658,7 +668,7 @@ def _read_text_file(
 
     content = "".join(selected)
 
-    if len(content) > MAX_READ_CHARS:
+    if len(content) > max_read_chars:
         raise ValueError("Requested text range is too large. Use a smaller start_line/end_line range.")
 
     if total_lines == 0:
@@ -681,7 +691,7 @@ def _read_text_file(
     }
 
 
-def _search(root: Path, target: Path, query: str) -> dict[str, Any]:
+def _search(root: Path, target: Path, query: str, *, max_results: int, max_snippet_chars: int) -> dict[str, Any]:
     if not query:
         raise ValueError("Search query cannot be empty")
 
@@ -725,14 +735,14 @@ def _search(root: Path, target: Path, query: str) -> dict[str, Any]:
                     if folded_query not in line.casefold():
                         continue
 
-                    if len(results) >= MAX_SEARCH_RESULTS:
+                    if len(results) >= max_results:
                         truncated = True
                         break
 
                     snippet = line.rstrip("\r\n")
 
-                    if len(snippet) > MAX_SEARCH_SNIPPET_CHARS:
-                        snippet = (snippet[:MAX_SEARCH_SNIPPET_CHARS] + "...")
+                    if len(snippet) > max_snippet_chars:
+                        snippet = (snippet[:max_snippet_chars] + "...")
 
                     results.append(
                         {
@@ -880,10 +890,11 @@ async def _start_background_command(
     execution: ExecutionState,
     sandbox: Any,
     workspace: Path,
+    background_job_dir: Path,
     command: str,
 ) -> dict[str, Any]:
     job_id = uuid.uuid4().hex[:12]
-    job_directory = workspace / BACKGROUND_JOB_DIR / job_id
+    job_directory = background_job_dir / job_id
     stdout_log = job_directory / "stdout.log"
     stderr_log = job_directory / "stderr.log"
 

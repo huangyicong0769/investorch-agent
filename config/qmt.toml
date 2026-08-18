@@ -11,6 +11,30 @@ base_url = "https://api.deepseek.com"
 
 [observability]
 summary_enabled = true
+summary_threshold = 1000
+
+[runtime]
+default_timezone = "Asia/Shanghai"
+
+[execution]
+default_timeout_seconds = 30
+max_timeout_seconds = 300
+background_job_dir = ".qmt-processes"
+
+[explore]
+max_full_read_bytes = 65536
+max_read_chars = 65536
+max_search_results = 50
+max_search_snippet_chars = 300
+
+[calculate]
+max_expression_chars = 1000
+max_nodes = 100
+max_integer_bits = 4096
+max_abs_exponent = 10000
+
+[mcp]
+default_timeout_seconds = 5.0
 
 [[bootstrap.files]]
 source = "MEMORY.md.template"

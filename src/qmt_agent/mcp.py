@@ -151,7 +151,7 @@ def _expand_variables(value: Any, variables: Mapping[str, str]) -> Any:
 
     return value
 
-def load_mcp_servers(path: str | Path, variables: Mapping[str, str] | None = None) -> list[MCPServer]:
+def load_mcp_servers(path: str | Path, variables: Mapping[str, str] | None, default_timeout_seconds: int | float) -> list[MCPServer]:
     configs = read_mcp_server_configs(path)
 
     servers: list[MCPServer] = []
@@ -183,7 +183,7 @@ def load_mcp_servers(path: str | Path, variables: Mapping[str, str] | None = Non
                     "cache_tools_list",
                     False,
                 ),
-                client_session_timeout_seconds=server.get("timeout", 5.0)
+                client_session_timeout_seconds=server.get("timeout", default_timeout_seconds)
             )
         )
 

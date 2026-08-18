@@ -114,10 +114,7 @@ async def main():
         openai_client=client,
     )
 
-    mcp_servers = load_mcp_servers(
-        config.mcp_config_path,
-        variables=config.secrets,
-    )
+    mcp_servers = load_mcp_servers(config.mcp_config_path, config.secrets, config["mcp.default_timeout_seconds"])
 
     session_db = config.sessions_db
 
@@ -296,10 +293,7 @@ async def main():
                 )
 
                 while True:
-                    await print_run_events(
-                        result,
-                        summary_agent=summary_agent,
-                    )
+                    await print_run_events(result, summary_agent, config["observability.summary_threshold"])
 
                     if not result.interruptions:
                         break

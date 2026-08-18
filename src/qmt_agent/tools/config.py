@@ -34,7 +34,7 @@ def get_config(context: RunContextWrapper[AgentContext], key: str | None = None)
 
 
 @tool(needs_approval=True)
-def update_config(context: RunContextWrapper[AgentContext], key: str, value: str | bool, persist: bool = True) -> dict[str, Any]:
+def update_config(context: RunContextWrapper[AgentContext], key: str, value: str | bool | int | float, persist: bool = True) -> dict[str, Any]:
     """
     Update an application configuration value.
 
@@ -47,7 +47,7 @@ def update_config(context: RunContextWrapper[AgentContext], key: str, value: str
             "observability.summary_enabled".
 
         value:
-            New value.
+            New string, boolean, integer, or floating-point value.
 
         persist:
             If true, persist the override to root/qmt.toml.
