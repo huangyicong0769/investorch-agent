@@ -409,16 +409,16 @@ def delete(
     if relative.is_absolute():
         raise ValueError("Workspace paths must be relative")
 
-    target = root / relative
-
-    if target == root:
-        raise ValueError("Workspace root cannot be deleted")
+    lexical_target = root / relative
 
     # Do not follow a final symlink during deletion.
-    if target.is_symlink():
+    if lexical_target.is_symlink():
         raise ValueError("Deleting symbolic links is not supported")
 
-    resolved = target.resolve()
+    resolved = _resolve_workspace_path(root, path)
+
+    if resolved == root:
+        raise ValueError("Workspace root cannot be deleted")
 
     if not resolved.is_relative_to(root):
         raise ValueError(f"Path escapes workspace: {path}")
