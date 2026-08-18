@@ -27,6 +27,14 @@ DEFAULT_CONFIG = {
     "secrets": {},
 }
 
+RESTART_REQUIRED_KEYS = {
+    "paths.workspace",
+    "paths.state",
+    "model.name",
+    "model.base_url",
+    "mcp.default_timeout_seconds",
+}
+
 class ConfigError(ValueError):
     pass
 
@@ -200,6 +208,9 @@ class AppConfig:
         if key.startswith("bootstrap."):
             raise ConfigError("bootstrap cannot be changed at runtime")
 
+        if key in RESTART_REQUIRED_KEYS and not persist:
+            raise ConfigError(f"{key} requires persist=true and an application restart")
+
         section, name = _split_key(key)
 
         # New arbitrary config fields are not allowed.
@@ -231,12 +242,17 @@ class AppConfig:
         if persist:
             self._persist(key, value)
 
-        self._data = candidate
+        requires_restart = key in RESTART_REQUIRED_KEYS
+
+        if not requires_restart:
+            self._data = candidate
 
         return {
             "key": key,
             "value": REDACTED if section == "secrets" else value,
             "persisted": persist,
+            "applied": not requires_restart,
+            "requires_restart": requires_restart,
         }
 
     def _validate_data(self, data: dict[str, dict[str, Any]]) -> None:
