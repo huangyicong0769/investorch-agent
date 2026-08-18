@@ -2,6 +2,7 @@ from .base import (
     calculate,
     delete,
     edit,
+    exec_command,
     explore,
     get_current_time,
 )
@@ -18,6 +19,7 @@ __all__ = (
     "configure_mcp_server",
     "delete",
     "edit",
+    "exec_command",
     "explore",
     "get_config",
     "get_current_time",

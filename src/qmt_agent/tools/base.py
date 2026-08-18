@@ -4,6 +4,7 @@ import ast
 import math
 import operator
 import shutil
+import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
@@ -18,6 +19,9 @@ MAX_FULL_READ_BYTES = 64 * 1024
 MAX_READ_CHARS = 64 * 1024
 MAX_SEARCH_RESULTS = 50
 MAX_SEARCH_SNIPPET_CHARS = 300
+
+DEFAULT_EXEC_COMMAND_TIMEOUT_SECONDS = 30
+MAX_EXEC_COMMAND_TIMEOUT_SECONDS = 300
 
 MAX_CALCULATE_EXPRESSION_CHARS = 1000
 MAX_CALCULATE_NODES = 100
@@ -72,6 +76,46 @@ def get_current_time(timezone: str = "Asia/Shanghai") -> str:
         str: The current local date and time as a string.
     """
     return datetime.now(ZoneInfo(timezone)).isoformat()
+
+
+@tool(needs_approval=True)
+async def exec_command(
+    context: RunContextWrapper[AgentContext],
+    command: str,
+    timeout_seconds: int = DEFAULT_EXEC_COMMAND_TIMEOUT_SECONDS,
+) -> dict[str, Any]:
+    """
+    Execute a shell command in the persistent user workspace.
+
+    Each call creates a new Unix-local session. The command runs with the configured workspace as its current directory and its filesystem root. This operation always requires user approval.
+
+    Args:
+        command: Shell command to execute.
+
+        timeout_seconds: Maximum wall-clock execution time in seconds. Defaults to 30 seconds.
+
+    Returns:
+        A dictionary containing the command output and exit code.
+    """
+    if sys.platform != "darwin":
+        raise RuntimeError("exec_command is currently supported on macOS only")
+
+    if not command.strip():
+        raise ValueError("command cannot be empty")
+
+    if timeout_seconds < 1:
+        raise ValueError("timeout_seconds must be at least 1")
+
+    if timeout_seconds > MAX_EXEC_COMMAND_TIMEOUT_SECONDS:
+        raise ValueError(f"timeout_seconds cannot exceed {MAX_EXEC_COMMAND_TIMEOUT_SECONDS}")
+
+    workspace = context.context.config.workspace_dir.expanduser().resolve()
+
+    return await _exec_in_workspace(
+        workspace=workspace,
+        command=command,
+        timeout_seconds=timeout_seconds,
+    )
 
 
 ExploreOperation = Literal["list", "read", "search"]
@@ -705,6 +749,33 @@ def _validate_utf8_file(path: Path) -> None:
                 pass
     except UnicodeDecodeError as exc:
         raise ValueError("File is not valid UTF-8 text") from exc
+
+
+async def _exec_in_workspace(
+    workspace: Path,
+    command: str,
+    timeout_seconds: int,
+) -> dict[str, Any]:
+    from agents.sandbox import Manifest
+    from agents.sandbox.sandboxes.unix_local import UnixLocalSandboxClient
+
+    client = UnixLocalSandboxClient()
+    sandbox = await client.create(
+        manifest=Manifest(root=str(workspace)),
+    )
+
+    async with sandbox:
+        result = await sandbox.exec(
+            command,
+            timeout=timeout_seconds,
+            shell=True,
+        )
+
+    return {
+        "stdout": result.stdout.decode("utf-8", errors="replace"),
+        "stderr": result.stderr.decode("utf-8", errors="replace"),
+        "exit_code": result.exit_code,
+    }
 
 
 def _display_path(root: Path, path: Path) -> str:
