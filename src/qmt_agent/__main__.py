@@ -319,7 +319,12 @@ async def main(sync: bool = False):
                 )
 
                 while True:
-                    await print_run_events(result, summary_agent, config["observability.summary_threshold"])
+                    await print_run_events(
+                        result,
+                        summary_agent,
+                        config["observability.summary_enabled"],
+                        config["observability.summary_threshold"],
+                    )
 
                     if not result.interruptions:
                         break

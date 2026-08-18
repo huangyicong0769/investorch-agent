@@ -18,8 +18,14 @@ async def _summarize_trace(summary_agent: Agent, kind: str, text: str,) -> str:
     return summary
 
 
-async def _print_trace_content(summary_agent: Agent, kind: str, text: str, summary_threshold: int,) -> None:
-    if len(text) <= summary_threshold:
+async def _print_trace_content(
+    summary_agent: Agent,
+    kind: str,
+    text: str,
+    summary_enabled: bool,
+    summary_threshold: int,
+) -> None:
+    if not summary_enabled or len(text) <= summary_threshold:
         print(f"\n[{kind}]")
         print(text)
         return
@@ -42,7 +48,12 @@ async def _print_trace_content(summary_agent: Agent, kind: str, text: str, summa
     print(f"[original: {len(text)} chars]")
 
 
-async def _flush_reasoning(summary_agent: Agent, reasoning_parts: list[str], summary_threshold: int,) -> None:
+async def _flush_reasoning(
+    summary_agent: Agent,
+    reasoning_parts: list[str],
+    summary_enabled: bool,
+    summary_threshold: int,
+) -> None:
     if not reasoning_parts:
         return
 
@@ -53,17 +64,28 @@ async def _flush_reasoning(summary_agent: Agent, reasoning_parts: list[str], sum
         summary_agent,
         "reasoning",
         reasoning,
+        summary_enabled,
         summary_threshold,
     )
 
 
-async def print_run_events(result, summary_agent: Agent, summary_threshold: int,) -> None:
+async def print_run_events(
+    result,
+    summary_agent: Agent,
+    summary_enabled: bool,
+    summary_threshold: int,
+) -> None:
     reasoning_parts: list[str] = []
 
     async for event in result.stream_events():
 
         if event.type == "agent_updated_stream_event":
-            await _flush_reasoning(summary_agent, reasoning_parts, summary_threshold)
+            await _flush_reasoning(
+                summary_agent,
+                reasoning_parts,
+                summary_enabled,
+                summary_threshold,
+            )
 
             print(f"\n[agent] {event.new_agent.name}")
             continue
@@ -81,12 +103,22 @@ async def print_run_events(result, summary_agent: Agent, summary_threshold: int,
             continue
 
         if event.name == "reasoning_item_created":
-            await _flush_reasoning(summary_agent, reasoning_parts, summary_threshold)
+            await _flush_reasoning(
+                summary_agent,
+                reasoning_parts,
+                summary_enabled,
+                summary_threshold,
+            )
             continue
 
         # Be defensive in case a provider does not emit
         # reasoning_item_created exactly as expected.
-        await _flush_reasoning(summary_agent, reasoning_parts, summary_threshold)
+        await _flush_reasoning(
+            summary_agent,
+            reasoning_parts,
+            summary_enabled,
+            summary_threshold,
+        )
 
         item = event.item
 
@@ -118,10 +150,16 @@ async def print_run_events(result, summary_agent: Agent, summary_threshold: int,
                 summary_agent,
                 "observation",
                 output,
+                summary_enabled,
                 summary_threshold,
             )
 
         elif event.name == "message_output_created":
             pass
 
-    await _flush_reasoning(summary_agent, reasoning_parts, summary_threshold)
+    await _flush_reasoning(
+        summary_agent,
+        reasoning_parts,
+        summary_enabled,
+        summary_threshold,
+    )
