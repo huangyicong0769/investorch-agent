@@ -3,9 +3,12 @@ from __future__ import annotations
 import ast
 import math
 import operator
+import os
+import shlex
 import shutil
 import sys
-from datetime import datetime
+import uuid
+from datetime import datetime, timezone, UTC
 from pathlib import Path
 from typing import Any, Literal
 from zoneinfo import ZoneInfo
@@ -13,7 +16,7 @@ from zoneinfo import ZoneInfo
 from agents import RunContextWrapper
 from agents.decorators import tool
 
-from qmt_agent.context import AgentContext
+from qmt_agent.context import AgentContext, BackgroundJob
 
 MAX_FULL_READ_BYTES = 64 * 1024
 MAX_READ_CHARS = 64 * 1024
@@ -22,6 +25,8 @@ MAX_SEARCH_SNIPPET_CHARS = 300
 
 DEFAULT_EXEC_COMMAND_TIMEOUT_SECONDS = 30
 MAX_EXEC_COMMAND_TIMEOUT_SECONDS = 300
+BACKGROUND_JOB_DIR = ".qmt-processes"
+BACKGROUND_PID_MARKER = "__QMT_PID__="
 
 MAX_CALCULATE_EXPRESSION_CHARS = 1000
 MAX_CALCULATE_NODES = 100
@@ -82,20 +87,23 @@ def get_current_time(timezone: str = "Asia/Shanghai") -> str:
 async def exec_command(
     context: RunContextWrapper[AgentContext],
     command: str,
+    background: bool = False,
     timeout_seconds: int = DEFAULT_EXEC_COMMAND_TIMEOUT_SECONDS,
 ) -> dict[str, Any]:
     """
     Execute a shell command in the persistent user workspace.
 
-    Each call creates a new Unix-local session. The command runs with the configured workspace as its current directory and its filesystem root. This operation always requires user approval.
+    The command runs with the configured workspace as its current directory and filesystem root. Foreground commands wait for completion. Background commands return a process ID and workspace-relative log paths. This operation always requires user approval.
 
     Args:
         command: Shell command to execute.
 
-        timeout_seconds: Maximum wall-clock execution time in seconds. Defaults to 30 seconds.
+        background: Start the command in the background and return immediately. Defaults to false.
+
+        timeout_seconds: Maximum wall-clock execution time for foreground commands in seconds. It is ignored for background commands. Defaults to 30 seconds.
 
     Returns:
-        A dictionary containing the command output and exit code.
+        Foreground commands return stdout, stderr, and exit_code. Background commands return the PID, running state, and log paths.
     """
     if sys.platform != "darwin":
         raise RuntimeError("exec_command is currently supported on macOS only")
@@ -103,19 +111,35 @@ async def exec_command(
     if not command.strip():
         raise ValueError("command cannot be empty")
 
-    if timeout_seconds < 1:
-        raise ValueError("timeout_seconds must be at least 1")
+    if not background:
+        if timeout_seconds < 1:
+            raise ValueError("timeout_seconds must be at least 1")
 
-    if timeout_seconds > MAX_EXEC_COMMAND_TIMEOUT_SECONDS:
-        raise ValueError(f"timeout_seconds cannot exceed {MAX_EXEC_COMMAND_TIMEOUT_SECONDS}")
+        if timeout_seconds > MAX_EXEC_COMMAND_TIMEOUT_SECONDS:
+            raise ValueError(f"timeout_seconds cannot exceed {MAX_EXEC_COMMAND_TIMEOUT_SECONDS}")
 
     workspace = context.context.config.workspace_dir.expanduser().resolve()
+    sandbox = await _ensure_sandbox(context.context, workspace)
 
-    return await _exec_in_workspace(
-        workspace=workspace,
-        command=command,
-        timeout_seconds=timeout_seconds,
+    if background:
+        return await _start_background_command(
+            context=context.context,
+            sandbox=sandbox,
+            workspace=workspace,
+            command=command,
+        )
+
+    result = await sandbox.exec(
+        command,
+        timeout=timeout_seconds,
+        shell=True,
     )
+
+    return {
+        "stdout": result.stdout.decode("utf-8", errors="replace"),
+        "stderr": result.stderr.decode("utf-8", errors="replace"),
+        "exit_code": result.exit_code,
+    }
 
 
 ExploreOperation = Literal["list", "read", "search"]
@@ -751,11 +775,94 @@ def _validate_utf8_file(path: Path) -> None:
         raise ValueError("File is not valid UTF-8 text") from exc
 
 
-async def _exec_in_workspace(
-    workspace: Path,
-    command: str,
-    timeout_seconds: int,
-) -> dict[str, Any]:
+async def start_execution(context: AgentContext) -> None:
+    workspace = context.config.workspace_dir.expanduser().resolve()
+    await _ensure_sandbox(context, workspace)
+
+
+async def close_execution(context: AgentContext) -> None:
+    sandbox = context.sandbox
+    context.sandbox = None
+
+    if sandbox is not None:
+        await sandbox.aclose()
+
+
+async def list_background_jobs(context: AgentContext) -> list[BackgroundJob]:
+    sandbox = context.sandbox
+
+    if sandbox is None:
+        return _sorted_background_jobs(context)
+
+    for job in context.background_jobs.values():
+        if job.exit_code is not None or job.process_id is None:
+            continue
+
+        if _process_is_running(job.pid):
+            continue
+
+        update = await sandbox.pty_write_stdin(
+            session_id=job.process_id,
+            chars="",
+            yield_time_s=0,
+        )
+
+        if update.exit_code is not None:
+            job.exit_code = update.exit_code
+            job.finished_at = datetime.now(UTC)
+            job.process_id = None
+
+    return _sorted_background_jobs(context)
+
+
+def format_background_jobs(jobs: list[BackgroundJob]) -> str:
+    if not jobs:
+        return "QMT background processes:\nNo background processes."
+
+    lines = [
+        "QMT background processes:",
+        "PID\tSTATUS\tELAPSED\tCOMMAND",
+    ]
+
+    for job in jobs:
+        status = "running" if job.exit_code is None else f"exited({job.exit_code})"
+        command = job.command.replace("\n", "\\n")
+        lines.append(f"{job.pid}\t{status}\t{_format_elapsed(job)}\t{command}")
+
+    return "\n".join(lines)
+
+
+def _sorted_background_jobs(context: AgentContext) -> list[BackgroundJob]:
+    return sorted(context.background_jobs.values(), key=lambda job: job.started_at)
+
+
+def _format_elapsed(job: BackgroundJob) -> str:
+    end = job.finished_at or datetime.now(UTC)
+    elapsed_seconds = max(0, int((end - job.started_at).total_seconds()))
+    hours, remainder = divmod(elapsed_seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+
+    return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+
+
+def _process_is_running(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+
+    return True
+
+
+async def _ensure_sandbox(context: AgentContext, workspace: Path) -> Any:
+    if sys.platform != "darwin":
+        raise RuntimeError("exec_command is currently supported on macOS only")
+
+    if context.sandbox is not None:
+        return context.sandbox
+
     from agents.sandbox import Manifest
     from agents.sandbox.sandboxes.unix_local import UnixLocalSandboxClient
 
@@ -763,19 +870,91 @@ async def _exec_in_workspace(
     sandbox = await client.create(
         manifest=Manifest(root=str(workspace)),
     )
+    await sandbox.start()
+    context.sandbox = sandbox
 
-    async with sandbox:
-        result = await sandbox.exec(
-            command,
-            timeout=timeout_seconds,
-            shell=True,
-        )
+    return sandbox
 
-    return {
-        "stdout": result.stdout.decode("utf-8", errors="replace"),
-        "stderr": result.stderr.decode("utf-8", errors="replace"),
-        "exit_code": result.exit_code,
+
+async def _start_background_command(
+    context: AgentContext,
+    sandbox: Any,
+    workspace: Path,
+    command: str,
+) -> dict[str, Any]:
+    job_id = uuid.uuid4().hex[:12]
+    job_directory = workspace / BACKGROUND_JOB_DIR / job_id
+    stdout_log = job_directory / "stdout.log"
+    stderr_log = job_directory / "stderr.log"
+
+    wrapped_command = (
+        f"mkdir -p {shlex.quote(str(job_directory))} && "
+        f"printf '%s%s\\n' {shlex.quote(BACKGROUND_PID_MARKER)} \"$$\" && "
+        "trap 'trap - TERM INT; kill -TERM -- -$$' TERM INT; "
+        f"/bin/sh -c {shlex.quote(command)} "
+        f"> {shlex.quote(str(stdout_log))} 2> {shlex.quote(str(stderr_log))} & "
+        "child=$!; wait \"$child\"; exit \"$?\""
+    )
+
+    update = await sandbox.pty_exec_start(
+        wrapped_command,
+        shell=True,
+        tty=False,
+        yield_time_s=1,
+    )
+
+    pid = _parse_background_pid(update.output)
+
+    if update.process_id is None and update.exit_code is None:
+        raise RuntimeError("background command did not return a managed process")
+
+    now = datetime.now(UTC)
+    job = BackgroundJob(
+        process_id=update.process_id,
+        pid=pid,
+        command=command,
+        started_at=now,
+        stdout_log=_display_path(workspace, stdout_log),
+        stderr_log=_display_path(workspace, stderr_log),
+        exit_code=update.exit_code,
+        finished_at=(now if update.exit_code is not None else None),
+    )
+    context.background_jobs[pid] = job
+
+    result = {
+        "background": True,
+        "pid": pid,
+        "running": update.exit_code is None,
+        "stdout_log": job.stdout_log,
+        "stderr_log": job.stderr_log,
     }
+
+    if update.exit_code is not None:
+        result["exit_code"] = update.exit_code
+
+    return result
+
+
+def _parse_background_pid(output: bytes) -> int:
+    text = output.decode("utf-8", errors="replace")
+
+    for line in text.splitlines():
+        if not line.startswith(BACKGROUND_PID_MARKER):
+            continue
+
+        value = line[len(BACKGROUND_PID_MARKER):].strip()
+
+        try:
+            pid = int(value)
+        except ValueError as exc:
+            raise RuntimeError("background command returned an invalid process ID") from exc
+
+        if pid > 0:
+            return pid
+
+        raise RuntimeError("background command returned an invalid process ID")
+
+    raise RuntimeError("background command did not return a process ID")
 
 
 def _display_path(root: Path, path: Path) -> str:

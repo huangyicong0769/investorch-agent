@@ -18,7 +18,7 @@ from qmt_agent.agents import (
     create_title_agent,
 )
 from qmt_agent.cli import parse_command
-from qmt_agent.config import load_config
+from qmt_agent.config import AppConfig, load_config
 from qmt_agent.context import AgentContext
 from qmt_agent.initializer import initialize
 from qmt_agent.mcp import load_mcp_servers
@@ -29,6 +29,12 @@ from qmt_agent.storage.sessions import (
     get_session_title,
     list_sessions,
     set_session_title,
+)
+from qmt_agent.tools.base import (
+    close_execution,
+    format_background_jobs,
+    list_background_jobs,
+    start_execution,
 )
 
 
@@ -88,6 +94,16 @@ def ask_tool_approval(tool_name: str, arguments: str | None) -> bool:
     return answer in {"y", "yes"}
 
 
+async def create_session_context(config: AppConfig, previous: AgentContext | None = None) -> AgentContext:
+    if previous:
+        await close_execution(previous)
+
+    context = AgentContext(config=config)
+    await start_execution(context)
+
+    return context
+
+
 async def main():
     config = load_config()
 
@@ -122,6 +138,7 @@ async def main():
 
     title_agent = create_title_agent(model)
     summary_agent = create_summary_agent(model)
+    agent_context = await create_session_context(config)
 
     try:
         async with MCPServerManager(mcp_servers) as mcp_manager:
@@ -157,10 +174,8 @@ async def main():
                         case "new":
                             session.close()
                             session_id = uuid.uuid4().hex
-                            session = SQLiteSession(
-                                session_id,
-                                session_db,
-                            )
+                            session = SQLiteSession(session_id, session_db)
+                            agent_context = await create_session_context(config, agent_context)
                             print(f"Started new session: {session_id}")
 
                         case "resume":
@@ -203,10 +218,8 @@ async def main():
                                 continue
 
                             session.close()
-                            session = SQLiteSession(
-                                session_id,
-                                session_db,
-                            )
+                            session = SQLiteSession(session_id, session_db)
+                            agent_context = await create_session_context(config, agent_context)
 
                             title = await asyncio.to_thread(
                                 get_session_title,
@@ -256,14 +269,29 @@ async def main():
                                 session_id,
                                 session_db,
                             )
+                            agent_context = await create_session_context(config, agent_context)
                             print(f"Cleared session and started new session: {session_id}")
+
+                        case "ps":
+                            jobs = await list_background_jobs(agent_context)
+                            print(format_background_jobs(jobs))
 
                         case "exit":
                             print("Exiting...")
                             break
 
                         case "help":
-                            raise NotImplementedError("Help command is not implemented yet.")
+                            print(
+                                "Commands:\n"
+                                "  /help              Show this help.\n"
+                                "  /session           Show the current session.\n"
+                                "  /new               Start a new session.\n"
+                                "  /resume [prefix]   List or resume a session.\n"
+                                "  /title [title]     Show or set the session title.\n"
+                                "  /clear             Clear the current session.\n"
+                                "  /ps                Show background commands.\n"
+                                "  /exit              Exit QMT Agent."
+                            )
 
                         case _:
                             print(f"Unknown command: /{command.name}. For help, type /help.")
@@ -274,7 +302,7 @@ async def main():
                     agent,
                     user_input,
                     session=session,
-                    context=AgentContext(config=config),
+                    context=agent_context,
                 )
 
                 while True:
@@ -314,7 +342,10 @@ async def main():
                     session_db=session_db,
                 )
     finally:
-        session.close()
+        try:
+            await close_execution(agent_context)
+        finally:
+            session.close()
 
 if __name__ == "__main__":
     from agents import set_tracing_disabled

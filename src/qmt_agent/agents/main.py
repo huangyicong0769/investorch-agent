@@ -31,10 +31,13 @@ def create_agent(model: OpenAIResponsesModel, mcp_servers: list[MCPServer] | Non
 
 
 if __name__ == "__main__":
+    import asyncio
+
     from agents import Runner, set_tracing_disabled
     from openai import AsyncOpenAI
 
     from qmt_agent.config import load_config
+    from qmt_agent.tools.base import close_execution, start_execution
 
     set_tracing_disabled(True)
 
@@ -54,10 +57,19 @@ if __name__ == "__main__":
 
     user_input = input("You ")
 
-    result = Runner.run_sync(
-        agent,
-        user_input,
-        context=AgentContext(config=config),
-    )
+    async def run_once():
+        context = AgentContext(config=config)
+
+        try:
+            await start_execution(context)
+            return await Runner.run(
+                agent,
+                user_input,
+                context=context,
+            )
+        finally:
+            await close_execution(context)
+
+    result = asyncio.run(run_once())
 
     print("Agent:", result.final_output)
