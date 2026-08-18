@@ -3,7 +3,6 @@ from __future__ import annotations
 import ast
 import math
 import operator
-import os
 import shlex
 import shutil
 import sys
@@ -15,6 +14,7 @@ from zoneinfo import ZoneInfo
 
 from agents import RunContextWrapper
 from agents.decorators import tool
+from agents.sandbox.errors import PtySessionNotFoundError
 
 from qmt_agent.context import AgentContext, BackgroundJob, ExecutionState
 
@@ -83,7 +83,7 @@ async def exec_command(
     """
     Execute a shell command in the persistent user workspace.
 
-    The command runs with the configured workspace as its current directory and filesystem root. Foreground commands wait for completion. Background commands return a process ID and workspace-relative log paths. This operation always requires user approval.
+    The command runs with the configured workspace as its current directory and filesystem root. Foreground commands wait for completion. Background commands return a process ID and workspace-relative log paths. When background=true, pass the foreground form of the command. Do not append &, nohup, or setsid; the runtime manages backgrounding. This operation always requires user approval.
 
     Args:
         command: Shell command to execute.
@@ -806,22 +806,31 @@ async def list_background_jobs(execution: ExecutionState) -> list[BackgroundJob]
         return _sorted_background_jobs(execution)
 
     for job in execution.background_jobs.values():
-        if job.exit_code is not None or job.process_id is None:
+        if job.status != "running":
             continue
 
-        if _process_is_running(job.pid):
+        if job.process_id is None:
+            job.status = "lost"
+            job.finished_at = datetime.now(UTC)
             continue
 
-        update = await sandbox.pty_write_stdin(
-            session_id=job.process_id,
-            chars="",
-            yield_time_s=0,
-        )
+        try:
+            update = await sandbox.pty_write_stdin(
+                session_id=job.process_id,
+                chars="",
+                yield_time_s=0,
+            )
+        except PtySessionNotFoundError:
+            job.process_id = None
+            job.status = "lost"
+            job.finished_at = datetime.now(UTC)
+            continue
 
         if update.exit_code is not None:
             job.exit_code = update.exit_code
             job.finished_at = datetime.now(UTC)
             job.process_id = None
+            job.status = "exited"
 
     return _sorted_background_jobs(execution)
 
@@ -836,7 +845,13 @@ def format_background_jobs(jobs: list[BackgroundJob]) -> str:
     ]
 
     for job in jobs:
-        status = "running" if job.exit_code is None else f"exited({job.exit_code})"
+        if job.status == "running":
+            status = "running"
+        elif job.status == "lost":
+            status = "lost"
+        else:
+            status = f"exited({job.exit_code})"
+
         command = job.command.replace("\n", "\\n")
         lines.append(f"{job.pid}\t{status}\t{_format_elapsed(job)}\t{command}")
 
@@ -854,17 +869,6 @@ def _format_elapsed(job: BackgroundJob) -> str:
     minutes, seconds = divmod(remainder, 60)
 
     return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
-
-
-def _process_is_running(pid: int) -> bool:
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-
-    return True
 
 
 async def _ensure_sandbox(execution: ExecutionState, workspace: Path) -> Any:
@@ -926,16 +930,18 @@ async def _start_background_command(
 
     now = datetime.now(UTC)
     job = BackgroundJob(
+        job_id=job_id,
         process_id=update.process_id,
         pid=pid,
         command=command,
         started_at=now,
         stdout_log=_display_path(workspace, stdout_log),
         stderr_log=_display_path(workspace, stderr_log),
+        status=("running" if update.exit_code is None else "exited"),
         exit_code=update.exit_code,
         finished_at=(now if update.exit_code is not None else None),
     )
-    execution.background_jobs[pid] = job
+    execution.background_jobs[job_id] = job
 
     result = {
         "background": True,

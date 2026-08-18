@@ -16,6 +16,12 @@ TodoStatus = Literal[
     "failed",
 ]
 
+BackgroundJobStatus = Literal[
+    "running",
+    "exited",
+    "lost",
+]
+
 class TodoItem(TypedDict):
     content: str
     status: TodoStatus
@@ -23,12 +29,14 @@ class TodoItem(TypedDict):
 
 @dataclass
 class BackgroundJob:
+    job_id: str
     process_id: int | None
     pid: int
     command: str
     started_at: datetime
     stdout_log: str
     stderr_log: str
+    status: BackgroundJobStatus
     exit_code: int | None = None
     finished_at: datetime | None = None
 
@@ -37,7 +45,7 @@ class BackgroundJob:
 class ExecutionState:
     workspace_root: Path | None = None
     sandbox: Any | None = None
-    background_jobs: dict[int, BackgroundJob] = field(default_factory=dict)
+    background_jobs: dict[str, BackgroundJob] = field(default_factory=dict)
 
 
 @dataclass
