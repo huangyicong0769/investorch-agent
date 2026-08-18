@@ -409,7 +409,17 @@ def _validate_config_data(data: dict[str, Any], root: Path) -> None:
     _require_string(data, "paths.root")
 
     workspace = _resolve_under_root(root, _require_string(data, "paths.workspace"), "paths.workspace")
-    _resolve_under_root(root, _require_string(data, "paths.state"), "paths.state")
+    state = _resolve_under_root(root, _require_string(data, "paths.state"), "paths.state")
+
+    if workspace == root:
+        raise ConfigError("paths.workspace must be a strict subdirectory of paths.root")
+
+    if state == root:
+        raise ConfigError("paths.state must be a strict subdirectory of paths.root")
+
+    if workspace == state or workspace.is_relative_to(state) or state.is_relative_to(workspace):
+        raise ConfigError("paths.workspace and paths.state must not overlap")
+
     _resolve_under_root(workspace, _require_string(data, "execution.background_job_dir"), "execution.background_job_dir")
 
     _require_int(data, "observability.summary_threshold", minimum=1)
