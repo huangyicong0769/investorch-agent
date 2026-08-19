@@ -225,6 +225,22 @@ Multi-agent orchestration
 
 这些能力按需求逐步启用。
 
+### 3.1 Curated research data 与 future QMT live/trading
+
+Curated research data 是研究、回测和基本面分析使用的只读数据底座；future QMT live/trading 是另一条需要审批的交易执行链路，两者不共享一个隐含的生命周期或执行接口。
+
+当前主系统只通过通用 `qmt_agent.data` facade 获取 curated query surface；具体 backend、配置文件和 backend-specific paths 只存在于 transitional wrapper，facade 不复制 schema、PIT、复权、universe 或 provenance 语义。
+
+当前 wrapper 的 bootstrap path 调用官方配置与 layout API，query path 接入官方 read-only MCP；数据生命周期、Tushare / xtdata adapter 和 QMT live/trading 仍是后续需求，不应在当前架构图中视为已完成。
+
+```text
+Current curated research path:
+Main Agent -> qmt_agent.data facade -> transitional backend wrapper -> official read-only MCP -> curated research data
+
+Future live/trading path:
+Main Agent -> approved trading tools -> QMT / XtQuant gateway
+```
+
 ---
 
 ## 4. 模型调用架构
@@ -524,6 +540,8 @@ Agent / LLM 根据 Tool 执行结果决定如何向用户解释或继续处理�
 
 QMT 模块只负责与 XtQuant / QMT 交互。
 
+QMT / XtQuant 是 future live/trading path；当前 curated research data 通过通用 data facade 和官方 read-only query surface 提供，不把交易网关当作研究数据底座。
+
 建议：
 
 ```text
@@ -664,6 +682,10 @@ src/qmt_agent/
 │   ├── main.py
 │   └── prompts.py
 │
+├── data/
+│   ├── __init__.py
+│   └── cnequity.py  # transitional backend wrapper only
+│
 ├── tools/
 │   ├── market.py
 │   ├── portfolio.py
@@ -692,6 +714,7 @@ src/qmt_agent/
 
 ```text
 agents/
+data/
 tools/
 qmt/
 main.py
