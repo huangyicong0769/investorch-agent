@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 import os
 import tomllib
+import uuid
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
@@ -29,12 +30,13 @@ DEFAULT_CONFIG = {
 }
 
 RESTART_REQUIRED_KEYS = {
-    "paths.data",
-    "paths.workspace",
-    "paths.state",
-    "model.name",
-    "model.base_url",
+    "execution.durable_job_dir",
     "mcp.default_timeout_seconds",
+    "model.base_url",
+    "model.name",
+    "paths.data",
+    "paths.state",
+    "paths.workspace",
 }
 
 class ConfigError(ValueError):
@@ -75,6 +77,10 @@ class AppConfig:
     @property
     def background_job_dir(self) -> Path:
         return _resolve_under_root(self.workspace_dir, self["execution.background_job_dir"], "execution.background_job_dir")
+
+    @property
+    def durable_job_dir(self) -> Path:
+        return _resolve_under_root(self.state_dir, self["execution.durable_job_dir"], "execution.durable_job_dir")
 
     @property
     def sessions_db(self) -> Path:
@@ -470,6 +476,10 @@ def _validate_config_data(data: dict[str, Any], root: Path) -> None:
         raise ConfigError("paths.data and paths.state must not overlap")
 
     _resolve_under_root(workspace, _require_string(data, "execution.background_job_dir"), "execution.background_job_dir")
+    durable_job_dir = _resolve_under_root(state, _require_string(data, "execution.durable_job_dir"), "execution.durable_job_dir")
+
+    if durable_job_dir == state:
+        raise ConfigError("execution.durable_job_dir must be a strict subdirectory of paths.state")
 
     _require_int(data, "observability.summary_threshold", minimum=1)
     timezone = _require_string(data, "runtime.default_timezone")
@@ -484,6 +494,26 @@ def _validate_config_data(data: dict[str, Any], root: Path) -> None:
 
     if max_timeout < default_timeout:
         raise ConfigError("execution.max_timeout_seconds must be >= execution.default_timeout_seconds")
+
+    log_max_bytes = _require_int(data, "execution.background_log_max_bytes", minimum=1)
+    log_retained_bytes = _require_int(data, "execution.background_log_retained_bytes", minimum=1)
+    log_chunk_bytes = _require_int(data, "execution.background_log_chunk_bytes", minimum=1)
+    output_tail_chars = _require_int(data, "execution.background_output_tail_chars", minimum=1)
+    job_id_chars = _require_int(data, "execution.background_job_id_chars", minimum=1)
+    _require_int(data, "execution.background_status_timeout_seconds", minimum=1)
+    _require_int(data, "execution.background_stop_timeout_seconds", minimum=1)
+
+    if log_retained_bytes > log_max_bytes:
+        raise ConfigError("execution.background_log_retained_bytes must be <= execution.background_log_max_bytes")
+
+    if output_tail_chars > log_retained_bytes:
+        raise ConfigError("execution.background_output_tail_chars must be <= execution.background_log_retained_bytes")
+
+    if log_chunk_bytes > log_max_bytes:
+        raise ConfigError("execution.background_log_chunk_bytes must be <= execution.background_log_max_bytes")
+
+    if job_id_chars > len(uuid.UUID(int=0).hex):
+        raise ConfigError(f"execution.background_job_id_chars must be <= {len(uuid.UUID(int=0).hex)}")
 
     _require_int(data, "explore.max_full_read_bytes", minimum=1)
     _require_int(data, "explore.max_read_chars", minimum=1)

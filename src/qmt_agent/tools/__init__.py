@@ -11,6 +11,7 @@ from .base import (
     start_execution,
 )
 from .config import get_config, update_config
+from .data import data_run, data_status
 from .mcp import (
     configure_mcp_server,
     list_mcp_servers,
@@ -22,6 +23,8 @@ __all__ = (
     "calculate",
     "close_execution",
     "configure_mcp_server",
+    "data_run",
+    "data_status",
     "delete",
     "edit",
     "exec_command",

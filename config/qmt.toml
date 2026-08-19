@@ -21,6 +21,14 @@ default_timezone = "Asia/Shanghai"
 default_timeout_seconds = 30
 max_timeout_seconds = 300
 background_job_dir = ".qmt-processes"
+background_job_id_chars = 12
+background_log_chunk_bytes = 65536
+background_log_max_bytes = 16777216
+background_log_retained_bytes = 8388608
+background_output_tail_chars = 16384
+background_status_timeout_seconds = 2
+background_stop_timeout_seconds = 2
+durable_job_dir = "background-jobs"
 
 [explore]
 max_full_read_bytes = 65536
