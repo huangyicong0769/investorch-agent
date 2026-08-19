@@ -149,10 +149,7 @@ async def main(sync: bool = False):
         openai_client=client,
     )
 
-    data_mcp_servers = load_query_servers(
-        config.root,
-        config["mcp.default_timeout_seconds"],
-    )
+    data_mcp_servers = load_query_servers(config.root, config["mcp.default_timeout_seconds"])
     user_mcp_servers = load_mcp_servers(
         config.mcp_config_path,
         config.secrets,
@@ -173,10 +170,7 @@ async def main(sync: bool = False):
     try:
         await start_execution(execution, config.workspace_dir)
 
-        async with MCPServerManager(
-            [*data_mcp_servers, *user_mcp_servers],
-            drop_failed_servers=True,
-        ) as mcp_manager:
+        async with MCPServerManager([*data_mcp_servers, *user_mcp_servers], drop_failed_servers=True) as mcp_manager:
             if any(
                 failed_server is data_server
                 for failed_server in mcp_manager.failed_servers
