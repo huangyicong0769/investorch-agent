@@ -78,16 +78,20 @@ def status(config_root: Path, timeout_seconds: int | float) -> dict[str, Any]:
         raise RuntimeError(f"Unable to read curated-data status: {detail}")
     output = result.stdout.strip()
     if output == "No runs yet.":
-        return {"state": "not_initialized", "latest_run": None}
+        return {"state": "no_runs", "latest_run": None, "batch_counts": {}}
     try:
         summary = json.loads(output)
     except json.JSONDecodeError as exc:
         raise RuntimeError("Curated-data status returned an invalid response") from exc
-    if not isinstance(summary, dict) or not isinstance(summary.get("run"), dict):
+    if not isinstance(summary, dict) or not isinstance(summary.get("run"), dict) or not isinstance(summary.get("batch_counts"), dict):
         raise RuntimeError("Curated-data status returned an invalid response")
     run = summary["run"]
-    latest_run = {"run_id": run.get("run_id"), "status": run.get("status"), "started_at": run.get("started_at"), "finished_at": run.get("finished_at"), "rows_read": run.get("rows_read"), "rows_written": run.get("rows_written"), "error": run.get("error_message")}
-    return {"state": "initialized", "latest_run": latest_run}
+    latest_run = {"run_id": run.get("run_id"), "job_name": run.get("job_name"), "status": run.get("status"), "started_at": run.get("started_at"), "finished_at": run.get("finished_at"), "rows_read": run.get("rows_read"), "rows_written": run.get("rows_written"), "error": run.get("error_message")}
+    normalized = {"state": "has_runs", "latest_run": latest_run, "batch_counts": summary["batch_counts"]}
+    for key in ("orphaned_running_runs", "orphaned_note"):
+        if key in summary:
+            normalized[key] = summary[key]
+    return normalized
 
 
 def start_operation(config: AppConfig, operation: DataOperation, trade_date: str | None = None, run_id: str | None = None, full_history: bool = False) -> dict[str, Any]:
@@ -96,11 +100,11 @@ def start_operation(config: AppConfig, operation: DataOperation, trade_date: str
     config_path = (config_root / CONFIG_FILENAME).resolve()
     command = [sys.executable, "-m", "cnequity"]
     if operation == "initialize":
-        command.extend(["init", "--config", str(config_path), "--profile", "full" if full_history else "quick", "--quiet"])
+        command.extend(["init", "--config", str(config_path), "--profile", "full" if full_history else "quick"])
         if trade_date:
             command.extend(["--trade-date", trade_date])
     elif operation == "refresh_core":
-        command.extend(["run", "daily", "--config", str(config_path), "--group", "core", "--quiet"])
+        command.extend(["run", "daily", "--config", str(config_path), "--group", "core"])
         if trade_date:
             command.extend(["--trade-date", trade_date])
     elif operation == "resume":

@@ -34,9 +34,14 @@ def status(config: AppConfig, timeout_seconds: int | float, job_id: str | None =
         result = backend_status(config.root, timeout_seconds)
     except RuntimeError as exc:
         result = {"state": "unavailable", "error": str(exc)}
-    result["jobs"] = list_jobs(config)
+    jobs = list_jobs(config)
+    result["jobs"] = jobs
     if job_id is not None:
-        result["job_output"] = {"job_id": job_id, **read_job_output(config, job_id)}
+        job_output = {"job_id": job_id, **read_job_output(config, job_id)}
+        selected_job = next((job for job in jobs if job.get("job_id") == job_id), None)
+        if selected_job and selected_job.get("operation") == "verify":
+            job_output["interpretation_hint"] = "Interpret verify with its exit_code together with bounded stdout/stderr; a non-zero exit may report diagnostics and does not authorize automatic repair."
+        result["job_output"] = job_output
     return result
 
 

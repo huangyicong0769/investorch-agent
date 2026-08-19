@@ -19,7 +19,7 @@ async def data_status(context: RunContextWrapper[AgentContext], job_id: str | No
         job_id: Optional job ID returned by data_run. The strict schema still requires this nullable field; pass null to list jobs without their log output.
 
     Returns:
-        The latest reported run status, QMT-owned durable background jobs, and bounded stdout/stderr output when job_id is provided. A running job may still have a previous latest-run report; use the job receipt and exit code for that process.
+        An object with state no_runs, has_runs, or unavailable, the latest official run report and batch counts when available, QMT-owned durable jobs with progress logs and exit codes, and bounded stdout/stderr when job_id is provided. A running job may still have a previous latest-run report; for verify, read the bounded output with its exit code and do not auto-repair.
     """
     config = context.context.config
     return await asyncio.to_thread(status, config, config["execution.default_timeout_seconds"], job_id)
@@ -39,7 +39,7 @@ async def data_run(context: RunContextWrapper[AgentContext], operation: DataOper
         full_history: Boolean that defaults to false; pass false unless initialize should request the full history, because the strict schema requires the field.
 
     Returns:
-        The accepted background job ID, PID, operation, running status, and QMT-owned stdout/stderr log paths. It is a receipt for the background process, not a completed data result; poll data_status with the returned job ID.
+        The accepted background job ID, PID, operation, running status, and QMT-owned stdout/stderr log paths. It is a receipt for the background process, not a completed data result; poll data_status with the returned job ID to inspect progress and exit_code. A non-zero verify exit may report diagnostics and must not trigger automatic repair.
     """
     config = context.context.config
     return await asyncio.to_thread(start_operation, config, operation, trade_date, run_id, full_history)
