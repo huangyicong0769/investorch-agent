@@ -63,7 +63,7 @@ def initialize(config: AppConfig, *, copy_bootstrap: bool = True) -> bool:
     _ensure_directory(config.state_dir, name="state")
 
     _ensure_directory(config.data_dir, name="data")
-    initialize_data(config.data_dir, config.root)
+    initialize_data(config.data_dir, config.root, config["execution.default_timeout_seconds"])
 
     # Session schema initialization is idempotent.
     init_session_metadata(config.sessions_db)

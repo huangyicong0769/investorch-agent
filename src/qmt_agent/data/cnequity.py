@@ -9,8 +9,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from agents.mcp import MCPServer, MCPServerStdio
-from cnequity.config import Config, load_config, validate_config, write_user_config
-from cnequity.storage.layout import init_data_layout
+from cnequity.config import write_user_config
 
 from qmt_agent.background import start_job
 from qmt_agent.config import AppConfig, ConfigError
@@ -20,7 +19,7 @@ DATA_SUBDIRECTORY = "cnequity"
 DataOperation = Literal["initialize", "refresh", "resume", "verify"]
 
 
-def initialize(managed_data_dir: Path, config_root: Path) -> None:
+def initialize(managed_data_dir: Path, config_root: Path, timeout_seconds: int | float) -> None:
     """Bootstrap the backend config and local layout without ingestion."""
     managed_data_dir = managed_data_dir.expanduser().resolve()
     config_root = config_root.expanduser().resolve()
@@ -37,12 +36,13 @@ def initialize(managed_data_dir: Path, config_root: Path) -> None:
         except Exception as exc:
             raise ConfigError(f"Unable to create managed data configuration: {config_path}: {exc}") from exc
 
-    config = _load_and_validate(config_path)
-
-    try:
-        init_data_layout(config)
-    except Exception as exc:
-        raise ConfigError(f"Unable to initialize managed data layout: {exc}") from exc
+    commands = (
+        ["config", "validate", "--config", str(config_path)],
+        ["doctor", "--json", "--config", str(config_path)],
+        ["init", "--layout-only", "--config", str(config_path)],
+    )
+    for command in commands:
+        _run_bootstrap_command(config_root, command, timeout_seconds)
 
 
 def load_query_servers(config_root: Path, timeout_seconds: int | float) -> list[MCPServer]:
@@ -121,19 +121,12 @@ def start_operation(config: AppConfig, operation: DataOperation, trade_date: str
     return start_job(config, operation, command, config_root)
 
 
-def _load_and_validate(config_path: Path) -> Config:
+def _run_bootstrap_command(config_root: Path, command: list[str], timeout_seconds: int | float) -> None:
     try:
-        config = load_config(config_path)
-    except Exception as exc:
-        raise ConfigError(f"Unable to load managed data configuration {config_path}: {exc}") from exc
+        result = subprocess.run([sys.executable, "-m", "cnequity", *command], cwd=config_root, capture_output=True, text=True, timeout=timeout_seconds, check=False)
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise ConfigError(f"Unable to run curated-data bootstrap command {' '.join(command)}: {exc}") from exc
 
-    try:
-        errors = validate_config(config)
-    except Exception as exc:
-        raise ConfigError(f"Unable to validate managed data configuration {config_path}: {exc}") from exc
-
-    if errors:
-        joined = "; ".join(str(error) for error in errors)
-        raise ConfigError(f"Managed data configuration is invalid: {joined}")
-
-    return config
+    if result.returncode != 0:
+        detail = result.stderr.strip() or result.stdout.strip() or f"exit code {result.returncode}"
+        raise ConfigError(f"Curated-data bootstrap command {' '.join(command)} failed: {detail}")

@@ -18,9 +18,9 @@ from .cnequity import status as backend_status
 DataOperation = Literal["initialize", "refresh", "resume", "verify"]
 
 
-def initialize(managed_data_dir: Path, config_root: Path) -> None:
+def initialize(managed_data_dir: Path, config_root: Path, timeout_seconds: int | float) -> None:
     """Create or validate the managed data configuration and local layout."""
-    initialize_backend(managed_data_dir, config_root)
+    initialize_backend(managed_data_dir, config_root, timeout_seconds)
 
 
 def load_query_servers(config_root: Path, timeout_seconds: int | float) -> list[MCPServer]:
