@@ -1,7 +1,6 @@
 import asyncio
 import uuid
 from pathlib import Path
-from typing import Any
 
 from agents import (
     Agent,
@@ -11,7 +10,7 @@ from agents import (
     TResponseInputItem,
     set_tracing_disabled,
 )
-from agents.mcp import MCPServer, MCPServerManager
+from agents.mcp import MCPServerManager
 from openai import AsyncOpenAI
 
 from qmt_agent.agents import (
@@ -22,9 +21,8 @@ from qmt_agent.agents import (
     create_title_agent,
     run_bootstrap_sync,
 )
-from qmt_agent.background import list_jobs
 from qmt_agent.cli import parse_command, parse_startup_args
-from qmt_agent.config import AppConfig, load_config
+from qmt_agent.config import load_config
 from qmt_agent.context import AgentContext, ExecutionState
 from qmt_agent.data import load_query_servers
 from qmt_agent.initializer import initialize, sync_bootstrap_files
@@ -45,142 +43,11 @@ from qmt_agent.tools import (
 )
 
 
-_DATA_REFRESH_OPERATIONS = frozenset({"initialize", "refresh_core", "resume"})
-
-
-def _active_mcp_servers(
-    data_mcp_manager: MCPServerManager,
-    user_mcp_manager: MCPServerManager,
-) -> list[MCPServer]:
-    return [*data_mcp_manager.active_servers, *user_mcp_manager.active_servers]
-
-
-def _create_runtime_agent(
-    model: OpenAIResponsesModel,
-    data_mcp_manager: MCPServerManager,
-    user_mcp_manager: MCPServerManager,
-) -> Agent:
-    return create_agent(
-        model=model,
-        mcp_servers=_active_mcp_servers(data_mcp_manager, user_mcp_manager),
-    )
-
-
-def _clone_runtime_agent(
-    agent: Agent,
-    data_mcp_manager: MCPServerManager,
-    user_mcp_manager: MCPServerManager,
-) -> Agent:
-    mcp_config = dict(agent.mcp_config)
-    mcp_config["include_server_in_tool_names"] = True
-    return agent.clone(
-        mcp_servers=_active_mcp_servers(data_mcp_manager, user_mcp_manager),
-        mcp_config=mcp_config,
-    )
-
-
-def _observed_terminal_job_ids(jobs: list[dict[str, Any]]) -> set[str]:
-    return {
-        job["job_id"]
-        for job in jobs
-        if job.get("status") != "running"
-        and isinstance(job.get("job_id"), str)
-    }
-
-
-def _next_successful_data_job(
-    jobs: list[dict[str, Any]],
-    observed_job_ids: set[str],
-    *,
-    preferred_job_ids: set[str] | None = None,
-) -> dict[str, Any] | None:
-    candidates = [
-        job
-        for job in jobs
-        if isinstance(job.get("job_id"), str)
-        and job["job_id"] not in observed_job_ids
-        and job.get("status") == "exited"
-        and type(job.get("exit_code")) is int
-        and job["exit_code"] == 0
-        and job.get("operation") in _DATA_REFRESH_OPERATIONS
-    ]
-    if preferred_job_ids:
-        pending_candidate = next(
-            (job for job in candidates if job["job_id"] in preferred_job_ids),
-            None,
-        )
-        if pending_candidate is not None:
-            return pending_candidate
-    return candidates[0] if candidates else None
-
-
-def _report_data_reconnect_failure(job_id: str, detail: str) -> None:
-    print(
-        f"Curated-data MCP refresh for job {job_id} failed ({detail}); "
-        "the current Agent is unchanged and it will be retried on the next normal turn."
-    )
-
-
-async def _refresh_agent_after_data_job(
-    agent: Agent,
-    config: AppConfig,
-    data_mcp_manager: MCPServerManager,
-    user_mcp_manager: MCPServerManager,
-    observed_job_ids: set[str],
-    pending_agent_refresh_job_ids: set[str],
-) -> Agent:
-    jobs = await asyncio.to_thread(list_jobs, config)
-    candidate = _next_successful_data_job(
-        jobs,
-        observed_job_ids,
-        preferred_job_ids=pending_agent_refresh_job_ids,
-    )
-    if candidate is None:
-        return agent
-
-    job_id = candidate["job_id"]
-    if job_id in pending_agent_refresh_job_ids:
-        try:
-            refreshed_agent = _clone_runtime_agent(
-                agent,
-                data_mcp_manager,
-                user_mcp_manager,
-            )
-        except Exception as exc:
-            _report_data_reconnect_failure(job_id, type(exc).__name__)
-            return agent
-        pending_agent_refresh_job_ids.remove(job_id)
-        observed_job_ids.add(job_id)
-        return refreshed_agent
-
-    if not data_mcp_manager.failed_servers:
-        observed_job_ids.add(job_id)
-        return agent
-
-    try:
-        await data_mcp_manager.reconnect(failed_only=True)
-    except Exception as exc:
-        _report_data_reconnect_failure(job_id, type(exc).__name__)
-        return agent
-
-    if data_mcp_manager.failed_servers or data_mcp_manager.errors:
-        _report_data_reconnect_failure(job_id, "one or more data servers remain unavailable")
-        return agent
-
-    pending_agent_refresh_job_ids.add(job_id)
-    try:
-        refreshed_agent = _clone_runtime_agent(
-            agent,
-            data_mcp_manager,
-            user_mcp_manager,
-        )
-    except Exception as exc:
-        _report_data_reconnect_failure(job_id, type(exc).__name__)
-        return agent
-
-    pending_agent_refresh_job_ids.remove(job_id)
-    observed_job_ids.add(job_id)
-    return refreshed_agent
+_DATA_QUERY_UNAVAILABLE_HINT = (
+    "Curated-data query service unavailable. If this is a new installation, "
+    "use the Agent to initialize the managed data subsystem; after it completes, "
+    "restart QMT Agent."
+)
 
 
 async def generate_session_title(title_agent: Agent, history: list[TResponseInputItem]) -> str:
@@ -291,10 +158,6 @@ async def main(sync: bool = False):
         config.secrets,
         config["mcp.default_timeout_seconds"],
     )
-    observed_job_ids = _observed_terminal_job_ids(
-        await asyncio.to_thread(list_jobs, config),
-    )
-    pending_agent_refresh_job_ids: set[str] = set()
 
     session_db = config.sessions_db
 
@@ -310,23 +173,17 @@ async def main(sync: bool = False):
     try:
         await start_execution(execution, config.workspace_dir)
 
-        async with (
-            MCPServerManager(
-                user_mcp_servers,
-                drop_failed_servers=True,
-                strict=False,
-            ) as user_mcp_manager,
-            MCPServerManager(
-                data_mcp_servers,
-                drop_failed_servers=True,
-                strict=False,
-            ) as data_mcp_manager,
-        ):
-            agent = _create_runtime_agent(
-                model,
-                data_mcp_manager,
-                user_mcp_manager,
-            )
+        async with MCPServerManager(
+            [*data_mcp_servers, *user_mcp_servers],
+            drop_failed_servers=True,
+        ) as mcp_manager:
+            if any(
+                failed_server is data_server
+                for failed_server in mcp_manager.failed_servers
+                for data_server in data_mcp_servers
+            ):
+                print(_DATA_QUERY_UNAVAILABLE_HINT)
+            agent = create_agent(model=model, mcp_servers=mcp_manager.active_servers)
 
             while True:
                 user_input = (
@@ -475,14 +332,6 @@ async def main(sync: bool = False):
 
                     continue
 
-                agent = await _refresh_agent_after_data_job(
-                    agent,
-                    config,
-                    data_mcp_manager,
-                    user_mcp_manager,
-                    observed_job_ids,
-                    pending_agent_refresh_job_ids,
-                )
                 agent_context = AgentContext(config=config, execution=execution)
                 result = Runner.run_streamed(
                     agent,
