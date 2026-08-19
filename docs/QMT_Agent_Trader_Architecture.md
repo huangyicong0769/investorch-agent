@@ -231,18 +231,18 @@ Curated research data 是研究、回测和基本面分析使用的只读数据�
 
 当前主系统只通过通用 `qmt_agent.data` facade 获取 curated query、status 和 approved lifecycle surface；具体 backend、配置文件和 backend-specific paths 只存在于 transitional wrapper，facade 不复制 schema、PIT、复权、universe 或 provenance 语义。
 
-当前 wrapper 的 bootstrap path 调用官方配置与 layout API，仅建立或校验本地 layout，不做网络 ingestion；query path 接入官方 read-only MCP；lifecycle path 将通用 `initialize` / `refresh_core` / `resume` / `verify` 操作映射到官方固定 CLI。`refresh_core` 仅覆盖 foundational/core curated refresh，不代表完整 daily、backfill、live 或任意 group；Tushare / xtdata adapter 和 QMT live/trading 仍是后续需求。
+当前 wrapper 负责把官方 bootstrap、只读 query 和 approved lifecycle 能力接入通用 facade；具体工具、参数、状态、receipt、startup/restart 行为和 version-specific limitations 由 bootstrap-managed workspace `memory/curated-data.md` 维护。
 
-QMT 只持有通用 lifecycle job receipt、进程状态、受限日志文件和有界日志返回，并用 generic lifecycle flock 串行化 managed lifecycle jobs，以支持审批、后台运行、`data_status` 与跨会话 receipt 恢复；run manifest、checkpoint、内部 run lock、staging、compact、repair 和 orphan reconciliation 仍由官方 backend 拥有，QMT 不扫描或修改这些内部状态。`data_status` 的 `no_runs`、`has_runs` 和 `unavailable` 只描述官方状态可用性，`has_runs` 不表示数据湖 ready 或 complete；`resume` 只接受用户明确选择的 opaque run_id 并再次审批，QMT 不自动关联 lost job、自动 retry、repair 或推断 subsystem recovery。
+QMT 只拥有通用配置/root wiring、lifecycle boundary 和 QMT 自身的 job tracking；official backend 仍拥有 schema、PIT、adjustment、universe、provenance、manifest、checkpoint、layout、repair 和 internal locks，QMT 不扫描或修改这些内部状态。
 
-query 与 user servers 在 QMT startup 由单一 MCP manager 一起探测；built-in query server 若 startup connection unavailable 或失败，会被 SDK guard 丢弃而不阻止 QMT 继续运行，lifecycle tools 仍常驻，startup CLI 只打印一次中性的 unavailable/new-install initialize/restart 提示。若 query tools 不可用，Agent 先用 `data_status` 检查 managed data subsystem；只有检查显示 new/uninitialized（如 `no_runs`）时才提供经审批的 `data_run` 初始化，成功 receipt 完成后当前进程不会动态获得 query tools，也不重建 Agent 或改变 user MCP 连接，Agent 应提示用户重启 QMT Agent，由下一次 startup 重新探测。本地 MCP 工具名由 SDK 加入 server prefix 以避免冲突，主系统和 prompt 只依赖语义工具名，不硬编码具体 prefix 格式。
+运行时 paths、current status、progress、logs 和 job IDs 由 configuration system 与 tools 提供，不写入 memory；`MEMORY.md` index、`memory/curated-data.md` template 和 bootstrap `--sync` 只维护可跨会话复用的 operational knowledge。`MAIN_AGENT_INSTRUCTIONS` 只保留 implementation-neutral 的量化市场数据治理原则，不包含 runtime tool、backend 或 lifecycle contract。
 
 ```text
 Current curated research path:
-QMT startup -> qmt_agent.data facade -> single MCP manager -> transitional backend wrapper -> official read-only MCP -> curated research data
+QMT startup -> qmt_agent.data facade -> managed query surface -> curated research data
 
 Current curated lifecycle path:
-Main Agent -> approved data_status / data_run -> qmt_agent.data facade -> transitional backend wrapper -> official CLI
+Main Agent -> approved lifecycle surface -> qmt_agent.data facade -> managed backend entrypoint
 
 Future live/trading path:
 Main Agent -> approved trading tools -> QMT / XtQuant gateway
@@ -345,6 +345,8 @@ Agent(
 ### 5.2 `agents/prompts.py`
 
 负责保存 Agent Instructions / Prompt。
+
+`MAIN_AGENT_INSTRUCTIONS` 只保留 implementation-neutral 的量化市场数据治理原则；当前数据系统的工具、生命周期、backend 和已知限制由 bootstrap-managed workspace `memory/curated-data.md` 维护，运行时值通过 configuration system 与 tools 读取。
 
 第一版保持简单。
 
