@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import errno
 import json
 import os
 import signal
@@ -19,22 +20,38 @@ from qmt_agent.config import AppConfig
 
 _METADATA_FILENAME = "job.json"
 _RESULT_FILENAME = "result.json"
+_LOCK_BUSY_MESSAGE = "Another curated-data lifecycle operation is already running."
+
+if os.name == "posix":
+    import fcntl
+else:
+    fcntl = None
 
 
-def start_job(config: AppConfig, operation: str, command: list[str], cwd: Path) -> dict[str, Any]:
+def start_job(config: AppConfig, operation: str, command: list[str], cwd: Path, *, exclusive_lock_path: Path | None = None) -> dict[str, Any]:
     """Start a detached operation and persist generic recovery metadata."""
-    job_id = uuid.uuid4().hex[:config["execution.background_job_id_chars"]]
-    job_dir = config.durable_job_dir / job_id
-    job_dir.mkdir(mode=0o700, parents=True)
-    stdout_log = job_dir / "stdout.log"
-    stderr_log = job_dir / "stderr.log"
-    stdout_log.touch(mode=0o600)
-    stderr_log.touch(mode=0o600)
-    ready_read, ready_write = os.pipe()
-    worker = [sys.executable, "-m", "qmt_agent.background", "--job-dir", str(job_dir), "--cwd", str(cwd.expanduser().resolve()), "--ready-fd", str(ready_read), "--log-chunk-bytes", str(config["execution.background_log_chunk_bytes"]), "--log-max-bytes", str(config["execution.background_log_max_bytes"]), "--log-retained-bytes", str(config["execution.background_log_retained_bytes"]), "--stop-timeout-seconds", str(config["execution.background_stop_timeout_seconds"]), "--", *command]
-
+    lock_fd = _open_exclusive_lock(exclusive_lock_path) if exclusive_lock_path is not None else None
+    job_dir: Path | None = None
+    stdout_log: Path | None = None
+    stderr_log: Path | None = None
+    ready_read = -1
+    ready_write = -1
+    process: subprocess.Popen[Any] | None = None
     try:
-        process = subprocess.Popen(worker, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True, close_fds=True, pass_fds=(ready_read,))
+        job_id = uuid.uuid4().hex[:config["execution.background_job_id_chars"]]
+        job_dir = config.durable_job_dir / job_id
+        job_dir.mkdir(mode=0o700, parents=True)
+        stdout_log = job_dir / "stdout.log"
+        stderr_log = job_dir / "stderr.log"
+        stdout_log.touch(mode=0o600)
+        stderr_log.touch(mode=0o600)
+        ready_read, ready_write = os.pipe()
+        worker = [sys.executable, "-m", "qmt_agent.background", "--job-dir", str(job_dir), "--cwd", str(cwd.expanduser().resolve()), "--ready-fd", str(ready_read), "--log-chunk-bytes", str(config["execution.background_log_chunk_bytes"]), "--log-max-bytes", str(config["execution.background_log_max_bytes"]), "--log-retained-bytes", str(config["execution.background_log_retained_bytes"]), "--stop-timeout-seconds", str(config["execution.background_stop_timeout_seconds"])]
+        if lock_fd is not None:
+            worker.extend(["--lock-fd", str(lock_fd)])
+        worker.extend(["--", *command])
+        pass_fds = (ready_read,) if lock_fd is None else (ready_read, lock_fd)
+        process = subprocess.Popen(worker, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True, close_fds=True, pass_fds=pass_fds)
         os.close(ready_read)
         ready_read = -1
         started_at = datetime.now(UTC).isoformat()
@@ -42,24 +59,56 @@ def start_job(config: AppConfig, operation: str, command: list[str], cwd: Path) 
         os.write(ready_write, b"1")
         os.close(ready_write)
         ready_write = -1
+        return {"job_id": job_id, "pid": process.pid, "status": "running", "operation": operation, "stdout_log": str(stdout_log), "stderr_log": str(stderr_log)}
     except Exception:
         if ready_read >= 0:
             os.close(ready_read)
         if ready_write >= 0:
             os.close(ready_write)
-        if "process" in locals():
+        if process is not None:
             _stop_process_group(config, process)
-        stdout_log.unlink(missing_ok=True)
-        stderr_log.unlink(missing_ok=True)
-        (job_dir / _METADATA_FILENAME).unlink(missing_ok=True)
-        (job_dir / _RESULT_FILENAME).unlink(missing_ok=True)
-        try:
-            job_dir.rmdir()
-        except OSError:
-            pass
+        if stdout_log is not None:
+            stdout_log.unlink(missing_ok=True)
+        if stderr_log is not None:
+            stderr_log.unlink(missing_ok=True)
+        if job_dir is not None:
+            (job_dir / _METADATA_FILENAME).unlink(missing_ok=True)
+            (job_dir / _RESULT_FILENAME).unlink(missing_ok=True)
+            try:
+                job_dir.rmdir()
+            except OSError:
+                pass
+        raise
+    finally:
+        if lock_fd is not None:
+            _close_fd(lock_fd)
+
+
+def _open_exclusive_lock(path: Path) -> int:
+    if os.name != "posix" or fcntl is None:
+        raise RuntimeError("exclusive lifecycle locks require POSIX")
+    path = Path(path)
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    descriptor = os.open(path, os.O_CREAT | os.O_RDWR, 0o600)
+    try:
+        fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        os.fchmod(descriptor, 0o600)
+        return descriptor
+    except BlockingIOError:
+        _close_fd(descriptor)
+        raise RuntimeError(_LOCK_BUSY_MESSAGE) from None
+    except OSError as exc:
+        _close_fd(descriptor)
+        if exc.errno in (errno.EACCES, errno.EAGAIN):
+            raise RuntimeError(_LOCK_BUSY_MESSAGE) from None
         raise
 
-    return {"job_id": job_id, "pid": process.pid, "status": "running", "operation": operation, "stdout_log": str(stdout_log), "stderr_log": str(stderr_log)}
+
+def _close_fd(descriptor: int) -> None:
+    try:
+        os.close(descriptor)
+    except OSError:
+        pass
 
 
 def list_jobs(config: AppConfig) -> list[dict[str, Any]]:
@@ -189,13 +238,16 @@ def _write_json(path: Path, value: dict[str, Any]) -> None:
         raise
 
 
-def _run_worker(job_dir: Path, cwd: Path, command: list[str], log_chunk_bytes: int, log_max_bytes: int, log_retained_bytes: int, stop_timeout_seconds: int) -> int:
+def _run_worker(job_dir: Path, cwd: Path, command: list[str], log_chunk_bytes: int, log_max_bytes: int, log_retained_bytes: int, stop_timeout_seconds: int, lock_fd: int | None = None) -> int:
     stdout_log = job_dir / "stdout.log"
     stderr_log = job_dir / "stderr.log"
     exit_code = 1
     process: subprocess.Popen[bytes] | None = None
     try:
-        process = subprocess.Popen(command, cwd=cwd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        process_kwargs: dict[str, Any] = {"cwd": cwd, "stdin": subprocess.DEVNULL, "stdout": subprocess.PIPE, "stderr": subprocess.PIPE}
+        if lock_fd is not None:
+            process_kwargs["pass_fds"] = (lock_fd,)
+        process = subprocess.Popen(command, **process_kwargs)
         if process.stdout is None or process.stderr is None:
             raise RuntimeError("Unable to capture background operation output")
         stdout_thread = threading.Thread(target=_pump_output, args=(process.stdout, stdout_log, log_chunk_bytes, log_max_bytes, log_retained_bytes), daemon=True)
@@ -253,18 +305,23 @@ def main() -> int:
     parser.add_argument("--log-max-bytes", type=int, required=True)
     parser.add_argument("--log-retained-bytes", type=int, required=True)
     parser.add_argument("--stop-timeout-seconds", type=int, required=True)
+    parser.add_argument("--lock-fd", type=int)
     parser.add_argument("command", nargs=argparse.REMAINDER)
     args = parser.parse_args()
-    command = args.command[1:] if args.command[:1] == ["--"] else args.command
-    if not command:
-        return 2
     try:
-        ready = os.read(args.ready_fd, 1)
+        command = args.command[1:] if args.command[:1] == ["--"] else args.command
+        if not command:
+            return 2
+        try:
+            ready = os.read(args.ready_fd, 1)
+        finally:
+            os.close(args.ready_fd)
+        if ready != b"1" or not (args.job_dir / _METADATA_FILENAME).is_file():
+            return 2
+        return _run_worker(args.job_dir, args.cwd, command, args.log_chunk_bytes, args.log_max_bytes, args.log_retained_bytes, args.stop_timeout_seconds, args.lock_fd)
     finally:
-        os.close(args.ready_fd)
-    if ready != b"1" or not (args.job_dir / _METADATA_FILENAME).is_file():
-        return 2
-    return _run_worker(args.job_dir, args.cwd, command, args.log_chunk_bytes, args.log_max_bytes, args.log_retained_bytes, args.stop_timeout_seconds)
+        if args.lock_fd is not None:
+            _close_fd(args.lock_fd)
 
 
 if __name__ == "__main__":

@@ -118,7 +118,7 @@ def start_operation(config: AppConfig, operation: DataOperation, trade_date: str
         raise ValueError("trade_date is only valid for initialize or refresh")
     if operation != "initialize" and full_history:
         raise ValueError("full_history is only valid for initialize")
-    return start_job(config, operation, command, config_root)
+    return start_job(config, operation, command, config_root, exclusive_lock_path=config.durable_job_dir / ".data-lifecycle.lock")
 
 
 def _run_bootstrap_command(config_root: Path, command: list[str], timeout_seconds: int | float) -> None:
