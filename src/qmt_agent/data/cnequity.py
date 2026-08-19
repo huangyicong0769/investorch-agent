@@ -16,7 +16,7 @@ from qmt_agent.config import AppConfig, ConfigError
 
 CONFIG_FILENAME = "cnequity.toml"
 DATA_SUBDIRECTORY = "cnequity"
-DataOperation = Literal["initialize", "refresh", "resume", "verify"]
+DataOperation = Literal["initialize", "refresh_core", "resume", "verify"]
 
 
 def initialize(managed_data_dir: Path, config_root: Path, timeout_seconds: int | float) -> None:
@@ -99,8 +99,8 @@ def start_operation(config: AppConfig, operation: DataOperation, trade_date: str
         command.extend(["init", "--config", str(config_path), "--profile", "full" if full_history else "quick", "--quiet"])
         if trade_date:
             command.extend(["--trade-date", trade_date])
-    elif operation == "refresh":
-        command.extend(["run", "daily", "--config", str(config_path), "--quiet"])
+    elif operation == "refresh_core":
+        command.extend(["run", "daily", "--config", str(config_path), "--group", "core", "--quiet"])
         if trade_date:
             command.extend(["--trade-date", trade_date])
     elif operation == "resume":
@@ -114,8 +114,8 @@ def start_operation(config: AppConfig, operation: DataOperation, trade_date: str
 
     if operation != "resume" and run_id is not None:
         raise ValueError("run_id is only valid for resume")
-    if operation not in ("initialize", "refresh") and trade_date is not None:
-        raise ValueError("trade_date is only valid for initialize or refresh")
+    if operation not in ("initialize", "refresh_core") and trade_date is not None:
+        raise ValueError("trade_date is only valid for initialize or refresh_core")
     if operation != "initialize" and full_history:
         raise ValueError("full_history is only valid for initialize")
     return start_job(config, operation, command, config_root, exclusive_lock_path=config.durable_job_dir / ".data-lifecycle.lock")

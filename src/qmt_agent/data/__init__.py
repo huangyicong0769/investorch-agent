@@ -15,7 +15,7 @@ from .cnequity import load_query_servers as load_backend_query_servers
 from .cnequity import start_operation as start_backend_operation
 from .cnequity import status as backend_status
 
-DataOperation = Literal["initialize", "refresh", "resume", "verify"]
+DataOperation = Literal["initialize", "refresh_core", "resume", "verify"]
 
 
 def initialize(managed_data_dir: Path, config_root: Path, timeout_seconds: int | float) -> None:
