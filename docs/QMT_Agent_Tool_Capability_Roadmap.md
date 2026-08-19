@@ -23,7 +23,7 @@
         ↓
 接入 curated research data query surface
         ↓
-按审批补足数据生命周期与额外数据源
+按审批补足剩余数据生命周期与额外数据源
         ↓
 再评估 Multi-Agent 与 QMT live/trading
 ```
@@ -147,13 +147,15 @@ exec_command(foreground/background) → completed
 和结构化数据处理都通过它在 Workspace 中执行，不另建 `run_python` 或
 `inspect_table/query_table/summarize_table` DSL Tool。
 
-后续通用层以稳定性维护为主，curated market-data query surface 已进入维护；数据生命周期、Tushare / xtdata adapter 与 QMT live/trading 仍未实现。
+后续通用层以稳定性维护为主，curated market-data query surface 与最小 approved data lifecycle 已接入并进入维护；完整 repair、backfill、catchup、clean、compact、derive、stats、更多数据源（含 Tushare / xtdata adapter）与 QMT live/trading 仍未实现。
 
 ### 3.5 Curated market-data query
 
-当前数据层事实是：通用 `paths.data` / data root 位于 Agent workspace 之外，`qmt_agent.data` 提供 implementation-neutral facade，transitional backend wrapper 负责接入官方只读 MCP query surface。
+当前数据层事实是：通用 `paths.data` / data root 位于 Agent workspace 之外，`qmt_agent.data` 提供 implementation-neutral facade，transitional backend wrapper 负责接入官方只读 MCP query surface 与 approved lifecycle surface。
 
 当前 query surface 只负责研究数据读取；schema、PIT、复权、universe、质量与 provenance 语义仍由官方 backend 拥有，QMT 不复制或直接绕过这些内部规则。
+
+Lifecycle surface 只暴露 `data_status` 与经审批的 `data_run`；状态 `no_runs`、`has_runs`、`unavailable` 不表示数据湖 ready 或 complete，`resume` 需要用户选择 opaque `run_id`，不自动 repair 或 retry。
 
 ---
 
@@ -759,17 +761,18 @@ Curated research data 已进入实现，但项目没有因此建立一个覆盖�
 - 通用 data root 位于 Agent workspace 之外。
 - `qmt_agent.data` 提供 implementation-neutral facade。
 - transitional backend wrapper 接入官方只读 MCP query surface。
-- `data_status` 通过官方接口读取最近运行状态，并恢复 QMT 自有的通用 lifecycle job receipt。
-- `data_run` 以审批和固定 argv 映射提供 `initialize` / `refresh` / `resume` / `verify`，长任务脱离 workspace sandbox 后台运行，`/ps` 可跨会话显示其通用进程状态。
+- `data_status` 通过官方接口读取最近运行状态，归一化为 `no_runs` / `has_runs` / `unavailable`，并恢复 QMT 自有的通用 lifecycle job receipt、进度、退出码和有界 stdout/stderr；`has_runs` 只表示存在官方 run，不表示数据湖 ready 或 complete。
+- `data_run` 以审批和固定 argv 映射提供 `initialize` / `refresh_core` / `resume` / `verify`；其中 `refresh_core` 仅是 foundational/core curated refresh，不是完整 daily、backfill、live 或任意 group；长任务脱离 workspace sandbox 后台运行，`/ps` 可跨会话显示其通用进程状态。
+- `verify` 的非零退出必须结合 receipt 的 exit_code 与有界 stdout/stderr 解读，不授权自动 repair；成功的 `initialize` / `refresh_core` / `resume` job 只在下一次正常 Runner turn 尝试一次 data-only query MCP reconnect。
 
 当前未实现：
 
-- lifecycle 的 repair、backfill、catchup、clean、compact、derive、stats、sources、任意 dataset/group/worker 参数与自动 retry。
+- lifecycle 的 repair、backfill、catchup、clean、compact、derive、stats、sources、完整 daily、任意 dataset/group/worker 参数与自动 retry。
 - Tushare adapter。
 - xtdata adapter。
 - QMT live/trading 接入与自动交易。
 
-Data schema、PIT、复权、universe、质量、provenance、run manifest、checkpoint、锁、内部恢复与 backend layout 仍由官方 subsystem 拥有；QMT 只编排官方入口并跟踪自己的进程 receipt，后续抽象必须继续由真实需求驱动。
+Data schema、PIT、复权、universe、质量、provenance、run manifest、checkpoint、内部 run lock、内部恢复与 backend layout 仍由官方 subsystem 拥有；QMT 只编排官方入口、跟踪自己的进程 receipt 并用 generic lifecycle flock 串行化 managed jobs，后续抽象必须继续由真实需求驱动。
 
 ---
 
@@ -886,13 +889,15 @@ Trading Agent
 [✓] implementation-neutral data root outside the Agent workspace
 [✓] generic qmt_agent.data facade with a transitional backend wrapper
 [✓] official read-only MCP query surface
-[✓] approved data lifecycle status / run operations with initialize / refresh / resume / verify
-[✓] persistent generic lifecycle job tracking and recovery through data_status and /ps
+[✓] approved data lifecycle status / run operations with initialize / refresh_core / resume / verify
+[✓] persistent generic lifecycle receipt, progress, bounded-output, and verify-diagnostic tracking through data_status and /ps
+[✓] one-shot data-only query MCP reconnect after successful initialize / refresh_core / resume on the next normal Runner turn
+[✓] SDK-managed server-prefixed local MCP tool names without prompt-level prefix assumptions
 [ ] Tushare adapter
 [ ] xtdata adapter
 ```
 
-当前 query surface 面向 curated research data；它不等同于 QMT live/trading。Lifecycle mutation 只通过审批后的 `data_run` 固定操作进入 transitional wrapper，不通过 query MCP 或任意 shell 开放。
+当前 query surface 面向 curated research data；它不等同于 QMT live/trading。Lifecycle mutation 只通过审批后的 `data_run` 固定操作进入 transitional wrapper，不通过 query MCP 或任意 shell 开放；当前 lifecycle 仅覆盖 `initialize` / `refresh_core` / `resume` / `verify`，不扩展到完整 daily、backfill、repair 或任意 group。上述 reconnect 不包括 `verify`，不启动独立线程，不触碰用户 MCP，不重初始化或切换到 live fallback。
 
 ### Stage 6 — Rich Files / Artifacts
 
@@ -1053,9 +1058,9 @@ Tool error
 
 ## 20. 当前下一步
 
-本轮 General Tools stabilization、curated market-data query surface 与最小 lifecycle surface 已完成当前接入；按照本文档，下一项推荐任务是完成 bootstrap → initialize → query → refresh / resume / verify 的闭环验收，不扩张 lifecycle whitelist。
+本轮 General Tools stabilization、curated market-data query surface、official bootstrap、最小 lifecycle surface、跨会话 receipt/status、成功数据任务后的 data-only reconnect 和 SDK tool namespace 已完成当前接入；下一项推荐任务是在隔离环境完成 bootstrap → initialize → query → refresh_core / resume / verify 的真实闭环验收，不扩张 lifecycle whitelist，也不把当前接入状态视为 Phase 1 已完全闭环。
 
-通用 Tool 层进入冻结和维护状态；Tushare / xtdata adapter、QMT live/trading 与自动交易仍未实现，结构化数据仍优先通过 `exec_command` + 成熟 Python 生态完成，不新增无真实需求驱动的 DSL 或抽象层。
+通用 Tool 层进入冻结和维护状态；Tushare / xtdata adapter、QMT live/trading 与自动交易仍未实现，通用结构化数据仍优先通过 `exec_command` + 成熟 Python 生态完成，curated lifecycle mutation 则只通过已批准的 `data_run`，不新增无真实需求驱动的 DSL 或抽象层。CNEquity 0.7.2 的 retry false-success 上游问题未解决前，本文档不把 Phase 1 标记为完全闭环。
 
 ---
 

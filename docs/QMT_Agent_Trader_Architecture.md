@@ -229,18 +229,20 @@ Multi-agent orchestration
 
 Curated research data 是研究、回测和基本面分析使用的只读数据底座；future QMT live/trading 是另一条需要审批的交易执行链路，两者不共享一个隐含的生命周期或执行接口。
 
-当前主系统只通过通用 `qmt_agent.data` facade 获取 curated query surface；具体 backend、配置文件和 backend-specific paths 只存在于 transitional wrapper，facade 不复制 schema、PIT、复权、universe 或 provenance 语义。
+当前主系统只通过通用 `qmt_agent.data` facade 获取 curated query、status 和 approved lifecycle surface；具体 backend、配置文件和 backend-specific paths 只存在于 transitional wrapper，facade 不复制 schema、PIT、复权、universe 或 provenance 语义。
 
-当前 wrapper 的 bootstrap path 调用官方配置与 layout API，query path 接入官方 read-only MCP，lifecycle path 将通用 `initialize` / `refresh` / `resume` / `verify` 操作映射到官方 CLI；Tushare / xtdata adapter 和 QMT live/trading 仍是后续需求，不应在当前架构图中视为已完成。
+当前 wrapper 的 bootstrap path 调用官方配置与 layout API，仅建立或校验本地 layout，不做网络 ingestion；query path 接入官方 read-only MCP；lifecycle path 将通用 `initialize` / `refresh_core` / `resume` / `verify` 操作映射到官方固定 CLI。`refresh_core` 仅覆盖 foundational/core curated refresh，不代表完整 daily、backfill、live 或任意 group；Tushare / xtdata adapter 和 QMT live/trading 仍是后续需求。
 
-QMT 只持有通用 lifecycle job receipt、进程状态、受限日志文件和有界日志返回，以支持审批、后台运行、`data_status` 与跨会话 receipt 恢复；run manifest、checkpoint、锁、staging、compact、repair 和 orphan reconciliation 仍由 CNEquity 拥有，QMT 不扫描或修改这些内部状态。`resume` 只接受用户明确选择的 opaque run_id 并再次审批，QMT 不自动关联 lost job、自动 retry 或推断 subsystem recovery。
+QMT 只持有通用 lifecycle job receipt、进程状态、受限日志文件和有界日志返回，并用 generic lifecycle flock 串行化 managed lifecycle jobs，以支持审批、后台运行、`data_status` 与跨会话 receipt 恢复；run manifest、checkpoint、内部 run lock、staging、compact、repair 和 orphan reconciliation 仍由官方 backend 拥有，QMT 不扫描或修改这些内部状态。`data_status` 的 `no_runs`、`has_runs` 和 `unavailable` 只描述官方状态可用性，`has_runs` 不表示数据湖 ready 或 complete；`resume` 只接受用户明确选择的 opaque run_id 并再次审批，QMT 不自动关联 lost job、自动 retry、repair 或推断 subsystem recovery。
+
+成功的 `initialize` / `refresh_core` / `resume` job 只在下一次正常 Runner turn 检查并尝试一次 data-only query MCP reconnect；`verify` 不触发该流程，失败留待下一次正常 turn 重试，不启动监控线程、不触碰用户 MCP、不重初始化或切换到 live fallback。本地 MCP 工具名由 SDK 加入 server prefix 以避免冲突，主系统和 prompt 只依赖语义工具名，不硬编码具体 prefix 格式。
 
 ```text
 Current curated research path:
 Main Agent -> qmt_agent.data facade -> transitional backend wrapper -> official read-only MCP -> curated research data
 
 Current curated lifecycle path:
-Main Agent -> approved data_run -> qmt_agent.data facade -> transitional backend wrapper -> official CLI
+Main Agent -> approved data_status / data_run -> qmt_agent.data facade -> transitional backend wrapper -> official CLI
 
 Future live/trading path:
 Main Agent -> approved trading tools -> QMT / XtQuant gateway
