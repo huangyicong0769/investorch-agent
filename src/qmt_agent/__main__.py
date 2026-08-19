@@ -91,20 +91,27 @@ def _observed_terminal_job_ids(jobs: list[dict[str, Any]]) -> set[str]:
 def _next_successful_data_job(
     jobs: list[dict[str, Any]],
     observed_job_ids: set[str],
+    *,
+    preferred_job_ids: set[str] | None = None,
 ) -> dict[str, Any] | None:
-    return next(
-        (
-            job
-            for job in jobs
-            if isinstance(job.get("job_id"), str)
-            and job["job_id"] not in observed_job_ids
-            and job.get("status") == "exited"
-            and type(job.get("exit_code")) is int
-            and job["exit_code"] == 0
-            and job.get("operation") in _DATA_REFRESH_OPERATIONS
-        ),
-        None,
-    )
+    candidates = [
+        job
+        for job in jobs
+        if isinstance(job.get("job_id"), str)
+        and job["job_id"] not in observed_job_ids
+        and job.get("status") == "exited"
+        and type(job.get("exit_code")) is int
+        and job["exit_code"] == 0
+        and job.get("operation") in _DATA_REFRESH_OPERATIONS
+    ]
+    if preferred_job_ids:
+        pending_candidate = next(
+            (job for job in candidates if job["job_id"] in preferred_job_ids),
+            None,
+        )
+        if pending_candidate is not None:
+            return pending_candidate
+    return candidates[0] if candidates else None
 
 
 def _report_data_reconnect_failure(job_id: str, detail: str) -> None:
@@ -123,7 +130,11 @@ async def _refresh_agent_after_data_job(
     pending_agent_refresh_job_ids: set[str],
 ) -> Agent:
     jobs = await asyncio.to_thread(list_jobs, config)
-    candidate = _next_successful_data_job(jobs, observed_job_ids)
+    candidate = _next_successful_data_job(
+        jobs,
+        observed_job_ids,
+        preferred_job_ids=pending_agent_refresh_job_ids,
+    )
     if candidate is None:
         return agent
 
