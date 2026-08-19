@@ -193,6 +193,8 @@ async def _stop_execution_background_job(execution: ExecutionState, job: Backgro
         job.status = "lost"
         job.finished_at = datetime.now(UTC)
         return _unresolved_receipt(job, "Managed background job has no live session; refusing to signal an unverified process group.")
+    if execution.sandbox is None:
+        return _unresolved_receipt(job, "Managed background job session is unavailable; refusing to signal an unverified process group.")
 
     refreshed = await _refresh_execution_background_job(execution, job)
     if refreshed is not None:
