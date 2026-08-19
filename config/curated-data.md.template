@@ -1,0 +1,48 @@
+# Curated Data System
+
+This is durable Agent operational memory for the managed curated market-data subsystem. It records stable boundaries and known limitations, not live state.
+
+## Architecture
+
+- The QMT Agent exposes generic `data_status` and `data_run` lifecycle tools through `qmt_agent.data`; approval, background execution, receipts, bounded output, and the lifecycle flock are QMT behavior, not CNEquity official MCP or CLI capabilities.
+- In the current Phase 1 implementation, the facade delegates bootstrap, lifecycle, and query-server loading to the transitional CNEquity wrapper; query access is the official read-only MCP server, while lifecycle operations use the official CLI.
+- QMT application bootstrap creates or validates the backend configuration and local layout only; it does not ingest network data. Ingestion occurs only through approved `data_run` lifecycle operations.
+- The current backend pin is CNEquity 0.7.2. Treat backend-specific names, configuration, and layout as transitional; do not expose them in QMT configuration keys, tool fields, or prompts.
+
+## Query contract
+
+- Query MCP tools are semantic names: `describe_lake`, `resolve_symbol`, `query_bars`, `query_fundamentals`, `query_dataset`, and `run_sql`.
+- The SDK may add a server prefix to runtime tool names. Choose the available tool matching the semantic name; never guess, construct, or hard-code a prefix or backend tool name.
+- Start with `describe_lake`; use `include_empty=true` when checking registered but empty datasets. Preserve its `coverage_start`, `coverage_end`, `watermark`, `history_mode`, `history_horizon_days`, `pit`, and contract fields in reasoning.
+- Preserve PIT, as-of, universe, and adjustment semantics: the v0.7.2 published contract makes `query_fundamentals` require `as_of`, but QMT acceptance retains a caveat that some historical or backfilled versions may not provide strict PIT semantics, so do not make an absolute claim beyond the returned contract and provenance; use `universe='all_a'` for cross-sectional work when available, remembering that historical ST/*ST filtering depends on `trading_status` coverage; request explicit `adjust='hfq'` for returns, charts, and drawdown or `qfq` only when matching the current displayed price.
+- Respect `total`, `returned`, `truncated`, `note`, `warning`, `origin`, and provenance metadata; `truncated` describes this MCP response/page and its row limit, not an assertion that the underlying `load` or DataFrame was truncated. Use `run_sql` for aggregation rather than treating a truncated page as complete. `run_sql` accepts one read-only `SELECT`.
+- Never read Parquet, DuckDB, manifests, or other raw storage directly to bypass the governed semantic query contract.
+
+## Lifecycle contract
+
+- `data_status` has only `no_runs`, `has_runs`, and `unavailable`; `has_runs` means that an official latest-run report exists, not that the lake is ready, complete, or fresh.
+- QMT adds generic background-job receipts, progress, exit codes, and bounded stdout/stderr; pass the returned `job_id` to `data_status` to inspect one job. A running job may coexist with an older official latest-run report.
+- QMT's `data_run` wrapper exposes only `initialize`, `refresh_core`, `resume`, and `verify`; its explicit fields, user approval, recoverable background execution, and QMT receipt are QMT behavior around official operations, not CNEquity official MCP or CLI capabilities.
+- Pass `trade_date=null` except for `initialize` or `refresh_core`, `run_id=null` except for `resume`, and `full_history=false` except when requesting full initialization history. `resume` requires a user-selected opaque backend `run_id`.
+- `refresh_core` is the foundational/core curated refresh, not a full daily refresh, backfill, live fetch, or arbitrary group operation. Do not infer a run ID or automatically retry, repair, or resume a failed or lost job.
+- After `initialize`, `refresh_core`, or `resume` completes, inspect its receipt and bounded output and verify before relying on new data. A non-zero `verify` exit may report diagnostics; interpret it with the bounded output and do not automatically repair.
+
+## Startup fallback
+
+- If query tools are unavailable, call `data_status` first. Only a new or uninitialized state such as `no_runs` may justify offering the approved `initialize` operation; `unavailable` alone does not prove that the lake is empty.
+- After a successful initialization, tell the user to restart QMT Agent. The current process does not dynamically reconnect or rebuild the Agent to add query tools, and user MCP failure semantics must not be changed.
+
+## Ownership
+
+- QMT owns only the generic lifecycle contract, generic configuration/root wiring, QMT receipts, progress, bounded logs, and the generic lifecycle flock.
+- CNEquity owns its schema, PIT, adjustment, universe, quality, provenance, manifest, checkpoint, staging, repair, orchestration, configuration, layout, and internal locks. The wrapper may normalize the published status/response contract, but QMT and the Agent must not edit internals or infer readiness, repair, or recovery from internal metadata.
+- Use `data_status`, `data_run`, and the available semantic query tools for the Agent-facing path. Do not use `exec_command` to bypass the approved lifecycle boundary or query raw storage.
+
+## Known version-specific risk
+
+- QMT acceptance retains an unverified, version-specific CNEquity 0.7.2 retry/resume risk: exit code 0 or reported success alone does not prove curated coverage is complete. Inspect the QMT receipt and bounded output, then use `data_status` and the approved `data_run` verify operation before relying on data; do not automatically trust success or add a QMT workaround.
+
+## Memory hygiene
+
+- This file is durable guidance, not a source of live values. Read current paths and configuration with `get_config`; read current status, freshness, job IDs, progress, exit codes, and logs with `data_status`.
+- Do not write dynamic paths, job IDs, timestamps, status, freshness, raw output, logs, secrets, or tokens here. Update this tracked template when the interface or backend pin changes, then use bootstrap `--sync` to merge it into existing user memory while preserving durable user content.

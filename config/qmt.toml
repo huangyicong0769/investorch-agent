@@ -52,3 +52,7 @@ target = "MEMORY.md"
 [[bootstrap.files]]
 source = "configuration.md.template"
 target = "memory/configuration.md"
+
+[[bootstrap.files]]
+source = "curated-data.md.template"
+target = "memory/curated-data.md"

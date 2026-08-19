@@ -5,6 +5,7 @@ This file is the entry point for durable cross-session memory.
 ## System
 
 - [Configuration system](memory/configuration.md)
+- [Curated data system](memory/curated-data.md)
 
 ## Memory
 
