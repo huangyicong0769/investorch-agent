@@ -127,6 +127,10 @@ async def _refresh_agent_after_data_job(
         return agent
 
     job_id = candidate["job_id"]
+    if not data_mcp_manager.failed_servers:
+        observed_job_ids.add(job_id)
+        return agent
+
     try:
         await data_mcp_manager.reconnect(failed_only=True)
     except Exception as exc:
