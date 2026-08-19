@@ -120,6 +120,7 @@ async def _refresh_agent_after_data_job(
     data_mcp_manager: MCPServerManager,
     user_mcp_manager: MCPServerManager,
     observed_job_ids: set[str],
+    pending_agent_refresh_job_ids: set[str],
 ) -> Agent:
     jobs = await asyncio.to_thread(list_jobs, config)
     candidate = _next_successful_data_job(jobs, observed_job_ids)
@@ -127,6 +128,20 @@ async def _refresh_agent_after_data_job(
         return agent
 
     job_id = candidate["job_id"]
+    if job_id in pending_agent_refresh_job_ids:
+        try:
+            refreshed_agent = _clone_runtime_agent(
+                agent,
+                data_mcp_manager,
+                user_mcp_manager,
+            )
+        except Exception as exc:
+            _report_data_reconnect_failure(job_id, type(exc).__name__)
+            return agent
+        pending_agent_refresh_job_ids.remove(job_id)
+        observed_job_ids.add(job_id)
+        return refreshed_agent
+
     if not data_mcp_manager.failed_servers:
         observed_job_ids.add(job_id)
         return agent
@@ -141,6 +156,7 @@ async def _refresh_agent_after_data_job(
         _report_data_reconnect_failure(job_id, "one or more data servers remain unavailable")
         return agent
 
+    pending_agent_refresh_job_ids.add(job_id)
     try:
         refreshed_agent = _clone_runtime_agent(
             agent,
@@ -151,6 +167,7 @@ async def _refresh_agent_after_data_job(
         _report_data_reconnect_failure(job_id, type(exc).__name__)
         return agent
 
+    pending_agent_refresh_job_ids.remove(job_id)
     observed_job_ids.add(job_id)
     return refreshed_agent
 
@@ -266,6 +283,7 @@ async def main(sync: bool = False):
     observed_job_ids = _observed_terminal_job_ids(
         await asyncio.to_thread(list_jobs, config),
     )
+    pending_agent_refresh_job_ids: set[str] = set()
 
     session_db = config.sessions_db
 
@@ -452,6 +470,7 @@ async def main(sync: bool = False):
                     data_mcp_manager,
                     user_mcp_manager,
                     observed_job_ids,
+                    pending_agent_refresh_job_ids,
                 )
                 agent_context = AgentContext(config=config, execution=execution)
                 result = Runner.run_streamed(
