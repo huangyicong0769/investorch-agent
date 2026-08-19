@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
+from agents.mcp import MCPServer, MCPServerStdio
 from cnequity.config import Config, load_config, validate_config, write_user_config
 from cnequity.storage.layout import init_data_layout
 
@@ -36,6 +38,25 @@ def initialize(managed_data_dir: Path, config_root: Path) -> None:
         init_data_layout(config)
     except Exception as exc:
         raise ConfigError(f"Unable to initialize managed data layout: {exc}") from exc
+
+
+def load_query_servers(config_root: Path, timeout_seconds: int | float) -> list[MCPServer]:
+    """Build the read-only stdio query server without probing lake readiness."""
+    config_root = config_root.expanduser().resolve()
+    config_path = (config_root / CONFIG_FILENAME).resolve()
+    params = {
+        "command": sys.executable,
+        "args": ["-m", "cnequity", "mcp", "--config", str(config_path)],
+        "cwd": str(config_root),
+    }
+    return [
+        MCPServerStdio(
+            params=params,
+            name="Managed market-data query",
+            cache_tools_list=True,
+            client_session_timeout_seconds=timeout_seconds,
+        )
+    ]
 
 
 def _load_and_validate(config_path: Path) -> Config:

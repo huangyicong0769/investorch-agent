@@ -23,6 +23,7 @@ from qmt_agent.agents import (
 from qmt_agent.cli import parse_command, parse_startup_args
 from qmt_agent.config import load_config
 from qmt_agent.context import AgentContext, ExecutionState
+from qmt_agent.data import load_query_servers
 from qmt_agent.initializer import initialize, sync_bootstrap_files
 from qmt_agent.mcp import load_mcp_servers
 from qmt_agent.observability import print_run_events
@@ -140,7 +141,7 @@ async def main(sync: bool = False):
         openai_client=client,
     )
 
-    mcp_servers = load_mcp_servers(config.mcp_config_path, config.secrets, config["mcp.default_timeout_seconds"])
+    mcp_servers = [*load_query_servers(config.root, config["mcp.default_timeout_seconds"]), *load_mcp_servers(config.mcp_config_path, config.secrets, config["mcp.default_timeout_seconds"])]
 
     session_db = config.sessions_db
 
@@ -156,7 +157,7 @@ async def main(sync: bool = False):
     try:
         await start_execution(execution, config.workspace_dir)
 
-        async with MCPServerManager(mcp_servers) as mcp_manager:
+        async with MCPServerManager(mcp_servers, drop_failed_servers=True) as mcp_manager:
 
             agent = create_agent(
                 model=model,

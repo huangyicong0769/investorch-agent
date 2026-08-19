@@ -109,8 +109,7 @@ Secrets must currently be edited outside that tool.
 MCP server configuration is local instance state and is stored separately at:
 `<root>/mcp.toml`
 It is not tracked by Git.
-The currently supported transport is:
-`streamable_http`
+The user-managed `mcp.toml` and configuration tools support only `streamable_http`. The built-in read-only market-data query server uses an internal stdio connection and is not configured in `mcp.toml` or exposed through the Agent configuration tools.
 Use:
 
 - `list_mcp_servers` to inspect configured servers

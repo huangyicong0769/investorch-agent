@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from agents.mcp import MCPServer
+
 
 def initialize(managed_data_dir: Path, config_root: Path) -> None:
     """Create or validate the managed data configuration and local layout."""
@@ -12,4 +14,11 @@ def initialize(managed_data_dir: Path, config_root: Path) -> None:
     initialize_backend(managed_data_dir, config_root)
 
 
-__all__ = ["initialize"]
+def load_query_servers(config_root: Path, timeout_seconds: int | float) -> list[MCPServer]:
+    """Return the built-in read-only query MCP servers."""
+    from qmt_agent.data.cnequity import load_query_servers as load_backend_query_servers
+
+    return load_backend_query_servers(config_root, timeout_seconds)
+
+
+__all__ = ["initialize", "load_query_servers"]
