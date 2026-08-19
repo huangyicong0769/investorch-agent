@@ -43,6 +43,8 @@ The root contains local QMT Agent state including:
 
 These files are outside the Git repository.
 
+The generic `paths.data` boundary is initialized separately from the Agent workspace. The current CNEquity transition backend is an implementation detail behind `qmt_agent.data`; its `<root>/cnequity.toml` configuration and default `<data>/cnequity` lake subdirectory are not part of the QMT Agent-facing configuration or tool contract. Existing backend configuration and its internal paths remain owned by CNEquity, while first-run initialization uses the official backend APIs to create only the local layout and does not ingest network data.
+
 ## Root-relative Paths
 
 `paths.data`, `paths.workspace`, and `paths.state` are relative to `paths.root`.
