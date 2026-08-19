@@ -759,15 +759,17 @@ Curated research data 已进入实现，但项目没有因此建立一个覆盖�
 - 通用 data root 位于 Agent workspace 之外。
 - `qmt_agent.data` 提供 implementation-neutral facade。
 - transitional backend wrapper 接入官方只读 MCP query surface。
+- `data_status` 通过官方接口读取最近运行状态，并恢复 QMT 自有的通用 lifecycle job receipt。
+- `data_run` 以审批和固定 argv 映射提供 `initialize` / `refresh` / `resume` / `verify`，长任务脱离 workspace sandbox 后台运行，`/ps` 可跨会话显示其通用进程状态。
 
 当前未实现：
 
-- 受审批的数据生命周期 status / run / update / retry / verify 操作、后台跟踪与恢复。
+- lifecycle 的 repair、backfill、catchup、clean、compact、derive、stats、sources、任意 dataset/group/worker 参数与自动 retry。
 - Tushare adapter。
 - xtdata adapter。
 - QMT live/trading 接入与自动交易。
 
-Data schema、PIT、复权、universe、质量、provenance 与 backend 内部布局仍由官方 subsystem 拥有，后续抽象必须继续由真实需求驱动。
+Data schema、PIT、复权、universe、质量、provenance、run manifest、checkpoint、锁、内部恢复与 backend layout 仍由官方 subsystem 拥有；QMT 只编排官方入口并跟踪自己的进程 receipt，后续抽象必须继续由真实需求驱动。
 
 ---
 
@@ -884,12 +886,13 @@ Trading Agent
 [✓] implementation-neutral data root outside the Agent workspace
 [✓] generic qmt_agent.data facade with a transitional backend wrapper
 [✓] official read-only MCP query surface
-[ ] approved data lifecycle status / run / update / retry / verify operations
+[✓] approved data lifecycle status / run operations with initialize / refresh / resume / verify
+[✓] persistent generic lifecycle job tracking and recovery through data_status and /ps
 [ ] Tushare adapter
 [ ] xtdata adapter
 ```
 
-当前 query surface 面向 curated research data；它不等同于 QMT live/trading，也不包含数据生命周期 mutation。
+当前 query surface 面向 curated research data；它不等同于 QMT live/trading。Lifecycle mutation 只通过审批后的 `data_run` 固定操作进入 transitional wrapper，不通过 query MCP 或任意 shell 开放。
 
 ### Stage 6 — Rich Files / Artifacts
 
@@ -1050,7 +1053,7 @@ Tool error
 
 ## 20. 当前下一步
 
-本轮 General Tools stabilization 与 curated market-data query surface 已完成当前接入；按照本文档，下一项推荐开发任务是受审批的数据生命周期 status / run / update / retry / verify 操作，并具备后台跟踪与恢复能力。
+本轮 General Tools stabilization、curated market-data query surface 与最小 lifecycle surface 已完成当前接入；按照本文档，下一项推荐任务是完成 bootstrap → initialize → query → refresh / resume / verify 的闭环验收，不扩张 lifecycle whitelist。
 
 通用 Tool 层进入冻结和维护状态；Tushare / xtdata adapter、QMT live/trading 与自动交易仍未实现，结构化数据仍优先通过 `exec_command` + 成熟 Python 生态完成，不新增无真实需求驱动的 DSL 或抽象层。
 

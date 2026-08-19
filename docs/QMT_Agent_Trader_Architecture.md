@@ -231,11 +231,16 @@ Curated research data 是研究、回测和基本面分析使用的只读数据�
 
 当前主系统只通过通用 `qmt_agent.data` facade 获取 curated query surface；具体 backend、配置文件和 backend-specific paths 只存在于 transitional wrapper，facade 不复制 schema、PIT、复权、universe 或 provenance 语义。
 
-当前 wrapper 的 bootstrap path 调用官方配置与 layout API，query path 接入官方 read-only MCP；数据生命周期、Tushare / xtdata adapter 和 QMT live/trading 仍是后续需求，不应在当前架构图中视为已完成。
+当前 wrapper 的 bootstrap path 调用官方配置与 layout API，query path 接入官方 read-only MCP，lifecycle path 将通用 `initialize` / `refresh` / `resume` / `verify` 操作映射到官方 CLI；Tushare / xtdata adapter 和 QMT live/trading 仍是后续需求，不应在当前架构图中视为已完成。
+
+QMT 只持有通用 lifecycle job receipt、进程状态、受限日志文件和有界日志返回，以支持审批、后台运行、`data_status` 与跨会话 receipt 恢复；run manifest、checkpoint、锁、staging、compact、repair 和 orphan reconciliation 仍由 CNEquity 拥有，QMT 不扫描或修改这些内部状态。`resume` 只接受用户明确选择的 opaque run_id 并再次审批，QMT 不自动关联 lost job、自动 retry 或推断 subsystem recovery。
 
 ```text
 Current curated research path:
 Main Agent -> qmt_agent.data facade -> transitional backend wrapper -> official read-only MCP -> curated research data
+
+Current curated lifecycle path:
+Main Agent -> approved data_run -> qmt_agent.data facade -> transitional backend wrapper -> official CLI
 
 Future live/trading path:
 Main Agent -> approved trading tools -> QMT / XtQuant gateway
@@ -698,6 +703,8 @@ src/qmt_agent/
 │   └── trader.py
 │
 ├── storage/
+│
+├── background.py
 │
 ├── config.py
 │
