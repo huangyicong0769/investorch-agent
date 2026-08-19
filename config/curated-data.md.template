@@ -31,8 +31,9 @@ This is durable Agent operational memory for the managed curated market-data sub
 
 - A QMT `job_id` identifies the managed background process and receipt; a backend opaque `run_id` identifies a data run for `resume`, and the two must never be substituted for each other.
 - Before stopping a data lifecycle job, inspect `data_status(job_id)` and require an explicit user approval; call only `stop_background_job` with the complete QMT `job_id`, never `exec_command`, a PID/PGID signal, or a guessed identifier.
-- After stopping, inspect the terminal receipt (`stopped`, `already_stopped`, or `already_exited`), bounded output, backend status, and the exclusive-lock result before deciding whether any data is usable; a stopped job is not a successful data result.
-- Do not automatically `resume` or repair after a stop; any later `resume` requires the user-selected opaque backend `run_id` and a new approval, while `lost` or `stop_failed` remains unresolved until observed evidence is available.
+- After stopping, inspect the direct receipt: a durable lifecycle job may return `stopped`, `already_stopped`, `already_exited`, `lost`, or `stop_failed`, while transient execution may return `stopped`, `already_stopped`, `already_exited`, `unresolved`, or `stop_failed`.
+- For a durable lifecycle job, `lock_released` must be exactly true before starting another exclusive lifecycle operation or declaring the stop safe; false or missing is unresolved, including for `already_exited`. Treat `lost`, `unresolved`, and `stop_failed` as non-success, and inspect bounded output and backend status before deciding whether any data is usable.
+- Do not automatically `resume` or repair after a stop; any later `resume` requires the user-selected opaque backend `run_id` and a new approval, while `lost`, `unresolved`, and `stop_failed` remain unresolved until observed evidence is available.
 
 ## Startup fallback
 
@@ -51,5 +52,5 @@ This is durable Agent operational memory for the managed curated market-data sub
 
 ## Memory hygiene
 
-- This file is durable guidance, not a source of live values. Read current paths and configuration with `get_config`; read current status, freshness, job IDs, progress, exit codes, and logs with `data_status`.
+- This file is durable guidance, not a source of live values. Read current paths and configuration with `get_config`; read lifecycle `state`, `latest_run`, `batch_counts`, jobs, and bounded output with `data_status`; read coverage, watermark, and freshness only from an available semantic query `describe_lake`, and state when freshness cannot be confirmed.
 - Do not write dynamic paths, job IDs, timestamps, status, freshness, raw output, logs, secrets, or tokens here. Update this tracked template when the interface or backend pin changes, then use bootstrap `--sync` to merge it into existing user memory while preserving durable user content.
