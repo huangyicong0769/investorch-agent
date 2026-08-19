@@ -2,6 +2,7 @@
 
 [paths]
 root = "~/.qmt-agent-trader"
+data = "data"
 workspace = "workspace"
 state = ".qmt"
 

@@ -23,7 +23,7 @@ A persistent runtime update is written to `<root>/qmt.toml` and therefore become
 | lifecycle | keys | behavior |
 | --- | --- | --- |
 | immutable | `paths.root`, `bootstrap.*` | Cannot be changed through runtime configuration. |
-| restart-required | `paths.workspace`, `paths.state`, `model.name`, `model.base_url`, `mcp.default_timeout_seconds` | `persist=false` is rejected. `persist=true` writes the next-start value but does not change the current runtime; restart QMT Agent to apply it. |
+| restart-required | `paths.data`, `paths.workspace`, `paths.state`, `model.name`, `model.base_url`, `mcp.default_timeout_seconds` | `persist=false` is rejected. `persist=true` writes the next-start value but does not change the current runtime; restart QMT Agent to apply it. |
 | hot | runtime policy and observability settings not listed above | Validated and applied to the current `AppConfig`; persistence is optional. |
 
 `get_config` reports the value currently used by this process. A persisted restart-required update therefore continues to report the old value until the application is restarted.
@@ -37,6 +37,7 @@ The root contains local QMT Agent state including:
 
 - `qmt.toml`
 - `mcp.toml`
+- the configured data directory
 - the configured workspace directory
 - the configured state directory
 
@@ -44,9 +45,9 @@ These files are outside the Git repository.
 
 ## Root-relative Paths
 
-`paths.workspace` and `paths.state` are relative to `paths.root`.
+`paths.data`, `paths.workspace`, and `paths.state` are relative to `paths.root`.
 They must not be absolute and must not escape the root.
-Both must be strict subdirectories of the root and must not equal or contain one another after path resolution.
+All three must be strict subdirectories of the root and must not equal or contain one another after path resolution.
 The SQLite session database is stored under the state directory.
 Long-term Agent memory does not use a database.
 Long-term memory is maintained as Markdown in the workspace, with `MEMORY.md` as the entry point.

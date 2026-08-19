@@ -14,6 +14,7 @@ REDACTED = "<redacted>"
 
 DEFAULT_CONFIG = {
     "paths": {
+        "data": "data",
         "workspace": "workspace",
         "state": ".qmt",
     },
@@ -28,6 +29,7 @@ DEFAULT_CONFIG = {
 }
 
 RESTART_REQUIRED_KEYS = {
+    "paths.data",
     "paths.workspace",
     "paths.state",
     "model.name",
@@ -61,6 +63,10 @@ class AppConfig:
     @property
     def workspace_dir(self) -> Path:
         return self._resolve_root_path("paths.workspace")
+
+    @property
+    def data_dir(self) -> Path:
+        return self._resolve_root_path("paths.data")
 
     @property
     def state_dir(self) -> Path:
@@ -441,8 +447,12 @@ def _validate_config_data(data: dict[str, Any], root: Path) -> None:
     if not isinstance(secrets, dict) or any(not isinstance(value, str) for value in secrets.values()):
         raise ConfigError("secrets values must be strings")
 
+    data_dir = _resolve_under_root(root, _require_string(data, "paths.data"), "paths.data")
     workspace = _resolve_under_root(root, _require_string(data, "paths.workspace"), "paths.workspace")
     state = _resolve_under_root(root, _require_string(data, "paths.state"), "paths.state")
+
+    if data_dir == root:
+        raise ConfigError("paths.data must be a strict subdirectory of paths.root")
 
     if workspace == root:
         raise ConfigError("paths.workspace must be a strict subdirectory of paths.root")
@@ -452,6 +462,12 @@ def _validate_config_data(data: dict[str, Any], root: Path) -> None:
 
     if workspace == state or workspace.is_relative_to(state) or state.is_relative_to(workspace):
         raise ConfigError("paths.workspace and paths.state must not overlap")
+
+    if data_dir == workspace or data_dir.is_relative_to(workspace) or workspace.is_relative_to(data_dir):
+        raise ConfigError("paths.data and paths.workspace must not overlap")
+
+    if data_dir == state or data_dir.is_relative_to(state) or state.is_relative_to(data_dir):
+        raise ConfigError("paths.data and paths.state must not overlap")
 
     _resolve_under_root(workspace, _require_string(data, "execution.background_job_dir"), "execution.background_job_dir")
 
