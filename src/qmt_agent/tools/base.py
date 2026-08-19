@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import ast
+import asyncio
 import math
 import operator
+import os
 import shlex
 import shutil
+import signal
 import sys
+import time
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
@@ -18,7 +22,7 @@ from agents.sandbox import Manifest
 from agents.sandbox.errors import PtySessionNotFoundError
 from agents.sandbox.sandboxes.unix_local import UnixLocalSandboxClient
 
-from qmt_agent.background import list_jobs
+from qmt_agent.background import list_jobs, stop_job as stop_durable_job
 from qmt_agent.config import AppConfig
 from qmt_agent.context import AgentContext, BackgroundJob, ExecutionState
 
@@ -87,7 +91,7 @@ async def exec_command(
     """
     Execute a shell command in the persistent user workspace.
 
-    The command runs with the configured workspace as its current directory and filesystem root. Foreground commands wait for completion. Background commands return a process ID and workspace-relative log paths. When background=true, pass the foreground form of the command. Do not append &, nohup, or setsid; the runtime manages backgrounding. This operation always requires user approval.
+    The command runs with the configured workspace as its current directory and filesystem root. Foreground commands wait for completion. Background commands return a job ID, a display-only process ID, and workspace-relative log paths. When background=true, pass the foreground form of the command. Do not append &, nohup, or setsid; the runtime manages backgrounding. Use stop_background_job with the returned job ID to stop a managed background command; never signal the displayed process ID. This operation always requires user approval.
 
     Args:
         command: Shell command to execute.
@@ -97,7 +101,7 @@ async def exec_command(
         timeout_seconds: Maximum wall-clock execution time for foreground commands in seconds. It is ignored for background commands. Defaults to execution.default_timeout_seconds.
 
     Returns:
-        Foreground commands return stdout, stderr, and exit_code. Background commands return the PID, running state, and log paths.
+        Foreground commands return stdout, stderr, and exit_code. Background commands return the job ID, display-only PID, running state, and log paths.
     """
     if sys.platform != "darwin":
         raise RuntimeError("exec_command is currently supported on macOS only")
@@ -141,6 +145,115 @@ async def exec_command(
         "stderr": result.stderr.decode("utf-8", errors="replace"),
         "exit_code": result.exit_code,
     }
+
+
+@tool(needs_approval=True)
+async def stop_background_job(context: RunContextWrapper[AgentContext], job_id: str) -> dict[str, Any]:
+    """
+    Stop one managed background job by its complete receipt job ID.
+
+    This operation always requires user approval. It terminates the entire managed process group with SIGTERM, waits for the configured stop timeout, and escalates to SIGKILL when needed. The job ID is not an operating-system PID; never pass a displayed PID, a PID prefix, null, all, or a signal/force option. Repeating a stop for an already stopped or exited job is safe and idempotent.
+
+    Args:
+        job_id: Complete job ID returned by exec_command(background=true) or data_run. This field is required and must not be null.
+
+    Returns:
+        A stop receipt containing job_id, status, process-group termination, and signal escalation outcome. A stopped job is not a successful completed job; inspect its status and use the job output/status tools as needed.
+    """
+    job_id = _validate_background_job_id(job_id)
+    config = context.context.config
+    execution = context.context.execution
+    durable_matches = [job for job in await asyncio.to_thread(list_jobs, config) if job.get("job_id") == job_id]
+    execution_job = execution.background_jobs.get(job_id)
+
+    if durable_matches and execution_job is not None:
+        raise ValueError(f"Ambiguous background job ID: {job_id}")
+    if durable_matches:
+        return await asyncio.to_thread(stop_durable_job, config, job_id)
+    if execution_job is None:
+        raise ValueError(f"Unknown background job: {job_id}")
+    return await _stop_execution_background_job(execution, execution_job, config["execution.background_stop_timeout_seconds"])
+
+
+def _validate_background_job_id(job_id: str) -> str:
+    if not isinstance(job_id, str) or not job_id or len(job_id) > 32 or any(character not in "0123456789abcdef" for character in job_id):
+        raise ValueError(f"Unknown background job: {job_id}")
+    return job_id
+
+
+async def _stop_execution_background_job(execution: ExecutionState, job: BackgroundJob, timeout_seconds: int | float) -> dict[str, Any]:
+    if job.status == "exited":
+        return {"job_id": job.job_id, "status": "already_exited", "group_terminated": True}
+    if job.status == "stopped":
+        return {"job_id": job.job_id, "status": "already_stopped", "group_terminated": True, "termination": getattr(job, "termination", None)}
+
+    result = await asyncio.to_thread(_terminate_process_group, job.pid, timeout_seconds)
+    if result["status"] in {"stop_failed"}:
+        return {"job_id": job.job_id, **result}
+
+    process_id = job.process_id
+    if process_id is not None and execution.sandbox is not None:
+        try:
+            await execution.sandbox.pty_write_stdin(session_id=process_id, chars="", yield_time_s=0)
+        except (PtySessionNotFoundError, RuntimeError, OSError):
+            pass
+    job.process_id = None
+    job.status = "stopped"
+    job.exit_code = None
+    job.finished_at = datetime.now(UTC)
+    if result.get("termination") is not None:
+        setattr(job, "termination", result["termination"])
+    return {"job_id": job.job_id, **result}
+
+
+def _terminate_process_group(pgid: int, timeout_seconds: int | float) -> dict[str, Any]:
+    if os.name != "posix" or isinstance(pgid, bool) or not isinstance(pgid, int) or pgid <= 1 or pgid in {os.getpid(), os.getpgrp()}:
+        return {"status": "stop_failed", "error": "Invalid managed process group", "group_terminated": False}
+    if not _process_group_exists(pgid):
+        return {"status": "already_stopped", "group_terminated": True}
+
+    termination = "SIGTERM"
+    try:
+        os.killpg(pgid, signal.SIGTERM)
+    except ProcessLookupError:
+        return {"status": "already_stopped", "group_terminated": True}
+    except PermissionError as exc:
+        return {"status": "stop_failed", "error": f"Unable to signal managed process group: {exc}", "group_terminated": False}
+    except OSError as exc:
+        return {"status": "stop_failed", "error": f"Unable to signal managed process group: {exc}", "group_terminated": False}
+    if not _wait_process_group_gone(pgid, timeout_seconds):
+        if _process_group_exists(pgid):
+            termination = "SIGKILL"
+            try:
+                os.killpg(pgid, signal.SIGKILL)
+            except ProcessLookupError:
+                return {"status": "stopped", "termination": termination, "escalated": True, "group_terminated": True}
+            except PermissionError as exc:
+                return {"status": "stop_failed", "error": f"Unable to escalate managed process group: {exc}", "termination": termination, "escalated": True, "group_terminated": False}
+            except OSError as exc:
+                return {"status": "stop_failed", "error": f"Unable to escalate managed process group: {exc}", "termination": termination, "escalated": True, "group_terminated": False}
+            if not _wait_process_group_gone(pgid, timeout_seconds):
+                return {"status": "stop_failed", "error": "Managed process group did not terminate", "termination": termination, "escalated": True, "group_terminated": False}
+    return {"status": "stopped", "termination": termination, "escalated": termination == "SIGKILL", "group_terminated": True}
+
+
+def _process_group_exists(pgid: int) -> bool:
+    try:
+        os.killpg(pgid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def _wait_process_group_gone(pgid: int, timeout_seconds: int | float) -> bool:
+    deadline = time.monotonic() + timeout_seconds
+    while _process_group_exists(pgid):
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(0.05)
+    return True
 
 
 ExploreOperation = Literal["list", "read", "search"]
@@ -850,7 +963,10 @@ def _with_durable_jobs(jobs: list[BackgroundJob], config: AppConfig | None) -> l
     combined = list(jobs)
     for item in list_jobs(config):
         try:
-            combined.append(BackgroundJob(job_id=str(item["job_id"]), process_id=None, pid=int(item["pid"]), command=f"data:{item['operation']}", started_at=datetime.fromisoformat(str(item["started_at"])), stdout_log=str(item["stdout_log"]), stderr_log=str(item["stderr_log"]), status=item["status"], exit_code=item.get("exit_code"), finished_at=datetime.fromisoformat(str(item["finished_at"])) if item.get("finished_at") else None))
+            job = BackgroundJob(job_id=str(item["job_id"]), process_id=None, pid=int(item["pid"]), command=f"data:{item['operation']}", started_at=datetime.fromisoformat(str(item["started_at"])), stdout_log=str(item["stdout_log"]), stderr_log=str(item["stderr_log"]), status=item["status"], exit_code=item.get("exit_code"), finished_at=datetime.fromisoformat(str(item["finished_at"])) if item.get("finished_at") else None)
+            if item.get("termination") is not None:
+                setattr(job, "termination", item["termination"])
+            combined.append(job)
         except (KeyError, TypeError, ValueError):
             continue
     return sorted(combined, key=lambda job: job.started_at)
@@ -858,11 +974,12 @@ def _with_durable_jobs(jobs: list[BackgroundJob], config: AppConfig | None) -> l
 
 def format_background_jobs(jobs: list[BackgroundJob]) -> str:
     if not jobs:
-        return "QMT background processes:\nNo background processes."
+        return "QMT background processes:\nNo background processes.\nPID is display-only; use stop_background_job(job_id) to stop a managed job."
 
     lines = [
         "QMT background processes:",
-        "JOB_ID\tPID\tSTATUS\tELAPSED\tCOMMAND",
+        "JOB_ID\tPID (display-only)\tSTATUS\tELAPSED\tCOMMAND",
+        "Use stop_background_job(job_id) to stop a managed job; never signal the displayed PID.",
     ]
 
     for job in jobs:
@@ -870,6 +987,11 @@ def format_background_jobs(jobs: list[BackgroundJob]) -> str:
             status = "running"
         elif job.status == "lost":
             status = "lost"
+        elif job.status == "stopped":
+            termination = getattr(job, "termination", None)
+            status = f"stopped({termination})" if termination else "stopped"
+        elif job.status == "stop_failed":
+            status = "stop_failed"
         else:
             status = f"exited({job.exit_code})"
 
@@ -963,6 +1085,7 @@ async def _start_background_command(
 
     result = {
         "background": True,
+        "job_id": job_id,
         "pid": pid,
         "running": update.exit_code is None,
         "stdout_log": job.stdout_log,

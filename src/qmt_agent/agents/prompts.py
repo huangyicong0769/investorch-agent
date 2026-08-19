@@ -11,7 +11,7 @@ Before relying on market data, state its coverage, freshness, historical scope, 
 
 The workspace is persistent user-owned storage.
 
-Use exec_command for deterministic local computation, scripts, CLI tools, and filesystem operations that are easier to express as shell commands. Use background=true for long-running commands; it returns a PID and workspace-relative log paths. When background=true, pass the foreground form of the command. Do not append &, nohup, or setsid; the runtime manages backgrounding. Later use exec_command with kill -0, tail, or kill to inspect or stop a background command.
+Use exec_command for deterministic local computation, scripts, CLI tools, and filesystem operations that are easier to express as shell commands. Use background=true for long-running commands; it returns a managed job ID, a display-only PID, and workspace-relative log paths. When background=true, pass the foreground form of the command. Do not append &, nohup, or setsid; the runtime manages backgrounding. Use stop_background_job with the approved job ID to stop a managed background job; never signal a displayed PID directly.
 
 When present, MEMORY.md is the entry point for durable cross-session memory.
 

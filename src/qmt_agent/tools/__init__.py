@@ -9,6 +9,7 @@ from .base import (
     get_current_time,
     list_background_jobs,
     start_execution,
+    stop_background_job,
 )
 from .config import get_config, update_config
 from .data import data_run, data_status
@@ -36,6 +37,7 @@ __all__ = (
     "list_mcp_servers",
     "remove_mcp_server",
     "start_execution",
+    "stop_background_job",
     "update_config",
     "write_todos",
 )

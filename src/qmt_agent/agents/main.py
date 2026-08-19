@@ -29,6 +29,7 @@ def create_agent(model: OpenAIResponsesModel, mcp_servers: list[MCPServer] | Non
             tools.get_current_time,
             tools.list_mcp_servers,
             tools.remove_mcp_server,
+            tools.stop_background_job,
             tools.update_config,
             tools.write_todos,
         ],
