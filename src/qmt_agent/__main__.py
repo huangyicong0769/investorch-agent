@@ -1,6 +1,7 @@
 import asyncio
 import uuid
 from pathlib import Path
+from typing import Any
 
 from agents import (
     Agent,
@@ -10,7 +11,7 @@ from agents import (
     TResponseInputItem,
     set_tracing_disabled,
 )
-from agents.mcp import MCPServerManager
+from agents.mcp import MCPServer, MCPServerManager
 from openai import AsyncOpenAI
 
 from qmt_agent.agents import (
@@ -21,8 +22,9 @@ from qmt_agent.agents import (
     create_title_agent,
     run_bootstrap_sync,
 )
+from qmt_agent.background import list_jobs
 from qmt_agent.cli import parse_command, parse_startup_args
-from qmt_agent.config import load_config
+from qmt_agent.config import AppConfig, load_config
 from qmt_agent.context import AgentContext, ExecutionState
 from qmt_agent.data import load_query_servers
 from qmt_agent.initializer import initialize, sync_bootstrap_files
@@ -41,6 +43,109 @@ from qmt_agent.tools import (
     list_background_jobs,
     start_execution,
 )
+
+
+_DATA_REFRESH_OPERATIONS = frozenset({"initialize", "refresh_core", "resume"})
+
+
+def _active_mcp_servers(
+    data_mcp_manager: MCPServerManager,
+    user_mcp_manager: MCPServerManager,
+) -> list[MCPServer]:
+    return [*data_mcp_manager.active_servers, *user_mcp_manager.active_servers]
+
+
+def _create_runtime_agent(
+    model: OpenAIResponsesModel,
+    data_mcp_manager: MCPServerManager,
+    user_mcp_manager: MCPServerManager,
+) -> Agent:
+    return create_agent(
+        model=model,
+        mcp_servers=_active_mcp_servers(data_mcp_manager, user_mcp_manager),
+    )
+
+
+def _clone_runtime_agent(
+    agent: Agent,
+    data_mcp_manager: MCPServerManager,
+    user_mcp_manager: MCPServerManager,
+) -> Agent:
+    return agent.clone(
+        mcp_servers=_active_mcp_servers(data_mcp_manager, user_mcp_manager),
+    )
+
+
+def _observed_terminal_job_ids(jobs: list[dict[str, Any]]) -> set[str]:
+    return {
+        job["job_id"]
+        for job in jobs
+        if job.get("status") != "running"
+        and isinstance(job.get("job_id"), str)
+    }
+
+
+def _next_successful_data_job(
+    jobs: list[dict[str, Any]],
+    observed_job_ids: set[str],
+) -> dict[str, Any] | None:
+    return next(
+        (
+            job
+            for job in jobs
+            if isinstance(job.get("job_id"), str)
+            and job["job_id"] not in observed_job_ids
+            and job.get("status") == "exited"
+            and type(job.get("exit_code")) is int
+            and job["exit_code"] == 0
+            and job.get("operation") in _DATA_REFRESH_OPERATIONS
+        ),
+        None,
+    )
+
+
+def _report_data_reconnect_failure(job_id: str, detail: str) -> None:
+    print(
+        f"Curated-data MCP refresh for job {job_id} failed ({detail}); "
+        "the current Agent is unchanged and it will be retried on the next normal turn."
+    )
+
+
+async def _refresh_agent_after_data_job(
+    agent: Agent,
+    config: AppConfig,
+    data_mcp_manager: MCPServerManager,
+    user_mcp_manager: MCPServerManager,
+    observed_job_ids: set[str],
+) -> Agent:
+    jobs = await asyncio.to_thread(list_jobs, config)
+    candidate = _next_successful_data_job(jobs, observed_job_ids)
+    if candidate is None:
+        return agent
+
+    job_id = candidate["job_id"]
+    try:
+        await data_mcp_manager.reconnect(failed_only=True)
+    except Exception as exc:
+        _report_data_reconnect_failure(job_id, type(exc).__name__)
+        return agent
+
+    if data_mcp_manager.failed_servers or data_mcp_manager.errors:
+        _report_data_reconnect_failure(job_id, "one or more data servers remain unavailable")
+        return agent
+
+    try:
+        refreshed_agent = _clone_runtime_agent(
+            agent,
+            data_mcp_manager,
+            user_mcp_manager,
+        )
+    except Exception as exc:
+        _report_data_reconnect_failure(job_id, type(exc).__name__)
+        return agent
+
+    observed_job_ids.add(job_id)
+    return refreshed_agent
 
 
 async def generate_session_title(title_agent: Agent, history: list[TResponseInputItem]) -> str:
@@ -142,7 +247,18 @@ async def main(sync: bool = False):
         openai_client=client,
     )
 
-    mcp_servers = [*load_query_servers(config.root, config["mcp.default_timeout_seconds"]), *load_mcp_servers(config.mcp_config_path, config.secrets, config["mcp.default_timeout_seconds"])]
+    data_mcp_servers = load_query_servers(
+        config.root,
+        config["mcp.default_timeout_seconds"],
+    )
+    user_mcp_servers = load_mcp_servers(
+        config.mcp_config_path,
+        config.secrets,
+        config["mcp.default_timeout_seconds"],
+    )
+    observed_job_ids = _observed_terminal_job_ids(
+        await asyncio.to_thread(list_jobs, config),
+    )
 
     session_db = config.sessions_db
 
@@ -158,11 +274,22 @@ async def main(sync: bool = False):
     try:
         await start_execution(execution, config.workspace_dir)
 
-        async with MCPServerManager(mcp_servers, drop_failed_servers=True) as mcp_manager:
-
-            agent = create_agent(
-                model=model,
-                mcp_servers=mcp_manager.active_servers,
+        async with (
+            MCPServerManager(
+                user_mcp_servers,
+                drop_failed_servers=True,
+                strict=False,
+            ) as user_mcp_manager,
+            MCPServerManager(
+                data_mcp_servers,
+                drop_failed_servers=True,
+                strict=False,
+            ) as data_mcp_manager,
+        ):
+            agent = _create_runtime_agent(
+                model,
+                data_mcp_manager,
+                user_mcp_manager,
             )
 
             while True:
@@ -312,6 +439,13 @@ async def main(sync: bool = False):
 
                     continue
 
+                agent = await _refresh_agent_after_data_job(
+                    agent,
+                    config,
+                    data_mcp_manager,
+                    user_mcp_manager,
+                    observed_job_ids,
+                )
                 agent_context = AgentContext(config=config, execution=execution)
                 result = Runner.run_streamed(
                     agent,
