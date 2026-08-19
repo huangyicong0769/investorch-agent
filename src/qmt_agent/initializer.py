@@ -10,7 +10,7 @@ from pathlib import Path
 
 from qmt_agent.config import AppConfig, ConfigError
 from qmt_agent.data import initialize as initialize_data
-from qmt_agent.storage.sessions import init_session_metadata
+from qmt_agent.storage import init_session_metadata
 
 LOCAL_CONFIG_TEMPLATE = """# Local QMT Agent configuration.
 # Overrides config/qmt.toml and stores local secrets.

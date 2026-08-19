@@ -1,7 +1,11 @@
-from agents import Agent, OpenAIResponsesModel
+import asyncio
+
+from agents import Agent, OpenAIResponsesModel, Runner, set_tracing_disabled
 from agents.mcp import MCPServer
+from openai import AsyncOpenAI
 
 from qmt_agent import tools
+from qmt_agent.config import load_config
 from qmt_agent.context import AgentContext, ExecutionState
 
 from .prompts import MAIN_AGENT_INSTRUCTIONS
@@ -31,14 +35,6 @@ def create_agent(model: OpenAIResponsesModel, mcp_servers: list[MCPServer] | Non
 
 
 if __name__ == "__main__":
-    import asyncio
-
-    from agents import Runner, set_tracing_disabled
-    from openai import AsyncOpenAI
-
-    from qmt_agent.config import load_config
-    from qmt_agent.tools.base import close_execution, start_execution
-
     set_tracing_disabled(True)
 
     config = load_config()
@@ -61,7 +57,7 @@ if __name__ == "__main__":
         execution = ExecutionState()
 
         try:
-            await start_execution(execution, config.workspace_dir)
+            await tools.start_execution(execution, config.workspace_dir)
             context = AgentContext(config=config, execution=execution)
             return await Runner.run(
                 agent,
@@ -69,7 +65,7 @@ if __name__ == "__main__":
                 context=context,
             )
         finally:
-            await close_execution(execution)
+            await tools.close_execution(execution)
 
     result = asyncio.run(run_once())
 

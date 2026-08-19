@@ -14,7 +14,9 @@ from zoneinfo import ZoneInfo
 
 from agents import RunContextWrapper
 from agents.decorators import tool
+from agents.sandbox import Manifest
 from agents.sandbox.errors import PtySessionNotFoundError
+from agents.sandbox.sandboxes.unix_local import UnixLocalSandboxClient
 
 from qmt_agent.context import AgentContext, BackgroundJob, ExecutionState
 
@@ -883,9 +885,6 @@ async def _ensure_sandbox(execution: ExecutionState, workspace: Path) -> Any:
             raise RuntimeError("ExecutionState is already bound to another workspace")
 
         return execution.sandbox
-
-    from agents.sandbox import Manifest
-    from agents.sandbox.sandboxes.unix_local import UnixLocalSandboxClient
 
     client = UnixLocalSandboxClient()
     sandbox = await client.create(

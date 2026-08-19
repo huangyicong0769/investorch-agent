@@ -8,6 +8,7 @@ from agents import (
     Runner,
     SQLiteSession,
     TResponseInputItem,
+    set_tracing_disabled,
 )
 from agents.mcp import MCPServerManager
 from openai import AsyncOpenAI
@@ -27,14 +28,14 @@ from qmt_agent.data import load_query_servers
 from qmt_agent.initializer import initialize, sync_bootstrap_files
 from qmt_agent.mcp import load_mcp_servers
 from qmt_agent.observability import print_run_events
-from qmt_agent.storage.sessions import (
+from qmt_agent.storage import (
     delete_session_metadata,
     find_session_ids,
     get_session_title,
     list_sessions,
     set_session_title,
 )
-from qmt_agent.tools.base import (
+from qmt_agent.tools import (
     close_execution,
     format_background_jobs,
     list_background_jobs,
@@ -365,7 +366,5 @@ async def main(sync: bool = False):
 
 if __name__ == "__main__":
     startup_options = parse_startup_args()
-    from agents import set_tracing_disabled
-
     set_tracing_disabled(True)
     asyncio.run(main(sync=startup_options.sync))
