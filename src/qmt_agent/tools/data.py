@@ -39,7 +39,7 @@ async def data_run(context: RunContextWrapper[AgentContext], operation: DataOper
         full_history: Boolean that defaults to false; pass false unless initialize should request the full history, because the strict schema requires the field.
 
     Returns:
-        The accepted background job ID, PID, operation, running status, and QMT-owned stdout/stderr log paths. It is a receipt for the background process, not a completed data result; poll data_status with the returned job ID to inspect progress and exit_code. A non-zero verify exit may report diagnostics and must not trigger automatic repair.
+        The accepted background job ID, display-only PID, operation, running status, and QMT-owned stdout/stderr log paths. Stop the process only with stop_background_job using the returned job_id; never signal the displayed PID. It is a receipt for the background process, not a completed data result; poll data_status with the returned job ID to inspect progress and exit_code. A non-zero verify exit may report diagnostics and must not trigger automatic repair.
     """
     config = context.context.config
     return await asyncio.to_thread(start_operation, config, operation, trade_date, run_id, full_history)

@@ -20,6 +20,7 @@ BackgroundJobStatus = Literal[
     "running",
     "exited",
     "lost",
+    "stopped",
 ]
 
 class TodoItem(TypedDict):
@@ -39,6 +40,9 @@ class BackgroundJob:
     status: BackgroundJobStatus
     exit_code: int | None = None
     finished_at: datetime | None = None
+    termination: str | None = None
+    escalated: bool | None = None
+    group_terminated: bool | None = None
 
 
 @dataclass

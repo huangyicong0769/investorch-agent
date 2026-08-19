@@ -8,6 +8,7 @@ import os
 import shlex
 import shutil
 import signal
+import subprocess
 import sys
 import time
 import uuid
@@ -158,7 +159,7 @@ async def stop_background_job(context: RunContextWrapper[AgentContext], job_id: 
         job_id: Complete job ID returned by exec_command(background=true) or data_run. This field is required and must not be null.
 
     Returns:
-        A stop receipt containing job_id, status, process-group termination, and signal escalation outcome. A stopped job is not a successful completed job; inspect its status and use the job output/status tools as needed.
+        A stop receipt containing job_id, status, process-group termination, and signal escalation outcome. A stopped job is not a successful completed job; inspect its status and use the job output/status tools as needed. If the managed session is lost or cannot be verified, status is unresolved and no process signal is sent.
     """
     job_id = _validate_background_job_id(job_id)
     config = context.context.config
@@ -183,9 +184,19 @@ def _validate_background_job_id(job_id: str) -> str:
 
 async def _stop_execution_background_job(execution: ExecutionState, job: BackgroundJob, timeout_seconds: int | float) -> dict[str, Any]:
     if job.status == "exited":
-        return {"job_id": job.job_id, "status": "already_exited", "group_terminated": True}
+        return _already_exited_receipt(job)
     if job.status == "stopped":
-        return {"job_id": job.job_id, "status": "already_stopped", "group_terminated": True, "termination": getattr(job, "termination", None)}
+        return _already_stopped_receipt(job)
+    if job.status == "lost":
+        return _unresolved_receipt(job, "Managed background job state is lost; refusing to signal a stale process group.")
+    if job.process_id is None:
+        job.status = "lost"
+        job.finished_at = datetime.now(UTC)
+        return _unresolved_receipt(job, "Managed background job has no live session; refusing to signal an unverified process group.")
+
+    refreshed = await _refresh_execution_background_job(execution, job)
+    if refreshed is not None:
+        return refreshed
 
     result = await asyncio.to_thread(_terminate_process_group, job.pid, timeout_seconds)
     if result["status"] in {"stop_failed"}:
@@ -201,9 +212,44 @@ async def _stop_execution_background_job(execution: ExecutionState, job: Backgro
     job.status = "stopped"
     job.exit_code = None
     job.finished_at = datetime.now(UTC)
-    if result.get("termination") is not None:
-        setattr(job, "termination", result["termination"])
+    job.termination = result.get("termination")
+    job.escalated = result.get("escalated")
+    job.group_terminated = result.get("group_terminated")
     return {"job_id": job.job_id, **result}
+
+
+async def _refresh_execution_background_job(execution: ExecutionState, job: BackgroundJob) -> dict[str, Any] | None:
+    if execution.sandbox is None:
+        return None
+
+    try:
+        update = await execution.sandbox.pty_write_stdin(session_id=job.process_id, chars="", yield_time_s=0)
+    except (PtySessionNotFoundError, RuntimeError, OSError) as exc:
+        job.process_id = None
+        job.status = "lost"
+        job.finished_at = datetime.now(UTC)
+        return _unresolved_receipt(job, f"Unable to verify the managed background session: {exc}")
+
+    if update.exit_code is None:
+        return None
+
+    job.exit_code = update.exit_code
+    job.finished_at = datetime.now(UTC)
+    job.process_id = None
+    job.status = "exited"
+    return _already_exited_receipt(job)
+
+
+def _already_exited_receipt(job: BackgroundJob) -> dict[str, Any]:
+    return {"job_id": job.job_id, "status": "already_exited", "exit_code": job.exit_code, "finished_at": job.finished_at.isoformat() if job.finished_at else None, "stdout_log": job.stdout_log, "stderr_log": job.stderr_log, "group_terminated": True}
+
+
+def _already_stopped_receipt(job: BackgroundJob) -> dict[str, Any]:
+    return {"job_id": job.job_id, "status": "already_stopped", "group_terminated": job.group_terminated if job.group_terminated is not None else True, "termination": job.termination, "escalated": job.escalated}
+
+
+def _unresolved_receipt(job: BackgroundJob, error: str) -> dict[str, Any]:
+    return {"job_id": job.job_id, "status": "unresolved", "job_status": job.status, "error": error, "group_terminated": False}
 
 
 def _terminate_process_group(pgid: int, timeout_seconds: int | float) -> dict[str, Any]:
@@ -218,22 +264,34 @@ def _terminate_process_group(pgid: int, timeout_seconds: int | float) -> dict[st
     except ProcessLookupError:
         return {"status": "already_stopped", "group_terminated": True}
     except PermissionError as exc:
+        if not _process_group_exists(pgid):
+            return {"status": "already_stopped", "group_terminated": True}
         return {"status": "stop_failed", "error": f"Unable to signal managed process group: {exc}", "group_terminated": False}
     except OSError as exc:
+        if not _process_group_exists(pgid):
+            return {"status": "already_stopped", "group_terminated": True}
         return {"status": "stop_failed", "error": f"Unable to signal managed process group: {exc}", "group_terminated": False}
     if not _wait_process_group_gone(pgid, timeout_seconds):
-        if _process_group_exists(pgid):
-            termination = "SIGKILL"
-            try:
-                os.killpg(pgid, signal.SIGKILL)
-            except ProcessLookupError:
+        if not _process_group_exists(pgid):
+            return {"status": "stopped", "termination": termination, "escalated": False, "group_terminated": True}
+
+        termination = "SIGKILL"
+        try:
+            os.killpg(pgid, signal.SIGKILL)
+        except ProcessLookupError:
+            return {"status": "stopped", "termination": termination, "escalated": True, "group_terminated": True}
+        except PermissionError as exc:
+            if not _process_group_exists(pgid):
                 return {"status": "stopped", "termination": termination, "escalated": True, "group_terminated": True}
-            except PermissionError as exc:
-                return {"status": "stop_failed", "error": f"Unable to escalate managed process group: {exc}", "termination": termination, "escalated": True, "group_terminated": False}
-            except OSError as exc:
-                return {"status": "stop_failed", "error": f"Unable to escalate managed process group: {exc}", "termination": termination, "escalated": True, "group_terminated": False}
-            if not _wait_process_group_gone(pgid, timeout_seconds):
-                return {"status": "stop_failed", "error": "Managed process group did not terminate", "termination": termination, "escalated": True, "group_terminated": False}
+            return {"status": "stop_failed", "error": f"Unable to escalate managed process group: {exc}", "termination": termination, "escalated": True, "group_terminated": False}
+        except OSError as exc:
+            if not _process_group_exists(pgid):
+                return {"status": "stopped", "termination": termination, "escalated": True, "group_terminated": True}
+            return {"status": "stop_failed", "error": f"Unable to escalate managed process group: {exc}", "termination": termination, "escalated": True, "group_terminated": False}
+        if not _wait_process_group_gone(pgid, timeout_seconds):
+            if not _process_group_exists(pgid):
+                return {"status": "stopped", "termination": termination, "escalated": True, "group_terminated": True}
+            return {"status": "stop_failed", "error": "Managed process group did not terminate", "termination": termination, "escalated": True, "group_terminated": False}
     return {"status": "stopped", "termination": termination, "escalated": termination == "SIGKILL", "group_terminated": True}
 
 
@@ -243,8 +301,23 @@ def _process_group_exists(pgid: int) -> bool:
     except ProcessLookupError:
         return False
     except PermissionError:
-        return True
+        return _process_group_has_members(pgid)
+    except OSError:
+        return _process_group_has_members(pgid)
     return True
+
+
+def _process_group_has_members(pgid: int) -> bool:
+    try:
+        result = subprocess.run(("ps", "-axo", "pid=,pgid="), capture_output=True, text=True, check=False, timeout=1)
+    except (OSError, subprocess.SubprocessError):
+        return True
+
+    if result.returncode != 0:
+        return True
+
+    target = str(pgid)
+    return any((fields := line.split()) and len(fields) >= 2 and fields[1] == target for line in result.stdout.splitlines())
 
 
 def _wait_process_group_gone(pgid: int, timeout_seconds: int | float) -> bool:
@@ -963,9 +1036,7 @@ def _with_durable_jobs(jobs: list[BackgroundJob], config: AppConfig | None) -> l
     combined = list(jobs)
     for item in list_jobs(config):
         try:
-            job = BackgroundJob(job_id=str(item["job_id"]), process_id=None, pid=int(item["pid"]), command=f"data:{item['operation']}", started_at=datetime.fromisoformat(str(item["started_at"])), stdout_log=str(item["stdout_log"]), stderr_log=str(item["stderr_log"]), status=item["status"], exit_code=item.get("exit_code"), finished_at=datetime.fromisoformat(str(item["finished_at"])) if item.get("finished_at") else None)
-            if item.get("termination") is not None:
-                setattr(job, "termination", item["termination"])
+            job = BackgroundJob(job_id=str(item["job_id"]), process_id=None, pid=int(item["pid"]), command=f"data:{item['operation']}", started_at=datetime.fromisoformat(str(item["started_at"])), stdout_log=str(item["stdout_log"]), stderr_log=str(item["stderr_log"]), status=item["status"], exit_code=item.get("exit_code"), finished_at=datetime.fromisoformat(str(item["finished_at"])) if item.get("finished_at") else None, termination=item.get("termination"), escalated=item.get("escalated"), group_terminated=item.get("group_terminated"))
             combined.append(job)
         except (KeyError, TypeError, ValueError):
             continue
@@ -988,7 +1059,7 @@ def format_background_jobs(jobs: list[BackgroundJob]) -> str:
         elif job.status == "lost":
             status = "lost"
         elif job.status == "stopped":
-            termination = getattr(job, "termination", None)
+            termination = job.termination
             status = f"stopped({termination})" if termination else "stopped"
         elif job.status == "stop_failed":
             status = "stop_failed"
