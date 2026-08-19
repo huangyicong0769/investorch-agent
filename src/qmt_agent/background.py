@@ -213,15 +213,19 @@ def _stop_job_locked(config: AppConfig, job_id: str, job_dir: Path) -> dict[str,
             raise RuntimeError(f"Background job identity mismatch; refusing to stop PID reuse: {job_id}")
         if snapshot["pgid"] != pgid or snapshot["pgid"] != snapshot["pid"]:
             raise RuntimeError(f"Background job process-group identity mismatch: {job_id}")
-    elif not group_exists:
-        return {"job_id": job_id, "status": "lost", "group_terminated": True, "lock_released": lock_released}
-    elif not metadata.get("pgid_explicit"):
+    elif group_exists and not metadata.get("pgid_explicit"):
         return _stop_failure(job_id, "legacy job metadata does not prove the process-group identity", group_terminated=False)
 
     if not group_exists:
         result = _read_result(job_dir)
         if result is not None:
+            if not lock_released:
+                return _stop_failure(job_id, "exclusive lock remains held", result=result, group_terminated=True, lock_released=False)
+            if result["status"] == _STOPPED_STATUS:
+                return {"job_id": job_id, **result, "already_stopped": True, "lock_released": True}
             return {"job_id": job_id, **result, "status": "already_exited", "lock_released": True}
+        if not lock_released:
+            return _stop_failure(job_id, "exclusive lock remains held after process-group disappearance", group_terminated=True, lock_released=False)
         return {"job_id": job_id, "status": "lost", "group_terminated": True, "lock_released": lock_released}
 
     escalated = False
