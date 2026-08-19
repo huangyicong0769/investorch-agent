@@ -235,11 +235,11 @@ Curated research data 是研究、回测和基本面分析使用的只读数据�
 
 QMT 只持有通用 lifecycle job receipt、进程状态、受限日志文件和有界日志返回，并用 generic lifecycle flock 串行化 managed lifecycle jobs，以支持审批、后台运行、`data_status` 与跨会话 receipt 恢复；run manifest、checkpoint、内部 run lock、staging、compact、repair 和 orphan reconciliation 仍由官方 backend 拥有，QMT 不扫描或修改这些内部状态。`data_status` 的 `no_runs`、`has_runs` 和 `unavailable` 只描述官方状态可用性，`has_runs` 不表示数据湖 ready 或 complete；`resume` 只接受用户明确选择的 opaque run_id 并再次审批，QMT 不自动关联 lost job、自动 retry、repair 或推断 subsystem recovery。
 
-成功的 `initialize` / `refresh_core` / `resume` job 只在下一次正常 Runner turn 检查并尝试一次 data-only query MCP reconnect；`verify` 不触发该流程，失败留待下一次正常 turn 重试，不启动监控线程、不触碰用户 MCP、不重初始化或切换到 live fallback。本地 MCP 工具名由 SDK 加入 server prefix 以避免冲突，主系统和 prompt 只依赖语义工具名，不硬编码具体 prefix 格式。
+query 与 user servers 在 QMT startup 由单一 MCP manager 一起探测；built-in query server 若 startup connection unavailable 或失败，会被 SDK guard 丢弃而不阻止 QMT 继续运行，lifecycle tools 仍常驻，startup CLI 只打印一次中性的 unavailable/new-install initialize/restart 提示。若 query tools 不可用，Agent 先用 `data_status` 检查 managed data subsystem；只有检查显示 new/uninitialized（如 `no_runs`）时才提供经审批的 `data_run` 初始化，成功 receipt 完成后当前进程不会动态获得 query tools，也不重建 Agent 或改变 user MCP 连接，Agent 应提示用户重启 QMT Agent，由下一次 startup 重新探测。本地 MCP 工具名由 SDK 加入 server prefix 以避免冲突，主系统和 prompt 只依赖语义工具名，不硬编码具体 prefix 格式。
 
 ```text
 Current curated research path:
-Main Agent -> qmt_agent.data facade -> transitional backend wrapper -> official read-only MCP -> curated research data
+QMT startup -> qmt_agent.data facade -> single MCP manager -> transitional backend wrapper -> official read-only MCP -> curated research data
 
 Current curated lifecycle path:
 Main Agent -> approved data_status / data_run -> qmt_agent.data facade -> transitional backend wrapper -> official CLI
