@@ -71,6 +71,15 @@ The runtime policy sections below are TOML-only and must be present in the effec
 
 They are validated at startup and again before an update is persisted. `background_job_dir` must remain relative to the configured workspace, `durable_job_dir` must remain a strict subdirectory of the configured state directory, background job IDs cannot exceed the UUID hex width, retained log bytes and log chunk bytes cannot exceed maximum log bytes, and returned output characters cannot exceed retained log bytes.
 
+## Managed Background Jobs
+
+- Observe and confirm a managed job before stopping it; stop only after an explicit user request and the approved `stop_background_job` tool call.
+- Pass the complete receipt `job_id` returned by `exec_command(background=true)` or a managed lifecycle run; displayed PID and PGID values are for observation only and must never be signaled directly.
+- `stop_background_job` terminates the entire managed process group with SIGTERM, waits `execution.background_stop_timeout_seconds`, and escalates to SIGKILL when needed; never terminate only the worker PID.
+- A stop receipt reports the `job_id`, terminal `status`, process-group termination, and signal-escalation outcome; jobs with an exclusive lock also report `lock_released` before they may be replaced by another exclusive job.
+- `stopped` or `cancelled` is not successful completion; `unknown`, `lost`, and `stop_failed` must not be guessed into success, completion, or lock release.
+- Report a stop only after its receipt reaches a terminal status and inspect its bounded output or status as needed; do not infer completion from a signal or a disappearing PID.
+
 ## Local Configuration
 
 Machine- and user-specific overrides live in:

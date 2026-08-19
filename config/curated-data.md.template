@@ -27,6 +27,13 @@ This is durable Agent operational memory for the managed curated market-data sub
 - `refresh_core` is the foundational/core curated refresh, not a full daily refresh, backfill, live fetch, or arbitrary group operation. Do not infer a run ID or automatically retry, repair, or resume a failed or lost job.
 - After `initialize`, `refresh_core`, or `resume` completes, inspect its receipt and bounded output and verify before relying on new data. A non-zero `verify` exit may report diagnostics; interpret it with the bounded output and do not automatically repair.
 
+## Stop contract
+
+- A QMT `job_id` identifies the managed background process and receipt; a backend opaque `run_id` identifies a data run for `resume`, and the two must never be substituted for each other.
+- Before stopping a data lifecycle job, inspect `data_status(job_id)` and require an explicit user approval; call only `stop_background_job` with the complete QMT `job_id`, never `exec_command`, a PID/PGID signal, or a guessed identifier.
+- After stopping, inspect the terminal receipt (`stopped`, `already_stopped`, or `already_exited`), bounded output, backend status, and the exclusive-lock result before deciding whether any data is usable; a stopped job is not a successful data result.
+- Do not automatically `resume` or repair after a stop; any later `resume` requires the user-selected opaque backend `run_id` and a new approval, while `lost` or `stop_failed` remains unresolved until observed evidence is available.
+
 ## Startup fallback
 
 - If query tools are unavailable, call `data_status` first. Only a new or uninitialized state such as `no_runs` may justify offering the approved `initialize` operation; `unavailable` alone does not prove that the lake is empty.
