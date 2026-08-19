@@ -7,7 +7,6 @@ import errno
 import json
 import os
 import secrets
-import shlex
 import signal
 import subprocess
 import sys
@@ -23,6 +22,7 @@ from qmt_agent.config import AppConfig
 
 _METADATA_FILENAME = "job.json"
 _RESULT_FILENAME = "result.json"
+_STOP_LOCK_FILENAME = ".stop.lock"
 _LOCK_BUSY_MESSAGE = "Another curated-data lifecycle operation is already running."
 _EXITED_STATUS = "exited"
 _STOPPED_STATUS = "stopped"
@@ -169,6 +169,26 @@ def read_job_output(config: AppConfig, job_id: str) -> dict[str, Any]:
 def stop_job(config: AppConfig, job_id: str) -> dict[str, Any]:
     """Stop one durable job's process group and persist a truthful termination receipt."""
     job_dir = _job_dir_for_id(config, job_id)
+    stop_lock = _open_stop_lock(job_dir)
+    try:
+        return _stop_job_locked(config, job_id, job_dir)
+    finally:
+        _close_fd(stop_lock)
+
+
+def _open_stop_lock(job_dir: Path) -> int:
+    if os.name != "posix" or fcntl is None:
+        raise RuntimeError("durable job stop locks require POSIX")
+    descriptor = os.open(job_dir / _STOP_LOCK_FILENAME, os.O_CREAT | os.O_RDWR, 0o600)
+    try:
+        fcntl.flock(descriptor, fcntl.LOCK_EX)
+        return descriptor
+    except BaseException:
+        _close_fd(descriptor)
+        raise
+
+
+def _stop_job_locked(config: AppConfig, job_id: str, job_dir: Path) -> dict[str, Any]:
     try:
         raw_metadata = _read_json(job_dir / _METADATA_FILENAME)
         metadata = _validate_metadata(raw_metadata, job_dir)
@@ -283,33 +303,22 @@ def _process_snapshot(config: AppConfig, pid: int) -> dict[str, Any] | None:
         snapshot_pgid = int(fields[1])
     except ValueError:
         return None
-    try:
-        argv = tuple(shlex.split(fields[2]))
-    except ValueError:
-        argv = ()
-    return {"pid": snapshot_pid, "pgid": snapshot_pgid, "argv": argv}
+    return {"pid": snapshot_pid, "pgid": snapshot_pgid, "command": fields[2]}
 
 
 def _matches_worker(snapshot: dict[str, Any], metadata: dict[str, Any], job_dir: Path) -> bool:
     if snapshot["pid"] != metadata["pid"] or snapshot["pgid"] != metadata["pgid"]:
         return False
-    argv = snapshot["argv"]
-    if "qmt_agent.background" not in argv:
+    command = snapshot["command"]
+    if "-m qmt_agent.background" not in command:
         return False
-    try:
-        job_dir_index = argv.index("--job-dir")
-    except ValueError:
-        return False
-    if job_dir_index + 1 >= len(argv) or argv[job_dir_index + 1] != str(job_dir):
+    job_marker = f"--job-dir {job_dir} --cwd "
+    if job_marker not in command:
         return False
     worker_token = metadata.get("worker_token")
     if worker_token is None:
         return True
-    try:
-        token_index = argv.index("--worker-token")
-    except ValueError:
-        return False
-    return token_index + 1 < len(argv) and argv[token_index + 1] == worker_token
+    return f"--worker-token {worker_token}" in command
 
 
 def _safe_process_group(metadata: dict[str, Any]) -> bool:
