@@ -71,8 +71,11 @@ def _clone_runtime_agent(
     data_mcp_manager: MCPServerManager,
     user_mcp_manager: MCPServerManager,
 ) -> Agent:
+    mcp_config = dict(agent.mcp_config)
+    mcp_config["include_server_in_tool_names"] = True
     return agent.clone(
         mcp_servers=_active_mcp_servers(data_mcp_manager, user_mcp_manager),
+        mcp_config=mcp_config,
     )
 
 

@@ -57,7 +57,7 @@ def load_query_servers(config_root: Path, timeout_seconds: int | float) -> list[
     return [
         MCPServerStdio(
             params=params,
-            name="Managed market-data query",
+            name="cnequity",
             cache_tools_list=True,
             client_session_timeout_seconds=timeout_seconds,
         )
