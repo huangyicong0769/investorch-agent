@@ -287,7 +287,7 @@ async def main(sync: bool = False):
                             print(f"Cleared session and started new session: {session_id}")
 
                         case "ps":
-                            jobs = await list_background_jobs(execution, config)
+                            jobs = await list_background_jobs(execution)
                             print(format_background_jobs(jobs))
 
                         case "exit":

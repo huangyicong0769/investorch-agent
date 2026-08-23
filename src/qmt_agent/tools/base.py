@@ -18,8 +18,6 @@ from agents.sandbox import Manifest
 from agents.sandbox.errors import PtySessionNotFoundError
 from agents.sandbox.sandboxes.unix_local import UnixLocalSandboxClient
 
-from qmt_agent.background import list_jobs
-from qmt_agent.config import AppConfig
 from qmt_agent.context import AgentContext, BackgroundJob, ExecutionState
 
 BACKGROUND_PID_MARKER = "__QMT_PID__="
@@ -806,12 +804,11 @@ async def close_execution(execution: ExecutionState) -> None:
         await sandbox.aclose()
 
 
-async def list_background_jobs(execution: ExecutionState, config: AppConfig | None = None) -> list[BackgroundJob]:
+async def list_background_jobs(execution: ExecutionState) -> list[BackgroundJob]:
     sandbox = execution.sandbox
 
     if sandbox is None:
-        jobs = _sorted_background_jobs(execution)
-        return _with_durable_jobs(jobs, config)
+        return _sorted_background_jobs(execution)
 
     for job in execution.background_jobs.values():
         if job.status != "running":
@@ -840,20 +837,7 @@ async def list_background_jobs(execution: ExecutionState, config: AppConfig | No
             job.process_id = None
             job.status = "exited"
 
-    return _with_durable_jobs(_sorted_background_jobs(execution), config)
-
-
-def _with_durable_jobs(jobs: list[BackgroundJob], config: AppConfig | None) -> list[BackgroundJob]:
-    if config is None:
-        return jobs
-
-    combined = list(jobs)
-    for item in list_jobs(config):
-        try:
-            combined.append(BackgroundJob(job_id=str(item["job_id"]), process_id=None, pid=int(item["pid"]), command=f"data:{item['operation']}", started_at=datetime.fromisoformat(str(item["started_at"])), stdout_log=str(item["stdout_log"]), stderr_log=str(item["stderr_log"]), status=item["status"], exit_code=item.get("exit_code"), finished_at=datetime.fromisoformat(str(item["finished_at"])) if item.get("finished_at") else None))
-        except (KeyError, TypeError, ValueError):
-            continue
-    return sorted(combined, key=lambda job: job.started_at)
+    return _sorted_background_jobs(execution)
 
 
 def format_background_jobs(jobs: list[BackgroundJob]) -> str:
@@ -862,7 +846,7 @@ def format_background_jobs(jobs: list[BackgroundJob]) -> str:
 
     lines = [
         "QMT background processes:",
-        "JOB_ID\tPID\tSTATUS\tELAPSED\tCOMMAND",
+        "PID\tSTATUS\tELAPSED\tCOMMAND",
     ]
 
     for job in jobs:
@@ -874,7 +858,7 @@ def format_background_jobs(jobs: list[BackgroundJob]) -> str:
             status = f"exited({job.exit_code})"
 
         command = job.command.replace("\n", "\\n")
-        lines.append(f"{job.job_id}\t{job.pid}\t{status}\t{_format_elapsed(job)}\t{command}")
+        lines.append(f"{job.pid}\t{status}\t{_format_elapsed(job)}\t{command}")
 
     return "\n".join(lines)
 
