@@ -18,6 +18,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, BinaryIO
 
+if os.name == "posix":
+    import fcntl
+else:
+    fcntl = None
+
 from qmt_agent.config import AppConfig
 
 _METADATA_FILENAME = "job.json"
@@ -28,11 +33,6 @@ _EXITED_STATUS = "exited"
 _STOPPED_STATUS = "stopped"
 _STOP_FAILED_STATUS = "stop_failed"
 _STOP_SIGNALS = {"SIGTERM": signal.SIGTERM, "SIGKILL": signal.SIGKILL}
-
-if os.name == "posix":
-    import fcntl
-else:
-    fcntl = None
 
 
 def start_job(config: AppConfig, operation: str, command: list[str], cwd: Path, *, exclusive_lock_path: Path | None = None) -> dict[str, Any]:
