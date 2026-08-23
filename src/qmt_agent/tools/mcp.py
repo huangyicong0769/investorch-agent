@@ -1,15 +1,21 @@
+import re
+from copy import deepcopy
 from typing import Any
+from urllib.parse import parse_qsl, quote_plus, urlsplit, urlunsplit
 
 from agents import RunContextWrapper
 from agents.decorators import tool
 from pydantic import BaseModel
 
+from qmt_agent.config import REDACTED
 from qmt_agent.context import AgentContext
 from qmt_agent.mcp import (
     configure_mcp_server_config,
     read_mcp_server_configs,
     remove_mcp_server_config,
 )
+
+_SECRET_PLACEHOLDER_PATTERN = re.compile(r"\$\{[A-Za-z_][A-Za-z0-9_]*\}")
 
 
 class MCPHeader(BaseModel):
@@ -19,18 +25,17 @@ class MCPHeader(BaseModel):
 @tool
 def list_mcp_servers(context: RunContextWrapper[AgentContext],) -> dict[str, Any]:
     """
-    List configured MCP servers.
+    List user-configured MCP servers from mcp.toml.
 
-    Secret placeholders are returned without
-    expanding their real values.
+    Built-in runtime MCP servers are outside this configuration scope. Secret placeholders are returned without expanding their real values, while literal URL query and header values are redacted.
 
     Returns:
-        A dictionary with the list of configured MCP servers.
+        A scoped dictionary with the list of user-configured MCP servers.
     """
     config = context.context.config
 
     return {
-        "servers": read_mcp_server_configs(config.mcp_config_path),
+        "servers": [_public_mcp_server_config(server) for server in read_mcp_server_configs(config.mcp_config_path)],
     }
 
 
@@ -87,7 +92,7 @@ def configure_mcp_server(
     )
 
     return {
-        "server": server,
+        "server": _public_mcp_server_config(server),
         "persisted": True,
         "requires_restart": True,
     }
@@ -119,3 +124,27 @@ def remove_mcp_server(context: RunContextWrapper[AgentContext], name: str) -> di
         "removed": removed,
         "requires_restart": removed,
     }
+
+
+def _public_mcp_server_config(server: dict[str, Any]) -> dict[str, Any]:
+    public = deepcopy(server)
+
+    if isinstance(public.get("url"), str):
+        public["url"] = _redact_url(public["url"])
+
+    if isinstance(public.get("headers"), dict):
+        public["headers"] = {name: _public_secret_value(value) for name, value in public["headers"].items()}
+
+    return public
+
+
+def _public_secret_value(value: str) -> str:
+    return value if _SECRET_PLACEHOLDER_PATTERN.fullmatch(value) else REDACTED
+
+
+def _redact_url(url: str) -> str:
+    parts = urlsplit(url)
+    netloc = re.sub(r"^[^@]+@", f"{REDACTED}@", parts.netloc)
+    query = "&".join(f"{quote_plus(name)}={_public_secret_value(value)}" for name, value in parse_qsl(parts.query, keep_blank_values=True))
+    fragment = _public_secret_value(parts.fragment) if parts.fragment else ""
+    return urlunsplit((parts.scheme, netloc, parts.path, query, fragment))
