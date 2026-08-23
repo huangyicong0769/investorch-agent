@@ -11,6 +11,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import tomlkit
 
 REDACTED = "<redacted>"
+PROJECT_CONFIG_PATH = Path(__file__).resolve().parents[2] / "config" / "qmt.toml"
 
 DEFAULT_CONFIG = {
     "paths": {
@@ -286,8 +287,8 @@ class AppConfig:
             path.chmod(0o600)
 
 
-def load_config(project_config_path: str | Path = "config/qmt.toml") -> AppConfig:
-    project_path = Path(project_config_path).expanduser().resolve()
+def load_config(project_config_path: str | Path | None = None) -> AppConfig:
+    project_path = PROJECT_CONFIG_PATH if project_config_path is None else Path(project_config_path).expanduser().resolve()
 
     if not project_path.is_file():
         raise ConfigError(f"Project config not found: {project_path}")
