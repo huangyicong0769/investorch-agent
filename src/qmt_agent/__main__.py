@@ -1,4 +1,6 @@
 import asyncio
+import os
+import sys
 import uuid
 from pathlib import Path
 
@@ -10,7 +12,7 @@ from agents import (
     TResponseInputItem,
     set_tracing_disabled,
 )
-from agents.mcp import MCPServerManager
+from agents.mcp import MCPServerManager, MCPServerStdio
 from openai import AsyncOpenAI
 
 from qmt_agent.agents import (
@@ -24,7 +26,6 @@ from qmt_agent.agents import (
 from qmt_agent.cli import parse_command, parse_startup_args
 from qmt_agent.config import load_config
 from qmt_agent.context import AgentContext, ExecutionState
-from qmt_agent.data import load_query_servers
 from qmt_agent.initializer import initialize, sync_bootstrap_files
 from qmt_agent.mcp import load_mcp_servers
 from qmt_agent.observability import print_run_events
@@ -142,7 +143,14 @@ async def main(sync: bool = False):
         openai_client=client,
     )
 
-    mcp_servers = [*load_query_servers(config.root, config["mcp.default_timeout_seconds"]), *load_mcp_servers(config.mcp_config_path, config.secrets, config["mcp.default_timeout_seconds"])]
+    cnequity_config = (config.root / "configs" / "cnequity.toml").resolve()
+    cnequity_server = MCPServerStdio(
+        name="cnequity",
+        params={"command": sys.executable, "args": ["-m", "cnequity", "mcp", "--config", str(cnequity_config)], "cwd": str(config.root)},
+        cache_tools_list=True,
+        client_session_timeout_seconds=config["mcp.default_timeout_seconds"],
+    )
+    mcp_servers = [cnequity_server, *load_mcp_servers(config.mcp_config_path, config.secrets, config["mcp.default_timeout_seconds"])]
 
     session_db = config.sessions_db
 
