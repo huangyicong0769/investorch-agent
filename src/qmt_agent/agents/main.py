@@ -31,6 +31,7 @@ def create_agent(model: OpenAIResponsesModel, mcp_servers: list[MCPServer] | Non
             tools.write_todos,
         ],
         mcp_servers=mcp_servers or [],
+        mcp_config={"include_server_in_tool_names": True},
     )
 
 
