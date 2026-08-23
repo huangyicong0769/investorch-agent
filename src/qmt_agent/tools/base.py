@@ -173,7 +173,7 @@ async def stop_background_job(context: RunContextWrapper[AgentContext], job_id: 
         return await asyncio.to_thread(stop_durable_job, config, job_id)
     if execution_job is None:
         raise ValueError(f"Unknown background job: {job_id}")
-    return await _stop_execution_background_job(execution, execution_job, config["execution.background_stop_timeout_seconds"])
+    return await _stop_execution_background_job(execution, execution_job, config["execution.background_stop_timeout_seconds"], config["execution.background_status_timeout_seconds"])
 
 
 def _validate_background_job_id(job_id: str) -> str:
@@ -182,7 +182,7 @@ def _validate_background_job_id(job_id: str) -> str:
     return job_id
 
 
-async def _stop_execution_background_job(execution: ExecutionState, job: BackgroundJob, timeout_seconds: int | float) -> dict[str, Any]:
+async def _stop_execution_background_job(execution: ExecutionState, job: BackgroundJob, timeout_seconds: int | float, probe_timeout_seconds: int | float) -> dict[str, Any]:
     if job.status == "exited":
         return _already_exited_receipt(job)
     if job.status == "stopped":
@@ -200,7 +200,7 @@ async def _stop_execution_background_job(execution: ExecutionState, job: Backgro
     if refreshed is not None:
         return refreshed
 
-    result = await asyncio.to_thread(_terminate_process_group, job.pid, timeout_seconds)
+    result = await asyncio.to_thread(_terminate_process_group, job.pid, timeout_seconds, probe_timeout_seconds)
     if result["status"] in {"stop_failed"}:
         return {"job_id": job.job_id, **result}
 
@@ -254,10 +254,10 @@ def _unresolved_receipt(job: BackgroundJob, error: str) -> dict[str, Any]:
     return {"job_id": job.job_id, "status": "unresolved", "job_status": job.status, "error": error, "group_terminated": False}
 
 
-def _terminate_process_group(pgid: int, timeout_seconds: int | float) -> dict[str, Any]:
+def _terminate_process_group(pgid: int, timeout_seconds: int | float, probe_timeout_seconds: int | float) -> dict[str, Any]:
     if os.name != "posix" or isinstance(pgid, bool) or not isinstance(pgid, int) or pgid <= 1 or pgid in {os.getpid(), os.getpgrp()}:
         return {"status": "stop_failed", "error": "Invalid managed process group", "group_terminated": False}
-    if not _process_group_exists(pgid):
+    if not _process_group_exists(pgid, probe_timeout_seconds):
         return {"status": "already_stopped", "group_terminated": True}
 
     termination = "SIGTERM"
@@ -266,15 +266,15 @@ def _terminate_process_group(pgid: int, timeout_seconds: int | float) -> dict[st
     except ProcessLookupError:
         return {"status": "already_stopped", "group_terminated": True}
     except PermissionError as exc:
-        if not _process_group_exists(pgid):
+        if not _process_group_exists(pgid, probe_timeout_seconds):
             return {"status": "already_stopped", "group_terminated": True}
         return {"status": "stop_failed", "error": f"Unable to signal managed process group: {exc}", "group_terminated": False}
     except OSError as exc:
-        if not _process_group_exists(pgid):
+        if not _process_group_exists(pgid, probe_timeout_seconds):
             return {"status": "already_stopped", "group_terminated": True}
         return {"status": "stop_failed", "error": f"Unable to signal managed process group: {exc}", "group_terminated": False}
-    if not _wait_process_group_gone(pgid, timeout_seconds):
-        if not _process_group_exists(pgid):
+    if not _wait_process_group_gone(pgid, timeout_seconds, probe_timeout_seconds):
+        if not _process_group_exists(pgid, probe_timeout_seconds):
             return {"status": "stopped", "termination": termination, "escalated": False, "group_terminated": True}
 
         termination = "SIGKILL"
@@ -283,35 +283,35 @@ def _terminate_process_group(pgid: int, timeout_seconds: int | float) -> dict[st
         except ProcessLookupError:
             return {"status": "stopped", "termination": termination, "escalated": True, "group_terminated": True}
         except PermissionError as exc:
-            if not _process_group_exists(pgid):
+            if not _process_group_exists(pgid, probe_timeout_seconds):
                 return {"status": "stopped", "termination": termination, "escalated": True, "group_terminated": True}
             return {"status": "stop_failed", "error": f"Unable to escalate managed process group: {exc}", "termination": termination, "escalated": True, "group_terminated": False}
         except OSError as exc:
-            if not _process_group_exists(pgid):
+            if not _process_group_exists(pgid, probe_timeout_seconds):
                 return {"status": "stopped", "termination": termination, "escalated": True, "group_terminated": True}
             return {"status": "stop_failed", "error": f"Unable to escalate managed process group: {exc}", "termination": termination, "escalated": True, "group_terminated": False}
-        if not _wait_process_group_gone(pgid, timeout_seconds):
-            if not _process_group_exists(pgid):
+        if not _wait_process_group_gone(pgid, timeout_seconds, probe_timeout_seconds):
+            if not _process_group_exists(pgid, probe_timeout_seconds):
                 return {"status": "stopped", "termination": termination, "escalated": True, "group_terminated": True}
             return {"status": "stop_failed", "error": "Managed process group did not terminate", "termination": termination, "escalated": True, "group_terminated": False}
     return {"status": "stopped", "termination": termination, "escalated": termination == "SIGKILL", "group_terminated": True}
 
 
-def _process_group_exists(pgid: int) -> bool:
+def _process_group_exists(pgid: int, probe_timeout_seconds: int | float) -> bool:
     try:
         os.killpg(pgid, 0)
     except ProcessLookupError:
         return False
     except PermissionError:
-        return _process_group_has_members(pgid)
+        return _process_group_has_members(pgid, probe_timeout_seconds)
     except OSError:
-        return _process_group_has_members(pgid)
+        return _process_group_has_members(pgid, probe_timeout_seconds)
     return True
 
 
-def _process_group_has_members(pgid: int) -> bool:
+def _process_group_has_members(pgid: int, probe_timeout_seconds: int | float) -> bool:
     try:
-        result = subprocess.run(("ps", "-axo", "pid=,pgid="), capture_output=True, text=True, check=False, timeout=1)
+        result = subprocess.run(("ps", "-axo", "pid=,pgid="), capture_output=True, text=True, check=False, timeout=probe_timeout_seconds)
     except (OSError, subprocess.SubprocessError):
         return True
 
@@ -322,9 +322,9 @@ def _process_group_has_members(pgid: int) -> bool:
     return any((fields := line.split()) and len(fields) >= 2 and fields[1] == target for line in result.stdout.splitlines())
 
 
-def _wait_process_group_gone(pgid: int, timeout_seconds: int | float) -> bool:
+def _wait_process_group_gone(pgid: int, timeout_seconds: int | float, probe_timeout_seconds: int | float) -> bool:
     deadline = time.monotonic() + timeout_seconds
-    while _process_group_exists(pgid):
+    while _process_group_exists(pgid, probe_timeout_seconds):
         if time.monotonic() >= deadline:
             return False
         time.sleep(0.05)

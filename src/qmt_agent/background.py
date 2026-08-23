@@ -143,7 +143,7 @@ def list_jobs(config: AppConfig) -> list[dict[str, Any]]:
         job = {**public_metadata, "status": status}
         if result is not None:
             job.update(result)
-        elif status == "lost" and metadata.get("pgid_explicit") and _group_exists(metadata["pgid"]):
+        elif status == "lost" and metadata.get("pgid_explicit") and _group_exists(metadata["pgid"], config["execution.background_status_timeout_seconds"]):
             job["orphaned_process_group"] = True
         jobs.append(job)
     return sorted(jobs, key=lambda job: str(job.get("started_at", "")))
@@ -207,7 +207,8 @@ def _stop_job_locked(config: AppConfig, job_id: str, job_dir: Path) -> dict[str,
     if not _safe_process_group(metadata):
         raise ValueError(f"Invalid background process group for job: {job_id}")
     snapshot = _process_snapshot(config, metadata["pid"])
-    group_exists = _group_exists(pgid)
+    status_timeout = config["execution.background_status_timeout_seconds"]
+    group_exists = _group_exists(pgid, status_timeout)
     if snapshot is not None:
         if not _matches_worker(snapshot, metadata, job_dir):
             raise RuntimeError(f"Background job identity mismatch; refusing to stop PID reuse: {job_id}")
@@ -233,19 +234,19 @@ def _stop_job_locked(config: AppConfig, job_id: str, job_dir: Path) -> dict[str,
     try:
         _signal_process_group(pgid, _STOP_SIGNALS[termination])
     except RuntimeError as exc:
-        if _group_exists(pgid):
+        if _group_exists(pgid, status_timeout):
             return _stop_failure(job_id, str(exc), group_terminated=False)
-    group_terminated = _wait_process_group_gone(pgid, config["execution.background_stop_timeout_seconds"])
+    group_terminated = _wait_process_group_gone(pgid, config["execution.background_stop_timeout_seconds"], status_timeout)
     if not group_terminated:
-        if _group_exists(pgid):
+        if _group_exists(pgid, status_timeout):
             escalated = True
             termination = "SIGKILL"
             try:
                 _signal_process_group(pgid, _STOP_SIGNALS[termination])
             except RuntimeError as exc:
-                if _group_exists(pgid):
+                if _group_exists(pgid, status_timeout):
                     return _stop_failure(job_id, str(exc), termination=termination, escalated=escalated, group_terminated=False)
-            group_terminated = _wait_process_group_gone(pgid, config["execution.background_stop_timeout_seconds"])
+            group_terminated = _wait_process_group_gone(pgid, config["execution.background_stop_timeout_seconds"], status_timeout)
         else:
             group_terminated = True
     _reap_worker(metadata["pid"], config["execution.background_stop_timeout_seconds"])
@@ -266,7 +267,8 @@ def _stop_job_locked(config: AppConfig, job_id: str, job_dir: Path) -> dict[str,
 
 
 def _stop_process_group(config: AppConfig, process: subprocess.Popen[Any]) -> None:
-    if os.name != "posix" or not _group_exists(process.pid):
+    status_timeout = config["execution.background_status_timeout_seconds"]
+    if os.name != "posix" or not _group_exists(process.pid, status_timeout):
         try:
             process.wait(timeout=0)
         except (subprocess.TimeoutExpired, ChildProcessError):
@@ -274,10 +276,10 @@ def _stop_process_group(config: AppConfig, process: subprocess.Popen[Any]) -> No
         return
     try:
         _signal_process_group(process.pid, signal.SIGTERM)
-        if not _wait_process_group_gone(process.pid, config["execution.background_stop_timeout_seconds"]):
-            if _group_exists(process.pid):
+        if not _wait_process_group_gone(process.pid, config["execution.background_stop_timeout_seconds"], status_timeout):
+            if _group_exists(process.pid, status_timeout):
                 _signal_process_group(process.pid, signal.SIGKILL)
-                _wait_process_group_gone(process.pid, config["execution.background_stop_timeout_seconds"])
+                _wait_process_group_gone(process.pid, config["execution.background_stop_timeout_seconds"], status_timeout)
     except (OSError, RuntimeError):
         pass
     finally:
@@ -333,7 +335,7 @@ def _safe_process_group(metadata: dict[str, Any]) -> bool:
     return pgid not in {os.getpid(), os.getpgrp()}
 
 
-def _group_exists(pgid: int) -> bool:
+def _group_exists(pgid: int, probe_timeout_seconds: int | float) -> bool:
     if os.name != "posix":
         return False
     try:
@@ -342,7 +344,7 @@ def _group_exists(pgid: int) -> bool:
         return False
     except PermissionError:
         try:
-            result = subprocess.run(["ps", "-axo", "pgid="], capture_output=True, text=True, timeout=1, check=False)
+            result = subprocess.run(["ps", "-axo", "pgid="], capture_output=True, text=True, timeout=probe_timeout_seconds, check=False)
         except (OSError, subprocess.SubprocessError):
             return True
         return any(line.strip() == str(pgid) for line in result.stdout.splitlines())
@@ -358,9 +360,9 @@ def _signal_process_group(pgid: int, signum: signal.Signals) -> None:
         raise RuntimeError(f"Unable to signal background process group {pgid}: {exc}") from exc
 
 
-def _wait_process_group_gone(pgid: int, timeout_seconds: int) -> bool:
+def _wait_process_group_gone(pgid: int, timeout_seconds: int | float, probe_timeout_seconds: int | float) -> bool:
     deadline = time.monotonic() + timeout_seconds
-    while _group_exists(pgid):
+    while _group_exists(pgid, probe_timeout_seconds):
         if time.monotonic() >= deadline:
             return False
         time.sleep(0.05)
