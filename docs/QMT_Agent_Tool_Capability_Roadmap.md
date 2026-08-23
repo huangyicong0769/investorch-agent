@@ -21,11 +21,9 @@
         ↓
 验证单 Agent 可以稳定完成复杂任务
         ↓
-接入 curated research data query surface
+再评估 Multi-Agent
         ↓
-按审批补足数据生命周期与额外数据源
-        ↓
-再评估 Multi-Agent 与 QMT live/trading
+最后再进入 Data Pool / Quant Data / Trading
 ```
 
 当前**不优先**：
@@ -33,15 +31,15 @@
 - Research Agent
 - Planner Agent
 - Multi-Agent routing
-- Data Pool / 数据仓库的自研抽象
-- Tushare / xtdata adapter
-- QMT live/trading 接入
+- Data Pool / 数据仓库
+- Market Data 抽象
+- QMT 交易接入
 - 自动交易
 
 原因：
 
 1. 如果基础 Tool 能力不完整，过早引入 Multi-Agent 会把“能力缺失”和“协作设计”两个问题混在一起。
-2. 当前只维护由真实需求驱动的 curated market-data query surface，不提前设计一个覆盖所有数据模型、生命周期、缓存、更新、索引和一致性的自研 Data Pool。
+2. Data Pool 会显著增加数据模型、生命周期、缓存、更新、索引和一致性等心智负担，应在基础执行能力稳定后再设计。
 3. 单 Agent 足够强、Tool 边界足够清楚之后，哪些职责值得拆成 Specialist Agent 会更自然地显现。
 
 ---
@@ -131,7 +129,7 @@ trading.py
 
 > 真实需求出现后再实现；不因为文件已经存在而提前制造 API。
 
-### 当前状态（2026-08-19）
+### 当前状态（2026-08-18）
 
 本轮 General Tools stabilization 已完成以下通用能力：
 
@@ -147,13 +145,8 @@ exec_command(foreground/background) → completed
 和结构化数据处理都通过它在 Workspace 中执行，不另建 `run_python` 或
 `inspect_table/query_table/summarize_table` DSL Tool。
 
-后续通用层以稳定性维护为主，curated market-data query surface 已进入维护；数据生命周期、Tushare / xtdata adapter 与 QMT live/trading 仍未实现。
-
-### 3.5 Curated market-data query
-
-当前数据层事实是：通用 `paths.data` / data root 位于 Agent workspace 之外，`qmt_agent.data` 提供 implementation-neutral facade，transitional backend wrapper 负责接入官方只读 MCP query surface。
-
-当前 query surface 只负责研究数据读取；schema、PIT、复权、universe、质量与 provenance 语义仍由官方 backend 拥有，QMT 不复制或直接绕过这些内部规则。
+后续通用层以稳定性维护为主，下一阶段可进入真实的 Market / Portfolio /
+Trading 需求。
 
 ---
 
@@ -750,26 +743,40 @@ cancel_order
 
 ---
 
-## 14. Data Pool / Curated Market Data — 当前状态
+## 14. Data Pool — 明确暂缓
 
-Curated research data 已进入实现，但项目没有因此建立一个覆盖所有场景的自研 Data Pool。
+Data Pool 当前不进入实现阶段。
 
-当前已实现：
+它未来可能需要解决：
 
-- 通用 data root 位于 Agent workspace 之外。
-- `qmt_agent.data` 提供 implementation-neutral facade。
-- transitional backend wrapper 接入官方只读 MCP query surface。
-- `data_status` 通过官方接口读取最近运行状态，并恢复 QMT 自有的通用 lifecycle job receipt。
-- `data_run` 以审批和固定 argv 映射提供 `initialize` / `refresh` / `resume` / `verify`，长任务脱离 workspace sandbox 后台运行，`/ps` 可跨会话显示其通用进程状态。
+- 数据来源
+- schema
+- symbol normalization
+- frequency
+- trading calendar
+- corporate actions
+- cache
+- incremental update
+- freshness
+- missing data
+- revision
+- storage format
+- query interface
+- derived features
+- provenance
 
-当前未实现：
+这些问题彼此耦合，心智负担明显高于当前通用工具开发。
 
-- lifecycle 的 repair、backfill、catchup、clean、compact、derive、stats、sources、任意 dataset/group/worker 参数与自动 retry。
-- Tushare adapter。
-- xtdata adapter。
-- QMT live/trading 接入与自动交易。
+在以下条件满足前不设计 Data Pool：
 
-Data schema、PIT、复权、universe、质量、provenance、run manifest、checkpoint、锁、内部恢复与 backend layout 仍由官方 subsystem 拥有；QMT 只编排官方入口并跟踪自己的进程 receipt，后续抽象必须继续由真实需求驱动。
+1. Workspace / filesystem 稳定。
+2. CSV / structured data 处理稳定。
+3. 基础计算工具稳定。
+4. 已经出现至少一个真实 Market / Research 数据需求，能够反向驱动数据模型。
+
+原则：
+
+> 先让 Agent 会处理数据，再设计长期保存哪些数据。
 
 ---
 
@@ -880,21 +887,7 @@ Trading Agent
 - 模型不依赖心算完成重要数值计算。
 - 不为每个数学函数制造 Tool。
 
-### Stage 5 — Curated Market Data Query（当前已接入）
-
-```text
-[✓] implementation-neutral data root outside the Agent workspace
-[✓] generic qmt_agent.data facade with a transitional backend wrapper
-[✓] official read-only MCP query surface
-[✓] approved data lifecycle status / run operations with initialize / refresh / resume / verify
-[✓] persistent generic lifecycle job tracking and recovery through data_status and /ps
-[ ] Tushare adapter
-[ ] xtdata adapter
-```
-
-当前 query surface 面向 curated research data；它不等同于 QMT live/trading。Lifecycle mutation 只通过审批后的 `data_run` 固定操作进入 transitional wrapper，不通过 query MCP 或任意 shell 开放。
-
-### Stage 6 — Rich Files / Artifacts
+### Stage 5 — Rich Files / Artifacts
 
 ```text
 [ ] XLSX
@@ -905,7 +898,7 @@ Trading Agent
 
 这一阶段继续优先复用成熟库 / capability。
 
-### Stage 7 — Re-evaluate Architecture
+### Stage 6 — Re-evaluate Architecture
 
 完成前面阶段后，再重新评估：
 
@@ -1051,15 +1044,38 @@ Tool error
 
 ---
 
-## 20. 当前下一步
+## 20. CNEquity 数据集成状态
 
-本轮 General Tools stabilization、curated market-data query surface 与最小 lifecycle surface 已完成当前接入；按照本文档，下一项推荐任务是完成 bootstrap → initialize → query → refresh / resume / verify 的闭环验收，不扩张 lifecycle whitelist。
+```text
+Curated market data:
+    CNEquity read-only MCP — available
 
-通用 Tool 层进入冻结和维护状态；Tushare / xtdata adapter、QMT live/trading 与自动交易仍未实现，结构化数据仍优先通过 `exec_command` + 成熟 Python 生态完成，不新增无真实需求驱动的 DSL 或抽象层。
+CNEquity operations:
+    human CLI via `qmt-agent data` — available
+
+Agent-managed data lifecycle:
+    intentionally not implemented
+```
+
+QMT 不为 CNEquity 提供 lifecycle Function Tools、后台任务管理、配置管理或恢复编排。
 
 ---
 
-## 21. 本文档维护规则
+## 21. 当前下一步
+
+本轮 General Tools stabilization 已完成。按照本文档，下一项推荐开发任务是：
+
+```text
+Market / Portfolio / Trading 的第一个真实业务需求
+```
+
+通用 Tool 层进入冻结和维护状态；结构化数据仍优先通过
+`exec_command` + 成熟 Python 生态完成，不提前设计 DSL、Data Pool 或
+Multi-Agent。
+
+---
+
+## 22. 本文档维护规则
 
 本文档是 Living Document。
 
@@ -1069,7 +1085,7 @@ Tool error
 - Tool API 被真实实现并稳定下来。
 - 某项暂缓能力开始进入开发。
 - 实际需求推翻了本文档中的假设。
-- curated data scope 或多 Agent 的进入条件发生变化。
+- 多 Agent / Data Pool 的进入条件已经满足。
 
 更新时应记录“现在真实发生了什么”，不要把未来设想伪装成已经确定的架构。
 
@@ -1077,6 +1093,6 @@ Tool error
 
 > **先完成能力，再拆分角色。**
 >
-> **先处理真实数据，再决定是否扩大为数据池。**
+> **先处理真实数据，再设计数据池。**
 >
 > **需求先出现，抽象后出现。**

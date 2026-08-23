@@ -23,7 +23,7 @@ A persistent runtime update is written to `<root>/qmt.toml` and therefore become
 | lifecycle | keys | behavior |
 | --- | --- | --- |
 | immutable | `paths.root`, `bootstrap.*` | Cannot be changed through runtime configuration. |
-| restart-required | `paths.data`, `paths.workspace`, `paths.state`, `model.name`, `model.base_url`, `mcp.default_timeout_seconds`, `execution.durable_job_dir` | `persist=false` is rejected. `persist=true` writes the next-start value but does not change the current runtime; restart QMT Agent to apply it. |
+| restart-required | `paths.workspace`, `paths.state`, `model.name`, `model.base_url`, `mcp.default_timeout_seconds` | `persist=false` is rejected. `persist=true` writes the next-start value but does not change the current runtime; restart QMT Agent to apply it. |
 | hot | runtime policy and observability settings not listed above | Validated and applied to the current `AppConfig`; persistence is optional. |
 
 `get_config` reports the value currently used by this process. A persisted restart-required update therefore continues to report the old value until the application is restarted.
@@ -37,19 +37,16 @@ The root contains local QMT Agent state including:
 
 - `qmt.toml`
 - `mcp.toml`
-- the configured data directory
 - the configured workspace directory
 - the configured state directory
 
 These files are outside the Git repository.
 
-The generic `paths.data` boundary is initialized separately from the Agent workspace. The current CNEquity transition backend is an implementation detail behind `qmt_agent.data`; its `<root>/cnequity.toml` configuration and default `<data>/cnequity` lake subdirectory are not part of the QMT Agent-facing configuration or tool contract. Existing backend configuration and its internal paths remain owned by CNEquity, while first-run initialization uses the official backend APIs to create only the local layout and does not ingest network data.
-
 ## Root-relative Paths
 
-`paths.data`, `paths.workspace`, and `paths.state` are relative to `paths.root`.
+`paths.workspace` and `paths.state` are relative to `paths.root`.
 They must not be absolute and must not escape the root.
-All three must be strict subdirectories of the root and must not equal or contain one another after path resolution.
+Both must be strict subdirectories of the root and must not equal or contain one another after path resolution.
 The SQLite session database is stored under the state directory.
 Long-term Agent memory does not use a database.
 Long-term memory is maintained as Markdown in the workspace, with `MEMORY.md` as the entry point.
@@ -63,13 +60,13 @@ Project configuration may be committed to Git and must not contain secrets.
 The runtime policy sections below are TOML-only and must be present in the effective configuration:
 
 - `[runtime].default_timezone`
-- `[execution].default_timeout_seconds`, `max_timeout_seconds`, `background_job_dir`, `background_job_id_chars`, `background_log_chunk_bytes`, `background_log_max_bytes`, `background_log_retained_bytes`, `background_output_tail_chars`, `background_status_timeout_seconds`, `background_stop_timeout_seconds`, and `durable_job_dir`
+- `[execution].default_timeout_seconds`, `max_timeout_seconds`, and `background_job_dir`
 - `[explore].max_full_read_bytes`, `max_read_chars`, `max_search_results`, and `max_search_snippet_chars`
 - `[calculate].max_expression_chars`, `max_nodes`, `max_integer_bits`, and `max_abs_exponent`
 - `[observability].summary_threshold`
 - `[mcp].default_timeout_seconds`
 
-They are validated at startup and again before an update is persisted. `background_job_dir` must remain relative to the configured workspace, `durable_job_dir` must remain a strict subdirectory of the configured state directory, background job IDs cannot exceed the UUID hex width, retained log bytes and log chunk bytes cannot exceed maximum log bytes, and returned output characters cannot exceed retained log bytes.
+They are validated at startup and again before an update is persisted. `background_job_dir` must remain relative to the configured workspace.
 
 ## Local Configuration
 
@@ -109,7 +106,8 @@ Secrets must currently be edited outside that tool.
 MCP server configuration is local instance state and is stored separately at:
 `<root>/mcp.toml`
 It is not tracked by Git.
-The user-managed `mcp.toml` and configuration tools support only `streamable_http`. The built-in read-only market-data query server uses an internal stdio connection and is not configured in `mcp.toml` or exposed through the Agent configuration tools.
+The currently supported transport is:
+`streamable_http`
 Use:
 
 - `list_mcp_servers` to inspect configured servers

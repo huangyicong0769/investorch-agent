@@ -225,27 +225,6 @@ Multi-agent orchestration
 
 这些能力按需求逐步启用。
 
-### 3.1 Curated research data 与 future QMT live/trading
-
-Curated research data 是研究、回测和基本面分析使用的只读数据底座；future QMT live/trading 是另一条需要审批的交易执行链路，两者不共享一个隐含的生命周期或执行接口。
-
-当前主系统只通过通用 `qmt_agent.data` facade 获取 curated query surface；具体 backend、配置文件和 backend-specific paths 只存在于 transitional wrapper，facade 不复制 schema、PIT、复权、universe 或 provenance 语义。
-
-当前 wrapper 的 bootstrap path 调用官方配置与 layout API，query path 接入官方 read-only MCP，lifecycle path 将通用 `initialize` / `refresh` / `resume` / `verify` 操作映射到官方 CLI；Tushare / xtdata adapter 和 QMT live/trading 仍是后续需求，不应在当前架构图中视为已完成。
-
-QMT 只持有通用 lifecycle job receipt、进程状态、受限日志文件和有界日志返回，以支持审批、后台运行、`data_status` 与跨会话 receipt 恢复；run manifest、checkpoint、锁、staging、compact、repair 和 orphan reconciliation 仍由 CNEquity 拥有，QMT 不扫描或修改这些内部状态。`resume` 只接受用户明确选择的 opaque run_id 并再次审批，QMT 不自动关联 lost job、自动 retry 或推断 subsystem recovery。
-
-```text
-Current curated research path:
-Main Agent -> qmt_agent.data facade -> transitional backend wrapper -> official read-only MCP -> curated research data
-
-Current curated lifecycle path:
-Main Agent -> approved data_run -> qmt_agent.data facade -> transitional backend wrapper -> official CLI
-
-Future live/trading path:
-Main Agent -> approved trading tools -> QMT / XtQuant gateway
-```
-
 ---
 
 ## 4. 模型调用架构
@@ -545,8 +524,6 @@ Agent / LLM 根据 Tool 执行结果决定如何向用户解释或继续处理�
 
 QMT 模块只负责与 XtQuant / QMT 交互。
 
-QMT / XtQuant 是 future live/trading path；当前 curated research data 通过通用 data facade 和官方 read-only query surface 提供，不把交易网关当作研究数据底座。
-
 建议：
 
 ```text
@@ -687,10 +664,6 @@ src/qmt_agent/
 │   ├── main.py
 │   └── prompts.py
 │
-├── data/
-│   ├── __init__.py
-│   └── cnequity.py  # transitional backend wrapper only
-│
 ├── tools/
 │   ├── market.py
 │   ├── portfolio.py
@@ -703,8 +676,6 @@ src/qmt_agent/
 │   └── trader.py
 │
 ├── storage/
-│
-├── background.py
 │
 ├── config.py
 │
@@ -721,7 +692,6 @@ src/qmt_agent/
 
 ```text
 agents/
-data/
 tools/
 qmt/
 main.py
@@ -929,7 +899,23 @@ storage -> agents
 
 ---
 
-## 20. 总结
+## 20. CNEquity 集成
+
+CNEquity 作为 QMT Agent Trader 的运行时依赖安装，但其运维由用户自行管理。
+
+人类通过以下透明 CLI passthrough 管理数据湖：
+
+```text
+qmt-agent data <CNEquity CLI arguments>
+```
+
+该命令从 QMT root 直接执行已安装的 CNEquity CLI。Main Agent 不拥有 CNEquity lifecycle tools；QMT 启动时只通过 `<QMT root>/configs/cnequity.toml` 附加一个只读 CNEquity stdio MCP server，Agent 仅通过该 MCP 查询 curated data。
+
+QMT 不管理 CNEquity 配置、ingestion、retry、repair、status、locking 或 recovery。
+
+---
+
+## 21. 总结
 
 QMT Agent Trader v0.2 的核心思想：
 
