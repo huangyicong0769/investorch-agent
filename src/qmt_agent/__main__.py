@@ -44,6 +44,13 @@ from qmt_agent.tools import (
 )
 
 
+def run_data_cli(args: list[str]) -> None:
+    config = load_config()
+    config.root.mkdir(parents=True, exist_ok=True)
+    os.chdir(config.root)
+    os.execv(sys.executable, [sys.executable, "-m", "cnequity", *args])
+
+
 async def generate_session_title(title_agent: Agent, history: list[TResponseInputItem]) -> str:
     result = await Runner.run(
         title_agent,
@@ -372,7 +379,15 @@ async def main(sync: bool = False):
         finally:
             session.close()
 
-if __name__ == "__main__":
+def entrypoint() -> None:
+    if len(sys.argv) >= 2 and sys.argv[1] == "data":
+        run_data_cli(sys.argv[2:])
+        return
+
     startup_options = parse_startup_args()
     set_tracing_disabled(True)
     asyncio.run(main(sync=startup_options.sync))
+
+
+if __name__ == "__main__":
+    entrypoint()
