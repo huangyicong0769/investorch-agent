@@ -9,7 +9,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from qmt_agent.config import AppConfig, ConfigError
-from qmt_agent.data import initialize as initialize_data
 from qmt_agent.storage import init_session_metadata
 
 LOCAL_CONFIG_TEMPLATE = """# Local QMT Agent configuration.
@@ -61,9 +60,6 @@ def initialize(config: AppConfig, *, copy_bootstrap: bool = True) -> bool:
     _ensure_directory(config.workspace_dir, name="workspace")
 
     _ensure_directory(config.state_dir, name="state")
-
-    _ensure_directory(config.data_dir, name="data")
-    initialize_data(config.data_dir, config.root)
 
     # Session schema initialization is idempotent.
     init_session_metadata(config.sessions_db)
