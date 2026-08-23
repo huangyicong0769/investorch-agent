@@ -155,6 +155,8 @@ async def stop_background_job(context: RunContextWrapper[AgentContext], job_id: 
 
     This operation always requires user approval. It terminates the entire managed process group with SIGTERM, waits for the configured stop timeout, and escalates to SIGKILL when needed. The job ID is not an operating-system PID; never pass a displayed PID, a PID prefix, null, all, or a signal/force option. Repeating a stop for an already stopped or exited job is safe and idempotent.
 
+    Durable lifecycle receipts use status stopped, already_exited, lost, or stop_failed; a repeated durable stop keeps status stopped and adds already_stopped=true, and lock_released must be exactly true before starting a replacement. Transient receipts use status stopped, already_stopped, already_exited, unresolved, or stop_failed. Unknown or ambiguous job IDs are tool errors. No stop outcome by itself proves successful job completion; treat lost, unresolved, stop_failed, and any durable receipt without lock_released=true as unresolved, and never guess completion or safety.
+
     Args:
         job_id: Complete job ID returned by exec_command(background=true) or data_run. This field is required and must not be null.
 
