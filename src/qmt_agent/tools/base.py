@@ -159,7 +159,7 @@ async def stop_background_job(context: RunContextWrapper[AgentContext], job_id: 
         job_id: Complete job ID returned by exec_command(background=true) or data_run. This field is required and must not be null.
 
     Returns:
-        A stop receipt containing job_id, status, process-group termination, and signal escalation outcome. A stopped job is not a successful completed job; inspect its status and use the job output/status tools as needed. If the managed session is lost or cannot be verified, status is unresolved and no process signal is sent.
+        A stop receipt containing job_id and status, with process-group termination and signal-escalation fields when applicable. A durable lifecycle receipt may report lost and includes lock_released when that state is verified; an unverifiable transient job reports unresolved without signaling an unverified process group, and either kind may report stop_failed. Unknown or ambiguous job IDs raise a tool error instead of returning a receipt. A stopped or already-stopped job is not a successfully completed job; inspect its status and use the job output/status tools as needed.
     """
     job_id = _validate_background_job_id(job_id)
     config = context.context.config
