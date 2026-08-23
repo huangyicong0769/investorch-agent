@@ -762,6 +762,7 @@ Curated research data 已进入实现，但项目没有因此建立一个覆盖�
 - `qmt_agent.data` 提供 implementation-neutral facade。
 - transitional backend wrapper 接入官方只读 MCP query surface。
 - 通用 lifecycle status/run surface、审批、后台 receipt、进度、有界输出和 verify diagnostics 已接入；具体合同由 workspace `memory/curated-data.md` 维护。
+- Approved `stop_background_job` 已接入：完整 `job_id` 是控制身份，PID/PGID 仅用于展示，停止作用于整个 managed process group，并以 stop receipt 记录 `stopped` 等结果；exclusive lifecycle replacement 还需 lock verification，具体结果合同由 workspace memory 维护。
 - Query readiness 与 lifecycle availability 的 startup/restart UX 已接入；当前 lifecycle 仍限于已批准的最小范围。
 
 当前未实现：
@@ -771,7 +772,7 @@ Curated research data 已进入实现，但项目没有因此建立一个覆盖�
 - xtdata adapter。
 - QMT live/trading 接入与自动交易。
 
-Data schema、PIT、复权、universe、质量、provenance 和 backend internal state 仍由官方 subsystem 拥有；QMT 只提供通用 facade、lifecycle boundary 和自身 job tracking，详细 ownership 与 known limitations 见 workspace `memory/curated-data.md`，后续抽象必须继续由真实需求驱动。
+Data schema、PIT、复权、universe、质量、provenance 和 backend internal state 仍由官方 subsystem 拥有；QMT 只提供通用 facade、lifecycle boundary、自身 job tracking 和 approved managed background stop，详细 ownership 与 known limitations 见 workspace `memory/curated-data.md`，后续抽象必须继续由真实需求驱动。
 
 ---
 
@@ -890,6 +891,7 @@ Trading Agent
 [✓] official read-only MCP query surface
 [✓] approved minimal data lifecycle surface
 [✓] persistent generic lifecycle receipt, progress, bounded-output, and verify-diagnostic tracking
+[✓] approved stop_background_job with complete job-ID control, display-only PID/PGID, whole-process-group termination, stopped-result receipts, and lifecycle-lock verification
 [✓] startup query readiness with neutral unavailable/new-install guidance
 [✓] implementation-neutral market-data governance prompt without runtime namespace assumptions
 [✓] bootstrap-managed curated-data operational memory
@@ -897,7 +899,7 @@ Trading Agent
 [ ] xtdata adapter
 ```
 
-当前 query surface 面向 curated research data；它不等同于 QMT live/trading。当前已接入最小 approved lifecycle surface 和 startup-based query readiness；具体工具、参数、状态、restart UX、ownership 与 known version risks 由 workspace `memory/curated-data.md` 维护。完整 daily、backfill、repair 和任意 group 等仍未实现。
+当前 query surface 面向 curated research data；它不等同于 QMT live/trading。当前已接入最小 approved lifecycle surface、approved managed background stop 和 startup-based query readiness；具体工具、参数、stop receipt、lock verification、restart UX、ownership 与 known version risks 由 workspace memory 维护。完整 daily、backfill、repair 和任意 group 等仍未实现。
 
 ### Stage 6 — Rich Files / Artifacts
 
@@ -1058,7 +1060,7 @@ Tool error
 
 ## 20. 当前下一步
 
-本轮 General Tools stabilization、curated market-data query surface、official bootstrap、最小 lifecycle surface、startup query readiness 和 curated-data operational memory 已完成当前接入；下一项推荐任务是在隔离环境完成最小闭环验收，并继续验证 lifecycle behavior，不扩张 lifecycle whitelist，也不把当前接入状态视为 Phase 1 已完全闭环。
+本轮 General Tools stabilization、curated market-data query surface、official bootstrap、最小 lifecycle surface、approved managed background stop、startup query readiness 和 curated-data operational memory 已完成当前接入；下一项推荐任务是在隔离环境完成最小闭环验收，并继续验证 lifecycle behavior，不扩张 lifecycle whitelist，也不把当前接入状态视为 Phase 1 已完全闭环。
 
 通用 Tool 层进入冻结和维护状态；Tushare / xtdata adapter、QMT live/trading 与自动交易仍未实现，通用结构化数据仍优先通过 `exec_command` + 成熟 Python 生态完成，curated lifecycle mutation 仍只通过已批准的最小 surface，不新增无真实需求驱动的 DSL 或抽象层。QMT acceptance 保留一个未验证的、版本特定的 CNEquity 0.7.2 retry/resume risk：exit code 0 或 reported success alone 不证明 curated coverage 完整；这不是已确认的官方 upstream defect，本文档也不引入 QMT workaround，因此 Phase 1 尚不标记为完全闭环。
 

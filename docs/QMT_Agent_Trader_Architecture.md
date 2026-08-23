@@ -233,7 +233,7 @@ Curated research data 是研究、回测和基本面分析使用的只读数据�
 
 当前 wrapper 负责把官方 bootstrap、只读 query 和 approved lifecycle 能力接入通用 facade；具体工具、参数、状态、receipt、startup/restart 行为和 version-specific limitations 由 bootstrap-managed workspace `memory/curated-data.md` 维护。
 
-QMT 只拥有通用配置/root wiring、lifecycle boundary 和 QMT 自身的 job tracking；official backend 仍拥有 schema、PIT、adjustment、universe、provenance、manifest、checkpoint、layout、repair 和 internal locks，QMT 不扫描或修改这些内部状态。
+QMT 只拥有通用配置/root wiring、lifecycle boundary、QMT 自身的 job tracking 和 approved managed background stop；完整 QMT receipt `job_id` 是控制身份，停止作用于整个 managed process group，具体 TERM/KILL、结果状态和 lifecycle lock verification 合同由 workspace `memory/configuration.md` 与 `memory/curated-data.md` 承载。Official backend 仍拥有 schema、PIT、adjustment、universe、provenance、manifest、checkpoint、layout、repair 和 internal locks，QMT 不扫描或修改这些内部状态。
 
 运行时 paths、current status、progress、logs 和 job IDs 由 configuration system 与 tools 提供，不写入 memory；`MEMORY.md` index、`memory/curated-data.md` template 和 bootstrap `--sync` 只维护可跨会话复用的 operational knowledge。`MAIN_AGENT_INSTRUCTIONS` 只保留 implementation-neutral 的量化市场数据治理原则，不包含 runtime tool、backend 或 lifecycle contract。
 
