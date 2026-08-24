@@ -6,9 +6,9 @@ import numpy as np
 import pandas as pd
 from cnequity.config import Config
 from cnequity.query import list_datasets, load
-from rqalpha.const import INSTRUMENT_TYPE, TRADING_CALENDAR_TYPE
+from rqalpha.const import INSTRUMENT_TYPE, MARKET, TRADING_CALENDAR_TYPE
 from rqalpha.data.base_data_source.adjust import FIELDS_REQUIRE_ADJUSTMENT, adjust_bars
-from rqalpha.interface import AbstractDataSource
+from rqalpha.interface import AbstractDataSource, ExchangeRate
 from rqalpha.model.instrument import Instrument
 from rqalpha.utils.datetime_func import convert_date_to_int
 from rqalpha.utils.exception import RQInvalidArgument
@@ -73,6 +73,7 @@ _DAY_BAR_DTYPE = np.dtype(
 _ADJ_FACTOR_DTYPE = np.dtype(
     [("start_date", np.int64), ("ex_cum_factor", np.float64)]
 )
+_UNSUPPORTED = "Phase 0 supports daily SH/SZ A-share backtests only"
 
 
 def _to_rqalpha_order_book_id(symbol: str) -> str:
@@ -170,6 +171,17 @@ class CNEquityDataSource(AbstractDataSource):
     def get_trading_calendars(self) -> dict[TRADING_CALENDAR_TYPE, pd.DatetimeIndex]:
         return {TRADING_CALENDAR_TYPE.CN_STOCK: self._trading_calendar}
 
+    def get_yield_curve(self, start_date, end_date, tenor=None) -> pd.DataFrame:
+        return pd.DataFrame()
+
+    def get_dividend(self, instrument: Instrument) -> None:
+        # Phase 0 only: corporate actions are unsupported.
+        return None
+
+    def get_split(self, instrument: Instrument) -> None:
+        # Phase 0 only: corporate actions are unsupported.
+        return None
+
     def available_data_range(self, frequency: str) -> tuple[date, date]:
         if frequency != "1d":
             raise NotImplementedError("Phase 0 supports daily bars only")
@@ -227,6 +239,22 @@ class CNEquityDataSource(AbstractDataSource):
         if position >= len(bars) or bars["datetime"][position] != dt_int:
             return None
         return bars[position]
+
+    def get_open_auction_bar(self, instrument: Instrument, dt) -> dict:
+        day_bar = self.get_bar(instrument, dt, "1d")
+        fields = ("datetime", "open", "limit_up", "limit_down", "volume", "total_turnover")
+        if day_bar is None:
+            bar = dict.fromkeys(fields, np.nan)
+        else:
+            bar = {field: day_bar[field] for field in fields}
+        bar["last"] = bar["open"]
+        return bar
+
+    def get_open_auction_volume(self, instrument: Instrument, dt) -> float:
+        return self.get_open_auction_bar(instrument, dt)["volume"]
+
+    def get_settle_price(self, instrument: Instrument, dt) -> float:
+        return np.nan
 
     def _load_status(self, symbol: str) -> dict[date, tuple[bool, str]]:
         coverage_start = self._coverage["trading_status"][0]
@@ -350,3 +378,31 @@ class CNEquityDataSource(AbstractDataSource):
                 raise RuntimeError(f"CNEquity adj_factors does not cover {symbol} on {self._as_date(missing[0])}")
             result = adjust_bars(result, factors, fields, "pre", adjust_orig or dt)
         return result if fields is None else result[fields]
+
+    def history_ticks(self, instrument, count, dt):
+        raise NotImplementedError(_UNSUPPORTED)
+
+    def current_snapshot(self, instrument, frequency, dt):
+        raise NotImplementedError(_UNSUPPORTED)
+
+    def get_trading_minutes_for(self, instrument, trading_dt):
+        raise NotImplementedError(_UNSUPPORTED)
+
+    def get_futures_trading_parameters(self, instrument, dt):
+        raise NotImplementedError(_UNSUPPORTED)
+
+    def get_merge_ticks(self, order_book_id_list, trading_date, last_dt=None):
+        raise NotImplementedError(_UNSUPPORTED)
+
+    def get_share_transformation(self, order_book_id):
+        return None
+
+    def get_algo_bar(self, id_or_ins, start_min, end_min, dt):
+        raise NotImplementedError(_UNSUPPORTED)
+
+    def get_exchange_rate(
+        self, trading_date: date, local: MARKET, settlement: MARKET = MARKET.CN
+    ) -> ExchangeRate:
+        if local != settlement:
+            raise NotImplementedError(_UNSUPPORTED)
+        return ExchangeRate(*(1.0,) * 6)
