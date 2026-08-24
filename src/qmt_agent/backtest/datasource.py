@@ -1,6 +1,6 @@
 from collections import defaultdict
 from collections.abc import Iterable
-from datetime import date
+from datetime import date, datetime
 
 import numpy as np
 import pandas as pd
@@ -10,6 +10,7 @@ from rqalpha.const import INSTRUMENT_TYPE, TRADING_CALENDAR_TYPE
 from rqalpha.interface import AbstractDataSource
 from rqalpha.model.instrument import Instrument
 from rqalpha.utils.datetime_func import convert_date_to_int
+from rqalpha.utils.exception import RQInvalidArgument
 
 _CN_TO_RQ_EXCHANGE = {"SH": "XSHG", "SZ": "XSHE"}
 _RQ_TO_CN_EXCHANGE = {value: key for key, value in _CN_TO_RQ_EXCHANGE.items()}
@@ -180,9 +181,10 @@ class CNEquityDataSource(AbstractDataSource):
         return self._trading_calendar[left].date(), self._trading_calendar[right - 1].date()
 
     def _load_bars(self, symbol: str) -> np.ndarray:
+        coverage_start = self._coverage["daily_bars"][0]
         frame = load(
             "daily_bars",
-            start=self._start_date,
+            start=coverage_start or self._start_date,
             end=self._end_date,
             symbols=[symbol],
             config=self._config,
@@ -219,3 +221,38 @@ class CNEquityDataSource(AbstractDataSource):
         if position >= len(bars) or bars["datetime"][position] != dt_int:
             return None
         return bars[position]
+
+    def history_bars(
+        self,
+        instrument: Instrument,
+        bar_count: int | None,
+        frequency: str,
+        fields: str | list[str] | None,
+        dt: datetime,
+        skip_suspended: bool = True,
+        include_now: bool = False,
+        adjust_type: str = "pre",
+        adjust_orig: datetime | None = None,
+    ) -> np.ndarray | None:
+        if frequency != "1d":
+            raise NotImplementedError("Phase 0 supports daily bars only")
+        if skip_suspended:
+            raise NotImplementedError("historical status filtering is not implemented yet")
+        if adjust_type != "none":
+            raise NotImplementedError("adjusted history is not implemented yet")
+        symbol = _to_cnequity_symbol(instrument.order_book_id)
+        bars = self._bars.get(symbol)
+        if bars is None:
+            bars = self._load_bars(symbol)
+        if fields is not None:
+            requested = [fields] if isinstance(fields, str) else fields
+            if any(field not in bars.dtype.names for field in requested):
+                raise RQInvalidArgument(f"invalid fields: {fields}")
+        if len(bars) == 0:
+            return bars
+        right = bars["datetime"].searchsorted(
+            np.int64(convert_date_to_int(dt)), side="right"
+        )
+        left = 0 if bar_count is None else max(0, right - bar_count)
+        result = bars[left:right]
+        return result if fields is None else result[fields]
