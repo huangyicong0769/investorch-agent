@@ -7,6 +7,7 @@ import pandas as pd
 from cnequity.config import Config
 from cnequity.query import list_datasets, load
 from rqalpha.const import INSTRUMENT_TYPE, TRADING_CALENDAR_TYPE
+from rqalpha.data.base_data_source.adjust import FIELDS_REQUIRE_ADJUSTMENT, adjust_bars
 from rqalpha.interface import AbstractDataSource
 from rqalpha.model.instrument import Instrument
 from rqalpha.utils.datetime_func import convert_date_to_int
@@ -69,6 +70,9 @@ _DAY_BAR_DTYPE = np.dtype(
         ("limit_down", np.float64),
     ]
 )
+_ADJ_FACTOR_DTYPE = np.dtype(
+    [("start_date", np.int64), ("ex_cum_factor", np.float64)]
+)
 
 
 def _to_rqalpha_order_book_id(symbol: str) -> str:
@@ -100,6 +104,7 @@ class CNEquityDataSource(AbstractDataSource):
         self._end_date = end_date
         self._bars: dict[str, np.ndarray] = {}
         self._status: dict[str, dict[date, tuple[bool, str]]] = {}
+        self._adj_factors: dict[str, np.ndarray] = {}
         rows = load("instruments", config=config)
         rows = rows.filter(
             (rows["asset_type"] == "stock")
@@ -271,6 +276,34 @@ class CNEquityDataSource(AbstractDataSource):
     def is_st_stock(self, order_book_id: str, dates: Sequence) -> list[bool]:
         return [status == "st" for _, status in self._status_for_dates(order_book_id, dates)]
 
+    def _load_adj_factors(self, symbol: str) -> np.ndarray:
+        coverage_start, coverage_end = self._coverage["adj_factors"]
+        if coverage_start is None or coverage_end is None:
+            raise RuntimeError("CNEquity adj_factors has no data coverage")
+        frame = load(
+            "adj_factors",
+            start=coverage_start,
+            end=min(coverage_end, self._end_date),
+            symbols=[symbol],
+            config=self._config,
+        )
+        frame = frame.filter(frame["adjust_type"] == "hfq").sort("trade_date")
+        if frame.is_empty():
+            raise RuntimeError(f"CNEquity adj_factors has no hfq factors for {symbol}")
+        factors = np.empty(frame.height, dtype=_ADJ_FACTOR_DTYPE)
+        factors["start_date"] = np.fromiter(
+            (convert_date_to_int(value) for value in frame["trade_date"]),
+            dtype=np.int64,
+            count=frame.height,
+        )
+        factors["ex_cum_factor"] = frame["factor"].to_numpy()
+        if len(np.unique(factors["start_date"])) != len(factors):
+            raise RuntimeError(f"CNEquity adj_factors has duplicate dates for {symbol}")
+        if not np.all(np.isfinite(factors["ex_cum_factor"])) or np.any(factors["ex_cum_factor"] <= 0):
+            raise RuntimeError(f"CNEquity adj_factors has invalid hfq factors for {symbol}")
+        self._adj_factors[symbol] = factors
+        return factors
+
     def history_bars(
         self,
         instrument: Instrument,
@@ -285,8 +318,8 @@ class CNEquityDataSource(AbstractDataSource):
     ) -> np.ndarray | None:
         if frequency != "1d":
             raise NotImplementedError("Phase 0 supports daily bars only")
-        if adjust_type != "none":
-            raise NotImplementedError("adjusted history is not implemented yet")
+        if adjust_type not in {"none", "pre"}:
+            raise NotImplementedError("Phase 0 supports none and pre adjustment only")
         symbol = _to_cnequity_symbol(instrument.order_book_id)
         bars = self._bars.get(symbol)
         if bars is None:
@@ -306,4 +339,14 @@ class CNEquityDataSource(AbstractDataSource):
         )
         left = 0 if bar_count is None else max(0, right - bar_count)
         result = bars[left:right]
+        if len(result) and adjust_type == "pre" and not (
+            isinstance(fields, str) and fields not in FIELDS_REQUIRE_ADJUSTMENT
+        ):
+            factors = self._adj_factors.get(symbol)
+            if factors is None:
+                factors = self._load_adj_factors(symbol)
+            missing = np.setdiff1d(result["datetime"], factors["start_date"])
+            if len(missing):
+                raise RuntimeError(f"CNEquity adj_factors does not cover {symbol} on {self._as_date(missing[0])}")
+            result = adjust_bars(result, factors, fields, "pre", adjust_orig or dt)
         return result if fields is None else result[fields]
