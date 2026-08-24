@@ -2,12 +2,14 @@ from collections import defaultdict
 from collections.abc import Iterable
 from datetime import date
 
+import numpy as np
 import pandas as pd
 from cnequity.config import Config
 from cnequity.query import list_datasets, load
 from rqalpha.const import INSTRUMENT_TYPE, TRADING_CALENDAR_TYPE
 from rqalpha.interface import AbstractDataSource
 from rqalpha.model.instrument import Instrument
+from rqalpha.utils.datetime_func import convert_date_to_int
 
 _CN_TO_RQ_EXCHANGE = {"SH": "XSHG", "SZ": "XSHE"}
 _RQ_TO_CN_EXCHANGE = {value: key for key, value in _CN_TO_RQ_EXCHANGE.items()}
@@ -53,6 +55,19 @@ _BOARD_TYPE_BY_EXCHANGE_PREFIX = {
     ("SZ", "168"): "ETF",
     ("SZ", "169"): "ETF",
 }
+_DAY_BAR_DTYPE = np.dtype(
+    [
+        ("datetime", np.int64),
+        ("open", np.float64),
+        ("close", np.float64),
+        ("high", np.float64),
+        ("low", np.float64),
+        ("volume", np.float64),
+        ("total_turnover", np.float64),
+        ("limit_up", np.float64),
+        ("limit_down", np.float64),
+    ]
+)
 
 
 def _to_rqalpha_order_book_id(symbol: str) -> str:
@@ -78,7 +93,11 @@ def _board_type(symbol: str, exchange: str) -> str:
 
 
 class CNEquityDataSource(AbstractDataSource):
-    def __init__(self, config: Config):
+    def __init__(self, config: Config, start_date: date, end_date: date):
+        self._config = config
+        self._start_date = start_date
+        self._end_date = end_date
+        self._bars: dict[str, np.ndarray] = {}
         rows = load("instruments", config=config)
         rows = rows.filter(
             (rows["asset_type"] == "stock")
@@ -159,3 +178,44 @@ class CNEquityDataSource(AbstractDataSource):
         if left >= right:
             raise RuntimeError("CNEquity datasets have no overlapping daily coverage")
         return self._trading_calendar[left].date(), self._trading_calendar[right - 1].date()
+
+    def _load_bars(self, symbol: str) -> np.ndarray:
+        frame = load(
+            "daily_bars",
+            start=self._start_date,
+            end=self._end_date,
+            symbols=[symbol],
+            config=self._config,
+        )
+        bars = np.empty(frame.height, dtype=_DAY_BAR_DTYPE)
+        bars["datetime"] = np.fromiter(
+            (convert_date_to_int(value) for value in frame["trade_date"]),
+            dtype=np.int64,
+            count=frame.height,
+        )
+        for source, target in (
+            ("open", "open"),
+            ("close", "close"),
+            ("high", "high"),
+            ("low", "low"),
+            ("volume", "volume"),
+            ("amount", "total_turnover"),
+        ):
+            bars[target] = frame[source].fill_null(float("nan")).to_numpy()
+        bars["limit_up"] = np.nan
+        bars["limit_down"] = np.nan
+        self._bars[symbol] = bars
+        return bars
+
+    def get_bar(self, instrument: Instrument, dt, frequency: str) -> np.void | None:
+        if frequency != "1d":
+            raise NotImplementedError("Phase 0 supports daily bars only")
+        symbol = _to_cnequity_symbol(instrument.order_book_id)
+        bars = self._bars.get(symbol)
+        if bars is None:
+            bars = self._load_bars(symbol)
+        dt_int = np.int64(convert_date_to_int(dt))
+        position = bars["datetime"].searchsorted(dt_int)
+        if position >= len(bars) or bars["datetime"][position] != dt_int:
+            return None
+        return bars[position]
