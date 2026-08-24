@@ -1,9 +1,11 @@
 from collections import defaultdict
 from collections.abc import Iterable
+from datetime import date
 
+import pandas as pd
 from cnequity.config import Config
-from cnequity.query import load
-from rqalpha.const import INSTRUMENT_TYPE
+from cnequity.query import list_datasets, load
+from rqalpha.const import INSTRUMENT_TYPE, TRADING_CALENDAR_TYPE
 from rqalpha.interface import AbstractDataSource
 from rqalpha.model.instrument import Instrument
 
@@ -93,6 +95,14 @@ class CNEquityDataSource(AbstractDataSource):
         self._instruments_by_name: dict[str, list[Instrument]] = defaultdict(list)
         for instrument in instruments:
             self._instruments_by_name[instrument.symbol].append(instrument)
+        calendar = load("trading_calendar", config=config)
+        self._trading_calendar = pd.DatetimeIndex(
+            calendar.filter(calendar["is_trading"])["trade_date"].to_list()
+        ).drop_duplicates().sort_values()
+        self._coverage = {
+            row["dataset"]: (row["coverage_start"], row["coverage_end"])
+            for row in list_datasets(config=config).iter_rows(named=True)
+        }
 
     @staticmethod
     def _make_instrument(row: dict) -> Instrument:
@@ -130,3 +140,22 @@ class CNEquityDataSource(AbstractDataSource):
             accepted = set(types)
             return (instrument for instrument in self._instruments if instrument.type in accepted)
         return self._instruments
+
+    def get_trading_calendars(self) -> dict[TRADING_CALENDAR_TYPE, pd.DatetimeIndex]:
+        return {TRADING_CALENDAR_TYPE.CN_STOCK: self._trading_calendar}
+
+    def available_data_range(self, frequency: str) -> tuple[date, date]:
+        if frequency != "1d":
+            raise NotImplementedError("Phase 0 supports daily bars only")
+        required = ("trading_calendar", "daily_bars", "trading_status", "adj_factors")
+        for dataset in required:
+            start, end = self._coverage[dataset]
+            if start is None or end is None:
+                raise RuntimeError(f"CNEquity {dataset} has no data coverage")
+        start = max(self._coverage[dataset][0] for dataset in required)
+        end = min(self._coverage[dataset][1] for dataset in required)
+        left = self._trading_calendar.searchsorted(pd.Timestamp(start))
+        right = self._trading_calendar.searchsorted(pd.Timestamp(end), side="right")
+        if left >= right:
+            raise RuntimeError("CNEquity datasets have no overlapping daily coverage")
+        return self._trading_calendar[left].date(), self._trading_calendar[right - 1].date()
