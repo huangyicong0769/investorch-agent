@@ -240,18 +240,11 @@ class CNEquityDataSource(AbstractDataSource):
             return None
         return bars[position]
 
-    def get_open_auction_bar(self, instrument: Instrument, dt) -> dict:
-        day_bar = self.get_bar(instrument, dt, "1d")
-        fields = ("datetime", "open", "limit_up", "limit_down", "volume", "total_turnover")
-        if day_bar is None:
-            bar = dict.fromkeys(fields, np.nan)
-        else:
-            bar = {field: day_bar[field] for field in fields}
-        bar["last"] = bar["open"]
-        return bar
+    def get_open_auction_bar(self, instrument: Instrument, dt):
+        raise NotImplementedError(_UNSUPPORTED)
 
-    def get_open_auction_volume(self, instrument: Instrument, dt) -> float:
-        return self.get_open_auction_bar(instrument, dt)["volume"]
+    def get_open_auction_volume(self, instrument: Instrument, dt):
+        raise NotImplementedError(_UNSUPPORTED)
 
     def get_settle_price(self, instrument: Instrument, dt) -> float:
         return np.nan
