@@ -1,5 +1,5 @@
 from collections import defaultdict
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from datetime import date, datetime
 
 import numpy as np
@@ -99,6 +99,7 @@ class CNEquityDataSource(AbstractDataSource):
         self._start_date = start_date
         self._end_date = end_date
         self._bars: dict[str, np.ndarray] = {}
+        self._status: dict[str, dict[date, tuple[bool, str]]] = {}
         rows = load("instruments", config=config)
         rows = rows.filter(
             (rows["asset_type"] == "stock")
@@ -222,6 +223,54 @@ class CNEquityDataSource(AbstractDataSource):
             return None
         return bars[position]
 
+    def _load_status(self, symbol: str) -> dict[date, tuple[bool, str]]:
+        coverage_start = self._coverage["trading_status"][0]
+        frame = load(
+            "trading_status",
+            start=coverage_start or self._start_date,
+            end=self._end_date,
+            symbols=[symbol],
+            config=self._config,
+        )
+        status = {}
+        for row in frame.iter_rows(named=True):
+            value = row["status"]
+            if value not in {"normal", "st", "suspended"}:
+                raise RuntimeError(f"unsupported CNEquity trading status: {value!r}")
+            status[row["trade_date"]] = (row["is_trading"], value)
+        self._status[symbol] = status
+        return status
+
+    @staticmethod
+    def _as_date(value) -> date:
+        if isinstance(value, (int, np.integer)):
+            return datetime.strptime(str(value)[:8], "%Y%m%d").date()
+        return pd.Timestamp(value).date()
+
+    def _status_for_dates(self, order_book_id: str, dates: Sequence) -> list[tuple[bool, str]]:
+        symbol = _to_cnequity_symbol(order_book_id)
+        status = self._status.get(symbol)
+        if status is None:
+            status = self._load_status(symbol)
+        result = []
+        for value in dates:
+            requested = self._as_date(value)
+            if requested not in status:
+                raise RuntimeError(
+                    f"CNEquity trading_status does not cover {symbol} on {requested}"
+                )
+            result.append(status[requested])
+        return result
+
+    def is_suspended(self, order_book_id: str, dates: Sequence) -> list[bool]:
+        return [
+            not is_trading or status == "suspended"
+            for is_trading, status in self._status_for_dates(order_book_id, dates)
+        ]
+
+    def is_st_stock(self, order_book_id: str, dates: Sequence) -> list[bool]:
+        return [status == "st" for _, status in self._status_for_dates(order_book_id, dates)]
+
     def history_bars(
         self,
         instrument: Instrument,
@@ -236,14 +285,16 @@ class CNEquityDataSource(AbstractDataSource):
     ) -> np.ndarray | None:
         if frequency != "1d":
             raise NotImplementedError("Phase 0 supports daily bars only")
-        if skip_suspended:
-            raise NotImplementedError("historical status filtering is not implemented yet")
         if adjust_type != "none":
             raise NotImplementedError("adjusted history is not implemented yet")
         symbol = _to_cnequity_symbol(instrument.order_book_id)
         bars = self._bars.get(symbol)
         if bars is None:
             bars = self._load_bars(symbol)
+        if skip_suspended and len(bars):
+            bar_dates = [self._as_date(value) for value in bars["datetime"]]
+            suspended = self.is_suspended(instrument.order_book_id, bar_dates)
+            bars = bars[np.logical_not(suspended)]
         if fields is not None:
             requested = [fields] if isinstance(fields, str) else fields
             if any(field not in bars.dtype.names for field in requested):
