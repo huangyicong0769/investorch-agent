@@ -1,5 +1,4 @@
 import math
-import warnings
 from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
@@ -14,11 +13,6 @@ from rqalpha.utils.datetime_func import convert_int_to_date
 from qmt_agent.config import load_config as load_app_config
 
 _COVERED_DATASETS = ("daily_bars", "adj_factors")
-_PHASE0_WARNING = """RQAlpha Phase 0 integration mode is running with historical
-price-limit enforcement disabled.
-
-The result validates DataSource plumbing only.
-It is not a production-correct A-share backtest."""
 
 
 def _validate_input(strategy_file: Path, start_date: date, end_date: date, initial_cash: float) -> Path:
@@ -176,7 +170,6 @@ def run_backtest(
     rqalpha_bundle_path = (app_config.root / ".rqalpha" / "bundle").resolve()
     _validate_cnequity_data(cnequity_config_path, start_date, end_date)
     _validate_rqalpha_bundle(rqalpha_bundle_path, start_date, end_date)
-    warnings.warn(_PHASE0_WARNING, RuntimeWarning, stacklevel=2)
     return run_file(
         str(strategy_file),
         config=_build_rqalpha_config(
