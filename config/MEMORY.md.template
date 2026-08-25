@@ -6,6 +6,10 @@ This file is the entry point for durable cross-session memory.
 
 - [Configuration system](memory/configuration.md)
 
+## Quant
+
+- [RQAlpha strategy development](memory/rqalpha.md)
+
 ## Memory
 
 - Keep this file concise and use it primarily as an index.

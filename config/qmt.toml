@@ -43,3 +43,7 @@ target = "MEMORY.md"
 [[bootstrap.files]]
 source = "configuration.md.template"
 target = "memory/configuration.md"
+
+[[bootstrap.files]]
+source = "rqalpha.md.template"
+target = "memory/rqalpha.md"
