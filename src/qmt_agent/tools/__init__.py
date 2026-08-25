@@ -16,6 +16,7 @@ from .mcp import (
     list_mcp_servers,
     remove_mcp_server,
 )
+from .quant import run_backtest
 from .todo import write_todos
 
 __all__ = (
@@ -32,6 +33,7 @@ __all__ = (
     "list_background_jobs",
     "list_mcp_servers",
     "remove_mcp_server",
+    "run_backtest",
     "start_execution",
     "update_config",
     "write_todos",
