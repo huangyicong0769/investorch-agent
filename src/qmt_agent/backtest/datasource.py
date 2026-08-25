@@ -247,3 +247,9 @@ class QMTDataSource(BaseDataSource):
             INSTRUMENT_TYPE.CS,
             CNEquityExFactorStore(cnequity_config, native_factor_store, end_date),
         )
+
+    def get_open_auction_bar(self, instrument, dt):
+        raise RuntimeError("QMT backtest does not support open-auction market data")
+
+    def get_open_auction_volume(self, instrument, dt):
+        raise RuntimeError("QMT backtest does not support open-auction market data")
