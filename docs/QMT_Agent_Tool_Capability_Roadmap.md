@@ -154,7 +154,8 @@ Trading 需求。
 `MEMORY.md -> memory/rqalpha.md` bootstrap 机制提供；执行普通 RQAlpha
 Python 策略，因此必须经过 Agents SDK 审批；模型默认只接收 compact summary
 和 Workspace 相对 artifact 路径，完整 portfolio / trades / account / positions
-结果保存在 `backtests/<run_id>/`。
+结果保存在 `backtests/<run_id>/`。RQAlpha summary 字段保持 analyser 原值的 JSON
+归一化结果，仅其绝对 `strategy_file` 改写为已验证的 Workspace 相对路径。
 
 ---
 

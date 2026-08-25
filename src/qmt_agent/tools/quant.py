@@ -100,6 +100,8 @@ def _run_backtest(
     summary = _normalize_json(raw_summary)
     if not isinstance(summary, dict):
         raise TypeError("RQAlpha analyser summary must be a mapping")
+    # RQAlpha emits an absolute strategy_file path; this is the sole summary-field
+    # rewrite needed to keep every model-facing path Workspace-relative.
     if "strategy_file" in summary:
         summary["strategy_file"] = relative_strategy
 
