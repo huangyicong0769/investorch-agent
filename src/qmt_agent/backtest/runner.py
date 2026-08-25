@@ -105,6 +105,7 @@ def _build_rqalpha_config(
     start_date: date,
     end_date: date,
     initial_cash: float,
+    benchmark: str | None,
 ) -> dict:
     return {
         "base": {
@@ -132,7 +133,7 @@ def _build_rqalpha_config(
             },
             "sys_analyser": {
                 "enabled": True,
-                "benchmark": None,
+                "benchmark": benchmark,
                 "record": True,
                 "plot": False,
             },
@@ -163,6 +164,7 @@ def run_backtest(
     start_date: date,
     end_date: date,
     initial_cash: float = 1_000_000,
+    benchmark: str | None = None,
 ) -> dict:
     strategy_file = _validate_input(strategy_file, start_date, end_date, initial_cash)
     app_config = load_app_config()
@@ -178,5 +180,6 @@ def run_backtest(
             start_date,
             end_date,
             initial_cash,
+            benchmark,
         ),
     )
