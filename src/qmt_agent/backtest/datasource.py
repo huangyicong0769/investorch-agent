@@ -7,6 +7,7 @@ import pandas as pd
 from cnequity.config import Config
 from cnequity.query import list_datasets, load
 from rqalpha.const import INSTRUMENT_TYPE, MARKET, TRADING_CALENDAR_TYPE
+from rqalpha.data.base_data_source import BaseDataSource
 from rqalpha.data.base_data_source.adjust import FIELDS_REQUIRE_ADJUSTMENT, adjust_bars
 from rqalpha.interface import AbstractDataSource, ExchangeRate
 from rqalpha.model.instrument import Instrument
@@ -88,6 +89,10 @@ def _to_cnequity_symbol(order_book_id: str) -> str:
     if not separator or not code or exchange not in _RQ_TO_CN_EXCHANGE:
         raise ValueError(f"unsupported RQAlpha order_book_id: {order_book_id!r}")
     return f"{code}.{_RQ_TO_CN_EXCHANGE[exchange]}"
+
+
+class QMTDataSource(BaseDataSource):
+    pass
 
 
 def _board_type(symbol: str, exchange: str) -> str:

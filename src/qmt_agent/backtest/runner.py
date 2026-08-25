@@ -10,7 +10,6 @@ from rqalpha import run_file
 from qmt_agent.config import load_config as load_app_config
 
 _COVERED_DATASETS = ("trading_calendar", "daily_bars", "trading_status", "adj_factors")
-_NONEXISTENT_BUNDLE_PATH = Path("/nonexistent/qmt-rqalpha-bundle")
 _PHASE0_WARNING = """RQAlpha Phase 0 integration mode is running with historical
 price-limit enforcement disabled.
 
@@ -61,13 +60,14 @@ def _validate_cnequity_data(config_path: Path, start_date: date, end_date: date)
 
 def _build_rqalpha_config(
     cnequity_config_path: Path,
+    rqalpha_bundle_path: Path,
     start_date: date,
     end_date: date,
     initial_cash: float,
 ) -> dict:
     return {
         "base": {
-            "data_bundle_path": str(_NONEXISTENT_BUNDLE_PATH),
+            "data_bundle_path": str(rqalpha_bundle_path),
             "start_date": start_date,
             "end_date": end_date,
             "run_type": "b",
@@ -112,10 +112,18 @@ def run_backtest(
     initial_cash: float = 1_000_000,
 ) -> dict:
     strategy_file = _validate_input(strategy_file, start_date, end_date, initial_cash)
-    cnequity_config_path = (load_app_config().root / "configs" / "cnequity.toml").resolve()
+    app_config = load_app_config()
+    cnequity_config_path = (app_config.root / "configs" / "cnequity.toml").resolve()
+    rqalpha_bundle_path = (app_config.root / ".rqalpha" / "bundle").resolve()
     _validate_cnequity_data(cnequity_config_path, start_date, end_date)
     warnings.warn(_PHASE0_WARNING, RuntimeWarning, stacklevel=2)
     return run_file(
         str(strategy_file),
-        config=_build_rqalpha_config(cnequity_config_path, start_date, end_date, initial_cash),
+        config=_build_rqalpha_config(
+            cnequity_config_path,
+            rqalpha_bundle_path,
+            start_date,
+            end_date,
+            initial_cash,
+        ),
     )
