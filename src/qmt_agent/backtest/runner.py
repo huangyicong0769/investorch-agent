@@ -120,6 +120,7 @@ def _build_rqalpha_config(
             "run_type": "b",
             "frequency": "1d",
             "accounts": {"stock": initial_cash},
+            "capital_gain_tax_rate": 0,
             "persist": False,
             "auto_update_bundle": False,
         },
@@ -129,7 +130,12 @@ def _build_rqalpha_config(
                 "lib": "qmt_agent.backtest.rqalpha_mod",
                 "cnequity_config_path": str(cnequity_config_path),
             },
-            "sys_accounts": {"enabled": True, "stock_t1": True},
+            "sys_accounts": {
+                "enabled": True,
+                "stock_t1": True,
+                "dividend_reinvestment": False,
+                "dividend_tax_enabled": True,
+            },
             "sys_analyser": {
                 "enabled": True,
                 "benchmark": None,
@@ -137,17 +143,23 @@ def _build_rqalpha_config(
                 "plot": False,
             },
             "sys_progress": {"enabled": False},
-            "sys_risk": {"enabled": True, "validate_price": False},
+            "sys_risk": {"enabled": True, "validate_price": True},
             "sys_simulation": {
                 "enabled": True,
                 "matching_type": "current_bar",
-                "price_limit": False,
+                "price_limit": True,
                 "volume_limit": True,
                 "inactive_limit": True,
                 "slippage_model": "PriceRatioSlippage",
                 "slippage": 0,
             },
-            "sys_transaction_cost": {"enabled": True},
+            "sys_transaction_cost": {
+                "enabled": True,
+                "stock_min_commission": 5,
+                "stock_commission_multiplier": 1,
+                "tax_multiplier": 1,
+                "pit_tax": True,
+            },
         },
     }
 
