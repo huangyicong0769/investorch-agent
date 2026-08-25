@@ -1,11 +1,185 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import math
+import uuid
 from collections.abc import Mapping
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from enum import Enum
+from importlib.metadata import version
 from pathlib import Path
 from typing import Any
+
+from agents import RunContextWrapper
+from agents.decorators import tool
+
+from qmt_agent.backtest import run_backtest as run_rqalpha_backtest
+from qmt_agent.context import AgentContext
+
+
+_TABULAR_RESULTS = (
+    "portfolio",
+    "trades",
+    "stock_account",
+    "stock_positions",
+    "benchmark_portfolio",
+)
+
+
+@tool(needs_approval=True)
+def run_backtest(
+    context: RunContextWrapper[AgentContext],
+    strategy_path: str,
+    start_date: str,
+    end_date: str,
+    initial_cash: float = 1_000_000,
+    benchmark: str | None = None,
+) -> dict[str, Any]:
+    """
+    Run a Workspace RQAlpha Python strategy after user approval.
+
+    The strategy path must be Workspace-relative and dates must use ISO YYYY-MM-DD. An optional benchmark must use its canonical RQAlpha order-book ID. The return contains a compact analyser summary and Workspace-relative result artifact paths. Missing CNEquity or RQAlpha bundle data is reported and is not repaired automatically.
+
+    Args:
+        strategy_path: Workspace-relative path to an existing RQAlpha .py strategy.
+
+        start_date: Backtest start date in YYYY-MM-DD format.
+
+        end_date: Backtest end date in YYYY-MM-DD format.
+
+        initial_cash: Positive finite initial stock-account cash. Defaults to 1000000.
+
+        benchmark: Optional canonical RQAlpha benchmark order-book ID.
+
+    Returns:
+        A compact dictionary containing engine metadata, scalar summary, and Workspace-relative artifact paths.
+    """
+    return _run_backtest(
+        workspace=context.context.config.workspace_dir,
+        strategy_path=strategy_path,
+        start_date=start_date,
+        end_date=end_date,
+        initial_cash=initial_cash,
+        benchmark=benchmark,
+    )
+
+
+def _run_backtest(
+    workspace: Path,
+    strategy_path: str,
+    start_date: str,
+    end_date: str,
+    initial_cash: float = 1_000_000,
+    benchmark: str | None = None,
+) -> dict[str, Any]:
+    strategy_file, relative_strategy = _resolve_strategy_path(workspace, strategy_path)
+    start = _parse_date(start_date, "start_date")
+    end = _parse_date(end_date, "end_date")
+    cash = _validate_initial_cash(initial_cash)
+    if benchmark is not None and not benchmark.strip():
+        raise ValueError("benchmark must be a canonical RQAlpha order-book ID or null")
+
+    source = strategy_file.read_bytes()
+    strategy_sha256 = hashlib.sha256(source).hexdigest()
+    raw_result = run_rqalpha_backtest(
+        strategy_file,
+        start,
+        end,
+        initial_cash=cash,
+        benchmark=benchmark,
+    )
+
+    analyser = raw_result.get("sys_analyser")
+    if not isinstance(analyser, Mapping):
+        raise RuntimeError("RQAlpha result is missing sys_analyser output")
+    raw_summary = analyser.get("summary")
+    if not isinstance(raw_summary, Mapping):
+        raise RuntimeError("RQAlpha analyser result is missing summary output")
+
+    summary = _normalize_json(raw_summary)
+    if not isinstance(summary, dict):
+        raise TypeError("RQAlpha analyser summary must be a mapping")
+    if "strategy_file" in summary:
+        summary["strategy_file"] = relative_strategy
+
+    run_id = uuid.uuid4().hex
+    engine_version = version("rqalpha")
+    request = {
+        "run_id": run_id,
+        "created_at": datetime.now(UTC).isoformat(),
+        "engine": "rqalpha",
+        "engine_version": engine_version,
+        "strategy_path": relative_strategy,
+        "strategy_sha256": strategy_sha256,
+        "start_date": start.isoformat(),
+        "end_date": end.isoformat(),
+        "initial_cash": cash,
+        "benchmark": benchmark,
+    }
+    artifacts = _write_backtest_artifacts(
+        workspace=workspace,
+        run_id=run_id,
+        request=request,
+        source=source,
+        summary=summary,
+        analyser=analyser,
+    )
+
+    return {
+        "run_id": run_id,
+        "engine": "rqalpha",
+        "engine_version": engine_version,
+        "summary": summary,
+        "artifacts": artifacts,
+    }
+
+
+def _write_backtest_artifacts(
+    workspace: Path,
+    run_id: str,
+    request: dict[str, Any],
+    source: bytes,
+    summary: dict[str, Any],
+    analyser: Mapping[str, Any],
+) -> dict[str, str]:
+    root = workspace.expanduser().resolve()
+    relative_dir = Path("backtests") / run_id
+    result_dir = root / relative_dir
+    result_dir.mkdir(parents=True, exist_ok=False)
+
+    artifacts = {"result_dir": relative_dir.as_posix()}
+    files = {
+        "request": result_dir / "request.json",
+        "strategy": result_dir / "strategy.py",
+        "summary": result_dir / "summary.json",
+    }
+    _write_json(files["request"], request)
+    files["strategy"].write_bytes(source)
+    _write_json(files["summary"], summary)
+
+    for name in _TABULAR_RESULTS:
+        table = analyser.get(name)
+        if table is None:
+            continue
+        to_csv = getattr(table, "to_csv", None)
+        if not callable(to_csv):
+            raise TypeError(f"RQAlpha analyser result {name} is not tabular")
+        path = result_dir / f"{name}.csv"
+        to_csv(path, index=True)
+        files[name] = path
+
+    for name, path in files.items():
+        artifacts[name] = path.relative_to(root).as_posix()
+
+    return artifacts
+
+
+def _write_json(path: Path, value: Any) -> None:
+    path.write_text(
+        json.dumps(value, ensure_ascii=False, allow_nan=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
 
 
 def _resolve_strategy_path(workspace: Path, strategy_path: str) -> tuple[Path, str]:
