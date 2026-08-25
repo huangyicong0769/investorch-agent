@@ -27,9 +27,16 @@ def _to_cnequity_symbol(order_book_id: str) -> str:
 
 
 class CNEquityStockDayBarStore(AbstractDayBarStore):
-    def __init__(self, config: Config, fallback: AbstractDayBarStore, end_date: date):
+    def __init__(
+        self,
+        config: Config,
+        fallback: AbstractDayBarStore,
+        is_suspended,
+        end_date: date,
+    ):
         self._config = config
         self._fallback = fallback
+        self._is_suspended = is_suspended
         self._end_date = end_date
         self._bars: dict[str, np.ndarray] = {}
         datasets = {
@@ -121,8 +128,12 @@ class CNEquityStockDayBarStore(AbstractDayBarStore):
         native_in_scope = native[
             (native["datetime"] >= convert_date_to_int(self._coverage_start))
             & (native["datetime"] <= convert_date_to_int(self._end_date))
-            & (native["volume"] > 0)
         ]
+        suspended = np.asarray(
+            self._is_suspended(order_book_id, native_in_scope["datetime"]),
+            dtype=np.bool_,
+        )
+        native_in_scope = native_in_scope[~suspended]
         cn_positions = bars["datetime"].searchsorted(native_in_scope["datetime"])
         cn_matched = cn_positions < len(bars)
         cn_matched[cn_matched] &= (
@@ -225,7 +236,12 @@ class QMTDataSource(BaseDataSource):
         native_factor_store = self._ex_factor_stores[INSTRUMENT_TYPE.CS, MARKET.CN]
         self.register_day_bar_store(
             INSTRUMENT_TYPE.CS,
-            CNEquityStockDayBarStore(cnequity_config, native_stock_store, end_date),
+            CNEquityStockDayBarStore(
+                cnequity_config,
+                native_stock_store,
+                self.is_suspended,
+                end_date,
+            ),
         )
         self.register_ex_factor_store(
             INSTRUMENT_TYPE.CS,
