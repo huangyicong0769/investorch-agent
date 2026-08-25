@@ -118,6 +118,25 @@ class CNEquityStockDayBarStore(AbstractDayBarStore):
             raise RuntimeError(
                 f"RQAlpha bundle has no stock bar for {order_book_id} on {missing_date}"
             )
+        native_in_scope = native[
+            (native["datetime"] >= convert_date_to_int(self._coverage_start))
+            & (native["datetime"] <= convert_date_to_int(self._end_date))
+            & (native["volume"] > 0)
+        ]
+        cn_positions = bars["datetime"].searchsorted(native_in_scope["datetime"])
+        cn_matched = cn_positions < len(bars)
+        cn_matched[cn_matched] &= (
+            bars["datetime"][cn_positions[cn_matched]]
+            == native_in_scope["datetime"][cn_matched]
+        )
+        if not np.all(cn_matched):
+            missing_date = str(
+                int(native_in_scope["datetime"][np.flatnonzero(~cn_matched)[0]])
+            )[:8]
+            raise RuntimeError(
+                f"CNEquity daily_bars has no normal trading bar for {symbol} on "
+                f"{missing_date}"
+            )
         bars["limit_up"] = native["limit_up"][positions]
         bars["limit_down"] = native["limit_down"][positions]
         return bars
