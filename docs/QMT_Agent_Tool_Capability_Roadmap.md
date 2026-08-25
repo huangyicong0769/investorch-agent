@@ -111,19 +111,19 @@ research
 
 如果 MCP 已经提供合适的能力，不重新实现同名 Web Tool。
 
-### 3.4 当前 Tool 占位模块
+### 3.4 当前领域 Tool 状态
 
-项目中已经存在但尚未进入真实实现阶段的领域模块：
+项目中的领域模块为：
 
 ```text
 market.py
 portfolio.py
-quant.py
+quant.py      -> run_backtest（已实现）
 research.py
 trading.py
 ```
 
-这些文件的存在不意味着现在必须填满。
+除 `quant.py` 的 RQAlpha 回测能力外，其余文件仍是按真实需求逐步实现的占位模块。
 
 原则仍然是：
 
@@ -148,6 +148,14 @@ exec_command(foreground/background) → completed
 后续通用层以稳定性维护为主，下一阶段可进入真实的 Market / Portfolio /
 Trading 需求。
 
+### 当前领域状态（2026-08-25）
+
+`run_backtest` 已作为首个真实 Quant Tool 落地：策略知识通过现有
+`MEMORY.md -> memory/rqalpha.md` bootstrap 机制提供；执行普通 RQAlpha
+Python 策略，因此必须经过 Agents SDK 审批；模型默认只接收 compact summary
+和 Workspace 相对 artifact 路径，完整 portfolio / trades / account / positions
+结果保存在 `backtests/<run_id>/`。
+
 ---
 
 ## 4. Tool 的分类模型
@@ -160,7 +168,7 @@ Trading 需求。
 3. Workspace / Filesystem
 4. Structured Data
 5. Computation / Data Processing
-6. Domain Tools（未来）
+6. Domain Tools（按需）
 ```
 
 同时，每个 Tool 必须额外具有一个副作用属性：
@@ -709,9 +717,9 @@ Runner configuration
 
 ---
 
-## 13. Domain Tools — 暂缓但保留方向
+## 13. Domain Tools — 按真实需求渐进实现
 
-通用能力稳定后，才进入量化交易领域 Tool。
+通用能力稳定后，按真实业务需求进入量化交易领域 Tool。
 
 未来大类仍然包括：
 
@@ -724,7 +732,13 @@ Backtest
 Trading
 ```
 
-可能的业务 Tool：
+当前已实现：
+
+```text
+run_backtest
+```
+
+后续可能的业务 Tool：
 
 ```text
 get_market_snapshot
@@ -732,14 +746,13 @@ get_price_history
 get_portfolio
 get_orders
 analyze_technicals
-run_backtest
 place_order
 cancel_order
 ```
 
-这些 API 在真正实现 QMT / 数据能力时再确定。
+这些后续 API 在真正实现 QMT / 数据能力时再确定。
 
-不要因为当前存在空的 `market.py` / `portfolio.py` / `quant.py` / `research.py` / `trading.py` 就提前锁定设计。
+不要因为当前存在空的 `market.py` / `portfolio.py` / `research.py` / `trading.py` 就提前锁定设计。
 
 ---
 

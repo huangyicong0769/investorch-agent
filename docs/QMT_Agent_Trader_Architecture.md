@@ -395,15 +395,17 @@ get_market_snapshot
 get_price_history
 get_portfolio
 analyze_technicals
-run_backtest
 ```
 
 需要确认：
 
 ```text
+run_backtest
 place_order
 cancel_order
 ```
+
+`run_backtest` 会执行 Workspace 中的普通 RQAlpha Python 策略，因此审批是代码执行的授权边界，不是 Python sandbox。
 
 交易授权使用 Agents SDK 的 Human-in-the-loop 能力。
 
@@ -442,6 +444,26 @@ HITL Approval
 ```text
 永久允许 place_order
 ```
+
+当前回测链路保持直接组合：
+
+```text
+QMT Main Agent
+      |
+      v
+run_backtest
+      |
+      v
+qmt_agent.backtest.run_backtest
+      |
+      v
+RQAlpha 6.3.0 -> QMTDataSource -> CNEquity 股票日线/复权因子
+                                  + RQAlpha 原生市场语义
+```
+
+策略知识由现有 bootstrap / `--sync` 写入 `memory/rqalpha.md`。模型默认只接收
+compact summary 和 Workspace 相对 artifact 路径，完整 analyser 表格保存在
+`backtests/<run_id>/`。
 
 ---
 
