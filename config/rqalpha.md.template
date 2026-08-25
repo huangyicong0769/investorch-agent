@@ -102,7 +102,7 @@ from rqalpha.api import get_position, order_target_percent, update_universe
 
 
 def init(context):
-    context.stock = "002699.XSHE"
+    context.stock = "002808.XSHE"
     update_universe([context.stock])
 
 
@@ -118,7 +118,7 @@ from rqalpha.api import get_position, history_bars, order_target_percent, update
 
 
 def init(context):
-    context.stock = "002699.XSHE"
+    context.stock = "002808.XSHE"
     update_universe([context.stock])
 
 
@@ -148,7 +148,7 @@ from rqalpha.api import order_target_percent, update_universe
 
 
 def init(context):
-    context.stock = "600321.XSHG"
+    context.stock = "600599.XSHG"
     context.last_rebalance = None
     update_universe([context.stock])
 
@@ -168,7 +168,7 @@ from rqalpha.api import order_target_percent, update_universe
 
 
 def init(context):
-    context.stocks = ["002699.XSHE", "600321.XSHG"]
+    context.stocks = ["002808.XSHE", "600599.XSHG"]
     context.last_rebalance = None
     update_universe(context.stocks)
 
