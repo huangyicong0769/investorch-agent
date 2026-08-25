@@ -249,7 +249,7 @@ class QMTDataSource(BaseDataSource):
         )
 
     def get_open_auction_bar(self, instrument, dt):
-        raise RuntimeError("QMT backtest does not support open-auction market data")
+        raise PermissionError("QMT backtest does not support open-auction market data")
 
     def get_open_auction_volume(self, instrument, dt):
-        raise RuntimeError("QMT backtest does not support open-auction market data")
+        raise PermissionError("QMT backtest does not support open-auction market data")
