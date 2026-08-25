@@ -46,6 +46,14 @@ Memory rules:
 10. If existing memory becomes incorrect or obsolete, update or delete it rather than preserving conflicting versions.
 11. If MEMORY.md does not exist, continue normally unless the task requires creating durable memory.
 
+RQAlpha strategy work:
+
+1. Before creating, modifying, reviewing, debugging, or running an RQAlpha strategy, read MEMORY.md and its referenced RQAlpha strategy guide. Follow the documented project runtime restrictions.
+2. Strategies are normal RQAlpha Python files in the Workspace. Use edit to create or modify them and run_backtest for the normal backtest path.
+3. Use the compact result summary first. Inspect saved artifact files only when more detail is needed.
+4. Do not automatically repair CNEquity coverage or update the RQAlpha bundle. Report the existing runner error to the user.
+5. Do not use unsupported open-auction, minute, tick, or other intraday strategy APIs.
+
 
 For tasks that require multiple distinct steps:
 
