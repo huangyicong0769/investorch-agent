@@ -15,6 +15,7 @@ from agents import RunContextWrapper
 from agents.decorators import tool
 
 from qmt_agent.backtest import run_backtest as run_rqalpha_backtest
+from qmt_agent.config import AppConfig
 from qmt_agent.context import AgentContext
 
 
@@ -56,7 +57,7 @@ def run_backtest(
         A compact dictionary containing engine metadata, scalar summary, and Workspace-relative artifact paths.
     """
     return _run_backtest(
-        workspace=context.context.config.workspace_dir,
+        config=context.context.config,
         strategy_path=strategy_path,
         start_date=start_date,
         end_date=end_date,
@@ -66,13 +67,14 @@ def run_backtest(
 
 
 def _run_backtest(
-    workspace: Path,
+    config: AppConfig,
     strategy_path: str,
     start_date: str,
     end_date: str,
     initial_cash: float = 1_000_000,
     benchmark: str | None = None,
 ) -> dict[str, Any]:
+    workspace = config.workspace_dir
     strategy_file, relative_strategy = _resolve_strategy_path(workspace, strategy_path)
     start = _parse_date(start_date, "start_date")
     end = _parse_date(end_date, "end_date")
@@ -83,9 +85,10 @@ def _run_backtest(
     source = strategy_file.read_bytes()
     strategy_sha256 = hashlib.sha256(source).hexdigest()
     raw_result = run_rqalpha_backtest(
-        strategy_file,
-        start,
-        end,
+        config=config,
+        strategy_file=strategy_file,
+        start_date=start,
+        end_date=end,
         initial_cash=cash,
         benchmark=benchmark,
     )

@@ -8,7 +8,7 @@ from rqalpha.const import INSTRUMENT_TYPE, MARKET
 from rqalpha.data.base_data_source import BaseDataSource
 from rqalpha.utils.datetime_func import convert_int_to_date
 
-from qmt_agent.config import load_config as load_app_config
+from qmt_agent.config import AppConfig
 
 _COVERED_DATASETS = ("daily_bars", "adj_factors")
 
@@ -162,6 +162,7 @@ def _build_rqalpha_config(
 
 
 def run_backtest(
+    config: AppConfig,
     strategy_file: Path,
     start_date: date,
     end_date: date,
@@ -169,10 +170,9 @@ def run_backtest(
     benchmark: str | None = None,
 ) -> dict:
     strategy_file = _validate_input(strategy_file, start_date, end_date, initial_cash)
-    app_config = load_app_config()
-    use_cnequity = app_config["backtest.use_cnequity"]
-    cnequity_config_path = (app_config.root / "configs" / "cnequity.toml").resolve()
-    rqalpha_bundle_path = (app_config.root / ".rqalpha" / "bundle").resolve()
+    use_cnequity = config["backtest.use_cnequity"]
+    cnequity_config_path = (config.root / "configs" / "cnequity.toml").resolve()
+    rqalpha_bundle_path = (config.root / ".rqalpha" / "bundle").resolve()
     _validate_rqalpha_bundle(rqalpha_bundle_path, start_date, end_date)
     if use_cnequity:
         _validate_cnequity_data(cnequity_config_path, start_date, end_date)
