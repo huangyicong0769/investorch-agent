@@ -29,7 +29,7 @@ def write_todos(context: RunContextWrapper[AgentContext], todos: list[TodoItem],
             "Only one todo may be in progress at a time."
         )
 
-    context.context.todos = [
+    context.context.turn.todos = [
         dict(todo)
         for todo in todos
     ]
@@ -43,5 +43,5 @@ def write_todos(context: RunContextWrapper[AgentContext], todos: list[TodoItem],
 
     return "\n".join(
         f"{symbols[todo['status']]} {todo['content']}"
-        for todo in context.context.todos
+        for todo in context.context.turn.todos
     )

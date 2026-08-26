@@ -19,7 +19,7 @@ from qmt_agent.agents import (
 )
 from qmt_agent.cli import parse_command, parse_startup_args
 from qmt_agent.config import load_config
-from qmt_agent.context import AgentContext, ExecutionState
+from qmt_agent.context import AgentContext, AppState, ExecutionState
 from qmt_agent.initializer import initialize, sync_bootstrap_files
 from qmt_agent.mcp import load_mcp_servers
 from qmt_agent.storage import (
@@ -120,19 +120,17 @@ async def main(sync: bool = False, sync_force: bool = False):
     )
     mcp_servers = [cnequity_server, *load_mcp_servers(config.mcp_config_path, config.secrets, config["mcp.default_timeout_seconds"])]
 
-    session_db = config.sessions_db
-
-    session = SQLiteSession(
-        uuid.uuid4().hex,
-        session_db,
+    state = AppState(
+        config=config,
+        execution=ExecutionState(),
+        session=SQLiteSession(uuid.uuid4().hex, config.sessions_db),
     )
 
     title_agent = create_title_agent(model)
     summary_agent = create_summary_agent(model)
-    execution = ExecutionState()
 
     try:
-        await start_execution(execution, config.workspace_dir)
+        await start_execution(state.execution, state.config.workspace_dir)
 
         async with MCPServerManager(mcp_servers, drop_failed_servers=True) as mcp_manager:
 
@@ -159,17 +157,17 @@ async def main(sync: bool = False, sync_force: bool = False):
                         case "session":
                             title = await asyncio.to_thread(
                                 get_session_title,
-                                session_db,
-                                session.session_id,
+                                state.config.sessions_db,
+                                state.session.session_id,
                             )
-                            print(f"Current session ID: {session.session_id}")
+                            print(f"Current session ID: {state.session.session_id}")
                             if title:
                                 print(f"Session title: {title}")
 
                         case "new":
-                            session.close()
+                            state.session.close()
                             session_id = uuid.uuid4().hex
-                            session = SQLiteSession(session_id, session_db)
+                            state.session = SQLiteSession(session_id, state.config.sessions_db)
                             print(f"Started new session: {session_id}")
 
                         case "resume":
@@ -177,13 +175,13 @@ async def main(sync: bool = False, sync_force: bool = False):
                             if not command.args:
                                 sessions = (await asyncio.to_thread(
                                     list_sessions,
-                                    session_db,
+                                    state.config.sessions_db,
                                 ))
 
                                 print("Available sessions:")
 
                                 for record in sessions:
-                                    marker = ("*" if record.session_id == session.session_id else " ")
+                                    marker = ("*" if record.session_id == state.session.session_id else " ")
                                     title = record.title or "(untitled)"
                                     print(f"{marker} {record.session_id[:8]} {title}, (updated: {record.updated_at}, created: {record.created_at})")
 
@@ -193,7 +191,7 @@ async def main(sync: bool = False, sync_force: bool = False):
 
                             matches = await asyncio.to_thread(
                                 find_session_ids,
-                                session_db,
+                                state.config.sessions_db,
                                 session_id,
                             )
 
@@ -208,15 +206,15 @@ async def main(sync: bool = False, sync_force: bool = False):
                                 continue
 
                             session_id = matches[0]
-                            if (session_id == session.session_id):
+                            if (session_id == state.session.session_id):
                                 continue
 
-                            session.close()
-                            session = SQLiteSession(session_id, session_db)
+                            state.session.close()
+                            state.session = SQLiteSession(session_id, state.config.sessions_db)
 
                             title = await asyncio.to_thread(
                                 get_session_title,
-                                session_db,
+                                state.config.sessions_db,
                                 session_id,
                             )
                             print(f"Resumed session: {session_id}")
@@ -227,8 +225,8 @@ async def main(sync: bool = False, sync_force: bool = False):
                             if not command.args:
                                 title = await asyncio.to_thread(
                                     get_session_title,
-                                    session_db,
-                                    session.session_id,
+                                    state.config.sessions_db,
+                                    state.session.session_id,
                                 )
                                 if title:
                                     print(f"Session title: {title}")
@@ -240,32 +238,32 @@ async def main(sync: bool = False, sync_force: bool = False):
 
                             await asyncio.to_thread(
                                 set_session_title,
-                                session_db,
-                                session.session_id,
+                                state.config.sessions_db,
+                                state.session.session_id,
                                 title,
                             )
                             print(f"Set session title to: {title}")
 
                         case "clear":
-                            session_id = session.session_id
+                            session_id = state.session.session_id
 
-                            await session.clear_session()
+                            await state.session.clear_session()
                             await asyncio.to_thread(
                                 delete_session_metadata,
-                                session_db,
+                                state.config.sessions_db,
                                 session_id,
                             )
 
-                            session.close()
+                            state.session.close()
                             session_id = uuid.uuid4().hex
-                            session = SQLiteSession(
+                            state.session = SQLiteSession(
                                 session_id,
-                                session_db,
+                                state.config.sessions_db,
                             )
                             print(f"Cleared session and started new session: {session_id}")
 
                         case "ps":
-                            jobs = await list_background_jobs(execution)
+                            jobs = await list_background_jobs(state.execution)
                             print(format_background_jobs(jobs))
 
                         case "exit":
@@ -290,13 +288,13 @@ async def main(sync: bool = False, sync_force: bool = False):
 
                     continue
 
-                output = await agent_loop.run(user_input, session, execution)
+                output = await agent_loop.run(user_input, state.session, state.execution)
                 print("Agent: ", output)
     finally:
         try:
-            await close_execution(execution)
+            await close_execution(state.execution)
         finally:
-            session.close()
+            state.session.close()
 
 def entrypoint() -> None:
     if len(sys.argv) >= 2 and sys.argv[1] == "data":
