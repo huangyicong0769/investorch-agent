@@ -3,6 +3,7 @@ import json
 
 from agents import Agent, Runner
 
+from qmt_agent.config import AppConfig
 from qmt_agent.output import (
     AgentChanged,
     AssistantMessage,
@@ -50,13 +51,11 @@ class ConsoleRenderer:
         self,
         ui: ConsoleUI,
         summary_agent: Agent,
-        summary_enabled: bool,
-        summary_threshold: int,
+        config: AppConfig,
     ) -> None:
         self._ui = ui
         self._summary_agent = summary_agent
-        self._summary_enabled = summary_enabled
-        self._summary_threshold = summary_threshold
+        self._config = config
 
     async def handle(self, event: OutputEvent) -> None:
         if isinstance(event, AgentChanged):
@@ -83,7 +82,10 @@ class ConsoleRenderer:
         return summary
 
     async def _render_trace_content(self, kind: str, text: str) -> None:
-        if not self._summary_enabled or len(text) <= self._summary_threshold:
+        if (
+            not self._config["observability.summary_enabled"]
+            or len(text) <= self._config["observability.summary_threshold"]
+        ):
             self._ui.write(f"\n[{kind}]")
             self._ui.write(text)
             return
