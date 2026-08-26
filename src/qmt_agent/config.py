@@ -197,6 +197,9 @@ class AppConfig:
 
         return data
 
+    def snapshot(self) -> AppConfig:
+        return AppConfig(deepcopy(self._data), self.project_config_path)
+
     def update(self, key: str, value: Any, *, persist: bool = True) -> dict[str, Any]:
         """
         Update one config value.

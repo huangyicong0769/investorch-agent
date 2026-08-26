@@ -110,6 +110,7 @@ def _run_backtest(
     initial_cash: float | None = None,
     benchmark: str | None = None,
 ) -> dict[str, Any]:
+    config = config.snapshot()
     workspace = config.workspace_dir
     strategy_file, relative_strategy = _resolve_strategy_path(workspace, strategy_path)
     start = _parse_date(start_date, "start_date")
