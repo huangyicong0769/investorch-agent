@@ -110,7 +110,8 @@ def ask_tool_approval(tool_name: str, arguments: str | None) -> bool:
 async def main(sync: bool = False, sync_force: bool = False):
     config = load_config()
 
-    if initialize(config, copy_bootstrap=not (sync or sync_force)):
+    initialized = initialize(config, copy_bootstrap=not (sync or sync_force))
+    if initialized and not sync_force:
         print(
             f"QMT Agent initialized at {config.root}\n"
             f"Please configure required secrets in {config.root_config_path} and start QMT Agent again."
@@ -121,6 +122,8 @@ async def main(sync: bool = False, sync_force: bool = False):
         result = await sync_bootstrap_files(config, force=True)
         backup = result.backup_dir or "none"
         print(f"Bootstrap files force-synchronized: created={result.created}, updated={result.updated}, unchanged={result.unchanged}, backup={backup}")
+        if initialized:
+            print(f"QMT Agent initialized at {config.root}\nPlease configure required secrets in {config.root_config_path} before starting QMT Agent.")
         return
 
     if sync:
