@@ -4,7 +4,7 @@ from agents import Agent, Runner, SQLiteSession
 
 from qmt_agent.config import AppConfig
 from qmt_agent.context import AgentContext, ExecutionState
-from qmt_agent.observability import print_run_events
+from qmt_agent.output import AssistantMessage, OutputHandler, consume_run_events
 
 from .title import ensure_session_title
 
@@ -15,16 +15,16 @@ class AgentLoop:
     def __init__(
         self,
         agent: Agent[AgentContext],
-        summary_agent: Agent,
         title_agent: Agent,
         config: AppConfig,
         approval_handler: ApprovalHandler,
+        output_handler: OutputHandler,
     ) -> None:
         self._agent = agent
-        self._summary_agent = summary_agent
         self._title_agent = title_agent
         self._config = config
         self._approval_handler = approval_handler
+        self._output_handler = output_handler
 
     async def run(self, user_input: str, session: SQLiteSession, execution: ExecutionState) -> str:
         agent_context = AgentContext(config=self._config, execution=execution)
@@ -37,12 +37,7 @@ class AgentLoop:
         )
 
         while True:
-            await print_run_events(
-                result,
-                self._summary_agent,
-                self._config["observability.summary_enabled"],
-                self._config["observability.summary_threshold"],
-            )
+            await consume_run_events(result, self._output_handler)
 
             if not result.interruptions:
                 break
@@ -69,4 +64,5 @@ class AgentLoop:
 
         output = str(result.final_output)
         await ensure_session_title(self._title_agent, session, self._config.sessions_db)
+        await self._output_handler(AssistantMessage(text=output))
         return output

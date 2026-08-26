@@ -1,4 +1,3 @@
-import asyncio
 import sys
 import uuid
 from pathlib import Path
@@ -22,6 +21,7 @@ from qmt_agent.context import AgentContext, AppState, ExecutionState
 from qmt_agent.initializer import initialize, sync_bootstrap_files
 from qmt_agent.mcp import load_mcp_servers
 from qmt_agent.tools import close_execution, start_execution
+from qmt_agent.ui import ConsoleRenderer, ConsoleUI
 
 
 def _create_model(config: AppConfig) -> OpenAIResponsesModel:
@@ -32,49 +32,35 @@ def _create_model(config: AppConfig) -> OpenAIResponsesModel:
     return OpenAIResponsesModel(model=config["model.name"], openai_client=client)
 
 
-def _ask_tool_approval_sync(tool_name: str, arguments: str | None) -> bool:
-    print(f"\n[approval] {tool_name}")
-
-    if arguments:
-        print(arguments)
-
-    answer = input("Approve? [y/N]: ").strip().lower()
-    return answer in {"y", "yes"}
-
-
-async def _ask_tool_approval(tool_name: str, arguments: str | None) -> bool:
-    return await asyncio.to_thread(_ask_tool_approval_sync, tool_name, arguments)
-
-
-async def _run_console(state: AppState, agent_loop: AgentLoop) -> None:
+async def _run_console(state: AppState, agent_loop: AgentLoop, ui: ConsoleUI) -> None:
     while True:
-        user_input = (await asyncio.to_thread(input, "You: ")).strip()
+        user_input = (await ui.read_user_input()).strip()
 
         try:
             command = parse_command(user_input)
         except ValueError as e:
-            print(f"Invalid command: {e}")
+            ui.write(f"Invalid command: {e}")
             continue
 
         if command is not None:
             result = await dispatch_command(command, state)
             if result.output:
-                print(result.output)
+                ui.write(result.output)
             if result.exit_requested:
                 break
             continue
 
-        output = await agent_loop.run(user_input, state.session, state.execution)
-        print("Agent: ", output)
+        await agent_loop.run(user_input, state.session, state.execution)
 
 
 async def run_app(sync: bool = False, sync_force: bool = False) -> None:
+    ui = ConsoleUI()
     config = load_config()
     set_tracing_disabled(not config["observability.sdk_tracing_enabled"])
 
     initialized = initialize(config, copy_bootstrap=not (sync or sync_force))
     if initialized and not sync_force:
-        print(
+        ui.write(
             f"QMT Agent initialized at {config.root}\n"
             f"Please configure required secrets in {config.root_config_path} and start QMT Agent again."
         )
@@ -83,9 +69,9 @@ async def run_app(sync: bool = False, sync_force: bool = False) -> None:
     if sync_force:
         result = await sync_bootstrap_files(config, force=True)
         backup = result.backup_dir or "none"
-        print(f"Bootstrap files force-synchronized: created={result.created}, updated={result.updated}, unchanged={result.unchanged}, backup={backup}")
+        ui.write(f"Bootstrap files force-synchronized: created={result.created}, updated={result.updated}, unchanged={result.unchanged}, backup={backup}")
         if initialized:
-            print(f"QMT Agent initialized at {config.root}\nPlease configure required secrets in {config.root_config_path} before starting QMT Agent.")
+            ui.write(f"QMT Agent initialized at {config.root}\nPlease configure required secrets in {config.root_config_path} before starting QMT Agent.")
         return
 
     model = _create_model(config)
@@ -100,7 +86,7 @@ async def run_app(sync: bool = False, sync_force: bool = False) -> None:
 
         result = await sync_bootstrap_files(config, merge_target)
         backup = result.backup_dir or "none"
-        print(f"Bootstrap files synchronized: created={result.created}, updated={result.updated}, unchanged={result.unchanged}, backup={backup}")
+        ui.write(f"Bootstrap files synchronized: created={result.created}, updated={result.updated}, unchanged={result.unchanged}, backup={backup}")
         return
 
     cnequity_server = MCPServerStdio(
@@ -118,6 +104,11 @@ async def run_app(sync: bool = False, sync_force: bool = False) -> None:
     )
     title_agent = create_title_agent(model)
     summary_agent = create_summary_agent(model)
+    renderer = ConsoleRenderer(
+        ui,
+        summary_agent,
+        config,
+    )
 
     try:
         await start_execution(state.execution, state.config.workspace_dir)
@@ -128,8 +119,14 @@ async def run_app(sync: bool = False, sync_force: bool = False) -> None:
                 config=config,
                 mcp_servers=mcp_manager.active_servers,
             )
-            agent_loop = AgentLoop(agent, summary_agent, title_agent, config, _ask_tool_approval)
-            await _run_console(state, agent_loop)
+            agent_loop = AgentLoop(
+                agent,
+                title_agent,
+                config,
+                ui.request_tool_approval,
+                renderer.handle,
+            )
+            await _run_console(state, agent_loop, ui)
     finally:
         try:
             await close_execution(state.execution)
