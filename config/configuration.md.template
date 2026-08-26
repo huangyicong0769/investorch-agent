@@ -23,10 +23,12 @@ A persistent runtime update is written to `<root>/qmt.toml` and therefore become
 | lifecycle | keys | behavior |
 | --- | --- | --- |
 | immutable | `paths.root`, `bootstrap.*` | Cannot be changed through runtime configuration. |
-| restart-required | `paths.workspace`, `paths.state`, `model.name`, `model.base_url`, `mcp.default_timeout_seconds` | `persist=false` is rejected. `persist=true` writes the next-start value but does not change the current runtime; restart QMT Agent to apply it. |
+| restart-required | `paths.workspace`, `paths.state`, `model.name`, `model.base_url`, `mcp.default_timeout_seconds`, `backtest.use_cnequity` | `persist=false` is rejected. `persist=true` writes the next-start value but does not change the current runtime; restart QMT Agent to apply it. |
 | hot | runtime policy and observability settings not listed above | Validated and applied to the current `AppConfig`; persistence is optional. |
 
 `get_config` reports the value currently used by this process. A persisted restart-required update therefore continues to report the old value until the application is restarted.
+
+`backtest.use_cnequity` controls both the RQAlpha backtest overlay and the Agent's RQAlpha bundle inspection Tool surface. Restarting applies both changes together.
 
 ## Root Directory
 
@@ -60,6 +62,7 @@ Project configuration may be committed to Git and must not contain secrets.
 The runtime policy sections below are TOML-only and must be present in the effective configuration:
 
 - `[runtime].default_timezone`
+- `[backtest].use_cnequity`
 - `[execution].default_timeout_seconds`, `max_timeout_seconds`, and `background_job_dir`
 - `[explore].max_full_read_bytes`, `max_read_chars`, `max_search_results`, and `max_search_snippet_chars`
 - `[calculate].max_expression_chars`, `max_nodes`, `max_integer_bits`, and `max_abs_exponent`

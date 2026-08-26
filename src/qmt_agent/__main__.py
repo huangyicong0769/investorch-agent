@@ -186,6 +186,7 @@ async def main(sync: bool = False, sync_force: bool = False):
 
             agent = create_agent(
                 model=model,
+                config=config,
                 mcp_servers=mcp_manager.active_servers,
             )
 

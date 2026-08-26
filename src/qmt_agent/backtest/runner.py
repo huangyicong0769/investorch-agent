@@ -1,14 +1,12 @@
 import math
 from datetime import date
 from pathlib import Path
-from types import SimpleNamespace
 
 from rqalpha import run_file
-from rqalpha.const import INSTRUMENT_TYPE, MARKET
-from rqalpha.data.base_data_source import BaseDataSource
-from rqalpha.utils.datetime_func import convert_int_to_date
 
-from qmt_agent.config import load_config as load_app_config
+from qmt_agent.config import AppConfig
+
+from .bundle import validate_rqalpha_bundle
 
 _COVERED_DATASETS = ("daily_bars", "adj_factors")
 
@@ -52,52 +50,6 @@ def _validate_cnequity_data(config_path: Path, start_date: date, end_date: date)
             raise RuntimeError(f"CNEquity {dataset} coverage starts at {coverage_start}, but backtest requests {start_date}")
         if coverage_end < end_date:
             raise RuntimeError(f"CNEquity {dataset} coverage ends at {coverage_end}, but backtest requests {end_date}")
-
-
-def _validate_rqalpha_bundle(bundle_path: Path, start_date: date, end_date: date) -> None:
-    download_command = f"rqalpha download-bundle -d {bundle_path.parent}"
-    if not bundle_path.is_dir():
-        raise FileNotFoundError(
-            f"RQAlpha bundle not found at {bundle_path}. Run `{download_command}` first."
-        )
-    try:
-        data_source = BaseDataSource(
-            SimpleNamespace(data_bundle_path=str(bundle_path), future_info={})
-        )
-    except Exception as exc:
-        raise RuntimeError(
-            f"RQAlpha bundle at {bundle_path} cannot be loaded. "
-            f"Run `{download_command}` to replace it."
-        ) from exc
-
-    native_stocks = tuple(
-        instrument
-        for instrument in data_source.get_instruments(types=[INSTRUMENT_TYPE.CS])
-        if instrument.market == MARKET.CN
-    )
-    if not native_stocks:
-        raise RuntimeError(
-            f"RQAlpha bundle has no native stock metadata. Run `{download_command}` to replace it."
-        )
-    native_stock_store = data_source._day_bar_stores[INSTRUMENT_TYPE.CS, MARKET.CN]
-    ranges = tuple(
-        native_stock_store.get_date_range(instrument.order_book_id)
-        for instrument in native_stocks
-    )
-    coverage_start_int = min(value[0] for value in ranges)
-    coverage_end_int = max(value[1] for value in ranges)
-    coverage_start = convert_int_to_date(coverage_start_int).date()
-    coverage_end = convert_int_to_date(coverage_end_int).date()
-    if coverage_start > start_date:
-        raise RuntimeError(
-            f"RQAlpha stock bundle coverage starts at {coverage_start}, but backtest requests "
-            f"{start_date}. Run `{download_command}` to update the bundle."
-        )
-    if coverage_end < end_date:
-        raise RuntimeError(
-            f"RQAlpha stock bundle coverage ends at {coverage_end}, but backtest requests "
-            f"{end_date}. Run `{download_command}` to update the bundle."
-        )
 
 
 def _build_rqalpha_config(
@@ -162,6 +114,7 @@ def _build_rqalpha_config(
 
 
 def run_backtest(
+    config: AppConfig,
     strategy_file: Path,
     start_date: date,
     end_date: date,
@@ -169,11 +122,10 @@ def run_backtest(
     benchmark: str | None = None,
 ) -> dict:
     strategy_file = _validate_input(strategy_file, start_date, end_date, initial_cash)
-    app_config = load_app_config()
-    use_cnequity = app_config["backtest.use_cnequity"]
-    cnequity_config_path = (app_config.root / "configs" / "cnequity.toml").resolve()
-    rqalpha_bundle_path = (app_config.root / ".rqalpha" / "bundle").resolve()
-    _validate_rqalpha_bundle(rqalpha_bundle_path, start_date, end_date)
+    use_cnequity = config["backtest.use_cnequity"]
+    cnequity_config_path = (config.root / "configs" / "cnequity.toml").resolve()
+    rqalpha_bundle_path = (config.root / ".rqalpha" / "bundle").resolve()
+    validate_rqalpha_bundle(rqalpha_bundle_path, start_date, end_date)
     if use_cnequity:
         _validate_cnequity_data(cnequity_config_path, start_date, end_date)
     return run_file(

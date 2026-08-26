@@ -29,6 +29,7 @@ DEFAULT_CONFIG = {
 }
 
 RESTART_REQUIRED_KEYS = {
+    "backtest.use_cnequity",
     "mcp.default_timeout_seconds",
     "model.base_url",
     "model.name",

@@ -16,7 +16,7 @@ from .mcp import (
     list_mcp_servers,
     remove_mcp_server,
 )
-from .quant import run_backtest
+from .quant import inspect_rqalpha_data, run_backtest
 from .todo import write_todos
 
 __all__ = (
@@ -30,6 +30,7 @@ __all__ = (
     "format_background_jobs",
     "get_config",
     "get_current_time",
+    "inspect_rqalpha_data",
     "list_background_jobs",
     "list_mcp_servers",
     "remove_mcp_server",

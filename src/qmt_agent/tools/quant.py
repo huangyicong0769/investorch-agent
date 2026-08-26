@@ -14,7 +14,11 @@ from typing import Any
 from agents import RunContextWrapper
 from agents.decorators import tool
 
-from qmt_agent.backtest import run_backtest as run_rqalpha_backtest
+from qmt_agent.backtest import (
+    inspect_rqalpha_bundle,
+    run_backtest as run_rqalpha_backtest,
+)
+from qmt_agent.config import AppConfig
 from qmt_agent.context import AgentContext
 
 
@@ -25,6 +29,40 @@ _TABULAR_RESULTS = (
     "stock_positions",
     "benchmark_portfolio",
 )
+_MAX_INSPECT_SYMBOLS = 50
+
+
+@tool
+def inspect_rqalpha_data(
+    context: RunContextWrapper[AgentContext],
+    symbols: list[str] | None = None,
+) -> dict[str, Any]:
+    """
+    Inspect the local native RQAlpha bundle without reading market prices or modifying data.
+
+    Args:
+        symbols: Up to 50 canonical RQAlpha order-book IDs. Omit for overall stock metadata.
+
+    Returns:
+        Bundle availability and overall or per-instrument metadata with observed daily-bar ranges.
+    """
+    return _inspect_rqalpha_data(context.context.config, symbols)
+
+
+def _inspect_rqalpha_data(
+    config: AppConfig,
+    symbols: list[str] | None = None,
+) -> dict[str, Any]:
+    if config["backtest.use_cnequity"]:
+        raise RuntimeError(
+            "inspect_rqalpha_data is unavailable while the CNEquity backtest overlay is enabled"
+        )
+    if symbols is not None and len(symbols) > _MAX_INSPECT_SYMBOLS:
+        raise ValueError(
+            f"inspect_rqalpha_data accepts at most {_MAX_INSPECT_SYMBOLS} symbols"
+        )
+    bundle_path = (config.root / ".rqalpha" / "bundle").resolve()
+    return inspect_rqalpha_bundle(bundle_path, symbols)
 
 
 @tool(needs_approval=True)
@@ -39,7 +77,7 @@ def run_backtest(
     """
     Run a Workspace RQAlpha Python strategy after user approval.
 
-    The strategy path must be Workspace-relative and dates must use ISO YYYY-MM-DD. An optional benchmark must use its canonical RQAlpha order-book ID. The return contains a compact analyser summary and Workspace-relative result artifact paths. Missing CNEquity or RQAlpha bundle data is reported and is not repaired automatically.
+    The strategy path must be Workspace-relative and dates must use ISO YYYY-MM-DD. An optional benchmark must use its canonical RQAlpha order-book ID. The return contains a compact analyser summary and Workspace-relative result artifact paths. Missing data from the configured backtest source, or a missing required RQAlpha bundle, is reported and is never repaired automatically.
 
     Args:
         strategy_path: Workspace-relative path to an existing RQAlpha .py strategy.
@@ -56,7 +94,7 @@ def run_backtest(
         A compact dictionary containing engine metadata, scalar summary, and Workspace-relative artifact paths.
     """
     return _run_backtest(
-        workspace=context.context.config.workspace_dir,
+        config=context.context.config,
         strategy_path=strategy_path,
         start_date=start_date,
         end_date=end_date,
@@ -66,13 +104,14 @@ def run_backtest(
 
 
 def _run_backtest(
-    workspace: Path,
+    config: AppConfig,
     strategy_path: str,
     start_date: str,
     end_date: str,
     initial_cash: float = 1_000_000,
     benchmark: str | None = None,
 ) -> dict[str, Any]:
+    workspace = config.workspace_dir
     strategy_file, relative_strategy = _resolve_strategy_path(workspace, strategy_path)
     start = _parse_date(start_date, "start_date")
     end = _parse_date(end_date, "end_date")
@@ -83,9 +122,10 @@ def _run_backtest(
     source = strategy_file.read_bytes()
     strategy_sha256 = hashlib.sha256(source).hexdigest()
     raw_result = run_rqalpha_backtest(
-        strategy_file,
-        start,
-        end,
+        config=config,
+        strategy_file=strategy_file,
+        start_date=start,
+        end_date=end,
         initial_cash=cash,
         benchmark=benchmark,
     )
@@ -112,6 +152,11 @@ def _run_backtest(
         "created_at": datetime.now(UTC).isoformat(),
         "engine": "rqalpha",
         "engine_version": engine_version,
+        "data_source": (
+            "cnequity_overlay"
+            if config["backtest.use_cnequity"]
+            else "rqalpha_bundle"
+        ),
         "strategy_path": relative_strategy,
         "strategy_sha256": strategy_sha256,
         "start_date": start.isoformat(),
