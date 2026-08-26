@@ -14,10 +14,16 @@ REDACTED = "<redacted>"
 PROJECT_CONFIG_PATH = Path(__file__).resolve().parents[2] / "config" / "qmt.toml"
 
 RESTART_REQUIRED_KEYS = {
+    "backtest.rqalpha_bundle_dir",
     "backtest.use_cnequity",
+    "cnequity.config_path",
+    "cnequity.mcp_cache_tools_list",
     "mcp.default_timeout_seconds",
+    "mcp.drop_failed_servers",
+    "mcp.include_server_in_tool_names",
     "model.base_url",
     "model.name",
+    "observability.sdk_tracing_enabled",
     "paths.state",
     "paths.workspace",
 }
@@ -56,6 +62,18 @@ class AppConfig:
     @property
     def background_job_dir(self) -> Path:
         return _resolve_under_root(self.workspace_dir, self["execution.background_job_dir"], "execution.background_job_dir")
+
+    @property
+    def cnequity_config_path(self) -> Path:
+        return self._resolve_root_path("cnequity.config_path")
+
+    @property
+    def rqalpha_bundle_dir(self) -> Path:
+        return self._resolve_root_path("backtest.rqalpha_bundle_dir")
+
+    @property
+    def backtest_artifact_dir(self) -> Path:
+        return _resolve_under_root(self.workspace_dir, self["backtest.artifact_dir"], "backtest.artifact_dir")
 
     @property
     def sessions_db(self) -> Path:
@@ -423,7 +441,19 @@ def _validate_config_data(data: dict[str, Any], root: Path) -> None:
     _require_string(data, "model.base_url")
 
     _require_bool(data, "observability.summary_enabled")
+    _require_bool(data, "observability.sdk_tracing_enabled")
     _require_bool(data, "backtest.use_cnequity")
+    _require_bool(data, "backtest.stock_t1")
+    _require_bool(data, "backtest.dividend_reinvestment")
+    _require_bool(data, "backtest.dividend_tax_enabled")
+    _require_bool(data, "backtest.validate_price")
+    _require_bool(data, "backtest.price_limit")
+    _require_bool(data, "backtest.volume_limit")
+    _require_bool(data, "backtest.inactive_limit")
+    _require_bool(data, "backtest.pit_tax")
+    _require_bool(data, "mcp.drop_failed_servers")
+    _require_bool(data, "mcp.include_server_in_tool_names")
+    _require_bool(data, "cnequity.mcp_cache_tools_list")
 
     secrets = data.get("secrets", {})
     if not isinstance(secrets, dict) or any(not isinstance(value, str) for value in secrets.values()):
@@ -442,6 +472,9 @@ def _validate_config_data(data: dict[str, Any], root: Path) -> None:
         raise ConfigError("paths.workspace and paths.state must not overlap")
 
     _resolve_under_root(workspace, _require_string(data, "execution.background_job_dir"), "execution.background_job_dir")
+    _resolve_under_root(root, _require_string(data, "cnequity.config_path"), "cnequity.config_path")
+    _resolve_under_root(root, _require_string(data, "backtest.rqalpha_bundle_dir"), "backtest.rqalpha_bundle_dir")
+    _resolve_under_root(workspace, _require_string(data, "backtest.artifact_dir"), "backtest.artifact_dir")
 
     _require_int(data, "observability.summary_threshold", minimum=1)
     timezone = _require_string(data, "runtime.default_timezone")
@@ -467,6 +500,24 @@ def _validate_config_data(data: dict[str, Any], root: Path) -> None:
     _require_int(data, "calculate.max_nodes", minimum=1)
     _require_int(data, "calculate.max_integer_bits", minimum=1)
     _require_int(data, "calculate.max_abs_exponent", minimum=1)
+    initial_cash = _require_number(data, "backtest.default_initial_cash", minimum=0.0)
+    if initial_cash <= 0:
+        raise ConfigError("backtest.default_initial_cash must be greater than 0")
+    _require_int(data, "backtest.inspect_max_symbols", minimum=1)
+    _require_number(data, "backtest.capital_gain_tax_rate", minimum=0.0)
+    _require_number(data, "backtest.slippage", minimum=0.0)
+    _require_number(data, "backtest.stock_min_commission", minimum=0.0)
+    _require_number(data, "backtest.stock_commission_multiplier", minimum=0.0)
+    _require_number(data, "backtest.tax_multiplier", minimum=0.0)
+
+    matching_type = _require_string(data, "backtest.matching_type")
+    if matching_type != "current_bar":
+        raise ConfigError("backtest.matching_type must be current_bar")
+
+    slippage_model = _require_string(data, "backtest.slippage_model")
+    if slippage_model != "PriceRatioSlippage":
+        raise ConfigError("backtest.slippage_model must be PriceRatioSlippage")
+
     mcp_timeout = _require_number(data, "mcp.default_timeout_seconds", minimum=0.0)
     if mcp_timeout <= 0:
         raise ConfigError("mcp.default_timeout_seconds must be greater than 0")

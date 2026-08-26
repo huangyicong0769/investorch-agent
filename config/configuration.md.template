@@ -22,7 +22,7 @@ A persistent runtime update is written to `<root>/qmt.toml` and therefore become
 | lifecycle | keys | behavior |
 | --- | --- | --- |
 | immutable | `paths.root`, `bootstrap.*` | Cannot be changed through runtime configuration. |
-| restart-required | `paths.workspace`, `paths.state`, `model.name`, `model.base_url`, `mcp.default_timeout_seconds`, `backtest.use_cnequity` | `persist=false` is rejected. `persist=true` writes the next-start value but does not change the current runtime; restart QMT Agent to apply it. |
+| restart-required | `paths.workspace`, `paths.state`, `model.*`, `mcp.*`, `cnequity.*`, `backtest.use_cnequity`, `backtest.rqalpha_bundle_dir`, `observability.sdk_tracing_enabled` | `persist=false` is rejected. `persist=true` writes the next-start value but does not change the current runtime; restart QMT Agent to apply it. |
 | hot | runtime policy and observability settings not listed above | Validated and applied to the current `AppConfig`; persistence is optional. |
 
 `get_config` reports the value currently used by this process. A persisted restart-required update therefore continues to report the old value until the application is restarted.
@@ -45,9 +45,11 @@ These files are outside the Git repository.
 
 ## Root-relative Paths
 
-`paths.workspace` and `paths.state` are relative to `paths.root`.
+`paths.workspace`, `paths.state`, `cnequity.config_path`, and `backtest.rqalpha_bundle_dir` are relative to `paths.root`.
 They must not be absolute and must not escape the root.
 Both must be strict subdirectories of the root and must not equal or contain one another after path resolution.
+`backtest.artifact_dir` is relative to the configured workspace and must remain inside it.
+These paths may be absent when configuration is loaded; the operation that uses one validates its availability or creates the artifact directory.
 The SQLite session database is stored under the state directory.
 Long-term Agent memory does not use a database.
 Long-term memory is maintained as Markdown in the workspace, with `MEMORY.md` as the entry point.
@@ -61,14 +63,17 @@ Project configuration may be committed to Git and must not contain secrets.
 The runtime policy sections below are TOML-only and must be present in the effective configuration:
 
 - `[runtime].default_timezone`
-- `[backtest].use_cnequity`
+- `[backtest]` data paths, artifact path, execution policy, default cash, and inspection limit
+- `[cnequity].config_path` and `mcp_cache_tools_list`
 - `[execution].default_timeout_seconds`, `max_timeout_seconds`, and `background_job_dir`
 - `[explore].max_full_read_bytes`, `max_read_chars`, `max_search_results`, and `max_search_snippet_chars`
 - `[calculate].max_expression_chars`, `max_nodes`, `max_integer_bits`, and `max_abs_exponent`
-- `[observability].summary_threshold`
-- `[mcp].default_timeout_seconds`
+- `[observability].summary_threshold` and `sdk_tracing_enabled`
+- `[mcp].default_timeout_seconds`, `drop_failed_servers`, and `include_server_in_tool_names`
 
-They are validated at startup and again before an update is persisted. `background_job_dir` must remain relative to the configured workspace.
+They are validated at startup and again before an update is persisted. Backtest cash must be positive; fee, tax, multiplier, and slippage values must be finite and non-negative. The currently supported matching type and slippage model are validated explicitly. `background_job_dir` and `backtest.artifact_dir` must remain relative to the configured workspace.
+
+Backtest execution policy and artifact location are hot settings: the next backtest uses the current `AppConfig` snapshot. RQAlpha remains daily-only with a stock account; frequency and account type are capability contracts, not configurable settings.
 
 ## Local Configuration
 
@@ -126,6 +131,7 @@ Reference configured secrets with placeholders such as:
 The real value belongs in the `[secrets]` table of `<root>/qmt.toml`.
 MCP loading expands these placeholders from AppConfig secrets.
 The application-level `mcp.default_timeout_seconds` is used only when a server does not define its own `timeout`. Changes to this default affect MCP connections after QMT Agent is restarted.
+Application-level MCP connection failure handling and tool naming also live in `[mcp]`. CNEquity's application-owned config path and MCP tools-list cache policy live in `[cnequity]`. These settings are restart-required; per-server registry settings remain in `mcp.toml`.
 
 ## Initialization
 

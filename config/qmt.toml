@@ -12,6 +12,7 @@ base_url = "https://api.deepseek.com"
 [observability]
 summary_enabled = true
 summary_threshold = 1000
+sdk_tracing_enabled = false
 
 [runtime]
 default_timezone = "Asia/Shanghai"
@@ -19,6 +20,25 @@ max_turns = 100
 
 [backtest]
 use_cnequity = false
+rqalpha_bundle_dir = ".rqalpha/bundle"
+artifact_dir = "backtests"
+default_initial_cash = 1000000.0
+inspect_max_symbols = 50
+stock_t1 = true
+dividend_reinvestment = false
+dividend_tax_enabled = true
+capital_gain_tax_rate = 0.0
+validate_price = true
+matching_type = "current_bar"
+price_limit = true
+volume_limit = true
+inactive_limit = true
+slippage_model = "PriceRatioSlippage"
+slippage = 0.0
+stock_min_commission = 5.0
+stock_commission_multiplier = 1.0
+tax_multiplier = 1.0
+pit_tax = true
 
 [execution]
 default_timeout_seconds = 30
@@ -39,6 +59,12 @@ max_abs_exponent = 10000
 
 [mcp]
 default_timeout_seconds = 5.0
+drop_failed_servers = true
+include_server_in_tool_names = true
+
+[cnequity]
+config_path = "configs/cnequity.toml"
+mcp_cache_tools_list = true
 
 [[bootstrap.files]]
 source = "MEMORY.md.template"
