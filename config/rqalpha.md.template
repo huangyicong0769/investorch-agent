@@ -26,9 +26,13 @@ These settings belong to the runner. A strategy should contain trading logic, no
 
 ## Market-data ownership
 
-Strategy API calls flow through `RQAlpha DataProxy -> QMTDataSource`. For Shanghai and Shenzhen stocks, CNEquity supplies daily OHLCV, turnover, and adjustment factors. Native RQAlpha data retains instruments, calendars, limits, corporate actions, suspension evidence, and other preserved market semantics.
+The process configuration snapshot selects one of two backtest data paths.
 
-Never invoke the CNEquity CLI, MCP, Python ingestion lifecycle, or RQAlpha bundle updater inside a strategy. CNEquity MCP is the Agent's research/query plane, not a per-bar execution path.
+With `backtest.use_cnequity=false`, strategy API calls flow through `RQAlpha DataProxy -> BaseDataSource -> RQAlpha bundle`. When `inspect_rqalpha_data` is available, use it as the authority for native bundle instrument metadata and observed daily-bar ranges. Do not infer RQAlpha coverage from CNEquity MCP results.
+
+With `backtest.use_cnequity=true`, strategy API calls flow through `RQAlpha DataProxy -> QMTDataSource`. For Shanghai and Shenzhen stocks, CNEquity supplies daily OHLCV, turnover, and adjustment factors, while native RQAlpha data retains instruments, calendars, limits, corporate actions, suspension evidence, and fallback market semantics. The RQAlpha inspection Tool is not exposed in this mode.
+
+Never invoke the CNEquity CLI, MCP, Python ingestion lifecycle, or RQAlpha bundle updater inside a strategy. CNEquity MCP remains an independent research/query plane in both modes; its availability does not identify the configured backtest source.
 
 ## Instrument identifiers
 
@@ -37,7 +41,7 @@ Use canonical RQAlpha order-book IDs in strategy code:
 - Shanghai: `600519.XSHG`
 - Shenzhen: `000001.XSHE`
 
-`600519.SH` is a CNEquity-style symbol; `600519.XSHG` is the strategy ID. Do not invent another symbol abstraction. The current QMT daily store integration is approved for Shanghai/Shenzhen stocks; do not assume an ETF or another instrument type is supported without a concrete runtime acceptance.
+`600519.SH` is a CNEquity-style symbol; `600519.XSHG` is the strategy ID. Do not invent another symbol abstraction. The current CNEquity overlay is approved for Shanghai/Shenzhen stocks; do not assume an ETF or another instrument type is supported by that overlay without a concrete runtime acceptance.
 
 ## Strategy lifecycle
 
@@ -62,7 +66,7 @@ Build signals from completed historical bars by default:
 
 In daily `handle_bar`, setting `include_now=True` includes the current daily bar. Do not combine that information casually with an assumption of frictionless action at the same close. RQAlpha does not prevent every logical look-ahead error.
 
-Use `bar_dict[stock]` for the current daily `open`, `high`, `low`, `close`, `volume`, and `total_turnover`. A missing normal CNEquity bar is an error; it is not a zero-volume observation. Do not infer minute paths, auction detail, or tick behavior from a daily bar.
+Use `bar_dict[stock]` for the current daily `open`, `high`, `low`, `close`, `volume`, and `total_turnover`. A missing normal bar from the configured backtest source is an error; it is not a zero-volume observation. Do not infer minute paths, auction detail, or tick behavior from a daily bar.
 
 ## Trading and portfolio APIs
 
@@ -83,7 +87,7 @@ The daily runtime calls `handle_bar` every trading day, so no scheduler is neede
 Do not use:
 
 - minute/tick assumptions, minute APIs, or intraday-only market-data semantics;
-- `open_auction` callbacks, auction bars, or auction-volume APIs—the current DataSource intentionally raises `QMT backtest does not support open-auction market data`;
+- `open_auction` callbacks, auction bars, or auction-volume APIs; the CNEquity overlay additionally rejects them at runtime;
 - future data or unacknowledged current-bar-close timing assumptions;
 - automatic CNEquity init/daily/retry/backfill commands or automatic RQAlpha bundle downloads;
 - MCP calls inside strategy execution;
@@ -93,7 +97,7 @@ A strategy file should primarily describe trading logic. Approval authorizes exe
 
 ## Canonical examples
 
-The following are complete daily strategies. They use locally accepted canonical IDs; choose instruments whose CNEquity coverage contains the requested period.
+The following are complete daily strategies. They use locally accepted canonical IDs; choose instruments whose configured backtest source contains the requested period.
 
 ### 1. Buy and hold (minimal skeleton)
 
@@ -195,16 +199,18 @@ def handle_bar(context, bar_dict):
 | Runtime configuration inside the strategy | Leave configuration to QMT Agent's runner. |
 | Strategy repairs/downloads data | Surface the coverage/bundle error to the human. |
 | Filesystem, network, or subprocess side effects | Keep the file focused on deterministic trading logic. |
-| Missing bar treated as zero volume | Let the runner distinguish suspension evidence or fail closed. |
+| Missing bar treated as zero volume | Let the configured data source and runner validation fail closed. |
 
 ## QMT Agent workflow
 
 1. Read `MEMORY.md`.
 2. Read `memory/rqalpha.md`.
-3. Design the strategy.
-4. Write and review a Workspace `.py` strategy.
-5. Check timing/look-ahead and unsupported APIs.
-6. Call `run_backtest` after user approval.
-7. Use the compact summary first.
-8. Inspect saved CSV/JSON artifacts only when deeper analysis is needed.
-9. Revise and rerun when appropriate.
+3. Determine the active runtime data policy from current tools and configuration.
+4. When `inspect_rqalpha_data` is available and a new instrument, period, or uncertain coverage matters, inspect the intended canonical IDs before choosing the backtest window.
+5. Design the strategy.
+6. Write and review a Workspace `.py` strategy.
+7. Check timing/look-ahead and unsupported APIs.
+8. Call `run_backtest` after user approval.
+9. Use the compact summary first.
+10. Inspect saved CSV/JSON artifacts only when deeper analysis is needed.
+11. Revise and rerun when appropriate.
