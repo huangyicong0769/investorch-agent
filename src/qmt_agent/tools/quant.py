@@ -115,6 +115,11 @@ def _run_backtest(
         "created_at": datetime.now(UTC).isoformat(),
         "engine": "rqalpha",
         "engine_version": engine_version,
+        "data_source": (
+            "cnequity_overlay"
+            if config["backtest.use_cnequity"]
+            else "rqalpha_bundle"
+        ),
         "strategy_path": relative_strategy,
         "strategy_sha256": strategy_sha256,
         "start_date": start.isoformat(),
