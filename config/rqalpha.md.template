@@ -13,16 +13,9 @@
 | --- | --- |
 | Engine / run type | RQAlpha 6.3.0 / backtest |
 | Frequency / account | `1d` / stock |
-| Stock T+1 | enabled |
-| Matching | `current_bar` |
-| Price validation / price limits | enabled / enabled |
-| Volume / inactive limits | enabled / enabled |
-| Slippage model / configured slippage | `PriceRatioSlippage` / `0` |
-| Dividend reinvestment / dividend tax | disabled / enabled |
-| PIT transaction tax | enabled |
-| Capital-gain tax rate | `0` |
+| Execution policy | Effective `backtest.*` values in the current `AppConfig` |
 
-These settings belong to the runner. A strategy should contain trading logic, not runtime configuration.
+Daily frequency and the stock account are capability contracts. T+1, matching, price/volume/inactive limits, slippage, commission, dividend handling, and tax are application policy. Use `get_config` when the effective backtest execution policy matters. These settings belong to the runner; a strategy should contain trading logic, not runtime configuration.
 
 ## Market-data ownership
 
@@ -205,7 +198,7 @@ def handle_bar(context, bar_dict):
 
 1. Read `MEMORY.md`.
 2. Read `memory/rqalpha.md`.
-3. Determine the active runtime data policy from current tools and configuration.
+3. Use `get_config` to determine the active data and backtest execution policy when it matters.
 4. When `inspect_rqalpha_data` is available and a new instrument, period, or uncertain coverage matters, inspect the intended canonical IDs before choosing the backtest window.
 5. Design the strategy.
 6. Write and review a Workspace `.py` strategy.
