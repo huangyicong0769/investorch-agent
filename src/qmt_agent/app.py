@@ -79,13 +79,29 @@ async def run_app(sync: bool = False, sync_force: bool = False) -> None:
     initialized = initialize(config, copy_bootstrap=not (sync or sync_force))
     configure_logging(config)
     logger.info("QMT Agent started")
+
+    try:
+        await _run_configured_app(ui, config, initialized, sync, sync_force)
+    except Exception:
+        logger.exception("QMT Agent failed")
+        raise
+    finally:
+        logger.info("QMT Agent stopped")
+
+
+async def _run_configured_app(
+    ui: ConsoleUI,
+    config: AppConfig,
+    initialized: bool,
+    sync: bool,
+    sync_force: bool,
+) -> None:
     if initialized and not sync_force:
         logger.info("First initialization completed at %s", config.root)
         ui.write(
             f"QMT Agent initialized at {config.root}\n"
             f"Please configure required secrets in {config.root_config_path} and start QMT Agent again."
         )
-        logger.info("QMT Agent stopped")
         return
 
     if sync_force:
@@ -103,7 +119,6 @@ async def run_app(sync: bool = False, sync_force: bool = False) -> None:
         if initialized:
             logger.info("First initialization completed at %s", config.root)
             ui.write(f"QMT Agent initialized at {config.root}\nPlease configure required secrets in {config.root_config_path} before starting QMT Agent.")
-        logger.info("QMT Agent stopped")
         return
 
     model = _create_model(config)
@@ -127,7 +142,6 @@ async def run_app(sync: bool = False, sync_force: bool = False) -> None:
             backup,
         )
         ui.write(f"Bootstrap files synchronized: created={result.created}, updated={result.updated}, unchanged={result.unchanged}, backup={backup}")
-        logger.info("QMT Agent stopped")
         return
 
     cnequity_server = MCPServerStdio(
@@ -200,4 +214,3 @@ async def run_app(sync: bool = False, sync_force: bool = False) -> None:
             await close_execution(state.execution)
         finally:
             state.session.close()
-            logger.info("QMT Agent stopped")
