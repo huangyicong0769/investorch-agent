@@ -60,7 +60,7 @@ def initialize(config: AppConfig, *, copy_bootstrap: bool = True) -> bool:
     _ensure_directory(config.workspace_dir, name="workspace")
 
     _ensure_directory(config.state_dir, name="state")
-    _ensure_directory(config.system_log_dir, name="system logs", private=True)
+    _ensure_directory(config.log_dir, name="logs", private=True)
     _ensure_directory(config.session_journal_dir, name="session journals", private=True)
 
     # Session schema initialization is idempotent.

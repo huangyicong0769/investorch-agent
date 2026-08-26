@@ -20,8 +20,8 @@ from qmt_agent.commands import dispatch_command, parse_command
 from qmt_agent.config import AppConfig, load_config
 from qmt_agent.context import AgentContext, AppState, ExecutionState
 from qmt_agent.initializer import initialize, sync_bootstrap_files
+from qmt_agent.log import configure_logging
 from qmt_agent.mcp import load_mcp_servers
-from qmt_agent.system_logging import configure_system_logging
 from qmt_agent.tools import close_execution, start_execution
 from qmt_agent.ui import ConsoleRenderer, ConsoleUI
 
@@ -63,7 +63,7 @@ async def run_app(sync: bool = False, sync_force: bool = False) -> None:
     set_tracing_disabled(not config["observability.sdk_tracing_enabled"])
 
     initialized = initialize(config, copy_bootstrap=not (sync or sync_force))
-    configure_system_logging(config)
+    configure_logging(config)
     logger.info("QMT Agent started")
     if initialized and not sync_force:
         logger.info("First initialization completed at %s", config.root)

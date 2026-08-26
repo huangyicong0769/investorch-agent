@@ -23,31 +23,31 @@ class _TimezoneFormatter(logging.Formatter):
         return datetime.fromtimestamp(record.created, self._timezone).isoformat(timespec="milliseconds")
 
 
-def configure_system_logging(config: AppConfig) -> None:
-    config.system_log_dir.mkdir(parents=True, exist_ok=True)
+def configure_logging(config: AppConfig) -> None:
+    config.log_dir.mkdir(parents=True, exist_ok=True)
     if os.name == "posix":
-        config.system_log_dir.chmod(0o700)
+        config.log_dir.chmod(0o700)
 
     app_logger = logging.getLogger("qmt_agent")
 
     for handler in app_logger.handlers[:]:
-        if getattr(handler, "_qmt_agent_system_log", False):
+        if getattr(handler, "_qmt_agent_log", False):
             app_logger.removeHandler(handler)
             handler.close()
 
     level = getattr(logging, config["logging.level"])
     handler = _SecureRotatingFileHandler(
-        config.system_log_path,
+        config.log_path,
         maxBytes=config["logging.max_bytes"],
         backupCount=config["logging.backup_count"],
         encoding="utf-8",
     )
-    handler._qmt_agent_system_log = True
+    handler._qmt_agent_log = True
     handler.setLevel(level)
     handler.setFormatter(_TimezoneFormatter(ZoneInfo(config["runtime.default_timezone"])))
 
     if os.name == "posix":
-        config.system_log_path.chmod(0o600)
+        config.log_path.chmod(0o600)
 
     app_logger.setLevel(level)
     app_logger.addHandler(handler)

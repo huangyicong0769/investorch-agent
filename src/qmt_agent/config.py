@@ -83,12 +83,12 @@ class AppConfig:
         return self.state_dir / "sessions.db"
 
     @property
-    def system_log_dir(self) -> Path:
+    def log_dir(self) -> Path:
         return self.state_dir / "logs"
 
     @property
-    def system_log_path(self) -> Path:
-        return self.system_log_dir / "qmt-agent.log"
+    def log_path(self) -> Path:
+        return self.log_dir / "qmt-agent.log"
 
     @property
     def session_journal_dir(self) -> Path:
