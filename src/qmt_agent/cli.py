@@ -1,5 +1,13 @@
 import argparse
+import asyncio
+import os
+import sys
 from dataclasses import dataclass
+
+from agents import set_tracing_disabled
+
+from qmt_agent.app import run_app
+from qmt_agent.config import load_config
 
 
 @dataclass(frozen=True)
@@ -15,3 +23,20 @@ def parse_startup_args(argv: list[str] | None = None) -> StartupOptions:
     sync_group.add_argument("--sync-force", action="store_true", help="Replace bootstrap targets with project templates and exit.")
     args = parser.parse_args(argv)
     return StartupOptions(sync=args.sync, sync_force=args.sync_force)
+
+
+def run_data_cli(args: list[str]) -> None:
+    config = load_config()
+    config.root.mkdir(parents=True, exist_ok=True)
+    os.chdir(config.root)
+    os.execv(sys.executable, [sys.executable, "-m", "cnequity", *args])
+
+
+def entrypoint() -> None:
+    if len(sys.argv) >= 2 and sys.argv[1] == "data":
+        run_data_cli(sys.argv[2:])
+        return
+
+    startup_options = parse_startup_args()
+    set_tracing_disabled(True)
+    asyncio.run(run_app(sync=startup_options.sync, sync_force=startup_options.sync_force))
