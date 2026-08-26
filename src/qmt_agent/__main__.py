@@ -342,6 +342,7 @@ async def main(sync: bool = False, sync_force: bool = False):
                     user_input,
                     session=session,
                     context=agent_context,
+                    max_turns=config["runtime.max_turns"],
                 )
 
                 while True:
@@ -373,6 +374,7 @@ async def main(sync: bool = False, sync_force: bool = False):
                         agent,
                         state,
                         session=session,
+                        max_turns=config["runtime.max_turns"],
                     )
 
                 print("Agent: ", result.final_output)

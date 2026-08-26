@@ -15,6 +15,7 @@ summary_threshold = 1000
 
 [runtime]
 default_timezone = "Asia/Shanghai"
+max_turns = 100
 
 [backtest]
 use_cnequity = false

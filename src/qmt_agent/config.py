@@ -459,6 +459,7 @@ def _validate_config_data(data: dict[str, Any], root: Path) -> None:
 
     _require_int(data, "observability.summary_threshold", minimum=1)
     timezone = _require_string(data, "runtime.default_timezone")
+    _require_int(data, "runtime.max_turns", minimum=1)
 
     try:
         ZoneInfo(timezone)
