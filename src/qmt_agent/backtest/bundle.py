@@ -109,7 +109,13 @@ def inspect_rqalpha_bundle(
         if instrument is None:
             results.append({"order_book_id": order_book_id, "exists": False})
             continue
-        bar_start, bar_end = _bar_range(data_source, instrument)
+        if (instrument.type, instrument.market) in data_source._day_bar_stores:
+            bar_start, bar_end = _bar_range(data_source, instrument)
+            bar_start_value = bar_start.isoformat()
+            bar_end_value = bar_end.isoformat()
+        else:
+            bar_start_value = None
+            bar_end_value = None
         results.append(
             {
                 "order_book_id": order_book_id,
@@ -118,8 +124,8 @@ def inspect_rqalpha_bundle(
                 "symbol": instrument.symbol,
                 "listed_date": _instrument_date(instrument.listed_date),
                 "de_listed_date": _instrument_date(instrument.de_listed_date),
-                "bar_start": bar_start.isoformat(),
-                "bar_end": bar_end.isoformat(),
+                "bar_start": bar_start_value,
+                "bar_end": bar_end_value,
             }
         )
     return {
