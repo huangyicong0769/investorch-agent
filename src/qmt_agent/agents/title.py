@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from pathlib import Path
 
 from agents import (
@@ -12,6 +13,8 @@ from agents import (
 from qmt_agent.storage import get_session_title, set_session_title
 
 from .prompts import TITLE_AGENT_INSTRUCTIONS
+
+logger = logging.getLogger(__name__)
 
 
 def create_title_agent(model: OpenAIResponsesModel,) -> Agent:
@@ -56,7 +59,7 @@ async def ensure_session_title(title_agent: Agent, session: SQLiteSession, sessi
     try:
         title = await generate_session_title(title_agent, history)
     except Exception as e:
-        print(f"Failed to generate session title: {e}")
+        logger.warning("Failed to generate session title: %s", e)
         return
 
     await asyncio.to_thread(
