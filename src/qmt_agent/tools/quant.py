@@ -162,6 +162,7 @@ def _run_backtest(
         "end_date": end.isoformat(),
         "initial_cash": cash,
         "benchmark": benchmark,
+        "runtime": _backtest_runtime_snapshot(config),
     }
     artifacts = _write_backtest_artifacts(
         workspace=workspace,
@@ -179,6 +180,26 @@ def _run_backtest(
         "engine_version": engine_version,
         "summary": summary,
         "artifacts": artifacts,
+    }
+
+
+def _backtest_runtime_snapshot(config: AppConfig) -> dict[str, Any]:
+    return {
+        "stock_t1": config["backtest.stock_t1"],
+        "dividend_reinvestment": config["backtest.dividend_reinvestment"],
+        "dividend_tax_enabled": config["backtest.dividend_tax_enabled"],
+        "capital_gain_tax_rate": config["backtest.capital_gain_tax_rate"],
+        "validate_price": config["backtest.validate_price"],
+        "matching_type": config["backtest.matching_type"],
+        "price_limit": config["backtest.price_limit"],
+        "volume_limit": config["backtest.volume_limit"],
+        "inactive_limit": config["backtest.inactive_limit"],
+        "slippage_model": config["backtest.slippage_model"],
+        "slippage": config["backtest.slippage"],
+        "stock_min_commission": config["backtest.stock_min_commission"],
+        "stock_commission_multiplier": config["backtest.stock_commission_multiplier"],
+        "tax_multiplier": config["backtest.tax_multiplier"],
+        "pit_tax": config["backtest.pit_tax"],
     }
 
 
