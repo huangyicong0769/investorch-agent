@@ -1,3 +1,4 @@
+import logging
 import sys
 import uuid
 from pathlib import Path
@@ -23,6 +24,8 @@ from qmt_agent.mcp import load_mcp_servers
 from qmt_agent.system_logging import configure_system_logging
 from qmt_agent.tools import close_execution, start_execution
 from qmt_agent.ui import ConsoleRenderer, ConsoleUI
+
+logger = logging.getLogger(__name__)
 
 
 def _create_model(config: AppConfig) -> OpenAIResponsesModel:
@@ -61,24 +64,38 @@ async def run_app(sync: bool = False, sync_force: bool = False) -> None:
 
     initialized = initialize(config, copy_bootstrap=not (sync or sync_force))
     configure_system_logging(config)
+    logger.info("QMT Agent started")
     if initialized and not sync_force:
+        logger.info("First initialization completed at %s", config.root)
         ui.write(
             f"QMT Agent initialized at {config.root}\n"
             f"Please configure required secrets in {config.root_config_path} and start QMT Agent again."
         )
+        logger.info("QMT Agent stopped")
         return
 
     if sync_force:
+        logger.info("Bootstrap force synchronization started")
         result = await sync_bootstrap_files(config, force=True)
         backup = result.backup_dir or "none"
+        logger.info(
+            "Bootstrap force synchronization completed: created=%d updated=%d unchanged=%d backup=%s",
+            result.created,
+            result.updated,
+            result.unchanged,
+            backup,
+        )
         ui.write(f"Bootstrap files force-synchronized: created={result.created}, updated={result.updated}, unchanged={result.unchanged}, backup={backup}")
         if initialized:
+            logger.info("First initialization completed at %s", config.root)
             ui.write(f"QMT Agent initialized at {config.root}\nPlease configure required secrets in {config.root_config_path} before starting QMT Agent.")
+        logger.info("QMT Agent stopped")
         return
 
     model = _create_model(config)
 
     if sync:
+        logger.info("Bootstrap synchronization started")
         agent = create_bootstrap_sync_agent(model)
 
         async def merge_target(target: Path, template: str, exists: bool) -> None:
@@ -88,7 +105,15 @@ async def run_app(sync: bool = False, sync_force: bool = False) -> None:
 
         result = await sync_bootstrap_files(config, merge_target)
         backup = result.backup_dir or "none"
+        logger.info(
+            "Bootstrap synchronization completed: created=%d updated=%d unchanged=%d backup=%s",
+            result.created,
+            result.updated,
+            result.unchanged,
+            backup,
+        )
         ui.write(f"Bootstrap files synchronized: created={result.created}, updated={result.updated}, unchanged={result.unchanged}, backup={backup}")
+        logger.info("QMT Agent stopped")
         return
 
     cnequity_server = MCPServerStdio(
@@ -104,6 +129,7 @@ async def run_app(sync: bool = False, sync_force: bool = False) -> None:
         execution=ExecutionState(),
         session=SQLiteSession(uuid.uuid4().hex, config.sessions_db),
     )
+    logger.info("Started session %s", state.session.session_id)
     title_agent = create_title_agent(model)
     summary_agent = create_summary_agent(model)
     renderer = ConsoleRenderer(
@@ -115,7 +141,9 @@ async def run_app(sync: bool = False, sync_force: bool = False) -> None:
     try:
         await start_execution(state.execution, state.config.workspace_dir)
 
+        logger.info("Starting MCP server manager with %d configured servers", len(mcp_servers))
         async with MCPServerManager(mcp_servers, drop_failed_servers=config["mcp.drop_failed_servers"]) as mcp_manager:
+            logger.info("MCP server manager started with %d active servers", len(mcp_manager.active_servers))
             agent = create_agent(
                 model=model,
                 config=config,
@@ -134,3 +162,4 @@ async def run_app(sync: bool = False, sync_force: bool = False) -> None:
             await close_execution(state.execution)
         finally:
             state.session.close()
+            logger.info("QMT Agent stopped")

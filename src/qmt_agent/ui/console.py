@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 
 from agents import Agent, Runner
 
@@ -12,6 +13,8 @@ from qmt_agent.output import (
     ToolCalled,
     ToolOutput,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class ConsoleUI:
@@ -94,6 +97,7 @@ class ConsoleRenderer:
             summary = await self._summarize_trace(kind, text)
         except Exception as e:
             # Presentation failure should never break the main agent run.
+            logger.warning("Summary generation failed: %s", e)
             self._ui.write(f"\n[{kind}]")
             self._ui.write(text)
             self._ui.write(f"[summary failed: {e}]")

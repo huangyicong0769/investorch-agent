@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import uuid
 from dataclasses import dataclass
 
@@ -15,6 +16,8 @@ from qmt_agent.storage import (
 from qmt_agent.tools import format_background_jobs, list_background_jobs
 
 from .parser import Command
+
+logger = logging.getLogger(__name__)
 
 HELP = (
     "Commands:\n"
@@ -52,6 +55,7 @@ async def dispatch_command(command: Command, state: AppState) -> CommandResult:
             state.session.close()
             session_id = uuid.uuid4().hex
             state.session = SQLiteSession(session_id, state.config.sessions_db)
+            logger.info("Started session %s", session_id)
             return CommandResult(f"Started new session: {session_id}")
 
         case "resume":
@@ -81,6 +85,7 @@ async def dispatch_command(command: Command, state: AppState) -> CommandResult:
 
             state.session.close()
             state.session = SQLiteSession(session_id, state.config.sessions_db)
+            logger.info("Resumed session %s", session_id)
             title = await asyncio.to_thread(get_session_title, state.config.sessions_db, session_id)
             lines = [f"Resumed session: {session_id}"]
             if title:
@@ -103,6 +108,7 @@ async def dispatch_command(command: Command, state: AppState) -> CommandResult:
                 state.session.session_id,
                 title,
             )
+            logger.info("Updated title for session %s", state.session.session_id)
             return CommandResult(f"Set session title to: {title}")
 
         case "clear":
@@ -110,15 +116,17 @@ async def dispatch_command(command: Command, state: AppState) -> CommandResult:
             await state.session.clear_session()
             await asyncio.to_thread(delete_session_metadata, state.config.sessions_db, session_id)
             state.session.close()
-            session_id = uuid.uuid4().hex
-            state.session = SQLiteSession(session_id, state.config.sessions_db)
-            return CommandResult(f"Cleared session and started new session: {session_id}")
+            new_session_id = uuid.uuid4().hex
+            state.session = SQLiteSession(new_session_id, state.config.sessions_db)
+            logger.info("Cleared session %s and started session %s", session_id, new_session_id)
+            return CommandResult(f"Cleared session and started new session: {new_session_id}")
 
         case "ps":
             jobs = await list_background_jobs(state.execution)
             return CommandResult(format_background_jobs(jobs))
 
         case "exit":
+            logger.info("Exit requested")
             return CommandResult(output="Exiting...", exit_requested=True)
 
         case "help":
