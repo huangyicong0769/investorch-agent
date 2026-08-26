@@ -1,0 +1,150 @@
+import asyncio
+import json
+import os
+import stat
+from datetime import datetime
+from pathlib import Path
+from zoneinfo import ZoneInfo
+
+from qmt_agent.output.events import (
+    AgentChanged,
+    AssistantMessage,
+    OutputEvent,
+    Reasoning,
+    ToolCalled,
+    ToolOutput,
+)
+
+
+class SessionJournal:
+    def __init__(self, directory: Path, timezone: ZoneInfo) -> None:
+        self._directory = directory
+        self._timezone = timezone
+        self._lock = asyncio.Lock()
+        self._next_seq: dict[str, int] = {}
+
+        self._directory.mkdir(parents=True, exist_ok=True)
+        if not self._directory.is_dir():
+            raise RuntimeError(f"Session journal path is not a directory: {self._directory}")
+        if os.name == "posix":
+            self._directory.chmod(0o700)
+
+    async def record_user_message(self, session_id: str, text: str) -> None:
+        await self._record(session_id, {"type": "user_message", "text": text})
+
+    async def record_output(self, session_id: str, event: OutputEvent) -> None:
+        await self._record(session_id, _serialize_output_event(event))
+
+    async def record_approval(
+        self,
+        session_id: str,
+        tool_name: str,
+        arguments: str | None,
+        approved: bool,
+    ) -> None:
+        await self._record(
+            session_id,
+            {
+                "type": "approval",
+                "tool_name": tool_name,
+                "arguments": arguments,
+                "approved": approved,
+            },
+        )
+
+    async def _record(self, session_id: str, event: dict[str, object]) -> None:
+        async with self._lock:
+            path = self._session_path(session_id)
+
+            try:
+                next_seq = self._next_seq.get(session_id)
+                if next_seq is None:
+                    next_seq = await asyncio.to_thread(self._recover_next_seq, path)
+
+                record = {
+                    "seq": next_seq,
+                    "timestamp": datetime.now(self._timezone).isoformat(timespec="milliseconds"),
+                    **event,
+                }
+                await asyncio.to_thread(self._append, path, record)
+            except Exception:
+                self._next_seq.pop(session_id, None)
+                raise
+
+            self._next_seq[session_id] = next_seq + 1
+
+    def _session_path(self, session_id: str) -> Path:
+        if (
+            not session_id
+            or session_id in {".", ".."}
+            or "/" in session_id
+            or "\\" in session_id
+            or Path(session_id).name != session_id
+        ):
+            raise ValueError("session_id must be a non-empty filename-safe value")
+
+        return self._directory / f"{session_id}.jsonl"
+
+    def _recover_next_seq(self, path: Path) -> int:
+        if not path.exists():
+            return 1
+        if path.is_symlink() or not path.is_file():
+            raise RuntimeError(f"Session journal is not a regular file: {path}")
+
+        last_line: str | None = None
+        with path.open("r", encoding="utf-8") as file:
+            for line in file:
+                if line.strip():
+                    last_line = line
+
+        if last_line is None:
+            return 1
+        if not last_line.endswith("\n"):
+            raise RuntimeError(f"Session journal has an incomplete final line: {path}")
+
+        try:
+            record = json.loads(last_line)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(f"Session journal has an invalid final line: {path}") from exc
+
+        if not isinstance(record, dict) or type(record.get("seq")) is not int or record["seq"] < 1:
+            raise RuntimeError(f"Session journal has an invalid final sequence: {path}")
+
+        return record["seq"] + 1
+
+    def _append(self, path: Path, record: dict[str, object]) -> None:
+        if path.exists() and (path.is_symlink() or not path.is_file()):
+            raise RuntimeError(f"Session journal is not a regular file: {path}")
+
+        line = json.dumps(record, ensure_ascii=False, separators=(",", ":")) + "\n"
+        flags = os.O_APPEND | os.O_CREAT | os.O_WRONLY | getattr(os, "O_NOFOLLOW", 0)
+        descriptor = os.open(path, flags, 0o600)
+
+        try:
+            if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+                raise RuntimeError(f"Session journal is not a regular file: {path}")
+            if os.name == "posix":
+                os.fchmod(descriptor, 0o600)
+
+            with os.fdopen(descriptor, "a", encoding="utf-8") as file:
+                descriptor = -1
+                file.write(line)
+                file.flush()
+        finally:
+            if descriptor >= 0:
+                os.close(descriptor)
+
+
+def _serialize_output_event(event: OutputEvent) -> dict[str, object]:
+    if isinstance(event, AgentChanged):
+        return {"type": "agent_changed", "name": event.name}
+    if isinstance(event, Reasoning):
+        return {"type": "reasoning", "text": event.text}
+    if isinstance(event, ToolCalled):
+        return {"type": "tool_called", "name": event.name, "arguments": event.arguments}
+    if isinstance(event, ToolOutput):
+        return {"type": "tool_output", "output": event.output}
+    if isinstance(event, AssistantMessage):
+        return {"type": "assistant_message", "text": event.text}
+
+    raise TypeError(f"Unsupported output event: {type(event).__name__}")
