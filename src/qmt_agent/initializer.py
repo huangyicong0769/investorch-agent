@@ -60,6 +60,8 @@ def initialize(config: AppConfig, *, copy_bootstrap: bool = True) -> bool:
     _ensure_directory(config.workspace_dir, name="workspace")
 
     _ensure_directory(config.state_dir, name="state")
+    _ensure_directory(config.system_log_dir, name="system logs", private=True)
+    _ensure_directory(config.session_journal_dir, name="session journals", private=True)
 
     # Session schema initialization is idempotent.
     init_session_metadata(config.sessions_db)
@@ -275,14 +277,15 @@ def _atomic_write(path: Path, content: bytes) -> None:
         Path(temporary_name).unlink(missing_ok=True)
 
 
-def _ensure_directory(path: Path, *, name: str) -> None:
+def _ensure_directory(path: Path, *, name: str, private: bool = False) -> None:
     if path.exists():
         if not path.is_dir():
             raise ConfigError(f"{name} is not a directory: {path}")
+    else:
+        path.mkdir(parents=True, exist_ok=True)
 
-        return
-
-    path.mkdir(parents=True, exist_ok=True)
+    if private and os.name == "posix":
+        path.chmod(0o700)
 
 
 def _ensure_file(
