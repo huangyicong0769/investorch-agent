@@ -107,14 +107,20 @@ def ask_tool_approval(tool_name: str, arguments: str | None) -> bool:
     return answer in {"y", "yes"}
 
 
-async def main(sync: bool = False):
+async def main(sync: bool = False, sync_force: bool = False):
     config = load_config()
 
-    if initialize(config, copy_bootstrap=not sync):
+    if initialize(config, copy_bootstrap=not (sync or sync_force)):
         print(
             f"QMT Agent initialized at {config.root}\n"
             f"Please configure required secrets in {config.root_config_path} and start QMT Agent again."
         )
+        return
+
+    if sync_force:
+        result = await sync_bootstrap_files(config, force=True)
+        backup = result.backup_dir or "none"
+        print(f"Bootstrap files force-synchronized: created={result.created}, updated={result.updated}, unchanged={result.unchanged}, backup={backup}")
         return
 
     if sync:
@@ -386,7 +392,7 @@ def entrypoint() -> None:
 
     startup_options = parse_startup_args()
     set_tracing_disabled(True)
-    asyncio.run(main(sync=startup_options.sync))
+    asyncio.run(main(sync=startup_options.sync, sync_force=startup_options.sync_force))
 
 
 if __name__ == "__main__":
