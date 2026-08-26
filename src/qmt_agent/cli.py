@@ -1,12 +1,5 @@
 import argparse
-import shlex
 from dataclasses import dataclass
-
-
-@dataclass(frozen=True)
-class Command:
-    name: str
-    args: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -22,18 +15,3 @@ def parse_startup_args(argv: list[str] | None = None) -> StartupOptions:
     sync_group.add_argument("--sync-force", action="store_true", help="Replace bootstrap targets with project templates and exit.")
     args = parser.parse_args(argv)
     return StartupOptions(sync=args.sync, sync_force=args.sync_force)
-
-
-def parse_command(text: str) -> Command | None:
-    if not text.startswith("/"):
-        return None
-
-    parts = shlex.split(text)
-
-    if not parts:
-        return None
-
-    return Command(
-        name=parts[0][1:].lower(),
-        args=tuple(parts[1:]),
-    )
