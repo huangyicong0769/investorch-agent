@@ -18,6 +18,9 @@ RESTART_REQUIRED_KEYS = {
     "backtest.use_cnequity",
     "cnequity.config_path",
     "cnequity.mcp_cache_tools_list",
+    "logging.backup_count",
+    "logging.level",
+    "logging.max_bytes",
     "mcp.default_timeout_seconds",
     "mcp.drop_failed_servers",
     "mcp.include_server_in_tool_names",
@@ -78,6 +81,18 @@ class AppConfig:
     @property
     def sessions_db(self) -> Path:
         return self.state_dir / "sessions.db"
+
+    @property
+    def system_log_dir(self) -> Path:
+        return self.state_dir / "logs"
+
+    @property
+    def system_log_path(self) -> Path:
+        return self.system_log_dir / "qmt-agent.log"
+
+    @property
+    def session_journal_dir(self) -> Path:
+        return self.state_dir / "sessions"
 
     @property
     def bootstrap_files(self,) -> list[tuple[Path, Path]]:
@@ -457,6 +472,13 @@ def _validate_config_data(data: dict[str, Any], root: Path) -> None:
     _require_bool(data, "mcp.drop_failed_servers")
     _require_bool(data, "mcp.include_server_in_tool_names")
     _require_bool(data, "cnequity.mcp_cache_tools_list")
+
+    logging_level = _require_string(data, "logging.level")
+    if logging_level not in {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}:
+        raise ConfigError("logging.level must be one of DEBUG, INFO, WARNING, ERROR, CRITICAL")
+
+    _require_int(data, "logging.max_bytes", minimum=1)
+    _require_int(data, "logging.backup_count")
 
     secrets = data.get("secrets", {})
     if not isinstance(secrets, dict) or any(not isinstance(value, str) for value in secrets.values()):

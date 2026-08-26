@@ -14,6 +14,11 @@ summary_enabled = true
 summary_threshold = 1000
 sdk_tracing_enabled = false
 
+[logging]
+level = "INFO"
+max_bytes = 10485760
+backup_count = 5
+
 [runtime]
 default_timezone = "Asia/Shanghai"
 max_turns = 100
