@@ -9,12 +9,11 @@ Never store secret values in this file.
 
 Effective application configuration is built from these layers, from lowest to highest priority:
 
-1. Built-in defaults in `qmt_agent.config.DEFAULT_CONFIG` for legacy application settings
-2. Repository configuration at `config/qmt.toml`
-3. Local instance configuration at `<root>/qmt.toml`
-4. Runtime-only changes to the current `AppConfig`
+1. Repository configuration at `config/qmt.toml`
+2. Local instance configuration at `<root>/qmt.toml`
+3. Runtime-only changes to the current `AppConfig`
 
-The runtime policy values listed below are TOML-only; they have no Python fallback.
+Project defaults have no Python fallback.
 
 A persistent runtime update is written to `<root>/qmt.toml` and therefore becomes part of the local instance configuration for later processes.
 

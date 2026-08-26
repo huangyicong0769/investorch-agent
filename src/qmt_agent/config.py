@@ -13,21 +13,6 @@ import tomlkit
 REDACTED = "<redacted>"
 PROJECT_CONFIG_PATH = Path(__file__).resolve().parents[2] / "config" / "qmt.toml"
 
-DEFAULT_CONFIG = {
-    "paths": {
-        "workspace": "workspace",
-        "state": ".qmt",
-    },
-    "model": {
-        "name": "deepseek-v4-flash",
-        "base_url": "https://api.deepseek.com",
-    },
-    "observability": {
-        "summary_enabled": True,
-    },
-    "secrets": {},
-}
-
 RESTART_REQUIRED_KEYS = {
     "backtest.use_cnequity",
     "mcp.default_timeout_seconds",
@@ -334,7 +319,7 @@ def load_config(project_config_path: str | Path | None = None) -> AppConfig:
     if "bootstrap" in root_data:
         raise ConfigError("[bootstrap] must only be defined in config/qmt.toml")
 
-    data = _merge(DEFAULT_CONFIG, project_data, root_data)
+    data = _merge(project_data, root_data)
 
     # Bootstrap root always wins.
     data.setdefault("paths", {})["root"] = str(root)
