@@ -4,18 +4,12 @@ import sys
 import uuid
 from pathlib import Path
 
-from agents import (
-    Agent,
-    OpenAIResponsesModel,
-    Runner,
-    SQLiteSession,
-    TResponseInputItem,
-    set_tracing_disabled,
-)
+from agents import OpenAIResponsesModel, SQLiteSession, set_tracing_disabled
 from agents.mcp import MCPServerManager, MCPServerStdio
 from openai import AsyncOpenAI
 
 from qmt_agent.agents import (
+    AgentLoop,
     build_bootstrap_sync_prompt,
     create_agent,
     create_bootstrap_sync_agent,
@@ -28,7 +22,6 @@ from qmt_agent.config import load_config
 from qmt_agent.context import AgentContext, ExecutionState
 from qmt_agent.initializer import initialize, sync_bootstrap_files
 from qmt_agent.mcp import load_mcp_servers
-from qmt_agent.observability import print_run_events
 from qmt_agent.storage import (
     delete_session_metadata,
     find_session_ids,
@@ -51,52 +44,7 @@ def run_data_cli(args: list[str]) -> None:
     os.execv(sys.executable, [sys.executable, "-m", "cnequity", *args])
 
 
-async def generate_session_title(title_agent: Agent, history: list[TResponseInputItem]) -> str:
-    result = await Runner.run(
-        title_agent,
-        [
-            *history,
-            {
-                "role": "user",
-                "content": "Generate a concise title for the conversation above. **Output only the title.**",
-            }
-        ],
-    )
-
-    title = str(result.final_output).strip()
-
-    if not title:
-        raise ValueError("Title agent returned an empty title.")
-    return title
-
-
-async def ensure_session_title(title_agent: Agent, session: SQLiteSession, session_db : str | Path) -> None:
-    existing_title = await asyncio.to_thread(
-        get_session_title,
-        session_db,
-        session.session_id,
-    )
-
-    if existing_title and existing_title.strip():
-        return
-
-    history = await session.get_items()
-
-    try:
-        title = await generate_session_title(title_agent, history)
-    except Exception as e:
-        print(f"Failed to generate session title: {e}")
-        return
-
-    await asyncio.to_thread(
-        set_session_title,
-        session_db,
-        session.session_id,
-        title,
-    )
-
-
-def ask_tool_approval(tool_name: str, arguments: str | None) -> bool:
+def _ask_tool_approval_sync(tool_name: str, arguments: str | None) -> bool:
     print(f"\n[approval] {tool_name}")
 
     if arguments:
@@ -105,6 +53,10 @@ def ask_tool_approval(tool_name: str, arguments: str | None) -> bool:
     answer = input("Approve? [y/N]: ").strip().lower()
 
     return answer in {"y", "yes"}
+
+
+async def ask_tool_approval(tool_name: str, arguments: str | None) -> bool:
+    return await asyncio.to_thread(_ask_tool_approval_sync, tool_name, arguments)
 
 
 async def main(sync: bool = False, sync_force: bool = False):
@@ -189,6 +141,7 @@ async def main(sync: bool = False, sync_force: bool = False):
                 config=config,
                 mcp_servers=mcp_manager.active_servers,
             )
+            agent_loop = AgentLoop(agent, summary_agent, title_agent, config, ask_tool_approval)
 
             while True:
                 user_input = (
@@ -337,54 +290,8 @@ async def main(sync: bool = False, sync_force: bool = False):
 
                     continue
 
-                agent_context = AgentContext(config=config, execution=execution)
-                result = Runner.run_streamed(
-                    agent,
-                    user_input,
-                    session=session,
-                    context=agent_context,
-                    max_turns=config["runtime.max_turns"],
-                )
-
-                while True:
-                    await print_run_events(
-                        result,
-                        summary_agent,
-                        config["observability.summary_enabled"],
-                        config["observability.summary_threshold"],
-                    )
-
-                    if not result.interruptions:
-                        break
-
-                    state = result.to_state()
-
-                    for interruption in result.interruptions:
-                        approved = await asyncio.to_thread(
-                            ask_tool_approval,
-                            interruption.name or "unknown_tool",
-                            interruption.arguments,
-                        )
-
-                        if approved:
-                            state.approve(interruption, always_approve=False)
-                        else:
-                            state.reject(interruption, rejection_message=("The user rejected this tool action."))
-
-                    result = Runner.run_streamed(
-                        agent,
-                        state,
-                        session=session,
-                        max_turns=config["runtime.max_turns"],
-                    )
-
-                print("Agent: ", result.final_output)
-
-                await ensure_session_title(
-                    title_agent=title_agent,
-                    session=session,
-                    session_db=session_db,
-                )
+                output = await agent_loop.run(user_input, session, execution)
+                print("Agent: ", output)
     finally:
         try:
             await close_execution(execution)

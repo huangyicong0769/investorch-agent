@@ -1,10 +1,12 @@
 from .bootstrap import create_bootstrap_sync_agent, run_bootstrap_sync
+from .loop import AgentLoop
 from .main import create_agent
 from .prompts import build_bootstrap_sync_prompt
 from .summary import create_summary_agent
 from .title import create_title_agent
 
 __all__ = (
+    "AgentLoop",
     "build_bootstrap_sync_prompt",
     "create_agent",
     "create_bootstrap_sync_agent",
