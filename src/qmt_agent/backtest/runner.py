@@ -3,8 +3,6 @@ from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
 
-from cnequity.config import load_config as load_cnequity_config
-from cnequity.query import list_datasets
 from rqalpha import run_file
 from rqalpha.const import INSTRUMENT_TYPE, MARKET
 from rqalpha.data.base_data_source import BaseDataSource
@@ -32,6 +30,9 @@ def _validate_input(strategy_file: Path, start_date: date, end_date: date, initi
 
 
 def _validate_cnequity_data(config_path: Path, start_date: date, end_date: date) -> None:
+    from cnequity.config import load_config as load_cnequity_config
+    from cnequity.query import list_datasets
+
     if not config_path.is_file():
         raise FileNotFoundError(f"CNEquity config not found: {config_path}")
     config = load_cnequity_config(config_path)
@@ -106,6 +107,7 @@ def _build_rqalpha_config(
     end_date: date,
     initial_cash: float,
     benchmark: str | None,
+    use_cnequity: bool,
 ) -> dict:
     return {
         "base": {
@@ -121,7 +123,7 @@ def _build_rqalpha_config(
         },
         "mod": {
             "qmt_cnequity": {
-                "enabled": True,
+                "enabled": use_cnequity,
                 "lib": "qmt_agent.backtest.rqalpha_mod",
                 "cnequity_config_path": str(cnequity_config_path),
             },
@@ -168,10 +170,12 @@ def run_backtest(
 ) -> dict:
     strategy_file = _validate_input(strategy_file, start_date, end_date, initial_cash)
     app_config = load_app_config()
+    use_cnequity = app_config["backtest.use_cnequity"]
     cnequity_config_path = (app_config.root / "configs" / "cnequity.toml").resolve()
     rqalpha_bundle_path = (app_config.root / ".rqalpha" / "bundle").resolve()
-    _validate_cnequity_data(cnequity_config_path, start_date, end_date)
     _validate_rqalpha_bundle(rqalpha_bundle_path, start_date, end_date)
+    if use_cnequity:
+        _validate_cnequity_data(cnequity_config_path, start_date, end_date)
     return run_file(
         str(strategy_file),
         config=_build_rqalpha_config(
@@ -181,5 +185,6 @@ def run_backtest(
             end_date,
             initial_cash,
             benchmark,
+            use_cnequity,
         ),
     )

@@ -437,6 +437,7 @@ def _validate_config_data(data: dict[str, Any], root: Path) -> None:
     _require_string(data, "model.base_url")
 
     _require_bool(data, "observability.summary_enabled")
+    _require_bool(data, "backtest.use_cnequity")
 
     secrets = data.get("secrets", {})
     if not isinstance(secrets, dict) or any(not isinstance(value, str) for value in secrets.values()):
