@@ -53,6 +53,7 @@ def _validate_cnequity_data(config_path: Path, start_date: date, end_date: date)
 
 
 def _build_rqalpha_config(
+    config: AppConfig,
     cnequity_config_path: Path,
     rqalpha_bundle_path: Path,
     start_date: date,
@@ -69,7 +70,7 @@ def _build_rqalpha_config(
             "run_type": "b",
             "frequency": "1d",
             "accounts": {"stock": initial_cash},
-            "capital_gain_tax_rate": 0,
+            "capital_gain_tax_rate": config["backtest.capital_gain_tax_rate"],
             "persist": False,
             "auto_update_bundle": False,
         },
@@ -81,9 +82,9 @@ def _build_rqalpha_config(
             },
             "sys_accounts": {
                 "enabled": True,
-                "stock_t1": True,
-                "dividend_reinvestment": False,
-                "dividend_tax_enabled": True,
+                "stock_t1": config["backtest.stock_t1"],
+                "dividend_reinvestment": config["backtest.dividend_reinvestment"],
+                "dividend_tax_enabled": config["backtest.dividend_tax_enabled"],
             },
             "sys_analyser": {
                 "enabled": True,
@@ -92,22 +93,22 @@ def _build_rqalpha_config(
                 "plot": False,
             },
             "sys_progress": {"enabled": False},
-            "sys_risk": {"enabled": True, "validate_price": True},
+            "sys_risk": {"enabled": True, "validate_price": config["backtest.validate_price"]},
             "sys_simulation": {
                 "enabled": True,
-                "matching_type": "current_bar",
-                "price_limit": True,
-                "volume_limit": True,
-                "inactive_limit": True,
-                "slippage_model": "PriceRatioSlippage",
-                "slippage": 0,
+                "matching_type": config["backtest.matching_type"],
+                "price_limit": config["backtest.price_limit"],
+                "volume_limit": config["backtest.volume_limit"],
+                "inactive_limit": config["backtest.inactive_limit"],
+                "slippage_model": config["backtest.slippage_model"],
+                "slippage": config["backtest.slippage"],
             },
             "sys_transaction_cost": {
                 "enabled": True,
-                "stock_min_commission": 5,
-                "stock_commission_multiplier": 1,
-                "tax_multiplier": 1,
-                "pit_tax": True,
+                "stock_min_commission": config["backtest.stock_min_commission"],
+                "stock_commission_multiplier": config["backtest.stock_commission_multiplier"],
+                "tax_multiplier": config["backtest.tax_multiplier"],
+                "pit_tax": config["backtest.pit_tax"],
             },
         },
     }
@@ -118,8 +119,8 @@ def run_backtest(
     strategy_file: Path,
     start_date: date,
     end_date: date,
-    initial_cash: float = 1_000_000,
-    benchmark: str | None = None,
+    initial_cash: float,
+    benchmark: str | None,
 ) -> dict:
     strategy_file = _validate_input(strategy_file, start_date, end_date, initial_cash)
     use_cnequity = config["backtest.use_cnequity"]
@@ -131,6 +132,7 @@ def run_backtest(
     return run_file(
         str(strategy_file),
         config=_build_rqalpha_config(
+            config,
             cnequity_config_path,
             rqalpha_bundle_path,
             start_date,

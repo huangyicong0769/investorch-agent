@@ -29,7 +29,6 @@ _TABULAR_RESULTS = (
     "stock_positions",
     "benchmark_portfolio",
 )
-_MAX_INSPECT_SYMBOLS = 50
 
 
 @tool
@@ -41,7 +40,7 @@ def inspect_rqalpha_data(
     Inspect the local native RQAlpha bundle without reading market prices or modifying data.
 
     Args:
-        symbols: Up to 50 canonical RQAlpha order-book IDs. Omit for overall stock metadata.
+        symbols: Canonical RQAlpha order-book IDs up to the configured inspection limit. Omit for overall stock metadata.
 
     Returns:
         Bundle availability and overall or per-instrument metadata with observed daily-bar ranges.
@@ -57,9 +56,10 @@ def _inspect_rqalpha_data(
         raise RuntimeError(
             "inspect_rqalpha_data is unavailable while the CNEquity backtest overlay is enabled"
         )
-    if symbols is not None and len(symbols) > _MAX_INSPECT_SYMBOLS:
+    limit = config["backtest.inspect_max_symbols"]
+    if symbols is not None and len(symbols) > limit:
         raise ValueError(
-            f"inspect_rqalpha_data accepts at most {_MAX_INSPECT_SYMBOLS} symbols"
+            f"inspect_rqalpha_data accepts at most {limit} symbols"
         )
     return inspect_rqalpha_bundle(config.rqalpha_bundle_dir, symbols)
 
@@ -70,7 +70,7 @@ def run_backtest(
     strategy_path: str,
     start_date: str,
     end_date: str,
-    initial_cash: float = 1_000_000,
+    initial_cash: float | None = None,
     benchmark: str | None = None,
 ) -> dict[str, Any]:
     """
@@ -85,7 +85,7 @@ def run_backtest(
 
         end_date: Backtest end date in YYYY-MM-DD format.
 
-        initial_cash: Positive finite initial stock-account cash. Defaults to 1000000.
+        initial_cash: Positive finite initial stock-account cash. Defaults to backtest.default_initial_cash.
 
         benchmark: Optional canonical RQAlpha benchmark order-book ID.
 
@@ -107,14 +107,14 @@ def _run_backtest(
     strategy_path: str,
     start_date: str,
     end_date: str,
-    initial_cash: float = 1_000_000,
+    initial_cash: float | None = None,
     benchmark: str | None = None,
 ) -> dict[str, Any]:
     workspace = config.workspace_dir
     strategy_file, relative_strategy = _resolve_strategy_path(workspace, strategy_path)
     start = _parse_date(start_date, "start_date")
     end = _parse_date(end_date, "end_date")
-    cash = _validate_initial_cash(initial_cash)
+    cash = _validate_initial_cash(config["backtest.default_initial_cash"] if initial_cash is None else initial_cash)
     if benchmark is not None and not benchmark.strip():
         raise ValueError("benchmark must be a canonical RQAlpha order-book ID or null")
 
