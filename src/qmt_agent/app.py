@@ -2,6 +2,7 @@ import logging
 import sys
 import uuid
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from agents import OpenAIResponsesModel, SQLiteSession, set_tracing_disabled
 from agents.mcp import MCPServerManager, MCPServerStdio
@@ -20,8 +21,10 @@ from qmt_agent.commands import dispatch_command, parse_command
 from qmt_agent.config import AppConfig, load_config
 from qmt_agent.context import AgentContext, AppState, ExecutionState
 from qmt_agent.initializer import initialize, sync_bootstrap_files
+from qmt_agent.journal import SessionJournal
 from qmt_agent.log import configure_logging
 from qmt_agent.mcp import load_mcp_servers
+from qmt_agent.output import OutputEvent
 from qmt_agent.tools import close_execution, start_execution
 from qmt_agent.ui import ConsoleRenderer, ConsoleUI
 
@@ -36,7 +39,12 @@ def _create_model(config: AppConfig) -> OpenAIResponsesModel:
     return OpenAIResponsesModel(model=config["model.name"], openai_client=client)
 
 
-async def _run_console(state: AppState, agent_loop: AgentLoop, ui: ConsoleUI) -> None:
+async def _run_console(
+    state: AppState,
+    agent_loop: AgentLoop,
+    ui: ConsoleUI,
+    journal: SessionJournal,
+) -> None:
     while True:
         user_input = (await ui.read_user_input()).strip()
 
@@ -53,6 +61,12 @@ async def _run_console(state: AppState, agent_loop: AgentLoop, ui: ConsoleUI) ->
             if result.exit_requested:
                 break
             continue
+
+        session_id = state.session.session_id
+        try:
+            await journal.record_user_message(session_id, user_input)
+        except Exception:
+            logger.exception("Failed to append user message to session journal for session %s", session_id)
 
         await agent_loop.run(user_input, state.session, state.execution)
 
@@ -137,6 +151,30 @@ async def run_app(sync: bool = False, sync_force: bool = False) -> None:
         summary_agent,
         config,
     )
+    journal = SessionJournal(
+        config.session_journal_dir,
+        ZoneInfo(config["runtime.default_timezone"]),
+    )
+
+    async def handle_output(event: OutputEvent) -> None:
+        session_id = state.session.session_id
+        await renderer.handle(event)
+
+        try:
+            await journal.record_output(session_id, event)
+        except Exception:
+            logger.exception("Failed to append output to session journal for session %s", session_id)
+
+    async def handle_approval(tool_name: str, arguments: str | None) -> bool:
+        approved = await ui.request_tool_approval(tool_name, arguments)
+        session_id = state.session.session_id
+
+        try:
+            await journal.record_approval(session_id, tool_name, arguments, approved)
+        except Exception:
+            logger.exception("Failed to append approval to session journal for session %s", session_id)
+
+        return approved
 
     try:
         await start_execution(state.execution, state.config.workspace_dir)
@@ -153,10 +191,10 @@ async def run_app(sync: bool = False, sync_force: bool = False) -> None:
                 agent,
                 title_agent,
                 config,
-                ui.request_tool_approval,
-                renderer.handle,
+                handle_approval,
+                handle_output,
             )
-            await _run_console(state, agent_loop, ui)
+            await _run_console(state, agent_loop, ui, journal)
     finally:
         try:
             await close_execution(state.execution)
