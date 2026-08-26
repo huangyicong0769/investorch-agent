@@ -1,7 +1,13 @@
 import asyncio
 from pathlib import Path
 
-from agents import Agent, OpenAIResponsesModel, Runner, SQLiteSession, TResponseInputItem
+from agents import (
+    Agent,
+    OpenAIResponsesModel,
+    Runner,
+    SQLiteSession,
+    TResponseInputItem,
+)
 
 from qmt_agent.storage import get_session_title, set_session_title
 
