@@ -23,7 +23,7 @@ A persistent runtime update is written to `<root>/qmt.toml` and therefore become
 | --- | --- | --- |
 | immutable | `paths.root`, `bootstrap.*` | Cannot be changed through runtime configuration. |
 | restart-required | `paths.workspace`, `paths.state`, `model.*`, `mcp.*`, `cnequity.*`, `backtest.use_cnequity`, `backtest.rqalpha_bundle_dir`, `observability.sdk_tracing_enabled` | `persist=false` is rejected. `persist=true` writes the next-start value but does not change the current runtime; restart QMT Agent to apply it. |
-| hot | runtime policy and observability settings not listed above | Validated and applied to the current `AppConfig`; persistence is optional. |
+| hot | `runtime.*`, summary settings, execution/explore/calculate limits, `backtest.artifact_dir`, and backtest execution policy | Validated and applied to the current `AppConfig`; persistence is optional. The next applicable operation uses the new value. |
 
 `get_config` reports the value currently used by this process. A persisted restart-required update therefore continues to report the old value until the application is restarted.
 
@@ -47,7 +47,7 @@ These files are outside the Git repository.
 
 `paths.workspace`, `paths.state`, `cnequity.config_path`, and `backtest.rqalpha_bundle_dir` are relative to `paths.root`.
 They must not be absolute and must not escape the root.
-Both must be strict subdirectories of the root and must not equal or contain one another after path resolution.
+The workspace and state paths must be strict subdirectories of the root and must not equal or contain one another after path resolution.
 `backtest.artifact_dir` is relative to the configured workspace and must remain inside it.
 These paths may be absent when configuration is loaded; the operation that uses one validates its availability or creates the artifact directory.
 The SQLite session database is stored under the state directory.
@@ -71,9 +71,51 @@ The runtime policy sections below are TOML-only and must be present in the effec
 - `[observability].summary_threshold` and `sdk_tracing_enabled`
 - `[mcp].default_timeout_seconds`, `drop_failed_servers`, and `include_server_in_tool_names`
 
-They are validated at startup and again before an update is persisted. Backtest cash must be positive; fee, tax, multiplier, and slippage values must be finite and non-negative. The currently supported matching type and slippage model are validated explicitly. `background_job_dir` and `backtest.artifact_dir` must remain relative to the configured workspace.
+They are validated at startup and again before an update is persisted. `background_job_dir` and `backtest.artifact_dir` must remain relative to the configured workspace.
 
-Backtest execution policy and artifact location are hot settings: the next backtest uses the current `AppConfig` snapshot. RQAlpha remains daily-only with a stock account; frequency and account type are capability contracts, not configurable settings.
+## Backtest Configuration
+
+The `[backtest]` section owns application-level RQAlpha data selection, artifact placement, defaults, inspection limits, and execution policy.
+
+Data and artifact keys:
+
+- `use_cnequity` selects the CNEquity data-source overlay and controls whether `inspect_rqalpha_data` is exposed to the Agent.
+- `rqalpha_bundle_dir` locates the native RQAlpha bundle under `paths.root`.
+- `artifact_dir` locates generated backtest artifacts under the configured workspace.
+- `default_initial_cash` is used only when a `run_backtest` call omits `initial_cash`; an explicit tool argument wins for that run.
+- `inspect_max_symbols` limits one native bundle inspection request.
+
+Execution-policy keys:
+
+- account behavior: `stock_t1`, `dividend_reinvestment`, `dividend_tax_enabled`, `capital_gain_tax_rate`;
+- risk validation: `validate_price`;
+- matching and limits: `matching_type`, `price_limit`, `volume_limit`, `inactive_limit`;
+- slippage: `slippage_model`, `slippage`;
+- transaction costs: `stock_min_commission`, `stock_commission_multiplier`, `tax_multiplier`, `pit_tax`.
+
+Initial cash must be finite and greater than zero. Inspection limits must be positive integers. Fee, tax, multiplier, and slippage values must be finite and non-negative. Matching type and slippage model accept only explicitly validated capabilities; arbitrary upstream strings are rejected.
+
+`use_cnequity` and `rqalpha_bundle_dir` are restart-required because they affect process composition and the Agent Tool surface. Artifact placement, default cash, inspection limits, and execution-policy keys are hot: the next backtest or inspection reads their current values.
+
+At the start of each approved backtest, QMT Agent freezes one validated `AppConfig` snapshot. Initial cash, data-source selection, bundle and artifact paths, RQAlpha execution policy, and `request.json` metadata all come from that same frozen snapshot. A concurrent hot update affects a later backtest, never an in-flight run.
+
+Each `request.json` records a focused execution snapshot rather than the entire application config. It includes the effective initial cash, benchmark, data source, strategy hash, engine version, and runtime policy needed to reproduce the run. It does not include secrets or unrelated settings. Returned artifact paths remain workspace-relative.
+
+RQAlpha remains daily-only with a stock account. Run type, frequency, account type, analyser output, progress behavior, persistence, and automatic bundle updates are capability or ownership invariants, not configurable settings.
+
+## CNEquity Configuration
+
+The `[cnequity]` section contains application-owned CNEquity integration policy:
+
+- `config_path` is root-relative and identifies the config used by both the CNEquity MCP process and the RQAlpha overlay.
+- `mcp_cache_tools_list` controls tools-list caching for the built-in CNEquity MCP connection.
+
+Both keys are restart-required. The config path may be absent during generic configuration loading; an operation that requires CNEquity validates the file and data coverage. CNEquity dataset names, exchange mapping, and adjustment-factor semantics are adapter contracts and remain in code.
+
+## Observability Configuration
+
+`observability.summary_enabled` and `observability.summary_threshold` control application summary behavior and are hot.
+`observability.sdk_tracing_enabled` uses positive `enabled` semantics and is restart-required because SDK tracing is initialized globally at process startup. Normal runtime and bootstrap Agent runs use the same process AppConfig policy.
 
 ## Local Configuration
 
@@ -108,7 +150,17 @@ Rules:
 The Agent-facing config tool does not modify secrets.
 Secrets must currently be edited outside that tool.
 
-## MCP Configuration
+## Application MCP Policy
+
+The `[mcp]` section in application configuration owns process-level MCP policy:
+
+- `default_timeout_seconds` supplies the timeout only when a registry entry does not define one;
+- `drop_failed_servers` controls whether application startup continues without failed MCP servers;
+- `include_server_in_tool_names` controls the main Agent's MCP tool namespace.
+
+These keys are restart-required because connections and the Agent Tool surface are composed at process startup.
+
+## MCP Server Registry
 
 MCP server configuration is local instance state and is stored separately at:
 `<root>/mcp.toml`
@@ -130,8 +182,7 @@ Reference configured secrets with placeholders such as:
 `${TAVILY_API_KEY}`
 The real value belongs in the `[secrets]` table of `<root>/qmt.toml`.
 MCP loading expands these placeholders from AppConfig secrets.
-The application-level `mcp.default_timeout_seconds` is used only when a server does not define its own `timeout`. Changes to this default affect MCP connections after QMT Agent is restarted.
-Application-level MCP connection failure handling and tool naming also live in `[mcp]`. CNEquity's application-owned config path and MCP tools-list cache policy live in `[cnequity]`. These settings are restart-required; per-server registry settings remain in `mcp.toml`.
+Per-server URLs, headers, enabled state, timeout, and tools-list caching remain registry concerns in `mcp.toml`; they are not duplicated in AppConfig.
 
 ## Initialization
 
