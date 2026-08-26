@@ -37,5 +37,5 @@ def create_agent(
         model=model,
         tools=agent_tools,
         mcp_servers=mcp_servers or [],
-        mcp_config={"include_server_in_tool_names": True},
+        mcp_config={"include_server_in_tool_names": config["mcp.include_server_in_tool_names"]},
     )

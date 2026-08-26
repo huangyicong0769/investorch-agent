@@ -3,7 +3,7 @@ import sys
 import uuid
 from pathlib import Path
 
-from agents import OpenAIResponsesModel, SQLiteSession
+from agents import OpenAIResponsesModel, SQLiteSession, set_tracing_disabled
 from agents.mcp import MCPServerManager, MCPServerStdio
 from openai import AsyncOpenAI
 
@@ -70,6 +70,7 @@ async def _run_console(state: AppState, agent_loop: AgentLoop) -> None:
 
 async def run_app(sync: bool = False, sync_force: bool = False) -> None:
     config = load_config()
+    set_tracing_disabled(not config["observability.sdk_tracing_enabled"])
 
     initialized = initialize(config, copy_bootstrap=not (sync or sync_force))
     if initialized and not sync_force:
@@ -105,7 +106,7 @@ async def run_app(sync: bool = False, sync_force: bool = False) -> None:
     cnequity_server = MCPServerStdio(
         name="cnequity",
         params={"command": sys.executable, "args": ["-m", "cnequity", "mcp", "--config", str(config.cnequity_config_path)], "cwd": str(config.root)},
-        cache_tools_list=True,
+        cache_tools_list=config["cnequity.mcp_cache_tools_list"],
         client_session_timeout_seconds=config["mcp.default_timeout_seconds"],
     )
     mcp_servers = [cnequity_server, *load_mcp_servers(config.mcp_config_path, config.secrets, config["mcp.default_timeout_seconds"])]
@@ -121,7 +122,7 @@ async def run_app(sync: bool = False, sync_force: bool = False) -> None:
     try:
         await start_execution(state.execution, state.config.workspace_dir)
 
-        async with MCPServerManager(mcp_servers, drop_failed_servers=True) as mcp_manager:
+        async with MCPServerManager(mcp_servers, drop_failed_servers=config["mcp.drop_failed_servers"]) as mcp_manager:
             agent = create_agent(
                 model=model,
                 config=config,

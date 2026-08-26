@@ -30,7 +30,7 @@ async def run_bootstrap_sync(
         agent,
         prompt,
         context=context,
-        run_config={"tracing_disabled": True},
+        run_config={"tracing_disabled": not context.config["observability.sdk_tracing_enabled"]},
     )
 
     while result.interruptions:
@@ -46,7 +46,7 @@ async def run_bootstrap_sync(
             agent,
             state,
             context=context,
-            run_config={"tracing_disabled": True},
+            run_config={"tracing_disabled": not context.config["observability.sdk_tracing_enabled"]},
         )
 
 

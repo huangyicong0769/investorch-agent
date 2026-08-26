@@ -4,8 +4,6 @@ import os
 import sys
 from dataclasses import dataclass
 
-from agents import set_tracing_disabled
-
 from qmt_agent.app import run_app
 from qmt_agent.config import load_config
 
@@ -38,5 +36,4 @@ def entrypoint() -> None:
         return
 
     startup_options = parse_startup_args()
-    set_tracing_disabled(True)
     asyncio.run(run_app(sync=startup_options.sync, sync_force=startup_options.sync_force))
