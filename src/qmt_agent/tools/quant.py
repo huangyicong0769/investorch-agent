@@ -61,8 +61,7 @@ def _inspect_rqalpha_data(
         raise ValueError(
             f"inspect_rqalpha_data accepts at most {_MAX_INSPECT_SYMBOLS} symbols"
         )
-    bundle_path = (config.root / ".rqalpha" / "bundle").resolve()
-    return inspect_rqalpha_bundle(bundle_path, symbols)
+    return inspect_rqalpha_bundle(config.rqalpha_bundle_dir, symbols)
 
 
 @tool(needs_approval=True)
@@ -166,6 +165,7 @@ def _run_backtest(
     }
     artifacts = _write_backtest_artifacts(
         workspace=workspace,
+        artifact_dir=config.backtest_artifact_dir,
         run_id=run_id,
         request=request,
         source=source,
@@ -184,6 +184,7 @@ def _run_backtest(
 
 def _write_backtest_artifacts(
     workspace: Path,
+    artifact_dir: Path,
     run_id: str,
     request: dict[str, Any],
     source: bytes,
@@ -191,10 +192,10 @@ def _write_backtest_artifacts(
     analyser: Mapping[str, Any],
 ) -> dict[str, str]:
     root = workspace.expanduser().resolve()
-    relative_dir = Path("backtests") / run_id
-    result_dir = root / relative_dir
+    result_dir = artifact_dir / run_id
     result_dir.mkdir(parents=True, exist_ok=False)
 
+    relative_dir = result_dir.relative_to(root)
     artifacts = {"result_dir": relative_dir.as_posix()}
     files = {
         "request": result_dir / "request.json",

@@ -102,10 +102,9 @@ async def run_app(sync: bool = False, sync_force: bool = False) -> None:
         print(f"Bootstrap files synchronized: created={result.created}, updated={result.updated}, unchanged={result.unchanged}, backup={backup}")
         return
 
-    cnequity_config = (config.root / "configs" / "cnequity.toml").resolve()
     cnequity_server = MCPServerStdio(
         name="cnequity",
-        params={"command": sys.executable, "args": ["-m", "cnequity", "mcp", "--config", str(cnequity_config)], "cwd": str(config.root)},
+        params={"command": sys.executable, "args": ["-m", "cnequity", "mcp", "--config", str(config.cnequity_config_path)], "cwd": str(config.root)},
         cache_tools_list=True,
         client_session_timeout_seconds=config["mcp.default_timeout_seconds"],
     )

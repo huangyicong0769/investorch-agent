@@ -123,8 +123,8 @@ def run_backtest(
 ) -> dict:
     strategy_file = _validate_input(strategy_file, start_date, end_date, initial_cash)
     use_cnequity = config["backtest.use_cnequity"]
-    cnequity_config_path = (config.root / "configs" / "cnequity.toml").resolve()
-    rqalpha_bundle_path = (config.root / ".rqalpha" / "bundle").resolve()
+    cnequity_config_path = config.cnequity_config_path
+    rqalpha_bundle_path = config.rqalpha_bundle_dir
     validate_rqalpha_bundle(rqalpha_bundle_path, start_date, end_date)
     if use_cnequity:
         _validate_cnequity_data(cnequity_config_path, start_date, end_date)
