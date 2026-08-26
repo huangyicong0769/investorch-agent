@@ -16,6 +16,9 @@ summary_threshold = 1000
 [runtime]
 default_timezone = "Asia/Shanghai"
 
+[backtest]
+use_cnequity = false
+
 [execution]
 default_timeout_seconds = 30
 max_timeout_seconds = 300
