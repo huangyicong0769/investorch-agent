@@ -82,8 +82,16 @@ def _copy_bootstrap_files(config: AppConfig) -> None:
         target.write_bytes(source.read_bytes())
 
 
-async def sync_bootstrap_files(config: AppConfig, merge: BootstrapMergeCallback) -> BootstrapSyncResult:
-    """Synchronize bootstrap templates through a restricted merge Agent callback."""
+async def sync_bootstrap_files(
+    config: AppConfig,
+    merge: BootstrapMergeCallback | None = None,
+    *,
+    force: bool = False,
+) -> BootstrapSyncResult:
+    """Synchronize bootstrap templates through a merge callback or forced replacement."""
+    if merge is None and not force:
+        raise ValueError("merge callback is required unless force=true")
+
     entries = _load_bootstrap_targets(config)
     backup_dir: Path | None = None
     created = 0
@@ -102,7 +110,11 @@ async def sync_bootstrap_files(config: AppConfig, merge: BootstrapMergeCallback)
             backup_path = _backup_target(config.workspace_dir, backup_dir, entry)
 
             try:
-                await merge(entry.target, entry.template, entry.existed)
+                if force:
+                    _atomic_write(entry.target, entry.template_bytes)
+                else:
+                    assert merge is not None
+                    await merge(entry.target, entry.template, entry.existed)
                 _validate_bootstrap_target(entry.target)
                 current = entry.target.read_bytes()
             except Exception as exc:
