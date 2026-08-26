@@ -14,7 +14,10 @@ from typing import Any
 from agents import RunContextWrapper
 from agents.decorators import tool
 
-from qmt_agent.backtest import run_backtest as run_rqalpha_backtest
+from qmt_agent.backtest import (
+    inspect_rqalpha_bundle,
+    run_backtest as run_rqalpha_backtest,
+)
 from qmt_agent.config import AppConfig
 from qmt_agent.context import AgentContext
 
@@ -26,6 +29,40 @@ _TABULAR_RESULTS = (
     "stock_positions",
     "benchmark_portfolio",
 )
+_MAX_INSPECT_SYMBOLS = 50
+
+
+@tool
+def inspect_rqalpha_data(
+    context: RunContextWrapper[AgentContext],
+    symbols: list[str] | None = None,
+) -> dict[str, Any]:
+    """
+    Inspect the local native RQAlpha bundle without reading market prices or modifying data.
+
+    Args:
+        symbols: Up to 50 canonical RQAlpha order-book IDs. Omit for overall stock metadata.
+
+    Returns:
+        Bundle availability and overall or per-instrument metadata with observed daily-bar ranges.
+    """
+    return _inspect_rqalpha_data(context.context.config, symbols)
+
+
+def _inspect_rqalpha_data(
+    config: AppConfig,
+    symbols: list[str] | None = None,
+) -> dict[str, Any]:
+    if config["backtest.use_cnequity"]:
+        raise RuntimeError(
+            "inspect_rqalpha_data is unavailable while the CNEquity backtest overlay is enabled"
+        )
+    if symbols is not None and len(symbols) > _MAX_INSPECT_SYMBOLS:
+        raise ValueError(
+            f"inspect_rqalpha_data accepts at most {_MAX_INSPECT_SYMBOLS} symbols"
+        )
+    bundle_path = (config.root / ".rqalpha" / "bundle").resolve()
+    return inspect_rqalpha_bundle(bundle_path, symbols)
 
 
 @tool(needs_approval=True)
@@ -40,7 +77,7 @@ def run_backtest(
     """
     Run a Workspace RQAlpha Python strategy after user approval.
 
-    The strategy path must be Workspace-relative and dates must use ISO YYYY-MM-DD. An optional benchmark must use its canonical RQAlpha order-book ID. The return contains a compact analyser summary and Workspace-relative result artifact paths. Missing CNEquity or RQAlpha bundle data is reported and is not repaired automatically.
+    The strategy path must be Workspace-relative and dates must use ISO YYYY-MM-DD. An optional benchmark must use its canonical RQAlpha order-book ID. The return contains a compact analyser summary and Workspace-relative result artifact paths. Missing data from the configured backtest source, or a missing required RQAlpha bundle, is reported and is never repaired automatically.
 
     Args:
         strategy_path: Workspace-relative path to an existing RQAlpha .py strategy.
