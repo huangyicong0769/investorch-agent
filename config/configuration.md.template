@@ -22,7 +22,7 @@ A persistent runtime update is written to `<root>/qmt.toml` and therefore become
 | lifecycle | keys | behavior |
 | --- | --- | --- |
 | immutable | `paths.root`, `bootstrap.*` | Cannot be changed through runtime configuration. |
-| restart-required | `paths.workspace`, `paths.state`, `models.*`, `tui.*`, `logging.*`, `mcp.*`, `cnequity.*`, `backtest.use_cnequity`, `backtest.rqalpha_bundle_dir`, `observability.sdk_tracing_enabled` | `persist=false` is rejected. `persist=true` writes the next-start value but does not change the current runtime; restart QMT Agent to apply it. |
+| restart-required | `paths.workspace`, `paths.state`, `models.*`, `permission.*`, `tui.*`, `logging.*`, `mcp.*`, `cnequity.*`, `backtest.use_cnequity`, `backtest.rqalpha_bundle_dir`, `observability.sdk_tracing_enabled` | `persist=false` is rejected. `persist=true` writes the next-start value but does not change the current runtime; restart QMT Agent to apply it. |
 | hot | `runtime.*`, `activity.*`, execution/explore/calculate limits, `backtest.artifact_dir`, and backtest execution policy | Validated and applied to the current `AppConfig`; persistence is optional. The next applicable operation uses the new value. |
 
 `get_config` reports the value currently used by this process. A persisted restart-required update therefore continues to report the old value until the application is restarted.
@@ -65,6 +65,7 @@ The runtime policy sections below are TOML-only and must be present in the effec
 - `[runtime].default_timezone`
 - `[models.<agent>]` model connection settings
 - `[activity]` prompt input and label length limits
+- `[permission]` tool approval mode and complete-input limits
 - `[tui]` sidebar, composer, Activity, and approval dimensions
 - `[backtest]` data paths, artifact path, execution policy, default cash, and inspection limit
 - `[cnequity].config_path` and `mcp_cache_tools_list`
@@ -77,7 +78,15 @@ The runtime policy sections below are TOML-only and must be present in the effec
 
 They are validated at startup and again before an update is persisted. `background_job_dir` and `backtest.artifact_dir` must remain relative to the configured workspace.
 
-Each Agent owns an independent `[models.<agent>]` table represented by `ModelConfig`. Every model defines `name`, `base_url`, `api_key_secret`, and `reasoning_effort`; the secret field names a key in the local `[secrets]` table rather than containing a credential. Supported reasoning effort values are `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, and `max`; `none` is the instant/non-thinking setting. A model may also define `context_window_tokens`, and `models.main.context_window_tokens` is required for the Main Agent capacity shown by the TUI. Adding another required Agent means registering its name once, adding its model table, and calling `AppConfig.model(agent)`; validation and restart handling apply to every model table without another list of model fields. Normal startup constructs Main and Title models, Textual mode additionally constructs Activity, and `--sync` constructs only Bootstrap. All model settings are restart-required.
+Each Agent owns an independent `[models.<agent>]` table represented by `ModelConfig`. Every model defines `name`, `base_url`, `api_key_secret`, and `reasoning_effort`; the secret field names a key in the local `[secrets]` table rather than containing a credential. Supported reasoning effort values are `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, and `max`; `none` is the instant/non-thinking setting. A model may also define `context_window_tokens`, and `models.main.context_window_tokens` is required for the Main Agent capacity shown by the TUI. Adding another required Agent means registering its name once, adding its model table, and calling `AppConfig.model(agent)`; validation and restart handling apply to every model table without another list of model fields. Normal startup constructs Main, Title, and Permission models, Textual mode additionally constructs Activity, and `--sync` constructs only Bootstrap. All model settings are restart-required.
+
+## Tool Permission Review
+
+`permission.mode` selects `manual` or `review` as the startup default. Manual mode sends every SDK tool interruption to the user. Review mode first asks the independent Permission Agent for `APPROVE`, `ASK`, or `REJECT`; `ASK` uses the same human approval interface as manual mode. `/permission [manual|review]` overrides the mode for the current process only and never writes configuration.
+
+The Permission Agent receives the current user request and complete tool arguments, subject to `permission.max_user_message_chars` and `permission.max_tool_arguments_chars`. If either input exceeds its configured limit, or if review fails or returns invalid output, the decision falls back to `ASK` without sending truncated material to the model. Review reasons are limited by `permission.max_reason_chars`.
+
+Changing `models.permission` to another provider sends these approval materials to that provider. The Agent-facing configuration tool may read Permission settings but cannot modify `permission.*` or `models.permission.*`; only the operator can change the subsystem configuration.
 
 `runtime.max_turns` is passed explicitly to both normal Agent runs and bootstrap synchronization runs, including approval resumes. No Agent run relies on the Agents SDK default turn limit.
 

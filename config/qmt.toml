@@ -30,11 +30,23 @@ base_url = "https://api.deepseek.com"
 api_key_secret = "DEEPSEEK_API_KEY"
 reasoning_effort = "none"
 
+[models.permission]
+name = "deepseek-v4-flash"
+base_url = "https://api.deepseek.com"
+api_key_secret = "DEEPSEEK_API_KEY"
+reasoning_effort = "high"
+
 [activity]
 max_user_message_chars = 2000
 max_reasoning_chars = 3000
 max_argument_chars = 2000
 max_label_chars = 120
+
+[permission]
+mode = "review"
+max_user_message_chars = 16000
+max_tool_arguments_chars = 32000
+max_reason_chars = 1000
 
 [tui]
 sidebar_width = 30

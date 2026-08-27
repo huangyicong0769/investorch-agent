@@ -13,8 +13,9 @@ import tomlkit
 
 REDACTED = "<redacted>"
 PROJECT_CONFIG_PATH = Path(__file__).resolve().parents[2] / "config" / "qmt.toml"
-REQUIRED_MODEL_AGENTS = ("main", "title", "activity", "bootstrap")
+REQUIRED_MODEL_AGENTS = ("main", "title", "activity", "bootstrap", "permission")
 REASONING_EFFORTS = ("none", "minimal", "low", "medium", "high", "xhigh", "max")
+PERMISSION_MODES = ("manual", "review")
 
 RESTART_REQUIRED_KEYS = {
     "backtest.rqalpha_bundle_dir",
@@ -474,7 +475,7 @@ def _set_config_value(data: dict[str, Any], parts: tuple[str, ...], value: Any) 
 
 
 def _requires_restart(key: str) -> bool:
-    return key in RESTART_REQUIRED_KEYS or key.startswith("models.")
+    return key in RESTART_REQUIRED_KEYS or key.startswith(("models.", "permission."))
 
 
 def _required_config_value(data: dict[str, Any], key: str) -> Any:
@@ -545,6 +546,13 @@ def _validate_config_data(data: dict[str, Any], root: Path) -> None:
     _require_int(data, "activity.max_reasoning_chars", minimum=1)
     _require_int(data, "activity.max_argument_chars", minimum=1)
     _require_int(data, "activity.max_label_chars", minimum=1)
+
+    permission_mode = _require_string(data, "permission.mode")
+    if permission_mode not in PERMISSION_MODES:
+        raise ConfigError(f"permission.mode must be one of {', '.join(PERMISSION_MODES)}")
+    _require_int(data, "permission.max_user_message_chars", minimum=1)
+    _require_int(data, "permission.max_tool_arguments_chars", minimum=1)
+    _require_int(data, "permission.max_reason_chars", minimum=1)
 
     sidebar_width = _require_int(data, "tui.sidebar_width", minimum=1)
     sidebar_min_width = _require_int(data, "tui.sidebar_min_width", minimum=1)
