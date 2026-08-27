@@ -1,6 +1,10 @@
+from __future__ import annotations
+
 import asyncio
 import logging
+from collections.abc import Awaitable, Callable
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
@@ -11,6 +15,7 @@ from textual.widgets import Button, Label, ListView, Static, TextArea
 from qmt_agent.commands import Command, dispatch_command, parse_command
 from qmt_agent.context import AppState
 from qmt_agent.journal import read_session_journal
+from qmt_agent.output import OutputEvent, ToolCalled
 from qmt_agent.storage import get_session_title, list_sessions
 
 from .sidebar import SessionSidebar
@@ -18,6 +23,10 @@ from .timeline import ChatTimeline
 
 logger = logging.getLogger(__name__)
 SESSION_MUTATION_COMMANDS = {"new", "resume", "clear"}
+RecordUserMessage = Callable[[str, str], Awaitable[None]]
+
+if TYPE_CHECKING:
+    from qmt_agent.agents import AgentLoop
 
 
 class Composer(Vertical):
@@ -208,13 +217,21 @@ class QMTAgentTUI(App[None]):
     }
     """
 
-    def __init__(self, state: AppState, journal_dir: Path) -> None:
+    def __init__(
+        self,
+        state: AppState,
+        journal_dir: Path,
+        record_user_message: RecordUserMessage,
+    ) -> None:
         super().__init__()
         self.state = state
         self.journal_dir = journal_dir
+        self._record_user_message = record_user_message
+        self.agent_loop: AgentLoop | None = None
         self.session_title: str | None = None
         self._run_active = False
         self._known_session_ids: set[str] = set()
+        self._current_user_message = ""
 
     def compose(self) -> ComposeResult:
         yield Horizontal(
@@ -256,7 +273,7 @@ class QMTAgentTUI(App[None]):
             return
 
         composer.clear()
-        await self.query_one(ChatTimeline).add_user_message(event.text)
+        await self._start_agent_run(event.text)
 
     async def on_list_view_selected(self, event: ListView.Selected) -> None:
         item = event.item
@@ -287,6 +304,25 @@ class QMTAgentTUI(App[None]):
     def set_session_title(self, title: str | None) -> None:
         self.session_title = title
         self.query_one("#session-heading", Static).update(title or "(untitled)")
+
+    def bind_agent_loop(self, agent_loop: AgentLoop) -> None:
+        self.agent_loop = agent_loop
+
+    async def handle_output(
+        self,
+        event: OutputEvent,
+        *,
+        session_id: str,
+        journal_seq: int | None,
+    ) -> None:
+        if session_id != self.state.session.session_id:
+            logger.warning("Ignored TUI output for inactive session %s", session_id)
+            return
+
+        step = await self.query_one(ChatTimeline).handle_output(event)
+        if isinstance(event, ToolCalled) and step is not None:
+            step.session_id = session_id
+            step.target_seq = journal_seq
 
     async def refresh_sessions(self) -> None:
         records = await asyncio.to_thread(list_sessions, self.state.config.sessions_db)
@@ -371,3 +407,50 @@ class QMTAgentTUI(App[None]):
             await self.refresh_sessions()
 
         self.query_one(Composer).focus_input()
+
+    async def _start_agent_run(self, user_message: str) -> None:
+        timeline = self.query_one(ChatTimeline)
+        if self.agent_loop is None:
+            await timeline.add_notice("Agent runtime is not ready.")
+            return
+
+        session_id = self.state.session.session_id
+        session = self.state.session
+        self._run_active = True
+        self._current_user_message = user_message
+        self._set_run_controls(running=True)
+        await timeline.add_user_message(user_message)
+
+        try:
+            await self._record_user_message(session_id, user_message)
+        except Exception:
+            logger.exception("Failed to append user message to session journal for session %s", session_id)
+
+        self.run_worker(
+            self._run_agent(user_message, session_id, session),
+            group="agent-run",
+            exclusive=True,
+            exit_on_error=False,
+        )
+
+    async def _run_agent(self, user_message: str, session_id: str, session) -> None:
+        try:
+            assert self.agent_loop is not None
+            await self.agent_loop.run(user_message, session, self.state.execution)
+        except Exception:
+            logger.exception("Agent run failed for session %s", session_id)
+            await self.query_one(ChatTimeline).add_notice("Agent run failed. See the system log for details.")
+        finally:
+            self._run_active = False
+            self._current_user_message = ""
+            self._set_run_controls(running=False)
+            try:
+                await self.refresh_sessions()
+            except Exception:
+                logger.exception("Failed to refresh sessions after Agent run")
+            self.query_one(Composer).focus_input()
+
+    def _set_run_controls(self, *, running: bool) -> None:
+        self.set_status("● Running" if running else "● Ready")
+        self.query_one(Composer).disabled = running
+        self.query_one(SessionSidebar).disabled = running
