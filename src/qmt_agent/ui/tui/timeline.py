@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import json
 import logging
 from collections import deque
@@ -59,7 +61,7 @@ class ActivitySection(Vertical):
 
 
 class ActivityStep(Collapsible):
-    def __init__(self, title: str = "正在思考…") -> None:
+    def __init__(self, detail_max_height: int, title: str = "正在思考…") -> None:
         self.reasoning_parts: list[str] = []
         self.tool_name: str | None = None
         self.tool_arguments: str | None = None
@@ -67,15 +69,21 @@ class ActivityStep(Collapsible):
         self.session_id: str | None = None
         self.label_reasoning = ""
         self.approval_recorded = False
+        self.group: ActivityGroup | None = None
         self._reasoning = ActivitySection("Reasoning")
         self._tool = ActivitySection("Tool")
         self._approval = ActivitySection("Approval")
         self._observation = ActivitySection("Observation")
-        super().__init__(
+        self._details = VerticalScroll(
             self._reasoning,
             self._tool,
             self._approval,
             self._observation,
+            classes="activity-details",
+        )
+        self._details.styles.max_height = detail_max_height
+        super().__init__(
+            self._details,
             title=title,
             collapsed=True,
             classes="activity-step",
@@ -104,19 +112,60 @@ class ActivityStep(Collapsible):
 
     def set_activity_label(self, label: str) -> None:
         self.title = label
+        if self.group is not None:
+            self.group.refresh_step_title(self)
+
+
+class ActivityGroup(Collapsible):
+    def __init__(self, panel_max_height: int) -> None:
+        self._latest_step: ActivityStep | None = None
+        self._steps = VerticalScroll(classes="activity-step-list")
+        self._steps.styles.max_height = panel_max_height
+        super().__init__(
+            self._steps,
+            title="正在思考…",
+            collapsed=True,
+            classes="activity-group",
+        )
+
+    async def add_step(self, step: ActivityStep) -> None:
+        step.group = self
+        self._latest_step = step
+        self.title = step.title
+        await self._steps.mount(step)
+
+    def refresh_step_title(self, step: ActivityStep) -> None:
+        if self._latest_step is step:
+            self.title = step.title
 
 
 class ChatTimeline(VerticalScroll):
-    def __init__(self, *children, **kwargs) -> None:
+    def __init__(
+        self,
+        activity_panel_max_height: int,
+        activity_detail_max_height: int,
+        *children,
+        **kwargs,
+    ) -> None:
         super().__init__(*children, **kwargs)
+        self._activity_panel_max_height = activity_panel_max_height
+        self._activity_detail_max_height = activity_detail_max_height
+        self._current_activity_group: ActivityGroup | None = None
         self._pending_tool_outputs: deque[ActivityStep] = deque()
         self._tool_steps: list[ActivityStep] = []
         self._recent_reasoning: list[str] = []
 
     def _finish_activity(self) -> None:
+        self._current_activity_group = None
         self._pending_tool_outputs.clear()
         self._tool_steps.clear()
         self._recent_reasoning.clear()
+
+    async def _add_activity_step(self, step: ActivityStep) -> None:
+        if self._current_activity_group is None:
+            self._current_activity_group = ActivityGroup(self._activity_panel_max_height)
+            await self.mount(self._current_activity_group)
+        await self._current_activity_group.add_step(step)
 
     async def add_user_message(self, text: str) -> None:
         self._finish_activity()
@@ -141,22 +190,22 @@ class ChatTimeline(VerticalScroll):
 
     async def add_reasoning(self, text: str) -> ActivityStep:
         follow_output = self.is_vertical_scroll_end
-        step = ActivityStep()
+        step = ActivityStep(self._activity_detail_max_height)
         step.append_reasoning(text)
         self._recent_reasoning.append(text)
-        await self.mount(step)
+        await self._add_activity_step(step)
         self._follow_output(follow_output)
         return step
 
     async def add_tool_call(self, name: str, arguments: str | None) -> ActivityStep:
         follow_output = self.is_vertical_scroll_end
-        step = ActivityStep()
+        step = ActivityStep(self._activity_detail_max_height)
         step.label_reasoning = "".join(self._recent_reasoning)
         self._recent_reasoning.clear()
         step.set_tool(name, arguments)
         self._pending_tool_outputs.append(step)
         self._tool_steps.append(step)
-        await self.mount(step)
+        await self._add_activity_step(step)
         self._follow_output(follow_output)
         return step
 
@@ -183,7 +232,7 @@ class ChatTimeline(VerticalScroll):
         if not self._pending_tool_outputs:
             logger.warning("Unable to match tool output to a pending tool call")
             await self.add_notice("Unmatched tool output received.")
-            return ActivityStep("Unmatched tool output")
+            return ActivityStep(self._activity_detail_max_height, "Unmatched tool output")
 
         step = self._pending_tool_outputs.popleft()
         step.set_observation(output)

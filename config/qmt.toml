@@ -20,7 +20,7 @@ max_label_chars = 120
 sidebar_width = 30
 sidebar_min_width = 20
 composer_height = 7
-activity_panel_height = 8
+activity_panel_max_height = 8
 activity_detail_max_height = 12
 approval_arguments_max_height = 12
 

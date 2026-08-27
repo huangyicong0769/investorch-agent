@@ -234,16 +234,25 @@ class QMTAgentTUI(App[None]):
         height: auto;
     }
 
-    .activity-step {
+    .activity-group, .activity-step {
         width: 100%;
         height: auto;
-        margin-bottom: 1;
+        padding-bottom: 0;
+        border-top: none;
         color: $text-muted;
+    }
+
+    .activity-group > Contents, .activity-step > Contents {
+        padding: 0 0 0 1;
+    }
+
+    .activity-step-list, .activity-details {
+        height: auto;
     }
 
     .activity-section {
         height: auto;
-        padding: 0 1 1 2;
+        padding: 0 1 0 2;
     }
 
     .activity-section-heading {
@@ -356,7 +365,11 @@ class QMTAgentTUI(App[None]):
         )
         yield Horizontal(
             SessionSidebar(id="session-sidebar"),
-            ChatTimeline(id="timeline"),
+            ChatTimeline(
+                self.state.config["tui.activity_panel_max_height"],
+                self.state.config["tui.activity_detail_max_height"],
+                id="timeline",
+            ),
             id="workspace",
         )
         yield Composer(
