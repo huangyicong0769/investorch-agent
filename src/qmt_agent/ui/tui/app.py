@@ -518,6 +518,7 @@ class QMTAgentTUI(App[None]):
         try:
             label = await generate_activity_label(
                 self.activity_agent,
+                self.state.config,
                 user_message,
                 reasoning,
                 tool_name,

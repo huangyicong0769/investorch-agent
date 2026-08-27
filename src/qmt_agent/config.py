@@ -25,10 +25,17 @@ RESTART_REQUIRED_KEYS = {
     "mcp.drop_failed_servers",
     "mcp.include_server_in_tool_names",
     "model.base_url",
+    "model.context_window_tokens",
     "model.name",
     "observability.sdk_tracing_enabled",
     "paths.state",
     "paths.workspace",
+    "tui.activity_detail_max_height",
+    "tui.activity_panel_height",
+    "tui.approval_arguments_max_height",
+    "tui.composer_height",
+    "tui.sidebar_min_width",
+    "tui.sidebar_width",
 }
 
 class ConfigError(ValueError):
@@ -457,6 +464,21 @@ def _validate_config_data(data: dict[str, Any], root: Path) -> None:
     _require_string(data, "paths.root")
     _require_string(data, "model.name")
     _require_string(data, "model.base_url")
+    _require_int(data, "model.context_window_tokens", minimum=1)
+
+    _require_int(data, "activity.max_user_message_chars", minimum=1)
+    _require_int(data, "activity.max_reasoning_chars", minimum=1)
+    _require_int(data, "activity.max_argument_chars", minimum=1)
+    _require_int(data, "activity.max_label_chars", minimum=1)
+
+    sidebar_width = _require_int(data, "tui.sidebar_width", minimum=1)
+    sidebar_min_width = _require_int(data, "tui.sidebar_min_width", minimum=1)
+    if sidebar_min_width > sidebar_width:
+        raise ConfigError("tui.sidebar_min_width must be <= tui.sidebar_width")
+    _require_int(data, "tui.composer_height", minimum=3)
+    _require_int(data, "tui.activity_panel_height", minimum=1)
+    _require_int(data, "tui.activity_detail_max_height", minimum=1)
+    _require_int(data, "tui.approval_arguments_max_height", minimum=1)
 
     _require_bool(data, "observability.sdk_tracing_enabled")
     _require_bool(data, "backtest.use_cnequity")

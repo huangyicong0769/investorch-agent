@@ -22,8 +22,8 @@ A persistent runtime update is written to `<root>/qmt.toml` and therefore become
 | lifecycle | keys | behavior |
 | --- | --- | --- |
 | immutable | `paths.root`, `bootstrap.*` | Cannot be changed through runtime configuration. |
-| restart-required | `paths.workspace`, `paths.state`, `model.*`, `logging.*`, `mcp.*`, `cnequity.*`, `backtest.use_cnequity`, `backtest.rqalpha_bundle_dir`, `observability.sdk_tracing_enabled` | `persist=false` is rejected. `persist=true` writes the next-start value but does not change the current runtime; restart QMT Agent to apply it. |
-| hot | `runtime.*`, execution/explore/calculate limits, `backtest.artifact_dir`, and backtest execution policy | Validated and applied to the current `AppConfig`; persistence is optional. The next applicable operation uses the new value. |
+| restart-required | `paths.workspace`, `paths.state`, `model.*`, `tui.*`, `logging.*`, `mcp.*`, `cnequity.*`, `backtest.use_cnequity`, `backtest.rqalpha_bundle_dir`, `observability.sdk_tracing_enabled` | `persist=false` is rejected. `persist=true` writes the next-start value but does not change the current runtime; restart QMT Agent to apply it. |
+| hot | `runtime.*`, `activity.*`, execution/explore/calculate limits, `backtest.artifact_dir`, and backtest execution policy | Validated and applied to the current `AppConfig`; persistence is optional. The next applicable operation uses the new value. |
 
 `get_config` reports the value currently used by this process. A persisted restart-required update therefore continues to report the old value until the application is restarted.
 
@@ -63,6 +63,9 @@ Project configuration may be committed to Git and must not contain secrets.
 The runtime policy sections below are TOML-only and must be present in the effective configuration:
 
 - `[runtime].default_timezone`
+- `[model].context_window_tokens`
+- `[activity]` prompt input and label length limits
+- `[tui]` sidebar, composer, Activity, and approval dimensions
 - `[backtest]` data paths, artifact path, execution policy, default cash, and inspection limit
 - `[cnequity].config_path` and `mcp_cache_tools_list`
 - `[execution].default_timeout_seconds`, `max_timeout_seconds`, and `background_job_dir`
@@ -120,6 +123,8 @@ Both keys are restart-required. The config path may be absent during generic con
 ## User Interface
 
 `qmt-agent` starts the Textual chat workspace by default. It presents user and assistant messages as the primary timeline and keeps raw reasoning, tool arguments, approval state, and tool output inside collapsible activity steps.
+
+`model.context_window_tokens` supplies the configured model capacity shown by the interface. The `[activity]` section owns Activity Agent prompt truncation and label length limits. The `[tui]` section owns user-adjustable sidebar, composer, Activity panel, Activity detail, and inline approval dimensions. TUI dimensions are restart-required because the widget tree applies them when the application mounts; Activity limits are hot and apply to the next generated label.
 
 `qmt-agent --plain` starts the verbose Console fallback. Plain mode renders raw reasoning and tool output directly; it does not create the Activity Agent, generate activity labels, or backfill labels for historical sessions.
 
