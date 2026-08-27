@@ -8,9 +8,11 @@ def read_session_journal(
 ) -> list[dict[str, object]]:
     path = _session_path(directory, session_id)
 
-    if path.is_symlink() or not path.is_file():
-        if not path.exists():
-            raise FileNotFoundError(path)
+    if path.is_symlink():
+        raise RuntimeError(f"Session journal is not a regular file: {path}")
+    if not path.exists():
+        raise FileNotFoundError(path)
+    if not path.is_file():
         raise RuntimeError(f"Session journal is not a regular file: {path}")
 
     records: list[dict[str, object]] = []
