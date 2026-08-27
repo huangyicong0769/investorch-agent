@@ -33,15 +33,20 @@ class UserMessageWidget(Vertical):
         )
 
 
-class AssistantMessageWidget(Vertical):
-    def __init__(self, text: str, author_margin_top: int, author_margin_bottom: int) -> None:
+class AssistantTurnWidget(Vertical):
+    def __init__(self, author_margin_top: int, author_margin_bottom: int) -> None:
         author = Label("QMT Agent", classes="message-author")
         author.styles.margin = (author_margin_top, 0, author_margin_bottom, 0)
         super().__init__(
             author,
-            Markdown(text, classes="assistant-markdown"),
             classes="assistant-message",
         )
+
+    async def add_activity_group(self, group: ActivityGroup) -> None:
+        await self.mount(group)
+
+    async def add_message(self, text: str) -> None:
+        await self.mount(Markdown(text, classes="assistant-markdown"))
 
 
 class SystemNotice(Static):
@@ -161,6 +166,7 @@ class ChatTimeline(VerticalScroll):
         self._message_author_margin_bottom = message_author_margin_bottom
         self._initial_agent_name = initial_agent_name
         self._active_agent_name = initial_agent_name
+        self._current_assistant_turn: AssistantTurnWidget | None = None
         self._current_activity_group: ActivityGroup | None = None
         self._pending_tool_outputs: deque[ActivityStep] = deque()
         self._tool_steps: list[ActivityStep] = []
@@ -173,13 +179,24 @@ class ChatTimeline(VerticalScroll):
         self._recent_reasoning.clear()
 
     async def _add_activity_step(self, step: ActivityStep) -> None:
+        turn = await self._ensure_assistant_turn()
         if self._current_activity_group is None:
             self._current_activity_group = ActivityGroup(self._activity_panel_max_height)
-            await self.mount(self._current_activity_group)
+            await turn.add_activity_group(self._current_activity_group)
         await self._current_activity_group.add_step(step)
+
+    async def _ensure_assistant_turn(self) -> AssistantTurnWidget:
+        if self._current_assistant_turn is None:
+            self._current_assistant_turn = AssistantTurnWidget(
+                self._message_author_margin_top,
+                self._message_author_margin_bottom,
+            )
+            await self.mount(self._current_assistant_turn)
+        return self._current_assistant_turn
 
     async def add_user_message(self, text: str) -> None:
         self._finish_activity()
+        self._current_assistant_turn = None
         self._active_agent_name = self._initial_agent_name
         await self.mount(
             UserMessageWidget(
@@ -192,14 +209,10 @@ class ChatTimeline(VerticalScroll):
 
     async def add_assistant_message(self, text: str) -> None:
         follow_output = self.is_vertical_scroll_end
+        turn = await self._ensure_assistant_turn()
         self._finish_activity()
-        await self.mount(
-            AssistantMessageWidget(
-                text,
-                self._message_author_margin_top,
-                self._message_author_margin_bottom,
-            )
-        )
+        await turn.add_message(text)
+        self._current_assistant_turn = None
         self._follow_output(follow_output)
 
     async def add_notice(self, text: str) -> None:
@@ -286,6 +299,7 @@ class ChatTimeline(VerticalScroll):
 
     async def reset(self) -> None:
         self._finish_activity()
+        self._current_assistant_turn = None
         self._active_agent_name = self._initial_agent_name
         await self.remove_children()
 
