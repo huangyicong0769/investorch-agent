@@ -1,9 +1,13 @@
 import json
+import logging
+from collections import deque
 
 from textual.containers import Vertical, VerticalScroll
 from textual.widgets import Collapsible, Label, Markdown, Static
 
 from qmt_agent.output import AgentChanged, AssistantMessage, OutputEvent, Reasoning, ToolCalled, ToolOutput
+
+logger = logging.getLogger(__name__)
 
 
 def format_json(text: str | None) -> str:
@@ -61,6 +65,8 @@ class ActivityStep(Collapsible):
         self.tool_arguments: str | None = None
         self.target_seq: int | None = None
         self.session_id: str | None = None
+        self.label_reasoning = ""
+        self.approval_recorded = False
         self._reasoning = ActivitySection("Reasoning")
         self._tool = ActivitySection("Tool")
         self._approval = ActivitySection("Approval")
@@ -94,6 +100,7 @@ class ActivityStep(Collapsible):
 
     def set_approval(self, approved: bool) -> None:
         self._approval.set_content("✓ Approved" if approved else "✗ Rejected")
+        self.approval_recorded = True
 
     def set_activity_label(self, label: str) -> None:
         self.title = label
@@ -102,20 +109,23 @@ class ActivityStep(Collapsible):
 class ChatTimeline(VerticalScroll):
     def __init__(self, *children, **kwargs) -> None:
         super().__init__(*children, **kwargs)
-        self._current_step: ActivityStep | None = None
+        self._pending_tool_outputs: deque[ActivityStep] = deque()
+        self._tool_steps: list[ActivityStep] = []
+        self._recent_reasoning: list[str] = []
 
-    @property
-    def current_step(self) -> ActivityStep | None:
-        return self._current_step
+    def _finish_activity(self) -> None:
+        self._pending_tool_outputs.clear()
+        self._tool_steps.clear()
+        self._recent_reasoning.clear()
 
     async def add_user_message(self, text: str) -> None:
-        self._current_step = None
+        self._finish_activity()
         await self.mount(UserMessageWidget(text))
         self.scroll_end(animate=False)
 
     async def add_assistant_message(self, text: str) -> None:
         follow_output = self.is_vertical_scroll_end
-        self._current_step = None
+        self._finish_activity()
         await self.mount(AssistantMessageWidget(text))
         self._follow_output(follow_output)
 
@@ -126,46 +136,57 @@ class ChatTimeline(VerticalScroll):
 
     async def add_agent_changed(self, name: str) -> None:
         follow_output = self.is_vertical_scroll_end
-        if self._current_step and self._current_step.tool_name is None:
-            self._current_step = None
         await self.mount(SystemNotice(f"Agent → {name}"))
         self._follow_output(follow_output)
 
     async def add_reasoning(self, text: str) -> ActivityStep:
         follow_output = self.is_vertical_scroll_end
-        if self._current_step is None:
-            self._current_step = ActivityStep()
-            await self.mount(self._current_step)
-        self._current_step.append_reasoning(text)
+        step = ActivityStep()
+        step.append_reasoning(text)
+        self._recent_reasoning.append(text)
+        await self.mount(step)
         self._follow_output(follow_output)
-        return self._current_step
+        return step
 
     async def add_tool_call(self, name: str, arguments: str | None) -> ActivityStep:
         follow_output = self.is_vertical_scroll_end
-        if self._current_step is None or self._current_step.tool_name is not None:
-            self._current_step = ActivityStep()
-            await self.mount(self._current_step)
-        self._current_step.set_tool(name, arguments)
+        step = ActivityStep()
+        step.label_reasoning = "".join(self._recent_reasoning)
+        self._recent_reasoning.clear()
+        step.set_tool(name, arguments)
+        self._pending_tool_outputs.append(step)
+        self._tool_steps.append(step)
+        await self.mount(step)
         self._follow_output(follow_output)
-        return self._current_step
+        return step
 
-    async def add_approval(self, approved: bool) -> None:
-        if self._current_step is None:
+    async def add_approval(self, tool_name: str, arguments: str | None, approved: bool) -> None:
+        step = next(
+            (
+                candidate
+                for candidate in self._tool_steps
+                if not candidate.approval_recorded
+                and candidate.tool_name == tool_name
+                and candidate.tool_arguments == arguments
+            ),
+            None,
+        )
+        if step is None:
+            logger.warning("Unable to match approval to tool %s", tool_name)
             await self.add_notice("Tool action approved." if approved else "Tool action rejected.")
             return
 
-        self._current_step.set_approval(approved)
-        if not approved:
-            self._current_step = None
+        step.set_approval(approved)
 
     async def add_tool_output(self, output: str) -> ActivityStep:
         follow_output = self.is_vertical_scroll_end
-        if self._current_step is None:
-            self._current_step = ActivityStep("Tool output")
-            await self.mount(self._current_step)
-        step = self._current_step
+        if not self._pending_tool_outputs:
+            logger.warning("Unable to match tool output to a pending tool call")
+            await self.add_notice("Unmatched tool output received.")
+            return ActivityStep("Unmatched tool output")
+
+        step = self._pending_tool_outputs.popleft()
         step.set_observation(output)
-        self._current_step = None
         self._follow_output(follow_output)
         return step
 
@@ -187,7 +208,7 @@ class ChatTimeline(VerticalScroll):
         return None
 
     async def reset(self) -> None:
-        self._current_step = None
+        self._finish_activity()
         await self.remove_children()
 
     async def render_history(self, records: list[dict[str, object]]) -> None:
@@ -230,4 +251,11 @@ class ChatTimeline(VerticalScroll):
             elif event_type == "agent_changed" and isinstance(record.get("name"), str):
                 await self.add_agent_changed(record["name"])
             elif event_type == "approval" and type(record.get("approved")) is bool:
-                await self.add_approval(record["approved"])
+                tool_name = record.get("tool_name")
+                arguments = record.get("arguments")
+                if isinstance(tool_name, str):
+                    await self.add_approval(
+                        tool_name,
+                        arguments if isinstance(arguments, str) else None,
+                        record["approved"],
+                    )

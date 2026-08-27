@@ -476,7 +476,7 @@ class QMTAgentTUI(App[None]):
             step.session_id = session_id
             step.target_seq = journal_seq
             user_message = self._current_user_message
-            reasoning = "".join(step.reasoning_parts)
+            reasoning = step.label_reasoning
             self.run_worker(
                 self._generate_step_activity(
                     step,
@@ -501,7 +501,7 @@ class QMTAgentTUI(App[None]):
         finally:
             self.set_status("● Running" if self._run_active else "● Ready")
 
-        await self.query_one(ChatTimeline).add_approval(approved)
+        await self.query_one(ChatTimeline).add_approval(tool_name, arguments, approved)
         return approved
 
     async def refresh_sessions(self) -> None:
