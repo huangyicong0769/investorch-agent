@@ -248,8 +248,11 @@ async def _run_configured_app(
 
     async def handle_approval(user_input: str, tool_name: str, arguments: str | None) -> bool:
         session_id = state.session.session_id
+        review_decision = None
+        review_reason = None
         if state.permission_mode == "manual":
             approved = await request_user_approval(tool_name, arguments)
+            source = "user"
         else:
             try:
                 review_result = await review_permission(permission_agent, config, user_input, tool_name, arguments)
@@ -261,18 +264,31 @@ async def _run_configured_app(
                     reason="AutoReview is unavailable; manual approval is required.",
                 )
 
+            review_decision = review.decision
+            review_reason = review.reason
             if review.decision == "approve":
                 logger.info("Permission auto-approved tool %s", tool_name)
                 approved = True
+                source = "permission"
             elif review.decision == "reject":
                 logger.info("Permission auto-rejected tool %s", tool_name)
                 approved = False
+                source = "permission"
             else:
                 logger.info("Permission escalated tool %s to user", tool_name)
                 approved = await request_user_approval(tool_name, arguments)
+                source = "user"
 
         try:
-            await journal.record_approval(session_id, tool_name, arguments, approved)
+            await journal.record_approval(
+                session_id,
+                tool_name,
+                arguments,
+                approved,
+                source=source,
+                review_decision=review_decision,
+                review_reason=review_reason,
+            )
         except Exception:
             logger.exception("Failed to append approval to session journal for session %s", session_id)
 

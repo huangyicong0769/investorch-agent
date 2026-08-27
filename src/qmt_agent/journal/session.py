@@ -41,15 +41,37 @@ class SessionJournal:
         tool_name: str,
         arguments: str | None,
         approved: bool,
+        *,
+        source: str = "user",
+        review_decision: str | None = None,
+        review_reason: str | None = None,
     ) -> int:
+        if source not in {"user", "permission"}:
+            raise ValueError("approval source must be user or permission")
+        if review_decision not in {None, "approve", "ask", "reject"}:
+            raise ValueError("review_decision must be approve, ask, reject, or None")
+        if source == "permission" and review_decision is None:
+            raise ValueError("permission approval source requires a review_decision")
+        if review_reason is not None:
+            review_reason = review_reason.strip()
+            if not review_reason:
+                raise ValueError("review_reason must not be empty")
+
+        record: dict[str, object] = {
+            "type": "approval",
+            "tool_name": tool_name,
+            "arguments": arguments,
+            "approved": approved,
+            "source": source,
+        }
+        if review_decision is not None:
+            record["review_decision"] = review_decision
+        if review_reason is not None:
+            record["review_reason"] = review_reason
+
         return await self._record(
             session_id,
-            {
-                "type": "approval",
-                "tool_name": tool_name,
-                "arguments": arguments,
-                "approved": approved,
-            },
+            record,
         )
 
     async def record_activity_label(
