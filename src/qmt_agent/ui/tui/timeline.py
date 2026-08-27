@@ -144,12 +144,15 @@ class ChatTimeline(VerticalScroll):
         self,
         activity_panel_max_height: int,
         activity_detail_max_height: int,
+        initial_agent_name: str | None = None,
         *children,
         **kwargs,
     ) -> None:
         super().__init__(*children, **kwargs)
         self._activity_panel_max_height = activity_panel_max_height
         self._activity_detail_max_height = activity_detail_max_height
+        self._initial_agent_name = initial_agent_name
+        self._active_agent_name = initial_agent_name
         self._current_activity_group: ActivityGroup | None = None
         self._pending_tool_outputs: deque[ActivityStep] = deque()
         self._tool_steps: list[ActivityStep] = []
@@ -169,6 +172,7 @@ class ChatTimeline(VerticalScroll):
 
     async def add_user_message(self, text: str) -> None:
         self._finish_activity()
+        self._active_agent_name = self._initial_agent_name
         await self.mount(UserMessageWidget(text))
         self.scroll_end(animate=False)
 
@@ -184,7 +188,11 @@ class ChatTimeline(VerticalScroll):
         self._follow_output(follow_output)
 
     async def add_agent_changed(self, name: str) -> None:
+        if name == self._active_agent_name:
+            return
+
         follow_output = self.is_vertical_scroll_end
+        self._active_agent_name = name
         await self.mount(SystemNotice(f"Agent → {name}"))
         self._follow_output(follow_output)
 
@@ -258,6 +266,7 @@ class ChatTimeline(VerticalScroll):
 
     async def reset(self) -> None:
         self._finish_activity()
+        self._active_agent_name = self._initial_agent_name
         await self.remove_children()
 
     async def render_history(self, records: list[dict[str, object]]) -> None:

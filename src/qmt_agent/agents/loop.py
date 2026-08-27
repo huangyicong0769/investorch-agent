@@ -45,8 +45,14 @@ class AgentLoop:
             max_turns=self._config["runtime.max_turns"],
         )
 
+        current_agent_name = self._agent.name
+
         while True:
-            await consume_run_events(result, self._output_handler)
+            current_agent_name = await consume_run_events(
+                result,
+                self._output_handler,
+                current_agent_name,
+            )
 
             if not result.interruptions:
                 break
@@ -76,3 +82,7 @@ class AgentLoop:
         title_usage = await ensure_session_title(self._title_agent, session, self._config.sessions_db)
         await self._output_handler(AssistantMessage(text=output))
         return AgentRunResult(output=output, main_usage=main_usage, auxiliary_usage=title_usage)
+
+    @property
+    def agent_name(self) -> str:
+        return self._agent.name

@@ -15,13 +15,20 @@ async def _flush_reasoning(
     await output_handler(Reasoning(text=text))
 
 
-async def consume_run_events(result, output_handler: OutputHandler) -> None:
+async def consume_run_events(
+    result,
+    output_handler: OutputHandler,
+    current_agent_name: str,
+) -> str:
     reasoning_parts: list[str] = []
 
     async for event in result.stream_events():
         if event.type == "agent_updated_stream_event":
             await _flush_reasoning(reasoning_parts, output_handler)
-            await output_handler(AgentChanged(name=event.new_agent.name))
+            new_agent_name = event.new_agent.name
+            if new_agent_name != current_agent_name:
+                current_agent_name = new_agent_name
+                await output_handler(AgentChanged(name=new_agent_name))
             continue
 
         if event.type == "raw_response_event":
@@ -56,3 +63,4 @@ async def consume_run_events(result, output_handler: OutputHandler) -> None:
             pass
 
     await _flush_reasoning(reasoning_parts, output_handler)
+    return current_agent_name

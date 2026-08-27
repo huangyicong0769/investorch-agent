@@ -362,6 +362,7 @@ class QMTAgentTUI(App[None]):
         self._current_user_message = ""
         self._session_usage: dict[str, TokenUsage] = {}
         self._main_context_tokens: dict[str, int | None] = {}
+        self._main_agent_name: str | None = None
 
     def compose(self) -> ComposeResult:
         yield Vertical(
@@ -380,6 +381,7 @@ class QMTAgentTUI(App[None]):
                 ChatTimeline(
                     self.state.config["tui.activity_panel_max_height"],
                     self.state.config["tui.activity_detail_max_height"],
+                    initial_agent_name=self._main_agent_name,
                     id="timeline",
                 ),
                 Composer(
@@ -489,6 +491,7 @@ class QMTAgentTUI(App[None]):
 
     def bind_agent_loop(self, agent_loop: AgentLoop) -> None:
         self.agent_loop = agent_loop
+        self._main_agent_name = agent_loop.agent_name
 
     async def handle_output(
         self,
