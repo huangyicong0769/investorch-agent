@@ -20,18 +20,24 @@ class ConsoleUI:
         self,
         tool_name: str,
         arguments: str | None,
+        review_reason: str | None = None,
     ) -> bool:
         return await asyncio.to_thread(
             self._request_tool_approval_sync,
             tool_name,
             arguments,
+            review_reason,
         )
 
     def _request_tool_approval_sync(
         self,
         tool_name: str,
         arguments: str | None,
+        review_reason: str | None,
     ) -> bool:
+        if review_reason is not None:
+            self.write(f"\n[permission] ASK\n{review_reason}")
+
         self.write(f"\n[approval] {tool_name}")
 
         if arguments:
@@ -39,6 +45,10 @@ class ConsoleUI:
 
         answer = input("Approve? [y/N]: ").strip().lower()
         return answer in {"y", "yes"}
+
+    def report_permission_decision(self, tool_name: str, approved: bool, reason: str) -> None:
+        outcome = "auto-approved" if approved else "auto-rejected"
+        self.write(f"\n[permission] {outcome} {tool_name}\n{reason}")
 
 
 class ConsoleRenderer:

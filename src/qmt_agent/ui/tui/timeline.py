@@ -115,8 +115,26 @@ class ActivityStep(Collapsible):
     def set_observation(self, output: str) -> None:
         self._observation.set_content(output)
 
-    def set_approval(self, approved: bool) -> None:
-        self._approval.set_content("✓ Approved" if approved else "✗ Rejected")
+    def set_approval(
+        self,
+        approved: bool,
+        *,
+        source: str | None = None,
+        review_decision: str | None = None,
+        review_reason: str | None = None,
+    ) -> None:
+        if source == "permission":
+            text = "✓ Auto-approved" if approved else "✗ Auto-rejected"
+        elif source == "user":
+            text = "✓ Approved by user" if approved else "✗ Rejected by user"
+        else:
+            text = "✓ Approved" if approved else "✗ Rejected"
+
+        if review_reason is not None:
+            label = "AutoReview asked:" if review_decision == "ask" else ""
+            text = f"{text}\n\n{label}\n{review_reason}" if label else f"{text}\n\n{review_reason}"
+
+        self._approval.set_content(text)
         self.approval_recorded = True
 
     def set_activity_label(self, label: str) -> None:
@@ -256,7 +274,16 @@ class ChatTimeline(VerticalScroll):
         self._follow_output(follow_output)
         return step
 
-    async def add_approval(self, tool_name: str, arguments: str | None, approved: bool) -> None:
+    async def add_approval(
+        self,
+        tool_name: str,
+        arguments: str | None,
+        approved: bool,
+        *,
+        source: str | None = None,
+        review_decision: str | None = None,
+        review_reason: str | None = None,
+    ) -> None:
         step = next(
             (
                 candidate
@@ -272,7 +299,12 @@ class ChatTimeline(VerticalScroll):
             await self.add_notice("Tool action approved." if approved else "Tool action rejected.")
             return
 
-        step.set_approval(approved)
+        step.set_approval(
+            approved,
+            source=source,
+            review_decision=review_decision,
+            review_reason=review_reason,
+        )
 
     async def add_tool_output(self, output: str) -> ActivityStep:
         follow_output = self.is_vertical_scroll_end
@@ -356,4 +388,7 @@ class ChatTimeline(VerticalScroll):
                         tool_name,
                         arguments if isinstance(arguments, str) else None,
                         record["approved"],
+                        source=record.get("source") if isinstance(record.get("source"), str) else None,
+                        review_decision=record.get("review_decision") if isinstance(record.get("review_decision"), str) else None,
+                        review_reason=record.get("review_reason") if isinstance(record.get("review_reason"), str) else None,
                     )

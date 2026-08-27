@@ -241,10 +241,14 @@ async def _run_configured_app(
         assert tui is not None
         await tui.handle_output(event, session_id=session_id, journal_seq=journal_seq)
 
-    async def request_user_approval(tool_name: str, arguments: str | None) -> bool:
+    async def request_user_approval(
+        tool_name: str,
+        arguments: str | None,
+        review_reason: str | None = None,
+    ) -> bool:
         if tui is None:
-            return await ui.request_tool_approval(tool_name, arguments)
-        return await tui.request_tool_approval(tool_name, arguments)
+            return await ui.request_tool_approval(tool_name, arguments, review_reason)
+        return await tui.request_tool_approval(tool_name, arguments, review_reason)
 
     async def handle_approval(user_input: str, tool_name: str, arguments: str | None) -> bool:
         session_id = state.session.session_id
@@ -256,6 +260,8 @@ async def _run_configured_app(
         else:
             try:
                 review_result = await review_permission(permission_agent, config, user_input, tool_name, arguments)
+                if tui is not None:
+                    tui.add_auxiliary_usage(session_id, review_result.usage)
                 review = review_result.review
             except Exception:
                 logger.exception("Permission review failed for tool %s; falling back to manual approval", tool_name)
@@ -276,8 +282,21 @@ async def _run_configured_app(
                 source = "permission"
             else:
                 logger.info("Permission escalated tool %s to user", tool_name)
-                approved = await request_user_approval(tool_name, arguments)
+                approved = await request_user_approval(tool_name, arguments, review.reason)
                 source = "user"
+
+            if source == "permission":
+                if tui is None:
+                    ui.report_permission_decision(tool_name, approved, review.reason)
+                else:
+                    await tui.report_tool_approval(
+                        tool_name,
+                        arguments,
+                        approved,
+                        source=source,
+                        review_decision=review.decision,
+                        review_reason=review.reason,
+                    )
 
         try:
             await journal.record_approval(

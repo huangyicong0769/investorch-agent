@@ -63,6 +63,7 @@ class Composer(Vertical):
         )
         yield Vertical(
             Label("Approval required", id="approval-title"),
+            Static(id="approval-review", markup=False),
             Static(id="approval-tool", markup=False),
             VerticalScroll(
                 Static(id="approval-arguments", markup=False),
@@ -79,6 +80,7 @@ class Composer(Vertical):
     def on_mount(self) -> None:
         self.styles.height = self._normal_height
         self.query_one("#approval-arguments-scroll").styles.max_height = self._approval_arguments_max_height
+        self.query_one("#approval-review").display = False
         self.query_one("#composer-approval").display = False
 
     @property
@@ -100,13 +102,17 @@ class Composer(Vertical):
         self.query_one("#composer-input", TextArea).disabled = running
         self.query_one("#send-button", Button).disabled = running
 
-    async def request_approval(self, tool_name: str, arguments: str | None) -> bool:
+    async def request_approval(self, tool_name: str, arguments: str | None, review_reason: str | None = None) -> bool:
         if self._approval_future is not None and not self._approval_future.done():
             raise RuntimeError("An approval request is already active")
 
         future = asyncio.get_running_loop().create_future()
         self._approval_future = future
         formatted = format_json(arguments)
+        self.query_one("#approval-review", Static).update(
+            f"AutoReview · ASK\n{review_reason}" if review_reason is not None else ""
+        )
+        self.query_one("#approval-review").display = review_reason is not None
         self.query_one("#approval-tool", Static).update(f"Tool · {tool_name}")
         self.query_one("#approval-arguments", Static).update(formatted)
         self.query_one("#approval-arguments-scroll").display = bool(formatted)
@@ -323,6 +329,11 @@ class QMTAgentTUI(App[None]):
         color: $warning;
     }
 
+    #approval-review {
+        height: auto;
+        color: $text-muted;
+    }
+
     #approval-arguments-scroll, #approval-arguments {
         height: auto;
     }
@@ -515,6 +526,9 @@ class QMTAgentTUI(App[None]):
         if session_id == self.state.session.session_id:
             self.query_one("#usage-status", Static).update(self._format_usage_status())
 
+    def add_auxiliary_usage(self, session_id: str, usage: TokenUsage) -> None:
+        self._add_usage(session_id, usage)
+
     def bind_agent_loop(self, agent_loop: AgentLoop) -> None:
         self.agent_loop = agent_loop
         self._main_agent_name = agent_loop.agent_name
@@ -550,18 +564,49 @@ class QMTAgentTUI(App[None]):
                 exit_on_error=False,
             )
 
-    async def request_tool_approval(self, tool_name: str, arguments: str | None) -> bool:
+    async def request_tool_approval(
+        self,
+        tool_name: str,
+        arguments: str | None,
+        review_reason: str | None = None,
+    ) -> bool:
         self.set_status("● Waiting approval")
         try:
-            approved = await self.query_one(Composer).request_approval(tool_name, arguments)
+            approved = await self.query_one(Composer).request_approval(tool_name, arguments, review_reason)
         except Exception:
             logger.exception("Inline approval failed for tool %s", tool_name)
             approved = False
         finally:
             self.set_status("● Running" if self._run_active else "● Ready")
 
-        await self.query_one(ChatTimeline).add_approval(tool_name, arguments, approved)
+        await self.report_tool_approval(
+            tool_name,
+            arguments,
+            approved,
+            source="user",
+            review_decision="ask" if review_reason is not None else None,
+            review_reason=review_reason,
+        )
         return approved
+
+    async def report_tool_approval(
+        self,
+        tool_name: str,
+        arguments: str | None,
+        approved: bool,
+        *,
+        source: str,
+        review_decision: str | None = None,
+        review_reason: str | None = None,
+    ) -> None:
+        await self.query_one(ChatTimeline).add_approval(
+            tool_name,
+            arguments,
+            approved,
+            source=source,
+            review_decision=review_decision,
+            review_reason=review_reason,
+        )
 
     async def refresh_sessions(self) -> None:
         records = await asyncio.to_thread(list_sessions, self.state.config.sessions_db)
