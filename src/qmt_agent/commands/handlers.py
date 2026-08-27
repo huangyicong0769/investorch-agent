@@ -5,6 +5,7 @@ from dataclasses import dataclass
 
 from agents import SQLiteSession
 
+from qmt_agent.config import REASONING_EFFORTS
 from qmt_agent.context import AppState
 from qmt_agent.storage import (
     delete_session_metadata,
@@ -26,6 +27,7 @@ HELP = (
     "  /new               Start a new session.\n"
     "  /resume [prefix]   List or resume a session.\n"
     "  /title [title]     Show or set the session title.\n"
+    "  /effort [level]    Show or set Main reasoning effort.\n"
     "  /clear             Clear the current session.\n"
     "  /ps                Show background commands.\n"
     "  /exit              Exit QMT Agent."
@@ -110,6 +112,19 @@ async def dispatch_command(command: Command, state: AppState) -> CommandResult:
             )
             logger.info("Updated title for session %s", state.session.session_id)
             return CommandResult(f"Set session title to: {title}")
+
+        case "effort":
+            if not command.args:
+                return CommandResult(f"Main reasoning effort: {state.config.model('main').reasoning_effort}")
+            if len(command.args) != 1:
+                return CommandResult("Usage: /effort [none|minimal|low|medium|high|xhigh|max]")
+
+            effort = command.args[0].lower()
+            if effort not in REASONING_EFFORTS:
+                return CommandResult(f"Unsupported reasoning effort: {command.args[0]}")
+
+            state.config.update("models.main.reasoning_effort", effort, persist=False)
+            return CommandResult(f"Main reasoning effort set to: {effort}")
 
         case "clear":
             session_id = state.session.session_id

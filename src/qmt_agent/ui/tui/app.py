@@ -26,7 +26,7 @@ from .sidebar import SessionSidebar
 from .timeline import ActivityStep, ChatTimeline, format_json
 
 logger = logging.getLogger(__name__)
-SESSION_MUTATION_COMMANDS = {"new", "resume", "clear"}
+RUN_BLOCKED_COMMANDS = {"new", "resume", "clear", "effort"}
 RecordUserMessage = Callable[[str, str], Awaitable[None]]
 RecordActivityLabel = Callable[[str, int, str], Awaitable[None]]
 
@@ -621,7 +621,7 @@ class QMTAgentTUI(App[None]):
 
     async def _dispatch_command(self, command: Command) -> None:
         timeline = self.query_one(ChatTimeline)
-        if self._run_active and command.name in SESSION_MUTATION_COMMANDS:
+        if self._run_active and command.name in RUN_BLOCKED_COMMANDS:
             await timeline.add_notice(f"Cannot run /{command.name} while the Agent is running.")
             return
 

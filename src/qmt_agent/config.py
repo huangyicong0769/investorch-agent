@@ -14,7 +14,8 @@ import tomlkit
 REDACTED = "<redacted>"
 PROJECT_CONFIG_PATH = Path(__file__).resolve().parents[2] / "config" / "qmt.toml"
 REQUIRED_MODEL_AGENTS = ("main", "title", "activity", "bootstrap")
-REASONING_EFFORTS = frozenset(("none", "minimal", "low", "medium", "high", "xhigh", "max"))
+REASONING_EFFORTS = ("none", "minimal", "low", "medium", "high", "xhigh", "max")
+HOT_CONFIG_KEYS = frozenset(("models.main.reasoning_effort",))
 
 RESTART_REQUIRED_KEYS = {
     "backtest.rqalpha_bundle_dir",
@@ -474,7 +475,7 @@ def _set_config_value(data: dict[str, Any], parts: tuple[str, ...], value: Any) 
 
 
 def _requires_restart(key: str) -> bool:
-    return key in RESTART_REQUIRED_KEYS or key.startswith("models.")
+    return key not in HOT_CONFIG_KEYS and (key in RESTART_REQUIRED_KEYS or key.startswith("models."))
 
 
 def _required_config_value(data: dict[str, Any], key: str) -> Any:

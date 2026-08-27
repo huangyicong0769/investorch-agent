@@ -36,6 +36,9 @@ class AgentLoop:
         self._output_handler = output_handler
 
     async def run(self, user_input: str, session: SQLiteSession, execution: ExecutionState) -> AgentRunResult:
+        self._agent.model_settings = self._agent.model_settings.resolve(
+            {"reasoning": {"effort": self._config.model("main").reasoning_effort}}
+        )
         agent_context = AgentContext(config=self._config, execution=execution)
         result = Runner.run_streamed(
             self._agent,
