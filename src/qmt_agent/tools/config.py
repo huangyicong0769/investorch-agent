@@ -51,6 +51,9 @@ def update_config(context: RunContextWrapper[AgentContext], key: str, value: str
             If true, persist the override to root/qmt.toml.
             If false, only modify the current process config.
     """
+    if key.startswith(("permission.", "models.permission.")):
+        raise ValueError("Permission policy cannot be modified through the Agent config tool.")
+
     if key.startswith("secrets."):
         raise ValueError("Secrets cannot be modified through the Agent config tool.")
 
