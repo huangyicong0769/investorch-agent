@@ -122,7 +122,7 @@ Both keys are restart-required. The config path may be absent during generic con
 
 ## User Interface
 
-`qmt-agent` starts the Textual chat workspace by default. It presents user and assistant messages as the primary timeline and keeps raw reasoning, tool arguments, approval state, and tool output inside collapsible activity steps. Approval requests replace the normal composer controls in the current input region; they do not open a modal screen.
+`qmt-agent` starts the Textual chat workspace by default. The session list occupies the full workspace height below the header. The conversation pane to its right contains the timeline and composer, so the input region never extends underneath the session list. User and assistant messages remain the primary timeline, with raw reasoning, tool arguments, approval state, and tool output inside collapsible activity steps. Approval requests replace the normal composer controls in the current input region; they do not open a modal screen.
 
 `model.context_window_tokens` supplies the configured model capacity shown by the interface. The `[activity]` section owns Activity Agent prompt truncation and label length limits. The `[tui]` section owns user-adjustable sidebar and composer dimensions plus maximum heights for the Activity title list, Activity detail, and inline approval arguments. TUI dimensions are restart-required because the widget tree applies them when the application mounts; Activity limits are hot and apply to the next generated label.
 

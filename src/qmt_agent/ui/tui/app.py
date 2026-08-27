@@ -189,15 +189,18 @@ class QMTAgentTUI(App[None]):
     }
 
     #session-sidebar {
-        width: 30;
-        min-width: 20;
+        height: 100%;
         background: $panel;
         border-right: solid $primary-background;
     }
 
     SessionListItem {
-        height: 3;
+        height: auto;
         padding: 0 1;
+    }
+
+    .session-item-content {
+        height: auto;
     }
 
     SessionListItem.current-session {
@@ -216,6 +219,11 @@ class QMTAgentTUI(App[None]):
         width: 1fr;
         height: 1fr;
         padding: 1 2;
+    }
+
+    #conversation-pane {
+        width: 1fr;
+        height: 100%;
     }
 
     .user-message, .assistant-message {
@@ -273,7 +281,7 @@ class QMTAgentTUI(App[None]):
     }
 
     #composer {
-        height: 7;
+        width: 100%;
         padding: 0 1;
         background: $panel;
         border-top: solid $primary-background;
@@ -365,20 +373,26 @@ class QMTAgentTUI(App[None]):
         )
         yield Horizontal(
             SessionSidebar(id="session-sidebar"),
-            ChatTimeline(
-                self.state.config["tui.activity_panel_max_height"],
-                self.state.config["tui.activity_detail_max_height"],
-                id="timeline",
+            Vertical(
+                ChatTimeline(
+                    self.state.config["tui.activity_panel_max_height"],
+                    self.state.config["tui.activity_detail_max_height"],
+                    id="timeline",
+                ),
+                Composer(
+                    self.state.config["tui.composer_height"],
+                    self.state.config["tui.approval_arguments_max_height"],
+                    id="composer",
+                ),
+                id="conversation-pane",
             ),
             id="workspace",
         )
-        yield Composer(
-            self.state.config["tui.composer_height"],
-            self.state.config["tui.approval_arguments_max_height"],
-            id="composer",
-        )
 
     def on_mount(self) -> None:
+        sidebar = self.query_one(SessionSidebar)
+        sidebar.styles.width = self.state.config["tui.sidebar_width"]
+        sidebar.styles.min_width = self.state.config["tui.sidebar_min_width"]
         self.query_one(Composer).focus_input()
         self.run_worker(
             self._refresh_and_load_current(),

@@ -12,6 +12,7 @@ class SessionListItem(ListItem):
             Vertical(
                 Label(title or "(untitled)", classes="session-title"),
                 Label(session_id[:8], classes="session-id"),
+                classes="session-item-content",
             ),
             classes=classes,
         )
