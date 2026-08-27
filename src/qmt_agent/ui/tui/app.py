@@ -12,6 +12,9 @@ from textual.containers import Horizontal, Vertical
 from textual.message import Message
 from textual.widgets import Button, Label, ListView, Static, TextArea
 
+from agents import Agent
+
+from qmt_agent.agents import generate_activity_label
 from qmt_agent.commands import Command, dispatch_command, parse_command
 from qmt_agent.context import AppState
 from qmt_agent.journal import read_session_journal
@@ -20,11 +23,12 @@ from qmt_agent.storage import get_session_title, list_sessions
 
 from .approval import ApprovalScreen
 from .sidebar import SessionSidebar
-from .timeline import ChatTimeline
+from .timeline import ActivityStep, ChatTimeline
 
 logger = logging.getLogger(__name__)
 SESSION_MUTATION_COMMANDS = {"new", "resume", "clear"}
 RecordUserMessage = Callable[[str, str], Awaitable[None]]
+RecordActivityLabel = Callable[[str, int, str], Awaitable[None]]
 
 if TYPE_CHECKING:
     from qmt_agent.agents import AgentLoop
@@ -222,12 +226,16 @@ class QMTAgentTUI(App[None]):
         self,
         state: AppState,
         journal_dir: Path,
+        activity_agent: Agent,
         record_user_message: RecordUserMessage,
+        record_activity_label: RecordActivityLabel,
     ) -> None:
         super().__init__()
         self.state = state
         self.journal_dir = journal_dir
+        self.activity_agent = activity_agent
         self._record_user_message = record_user_message
+        self._record_activity_label = record_activity_label
         self.agent_loop: AgentLoop | None = None
         self.session_title: str | None = None
         self._run_active = False
@@ -324,6 +332,21 @@ class QMTAgentTUI(App[None]):
         if isinstance(event, ToolCalled) and step is not None:
             step.session_id = session_id
             step.target_seq = journal_seq
+            user_message = self._current_user_message
+            reasoning = "".join(step.reasoning_parts)
+            self.run_worker(
+                self._generate_step_activity(
+                    step,
+                    session_id=session_id,
+                    target_seq=journal_seq,
+                    user_message=user_message,
+                    reasoning=reasoning,
+                    tool_name=event.name,
+                    arguments=event.arguments,
+                ),
+                group=f"activity-{session_id}-{journal_seq or id(step)}",
+                exit_on_error=False,
+            )
 
     async def request_tool_approval(self, tool_name: str, arguments: str | None) -> bool:
         self.set_status("● Waiting approval")
@@ -468,3 +491,41 @@ class QMTAgentTUI(App[None]):
         self.set_status("● Running" if running else "● Ready")
         self.query_one(Composer).disabled = running
         self.query_one(SessionSidebar).disabled = running
+
+    async def _generate_step_activity(
+        self,
+        step: ActivityStep,
+        *,
+        session_id: str,
+        target_seq: int | None,
+        user_message: str,
+        reasoning: str,
+        tool_name: str,
+        arguments: str | None,
+    ) -> None:
+        try:
+            label = await generate_activity_label(
+                self.activity_agent,
+                user_message,
+                reasoning,
+                tool_name,
+                arguments,
+            )
+        except Exception as exc:
+            logger.warning("Activity label generation failed for tool %s: %s", tool_name, exc)
+            return
+
+        if step.is_mounted:
+            step.set_activity_label(label)
+
+        if target_seq is None:
+            return
+
+        try:
+            await self._record_activity_label(session_id, target_seq, label)
+        except Exception:
+            logger.exception(
+                "Failed to append activity label to session journal for session %s target %d",
+                session_id,
+                target_seq,
+            )
