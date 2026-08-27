@@ -130,6 +130,8 @@ Both keys are restart-required. The config path may be absent during generic con
 
 Activity labels are presentation-only descriptions of what the Main Agent is doing. They do not enter the Main Agent context and do not replace raw execution content.
 
+The TUI shows per-session token usage observed during the current application process: requests, input, cached input, cache-write input, output, reasoning output, and total tokens. These totals include Main Agent runs plus title and Activity Agent calls made for that session. Cached and cache-write counts are input-token breakdowns, and reasoning is an output-token breakdown; they are not added to total a second time. `Main context` compares the Main Agent's last physical request total with `model.context_window_tokens`; cumulative multi-request totals are deliberately not used as context occupancy. Usage display state is not persisted across application restarts.
+
 ## Log and Session State Ownership
 
 The `[logging]` section controls the application diagnostic log level, rotation size, and retained backup count. These settings are restart-required. The active UTF-8 log is stored at `<state>/logs/qmt-agent.log`; it contains application lifecycle and failure diagnostics, not full user messages, reasoning, assistant answers, tool arguments, tool output, or secrets.

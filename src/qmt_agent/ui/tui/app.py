@@ -14,7 +14,7 @@ from textual.widgets import Button, Label, ListView, Static, TextArea
 
 from agents import Agent
 
-from qmt_agent.agents import generate_activity_label
+from qmt_agent.agents import TokenUsage, generate_activity_label
 from qmt_agent.commands import Command, dispatch_command, parse_command
 from qmt_agent.context import AppState
 from qmt_agent.journal import read_session_journal
@@ -95,6 +95,10 @@ class QMTAgentTUI(App[None]):
         border-bottom: solid $primary-background;
     }
 
+    #top-heading {
+        height: 1;
+    }
+
     #brand {
         width: auto;
         text-style: bold;
@@ -109,6 +113,11 @@ class QMTAgentTUI(App[None]):
     #run-status {
         width: auto;
         color: $success;
+    }
+
+    #usage-status {
+        height: 1;
+        color: $text-muted;
     }
 
     #workspace {
@@ -241,12 +250,18 @@ class QMTAgentTUI(App[None]):
         self._run_active = False
         self._known_session_ids: set[str] = set()
         self._current_user_message = ""
+        self._session_usage: dict[str, TokenUsage] = {}
+        self._main_context_tokens: dict[str, int | None] = {}
 
     def compose(self) -> ComposeResult:
-        yield Horizontal(
-            Label("QMT Agent", id="brand"),
-            Label(self.session_title or "(untitled)", id="session-heading"),
-            Label("● Ready", id="run-status"),
+        yield Vertical(
+            Horizontal(
+                Label("QMT Agent", id="brand"),
+                Label(self.session_title or "(untitled)", id="session-heading"),
+                Label("● Ready", id="run-status"),
+                id="top-heading",
+            ),
+            Label(self._format_usage_status(), id="usage-status"),
             id="top-bar",
         )
         yield Horizontal(
@@ -314,6 +329,37 @@ class QMTAgentTUI(App[None]):
         self.session_title = title
         self.query_one("#session-heading", Static).update(title or "(untitled)")
 
+    @staticmethod
+    def _format_token_count(value: int) -> str:
+        if value >= 1_000_000:
+            return f"{value / 1_000_000:.2f}M"
+        if value >= 1_000:
+            return f"{value / 1_000:.1f}K"
+        return str(value)
+
+    def _format_usage_status(self) -> str:
+        session_id = self.state.session.session_id
+        usage = self._session_usage.get(session_id, TokenUsage())
+        context_tokens = self._main_context_tokens.get(session_id)
+        context_used = "—" if context_tokens is None else self._format_token_count(context_tokens)
+        capacity = self._format_token_count(self.state.config["model.context_window_tokens"])
+        return (
+            f"Tokens · req {usage.requests} · in {self._format_token_count(usage.input_tokens)} "
+            f"· cached {self._format_token_count(usage.cached_input_tokens)} "
+            f"· write {self._format_token_count(usage.cache_write_input_tokens)} "
+            f"· out {self._format_token_count(usage.output_tokens)} "
+            f"· reasoning {self._format_token_count(usage.reasoning_output_tokens)} "
+            f"· total {self._format_token_count(usage.total_tokens)} "
+            f"| Main context · {context_used} / {capacity}"
+        )
+
+    def _add_usage(self, session_id: str, usage: TokenUsage, *, main_context: bool = False) -> None:
+        self._session_usage[session_id] = self._session_usage.get(session_id, TokenUsage()) + usage
+        if main_context:
+            self._main_context_tokens[session_id] = usage.last_request_total_tokens
+        if session_id == self.state.session.session_id:
+            self.query_one("#usage-status", Static).update(self._format_usage_status())
+
     def bind_agent_loop(self, agent_loop: AgentLoop) -> None:
         self.agent_loop = agent_loop
 
@@ -372,6 +418,7 @@ class QMTAgentTUI(App[None]):
             current_session_id,
         )
         self.set_session_title(title)
+        self.query_one("#usage-status", Static).update(self._format_usage_status())
 
     async def _refresh_and_load_current(self) -> None:
         try:
@@ -485,7 +532,9 @@ class QMTAgentTUI(App[None]):
     async def _run_agent(self, user_message: str, session_id: str, session) -> None:
         try:
             assert self.agent_loop is not None
-            await self.agent_loop.run(user_message, session, self.state.execution)
+            result = await self.agent_loop.run(user_message, session, self.state.execution)
+            self._add_usage(session_id, result.main_usage, main_context=True)
+            self._add_usage(session_id, result.auxiliary_usage)
         except Exception:
             logger.exception("Agent run failed for session %s", session_id)
             await self.query_one(ChatTimeline).add_notice("Agent run failed. See the system log for details.")
@@ -516,7 +565,7 @@ class QMTAgentTUI(App[None]):
         arguments: str | None,
     ) -> None:
         try:
-            label = await generate_activity_label(
+            result = await generate_activity_label(
                 self.activity_agent,
                 self.state.config,
                 user_message,
@@ -528,14 +577,16 @@ class QMTAgentTUI(App[None]):
             logger.warning("Activity label generation failed for tool %s: %s", tool_name, exc)
             return
 
+        self._add_usage(session_id, result.usage)
+
         if step.is_mounted:
-            step.set_activity_label(label)
+            step.set_activity_label(result.label)
 
         if target_seq is None:
             return
 
         try:
-            await self._record_activity_label(session_id, target_seq, label)
+            await self._record_activity_label(session_id, target_seq, result.label)
         except Exception:
             logger.exception(
                 "Failed to append activity label to session journal for session %s target %d",

@@ -13,6 +13,7 @@ from agents import (
 from qmt_agent.storage import get_session_title, set_session_title
 
 from .prompts import TITLE_AGENT_INSTRUCTIONS
+from .usage import TokenUsage
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +26,7 @@ def create_title_agent(model: OpenAIResponsesModel,) -> Agent:
     )
 
 
-async def generate_session_title(title_agent: Agent, history: list[TResponseInputItem]) -> str:
+async def generate_session_title(title_agent: Agent, history: list[TResponseInputItem]) -> tuple[str, TokenUsage]:
     result = await Runner.run(
         title_agent,
         [
@@ -41,10 +42,10 @@ async def generate_session_title(title_agent: Agent, history: list[TResponseInpu
 
     if not title:
         raise ValueError("Title agent returned an empty title.")
-    return title
+    return title, TokenUsage.from_sdk(result.context_wrapper.usage)
 
 
-async def ensure_session_title(title_agent: Agent, session: SQLiteSession, session_db: str | Path) -> None:
+async def ensure_session_title(title_agent: Agent, session: SQLiteSession, session_db: str | Path) -> TokenUsage:
     existing_title = await asyncio.to_thread(
         get_session_title,
         session_db,
@@ -52,15 +53,15 @@ async def ensure_session_title(title_agent: Agent, session: SQLiteSession, sessi
     )
 
     if existing_title and existing_title.strip():
-        return
+        return TokenUsage()
 
     history = await session.get_items()
 
     try:
-        title = await generate_session_title(title_agent, history)
+        title, usage = await generate_session_title(title_agent, history)
     except Exception as e:
         logger.warning("Failed to generate session title: %s", e)
-        return
+        return TokenUsage()
 
     await asyncio.to_thread(
         set_session_title,
@@ -68,3 +69,4 @@ async def ensure_session_title(title_agent: Agent, session: SQLiteSession, sessi
         session.session_id,
         title,
     )
+    return usage

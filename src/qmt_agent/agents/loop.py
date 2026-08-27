@@ -1,4 +1,5 @@
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 
 from agents import Agent, Runner, SQLiteSession
 
@@ -7,8 +8,16 @@ from qmt_agent.context import AgentContext, ExecutionState
 from qmt_agent.output import AssistantMessage, OutputHandler, consume_run_events
 
 from .title import ensure_session_title
+from .usage import TokenUsage
 
 ApprovalHandler = Callable[[str, str | None], Awaitable[bool]]
+
+
+@dataclass(frozen=True, slots=True)
+class AgentRunResult:
+    output: str
+    main_usage: TokenUsage
+    auxiliary_usage: TokenUsage
 
 
 class AgentLoop:
@@ -26,7 +35,7 @@ class AgentLoop:
         self._approval_handler = approval_handler
         self._output_handler = output_handler
 
-    async def run(self, user_input: str, session: SQLiteSession, execution: ExecutionState) -> str:
+    async def run(self, user_input: str, session: SQLiteSession, execution: ExecutionState) -> AgentRunResult:
         agent_context = AgentContext(config=self._config, execution=execution)
         result = Runner.run_streamed(
             self._agent,
@@ -63,6 +72,7 @@ class AgentLoop:
             )
 
         output = str(result.final_output)
-        await ensure_session_title(self._title_agent, session, self._config.sessions_db)
+        main_usage = TokenUsage.from_sdk(result.context_wrapper.usage)
+        title_usage = await ensure_session_title(self._title_agent, session, self._config.sessions_db)
         await self._output_handler(AssistantMessage(text=output))
-        return output
+        return AgentRunResult(output=output, main_usage=main_usage, auxiliary_usage=title_usage)

@@ -1,12 +1,16 @@
-from .activity import create_activity_agent, generate_activity_label
+from .activity import ActivityLabelResult, create_activity_agent, generate_activity_label
 from .bootstrap import create_bootstrap_sync_agent, run_bootstrap_sync
-from .loop import AgentLoop
+from .loop import AgentLoop, AgentRunResult
 from .main import create_agent
 from .prompts import build_bootstrap_sync_prompt
 from .title import create_title_agent
+from .usage import TokenUsage
 
 __all__ = (
     "AgentLoop",
+    "AgentRunResult",
+    "ActivityLabelResult",
+    "TokenUsage",
     "build_bootstrap_sync_prompt",
     "create_activity_agent",
     "create_agent",
