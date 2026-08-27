@@ -72,3 +72,4 @@ class AppState:
     config: AppConfig
     execution: ExecutionState
     session: SQLiteSession
+    main_reasoning_effort: str

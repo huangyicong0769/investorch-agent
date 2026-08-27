@@ -465,7 +465,7 @@ class QMTAgentTUI(App[None]):
         self._refresh_run_status()
 
     def _format_run_status(self) -> str:
-        status = f"{self._run_status} · Effort {self.state.config.model('main').reasoning_effort}"
+        status = f"{self._run_status} · Effort {self.state.main_reasoning_effort}"
         if self._run_started_at is None:
             return status
 

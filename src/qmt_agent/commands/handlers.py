@@ -115,7 +115,7 @@ async def dispatch_command(command: Command, state: AppState) -> CommandResult:
 
         case "effort":
             if not command.args:
-                return CommandResult(f"Main reasoning effort: {state.config.model('main').reasoning_effort}")
+                return CommandResult(f"Main reasoning effort: {state.main_reasoning_effort}")
             if len(command.args) != 1:
                 return CommandResult("Usage: /effort [none|minimal|low|medium|high|xhigh|max]")
 
@@ -123,7 +123,7 @@ async def dispatch_command(command: Command, state: AppState) -> CommandResult:
             if effort not in REASONING_EFFORTS:
                 return CommandResult(f"Unsupported reasoning effort: {command.args[0]}")
 
-            state.config.update("models.main.reasoning_effort", effort, persist=False)
+            state.main_reasoning_effort = effort
             return CommandResult(f"Main reasoning effort set to: {effort}")
 
         case "clear":

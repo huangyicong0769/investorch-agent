@@ -11,6 +11,7 @@ from .title import ensure_session_title
 from .usage import TokenUsage
 
 ApprovalHandler = Callable[[str, str | None], Awaitable[bool]]
+ReasoningEffortProvider = Callable[[], str]
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,18 +27,20 @@ class AgentLoop:
         agent: Agent[AgentContext],
         title_agent: Agent,
         config: AppConfig,
+        reasoning_effort: ReasoningEffortProvider,
         approval_handler: ApprovalHandler,
         output_handler: OutputHandler,
     ) -> None:
         self._agent = agent
         self._title_agent = title_agent
         self._config = config
+        self._reasoning_effort = reasoning_effort
         self._approval_handler = approval_handler
         self._output_handler = output_handler
 
     async def run(self, user_input: str, session: SQLiteSession, execution: ExecutionState) -> AgentRunResult:
         self._agent.model_settings = self._agent.model_settings.resolve(
-            {"reasoning": {"effort": self._config.model("main").reasoning_effort}}
+            {"reasoning": {"effort": self._reasoning_effort()}}
         )
         agent_context = AgentContext(config=self._config, execution=execution)
         result = Runner.run_streamed(
