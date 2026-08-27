@@ -29,11 +29,11 @@ class SessionJournal:
         if os.name == "posix":
             self._directory.chmod(0o700)
 
-    async def record_user_message(self, session_id: str, text: str) -> None:
-        await self._record(session_id, {"type": "user_message", "text": text})
+    async def record_user_message(self, session_id: str, text: str) -> int:
+        return await self._record(session_id, {"type": "user_message", "text": text})
 
-    async def record_output(self, session_id: str, event: OutputEvent) -> None:
-        await self._record(session_id, _serialize_output_event(event))
+    async def record_output(self, session_id: str, event: OutputEvent) -> int:
+        return await self._record(session_id, _serialize_output_event(event))
 
     async def record_approval(
         self,
@@ -41,8 +41,8 @@ class SessionJournal:
         tool_name: str,
         arguments: str | None,
         approved: bool,
-    ) -> None:
-        await self._record(
+    ) -> int:
+        return await self._record(
             session_id,
             {
                 "type": "approval",
@@ -52,7 +52,29 @@ class SessionJournal:
             },
         )
 
-    async def _record(self, session_id: str, event: dict[str, object]) -> None:
+    async def record_activity_label(
+        self,
+        session_id: str,
+        target_seq: int,
+        text: str,
+    ) -> int:
+        if type(target_seq) is not int or target_seq < 1:
+            raise ValueError("target_seq must be a positive integer")
+
+        label = text.strip()
+        if not label:
+            raise ValueError("activity label text must not be empty")
+
+        return await self._record(
+            session_id,
+            {
+                "type": "activity_label",
+                "target_seq": target_seq,
+                "text": label,
+            },
+        )
+
+    async def _record(self, session_id: str, event: dict[str, object]) -> int:
         async with self._lock:
             path = self._session_path(session_id)
 
@@ -72,6 +94,7 @@ class SessionJournal:
                 raise
 
             self._next_seq[session_id] = next_seq + 1
+            return next_seq
 
     def _session_path(self, session_id: str) -> Path:
         if (
