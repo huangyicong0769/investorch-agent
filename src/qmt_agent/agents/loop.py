@@ -10,7 +10,7 @@ from qmt_agent.output import AssistantMessage, OutputHandler, consume_run_events
 from .title import ensure_session_title
 from .usage import TokenUsage
 
-ApprovalHandler = Callable[[str, str | None], Awaitable[bool]]
+ApprovalHandler = Callable[[str, str, str | None], Awaitable[bool]]
 ReasoningEffortProvider = Callable[[], str]
 
 
@@ -67,6 +67,7 @@ class AgentLoop:
 
             for interruption in result.interruptions:
                 approved = await self._approval_handler(
+                    user_input,
                     interruption.name or "unknown_tool",
                     interruption.arguments,
                 )
@@ -74,7 +75,11 @@ class AgentLoop:
                 if approved:
                     sdk_state.approve(interruption, always_approve=False)
                 else:
-                    sdk_state.reject(interruption, rejection_message="The user rejected this tool action.")
+                    sdk_state.reject(
+                        interruption,
+                        always_reject=False,
+                        rejection_message="The tool action was rejected.",
+                    )
 
             result = Runner.run_streamed(
                 self._agent,

@@ -10,11 +10,14 @@ from openai import AsyncOpenAI
 
 from qmt_agent.agents import (
     AgentLoop,
+    PermissionReview,
     build_bootstrap_sync_prompt,
     create_activity_agent,
     create_agent,
     create_bootstrap_sync_agent,
+    create_permission_agent,
     create_title_agent,
+    review_permission,
     run_bootstrap_sync,
 )
 from qmt_agent.commands import dispatch_command, parse_command
@@ -182,6 +185,8 @@ async def _run_configured_app(
     logger.info("Started session %s", state.session.session_id)
     title_model, title_model_settings = _create_model(config, "title")
     title_agent = create_title_agent(title_model, title_model_settings)
+    permission_model, permission_model_settings = _create_model(config, "permission")
+    permission_agent = create_permission_agent(permission_model, permission_model_settings)
     journal = SessionJournal(
         config.session_journal_dir,
         ZoneInfo(config["runtime.default_timezone"]),
@@ -236,12 +241,35 @@ async def _run_configured_app(
         assert tui is not None
         await tui.handle_output(event, session_id=session_id, journal_seq=journal_seq)
 
-    async def handle_approval(tool_name: str, arguments: str | None) -> bool:
-        session_id = state.session.session_id
+    async def request_user_approval(tool_name: str, arguments: str | None) -> bool:
         if tui is None:
-            approved = await ui.request_tool_approval(tool_name, arguments)
+            return await ui.request_tool_approval(tool_name, arguments)
+        return await tui.request_tool_approval(tool_name, arguments)
+
+    async def handle_approval(user_input: str, tool_name: str, arguments: str | None) -> bool:
+        session_id = state.session.session_id
+        if state.permission_mode == "manual":
+            approved = await request_user_approval(tool_name, arguments)
         else:
-            approved = await tui.request_tool_approval(tool_name, arguments)
+            try:
+                review_result = await review_permission(permission_agent, config, user_input, tool_name, arguments)
+                review = review_result.review
+            except Exception:
+                logger.exception("Permission review failed for tool %s; falling back to manual approval", tool_name)
+                review = PermissionReview(
+                    decision="ask",
+                    reason="AutoReview is unavailable; manual approval is required.",
+                )
+
+            if review.decision == "approve":
+                logger.info("Permission auto-approved tool %s", tool_name)
+                approved = True
+            elif review.decision == "reject":
+                logger.info("Permission auto-rejected tool %s", tool_name)
+                approved = False
+            else:
+                logger.info("Permission escalated tool %s to user", tool_name)
+                approved = await request_user_approval(tool_name, arguments)
 
         try:
             await journal.record_approval(session_id, tool_name, arguments, approved)
