@@ -144,6 +144,15 @@ class ChatTimeline(VerticalScroll):
         self.scroll_end(animate=False)
         return self._current_step
 
+    async def add_approval(self, approved: bool) -> None:
+        if self._current_step is None:
+            await self.add_notice("Tool action approved." if approved else "Tool action rejected.")
+            return
+
+        self._current_step.set_approval(approved)
+        if not approved:
+            self._current_step = None
+
     async def add_tool_output(self, output: str) -> ActivityStep:
         if self._current_step is None:
             self._current_step = ActivityStep("Tool output")
@@ -170,3 +179,45 @@ class ChatTimeline(VerticalScroll):
     async def reset(self) -> None:
         self._current_step = None
         await self.remove_children()
+
+    async def render_history(self, records: list[dict[str, object]]) -> None:
+        await self.reset()
+        activity_labels: dict[int, str] = {}
+
+        for record in records:
+            if record.get("type") != "activity_label":
+                continue
+            target_seq = record.get("target_seq")
+            text = record.get("text")
+            if type(target_seq) is int and target_seq >= 1 and isinstance(text, str) and text.strip():
+                activity_labels[target_seq] = text.strip()
+
+        for record in records:
+            event_type = record["type"]
+
+            if event_type == "activity_label":
+                continue
+            if event_type == "user_message" and isinstance(record.get("text"), str):
+                await self.add_user_message(record["text"])
+            elif event_type == "reasoning" and isinstance(record.get("text"), str):
+                await self.add_reasoning(record["text"])
+            elif event_type == "tool_called" and isinstance(record.get("name"), str):
+                arguments = record.get("arguments")
+                step = await self.add_tool_call(
+                    record["name"],
+                    arguments if isinstance(arguments, str) else None,
+                )
+                seq = record["seq"]
+                if type(seq) is int:
+                    step.target_seq = seq
+                    label = activity_labels.get(seq)
+                    if label:
+                        step.set_activity_label(label)
+            elif event_type == "tool_output" and isinstance(record.get("output"), str):
+                await self.add_tool_output(record["output"])
+            elif event_type == "assistant_message" and isinstance(record.get("text"), str):
+                await self.add_assistant_message(record["text"])
+            elif event_type == "agent_changed" and isinstance(record.get("name"), str):
+                await self.add_agent_changed(record["name"])
+            elif event_type == "approval" and type(record.get("approved")) is bool:
+                await self.add_approval(record["approved"])
