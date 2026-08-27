@@ -18,6 +18,7 @@ from qmt_agent.journal import read_session_journal
 from qmt_agent.output import OutputEvent, ToolCalled
 from qmt_agent.storage import get_session_title, list_sessions
 
+from .approval import ApprovalScreen
 from .sidebar import SessionSidebar
 from .timeline import ChatTimeline
 
@@ -323,6 +324,19 @@ class QMTAgentTUI(App[None]):
         if isinstance(event, ToolCalled) and step is not None:
             step.session_id = session_id
             step.target_seq = journal_seq
+
+    async def request_tool_approval(self, tool_name: str, arguments: str | None) -> bool:
+        self.set_status("● Waiting approval")
+        try:
+            approved = bool(await self.push_screen_wait(ApprovalScreen(tool_name, arguments)))
+        except Exception:
+            logger.exception("Approval modal failed for tool %s", tool_name)
+            approved = False
+        finally:
+            self.set_status("● Running" if self._run_active else "● Ready")
+
+        await self.query_one(ChatTimeline).add_approval(approved)
+        return approved
 
     async def refresh_sessions(self) -> None:
         records = await asyncio.to_thread(list_sessions, self.state.config.sessions_db)
