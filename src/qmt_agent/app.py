@@ -49,12 +49,12 @@ def _load_agent_mcp_servers(config: AppConfig) -> list[MCPServer]:
     return [cnequity_server, *servers]
 
 
-def _create_model(config: AppConfig) -> OpenAIResponsesModel:
+def _create_model(config: AppConfig, section: str) -> OpenAIResponsesModel:
     client = AsyncOpenAI(
-        api_key=config.secret("DEEPSEEK_API_KEY"),
-        base_url=config["model.base_url"],
+        api_key=config.secret(config[f"{section}.api_key_secret"]),
+        base_url=config[f"{section}.base_url"],
     )
-    return OpenAIResponsesModel(model=config["model.name"], openai_client=client)
+    return OpenAIResponsesModel(model=config[f"{section}.name"], openai_client=client)
 
 
 async def _run_console(
@@ -144,11 +144,9 @@ async def _run_configured_app(
             ui.write(f"QMT Agent initialized at {config.root}\nPlease configure required secrets in {config.root_config_path} before starting QMT Agent.")
         return
 
-    model = _create_model(config)
-
     if sync:
         logger.info("Bootstrap synchronization started")
-        agent = create_bootstrap_sync_agent(model)
+        agent = create_bootstrap_sync_agent(_create_model(config, "bootstrap_model"))
 
         async def merge_target(target: Path, template: str, exists: bool) -> None:
             context = AgentContext(config=config, execution=ExecutionState())
@@ -175,7 +173,7 @@ async def _run_configured_app(
         session=SQLiteSession(uuid.uuid4().hex, config.sessions_db),
     )
     logger.info("Started session %s", state.session.session_id)
-    title_agent = create_title_agent(model)
+    title_agent = create_title_agent(_create_model(config, "title_model"))
     journal = SessionJournal(
         config.session_journal_dir,
         ZoneInfo(config["runtime.default_timezone"]),
@@ -200,7 +198,7 @@ async def _run_configured_app(
             )
 
     if not plain:
-        activity_agent = create_activity_agent(model)
+        activity_agent = create_activity_agent(_create_model(config, "activity_model"))
         tui = QMTAgentTUI(
             state,
             config.session_journal_dir,
@@ -250,7 +248,7 @@ async def _run_configured_app(
         async with MCPServerManager(mcp_servers, drop_failed_servers=config["mcp.drop_failed_servers"]) as mcp_manager:
             logger.info("MCP server manager started with %d active servers", len(mcp_manager.active_servers))
             agent = create_agent(
-                model=model,
+                model=_create_model(config, "main_model"),
                 config=config,
                 mcp_servers=mcp_manager.active_servers,
             )

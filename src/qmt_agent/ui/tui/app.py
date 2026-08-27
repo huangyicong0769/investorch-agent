@@ -494,7 +494,7 @@ class QMTAgentTUI(App[None]):
         usage = self._session_usage.get(session_id, TokenUsage())
         context_tokens = self._main_context_tokens.get(session_id)
         context_used = "—" if context_tokens is None else self._format_token_count(context_tokens)
-        capacity = self._format_token_count(self.state.config["model.context_window_tokens"])
+        capacity = self._format_token_count(self.state.config["main_model.context_window_tokens"])
         return (
             f"Tokens · req {usage.requests} · in {self._format_token_count(usage.input_tokens)} "
             f"· cached {self._format_token_count(usage.cached_input_tokens)} "

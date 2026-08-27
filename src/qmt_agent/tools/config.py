@@ -16,7 +16,7 @@ def get_config(context: RunContextWrapper[AgentContext], key: str | None = None)
     Args:
         key:
             Optional dotted config key, for example
-            "model.name" or "runtime.max_turns".
+            "main_model.name" or "runtime.max_turns".
 
             If omitted, return the complete effective
             configuration.
@@ -42,7 +42,7 @@ def update_config(context: RunContextWrapper[AgentContext], key: str, value: str
     Args:
         key:
             Dotted config key, for example
-            "model.name" or "runtime.max_turns".
+            "main_model.name" or "runtime.max_turns".
 
         value:
             New string, boolean, integer, or floating-point value.

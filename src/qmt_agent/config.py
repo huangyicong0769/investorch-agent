@@ -24,9 +24,19 @@ RESTART_REQUIRED_KEYS = {
     "mcp.default_timeout_seconds",
     "mcp.drop_failed_servers",
     "mcp.include_server_in_tool_names",
-    "model.base_url",
-    "model.context_window_tokens",
-    "model.name",
+    "activity_model.api_key_secret",
+    "activity_model.base_url",
+    "activity_model.name",
+    "bootstrap_model.api_key_secret",
+    "bootstrap_model.base_url",
+    "bootstrap_model.name",
+    "main_model.api_key_secret",
+    "main_model.base_url",
+    "main_model.context_window_tokens",
+    "main_model.name",
+    "title_model.api_key_secret",
+    "title_model.base_url",
+    "title_model.name",
     "observability.sdk_tracing_enabled",
     "paths.state",
     "paths.workspace",
@@ -179,7 +189,7 @@ class AppConfig:
         Internal access.
 
         Example:
-            config["model.name"]
+            config["main_model.name"]
         """
         return self.get(key, redact=False)
 
@@ -465,9 +475,11 @@ def _require_number(data: dict[str, Any], key: str, *, minimum: float = 0) -> in
 
 def _validate_config_data(data: dict[str, Any], root: Path) -> None:
     _require_string(data, "paths.root")
-    _require_string(data, "model.name")
-    _require_string(data, "model.base_url")
-    _require_int(data, "model.context_window_tokens", minimum=1)
+    for section in ("main_model", "title_model", "activity_model", "bootstrap_model"):
+        _require_string(data, f"{section}.name")
+        _require_string(data, f"{section}.base_url")
+        _require_string(data, f"{section}.api_key_secret")
+    _require_int(data, "main_model.context_window_tokens", minimum=1)
 
     _require_int(data, "activity.max_user_message_chars", minimum=1)
     _require_int(data, "activity.max_reasoning_chars", minimum=1)
