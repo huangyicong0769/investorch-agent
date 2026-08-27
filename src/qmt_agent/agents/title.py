@@ -4,6 +4,7 @@ from pathlib import Path
 
 from agents import (
     Agent,
+    ModelSettings,
     OpenAIResponsesModel,
     Runner,
     SQLiteSession,
@@ -18,11 +19,12 @@ from .usage import TokenUsage
 logger = logging.getLogger(__name__)
 
 
-def create_title_agent(model: OpenAIResponsesModel,) -> Agent:
+def create_title_agent(model: OpenAIResponsesModel, model_settings: ModelSettings) -> Agent:
     return Agent(
         name="Session Title Agent",
         instructions=TITLE_AGENT_INSTRUCTIONS,
         model=model,
+        model_settings=model_settings,
     )
 
 

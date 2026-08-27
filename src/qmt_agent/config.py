@@ -14,6 +14,7 @@ import tomlkit
 REDACTED = "<redacted>"
 PROJECT_CONFIG_PATH = Path(__file__).resolve().parents[2] / "config" / "qmt.toml"
 REQUIRED_MODEL_AGENTS = ("main", "title", "activity", "bootstrap")
+REASONING_EFFORTS = frozenset(("none", "minimal", "low", "medium", "high", "xhigh", "max"))
 
 RESTART_REQUIRED_KEYS = {
     "backtest.rqalpha_bundle_dir",
@@ -46,6 +47,7 @@ class ModelConfig:
     name: str
     base_url: str
     api_key_secret: str
+    reasoning_effort: str
     context_window_tokens: int | None = None
 
 
@@ -210,6 +212,7 @@ class AppConfig:
             name=raw["name"],
             base_url=raw["base_url"],
             api_key_secret=raw["api_key_secret"],
+            reasoning_effort=raw["reasoning_effort"],
             context_window_tokens=raw.get("context_window_tokens"),
         )
 
@@ -531,6 +534,9 @@ def _validate_config_data(data: dict[str, Any], root: Path) -> None:
         _require_string(data, f"models.{agent}.name")
         _require_string(data, f"models.{agent}.base_url")
         _require_string(data, f"models.{agent}.api_key_secret")
+        reasoning_effort = _require_string(data, f"models.{agent}.reasoning_effort")
+        if reasoning_effort not in REASONING_EFFORTS:
+            raise ConfigError(f"models.{agent}.reasoning_effort is not supported")
         if "context_window_tokens" in model:
             _require_int(data, f"models.{agent}.context_window_tokens", minimum=1)
     _require_int(data, "models.main.context_window_tokens", minimum=1)

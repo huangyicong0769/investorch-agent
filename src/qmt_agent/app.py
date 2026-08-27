@@ -4,7 +4,7 @@ import uuid
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from agents import OpenAIResponsesModel, SQLiteSession, set_tracing_disabled
+from agents import ModelSettings, OpenAIResponsesModel, SQLiteSession, set_tracing_disabled
 from agents.mcp import MCPServer, MCPServerManager, MCPServerStdio
 from openai import AsyncOpenAI
 
@@ -49,13 +49,16 @@ def _load_agent_mcp_servers(config: AppConfig) -> list[MCPServer]:
     return [cnequity_server, *servers]
 
 
-def _create_model(config: AppConfig, agent: str) -> OpenAIResponsesModel:
+def _create_model(config: AppConfig, agent: str) -> tuple[OpenAIResponsesModel, ModelSettings]:
     model = config.model(agent)
     client = AsyncOpenAI(
         api_key=config.secret(model.api_key_secret),
         base_url=model.base_url,
     )
-    return OpenAIResponsesModel(model=model.name, openai_client=client)
+    return (
+        OpenAIResponsesModel(model=model.name, openai_client=client),
+        ModelSettings(reasoning={"effort": model.reasoning_effort}),
+    )
 
 
 async def _run_console(
@@ -147,7 +150,8 @@ async def _run_configured_app(
 
     if sync:
         logger.info("Bootstrap synchronization started")
-        agent = create_bootstrap_sync_agent(_create_model(config, "bootstrap"))
+        model, model_settings = _create_model(config, "bootstrap")
+        agent = create_bootstrap_sync_agent(model, model_settings)
 
         async def merge_target(target: Path, template: str, exists: bool) -> None:
             context = AgentContext(config=config, execution=ExecutionState())
@@ -174,7 +178,8 @@ async def _run_configured_app(
         session=SQLiteSession(uuid.uuid4().hex, config.sessions_db),
     )
     logger.info("Started session %s", state.session.session_id)
-    title_agent = create_title_agent(_create_model(config, "title"))
+    title_model, title_model_settings = _create_model(config, "title")
+    title_agent = create_title_agent(title_model, title_model_settings)
     journal = SessionJournal(
         config.session_journal_dir,
         ZoneInfo(config["runtime.default_timezone"]),
@@ -199,7 +204,8 @@ async def _run_configured_app(
             )
 
     if not plain:
-        activity_agent = create_activity_agent(_create_model(config, "activity"))
+        activity_model, activity_model_settings = _create_model(config, "activity")
+        activity_agent = create_activity_agent(activity_model, activity_model_settings)
         tui = QMTAgentTUI(
             state,
             config.session_journal_dir,
@@ -248,8 +254,10 @@ async def _run_configured_app(
         logger.info("Starting MCP server manager with %d configured servers", len(mcp_servers))
         async with MCPServerManager(mcp_servers, drop_failed_servers=config["mcp.drop_failed_servers"]) as mcp_manager:
             logger.info("MCP server manager started with %d active servers", len(mcp_manager.active_servers))
+            main_model, main_model_settings = _create_model(config, "main")
             agent = create_agent(
-                model=_create_model(config, "main"),
+                model=main_model,
+                model_settings=main_model_settings,
                 config=config,
                 mcp_servers=mcp_manager.active_servers,
             )

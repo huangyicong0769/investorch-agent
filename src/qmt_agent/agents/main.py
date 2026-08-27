@@ -1,4 +1,4 @@
-from agents import Agent, OpenAIResponsesModel
+from agents import Agent, ModelSettings, OpenAIResponsesModel
 from agents.mcp import MCPServer
 
 from qmt_agent import tools
@@ -10,6 +10,7 @@ from .prompts import MAIN_AGENT_INSTRUCTIONS
 
 def create_agent(
     model: OpenAIResponsesModel,
+    model_settings: ModelSettings,
     config: AppConfig,
     mcp_servers: list[MCPServer] | None = None,
 ) -> Agent[AgentContext]:
@@ -35,6 +36,7 @@ def create_agent(
         name="QMT Agent",
         instructions=MAIN_AGENT_INSTRUCTIONS,
         model=model,
+        model_settings=model_settings,
         tools=agent_tools,
         mcp_servers=mcp_servers or [],
         mcp_config={"include_server_in_tool_names": config["mcp.include_server_in_tool_names"]},

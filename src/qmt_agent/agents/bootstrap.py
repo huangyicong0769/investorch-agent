@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from agents import Agent, OpenAIResponsesModel, Runner
+from agents import Agent, ModelSettings, OpenAIResponsesModel, Runner
 
 from qmt_agent import tools
 from qmt_agent.context import AgentContext
@@ -11,11 +11,12 @@ from qmt_agent.context import AgentContext
 from .prompts import BOOTSTRAP_SYNC_INSTRUCTIONS
 
 
-def create_bootstrap_sync_agent(model: OpenAIResponsesModel) -> Agent[AgentContext]:
+def create_bootstrap_sync_agent(model: OpenAIResponsesModel, model_settings: ModelSettings) -> Agent[AgentContext]:
     return Agent[AgentContext](
         name="QMT Bootstrap Sync Agent",
         instructions=BOOTSTRAP_SYNC_INSTRUCTIONS,
         model=model,
+        model_settings=model_settings,
         tools=[tools.explore, tools.edit],
     )
 
