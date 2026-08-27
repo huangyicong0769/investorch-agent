@@ -8,6 +8,7 @@ dependencies = [
     "cnequity==0.7.3",
     "openai-agents>=0.20.0",
     "rqalpha==6.3.0",
+    "textual==8.2.8",
     "tomlkit>=0.15.1",
 ]
 
