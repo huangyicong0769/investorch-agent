@@ -178,6 +178,10 @@ class ChatTimeline(VerticalScroll):
         self._tool_steps.clear()
         self._recent_reasoning.clear()
 
+    def _finish_assistant_turn(self) -> None:
+        self._current_activity_group = None
+        self._current_assistant_turn = None
+
     async def _add_activity_step(self, step: ActivityStep) -> None:
         turn = await self._ensure_assistant_turn()
         if self._current_activity_group is None:
@@ -217,6 +221,7 @@ class ChatTimeline(VerticalScroll):
 
     async def add_notice(self, text: str) -> None:
         follow_output = self.is_vertical_scroll_end
+        self._finish_assistant_turn()
         await self.mount(SystemNotice(text))
         self._follow_output(follow_output)
 
@@ -225,6 +230,7 @@ class ChatTimeline(VerticalScroll):
             return
 
         follow_output = self.is_vertical_scroll_end
+        self._finish_assistant_turn()
         self._active_agent_name = name
         await self.mount(SystemNotice(f"Agent → {name}"))
         self._follow_output(follow_output)
