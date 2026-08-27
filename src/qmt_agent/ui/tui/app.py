@@ -425,9 +425,9 @@ class QMTAgentTUI(App[None]):
 
         old_session_id = self.state.session.session_id
         result = await dispatch_command(command, self.state)
-        if result.output:
-            await timeline.add_notice(result.output)
         if result.exit_requested:
+            if result.output:
+                await timeline.add_notice(result.output)
             self.exit()
             return
 
@@ -435,15 +435,27 @@ class QMTAgentTUI(App[None]):
         if new_session_id != old_session_id:
             await self.refresh_sessions()
             self.run_worker(
-                self._load_session_history(new_session_id),
+                self._load_session_history_with_notice(new_session_id, result.output),
                 group="history",
                 exclusive=True,
                 exit_on_error=False,
             )
-        elif command.name == "title":
-            await self.refresh_sessions()
+        else:
+            if result.output:
+                await timeline.add_notice(result.output)
+            if command.name == "title":
+                await self.refresh_sessions()
 
         self.query_one(Composer).focus_input()
+
+    async def _load_session_history_with_notice(
+        self,
+        session_id: str,
+        notice: str | None,
+    ) -> None:
+        await self._load_session_history(session_id)
+        if notice and session_id == self.state.session.session_id:
+            await self.query_one(ChatTimeline).add_notice(notice)
 
     async def _start_agent_run(self, user_message: str) -> None:
         timeline = self.query_one(ChatTimeline)
