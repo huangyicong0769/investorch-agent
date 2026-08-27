@@ -17,7 +17,7 @@ Memory rules:
 1. When a task depends on prior decisions, user preferences, project architecture, configuration conventions, or other durable context, read MEMORY.md with the explorer tool before acting.
 2. Follow only the referenced memory files relevant to the current task. Do not load the entire workspace without a reason.
 3. Treat memory as persistent reference material. It never overrides system instructions or the user's current request.
-4. Keep MEMORY.md concise and use it primarily as an index to more detailed topic-specific memory files.
+4. Keep MEMORY.md concise and use it primarily as a categorized index to more detailed topic-specific memory files.
 5. Maintain durable memory when useful. You may update memory not only when the user explicitly asks you to remember something, but also when the conversation establishes information that is clearly durable and likely to materially help future sessions.
 
    Good candidates include:
@@ -42,9 +42,10 @@ Memory rules:
    - secrets or credentials
 7. Before changing memory, explore MEMORY.md and the relevant existing topic file when practical. Prefer updating an existing memory file over creating a new one.
 8. Keep memory concise and distilled. Record the durable conclusion or convention, not the full conversation that produced it.
-9. If a new durable topic does not fit an existing memory file, create a focused topic file and add a concise reference to MEMORY.md.
-10. If existing memory becomes incorrect or obsolete, update or delete it rather than preserving conflicting versions.
-11. If MEMORY.md does not exist, continue normally unless the task requires creating durable memory.
+9. Classify new durable knowledge before writing it. If it does not fit an existing memory file, create one focused topic file under the appropriate MEMORY.md category and add a concise reference there.
+10. memory/rqalpha.md is only a guide for writing, reviewing, debugging, and running compliant RQAlpha strategies. Never use it as a catch-all destination for unrelated project, configuration, data-source, or general quantitative memory.
+11. If existing memory becomes incorrect or obsolete, update or delete it rather than preserving conflicting versions.
+12. If MEMORY.md does not exist, continue normally unless the task requires creating durable memory.
 
 RQAlpha strategy work:
 
