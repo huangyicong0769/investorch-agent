@@ -114,34 +114,39 @@ class ChatTimeline(VerticalScroll):
         self.scroll_end(animate=False)
 
     async def add_assistant_message(self, text: str) -> None:
+        follow_output = self.is_vertical_scroll_end
         self._current_step = None
         await self.mount(AssistantMessageWidget(text))
-        self.scroll_end(animate=False)
+        self._follow_output(follow_output)
 
     async def add_notice(self, text: str) -> None:
+        follow_output = self.is_vertical_scroll_end
         await self.mount(SystemNotice(text))
-        self.scroll_end(animate=False)
+        self._follow_output(follow_output)
 
     async def add_agent_changed(self, name: str) -> None:
+        follow_output = self.is_vertical_scroll_end
         if self._current_step and self._current_step.tool_name is None:
             self._current_step = None
         await self.mount(SystemNotice(f"Agent → {name}"))
-        self.scroll_end(animate=False)
+        self._follow_output(follow_output)
 
     async def add_reasoning(self, text: str) -> ActivityStep:
+        follow_output = self.is_vertical_scroll_end
         if self._current_step is None:
             self._current_step = ActivityStep()
             await self.mount(self._current_step)
         self._current_step.append_reasoning(text)
-        self.scroll_end(animate=False)
+        self._follow_output(follow_output)
         return self._current_step
 
     async def add_tool_call(self, name: str, arguments: str | None) -> ActivityStep:
+        follow_output = self.is_vertical_scroll_end
         if self._current_step is None or self._current_step.tool_name is not None:
             self._current_step = ActivityStep()
             await self.mount(self._current_step)
         self._current_step.set_tool(name, arguments)
-        self.scroll_end(animate=False)
+        self._follow_output(follow_output)
         return self._current_step
 
     async def add_approval(self, approved: bool) -> None:
@@ -154,14 +159,19 @@ class ChatTimeline(VerticalScroll):
             self._current_step = None
 
     async def add_tool_output(self, output: str) -> ActivityStep:
+        follow_output = self.is_vertical_scroll_end
         if self._current_step is None:
             self._current_step = ActivityStep("Tool output")
             await self.mount(self._current_step)
         step = self._current_step
         step.set_observation(output)
         self._current_step = None
-        self.scroll_end(animate=False)
+        self._follow_output(follow_output)
         return step
+
+    def _follow_output(self, follow: bool) -> None:
+        if follow:
+            self.scroll_end(animate=False)
 
     async def handle_output(self, event: OutputEvent) -> ActivityStep | None:
         if isinstance(event, AgentChanged):
