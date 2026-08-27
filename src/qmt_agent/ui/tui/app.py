@@ -1,11 +1,23 @@
+import asyncio
+import logging
+from pathlib import Path
+
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.message import Message
-from textual.widgets import Button, Label, Static, TextArea
+from textual.widgets import Button, Label, ListView, Static, TextArea
+
+from qmt_agent.commands import Command, dispatch_command, parse_command
+from qmt_agent.context import AppState
+from qmt_agent.journal import read_session_journal
+from qmt_agent.storage import get_session_title, list_sessions
 
 from .sidebar import SessionSidebar
 from .timeline import ChatTimeline
+
+logger = logging.getLogger(__name__)
+SESSION_MUTATION_COMMANDS = {"new", "resume", "clear"}
 
 
 class Composer(Vertical):
@@ -196,10 +208,13 @@ class QMTAgentTUI(App[None]):
     }
     """
 
-    def __init__(self, current_session_id: str, session_title: str | None = None) -> None:
+    def __init__(self, state: AppState, journal_dir: Path) -> None:
         super().__init__()
-        self.current_session_id = current_session_id
-        self.session_title = session_title
+        self.state = state
+        self.journal_dir = journal_dir
+        self.session_title: str | None = None
+        self._run_active = False
+        self._known_session_ids: set[str] = set()
 
     def compose(self) -> ComposeResult:
         yield Horizontal(
@@ -217,11 +232,42 @@ class QMTAgentTUI(App[None]):
 
     def on_mount(self) -> None:
         self.query_one(Composer).focus_input()
+        self.run_worker(
+            self._refresh_and_load_current(),
+            group="history",
+            exclusive=True,
+            exit_on_error=False,
+        )
 
     async def on_composer_submitted(self, event: Composer.Submitted) -> None:
         composer = self.query_one(Composer)
+        try:
+            command = parse_command(event.text)
+        except ValueError as exc:
+            await self.query_one(ChatTimeline).add_notice(f"Invalid command: {exc}")
+            return
+
+        if command is not None:
+            composer.clear()
+            await self._dispatch_command(command)
+            return
+
+        if self._run_active:
+            return
+
         composer.clear()
         await self.query_one(ChatTimeline).add_user_message(event.text)
+
+    async def on_list_view_selected(self, event: ListView.Selected) -> None:
+        item = event.item
+        session_id = getattr(item, "session_id", None)
+        if not isinstance(session_id, str) or session_id == self.state.session.session_id:
+            return
+        if self._run_active:
+            await self.query_one(ChatTimeline).add_notice("Cannot switch sessions while the Agent is running.")
+            return
+
+        await self._dispatch_command(Command("resume", (session_id,)))
 
     def action_toggle_sidebar(self) -> None:
         self.screen.toggle_class("sidebar-hidden")
@@ -229,9 +275,99 @@ class QMTAgentTUI(App[None]):
     def action_send_message(self) -> None:
         self.query_one(Composer).submit()
 
+    def action_quit(self) -> None:
+        if self._run_active:
+            self.notify("Wait for the active Agent run to finish before exiting.", severity="warning")
+            return
+        self.exit()
+
     def set_status(self, status: str) -> None:
         self.query_one("#run-status", Static).update(status)
 
     def set_session_title(self, title: str | None) -> None:
         self.session_title = title
         self.query_one("#session-heading", Static).update(title or "(untitled)")
+
+    async def refresh_sessions(self) -> None:
+        records = await asyncio.to_thread(list_sessions, self.state.config.sessions_db)
+        self._known_session_ids = {record.session_id for record in records}
+        current_session_id = self.state.session.session_id
+        await self.query_one(SessionSidebar).replace_sessions(records, current_session_id)
+        title = await asyncio.to_thread(
+            get_session_title,
+            self.state.config.sessions_db,
+            current_session_id,
+        )
+        self.set_session_title(title)
+
+    async def _refresh_and_load_current(self) -> None:
+        try:
+            await self.refresh_sessions()
+            await self._load_session_history(self.state.session.session_id)
+        except Exception:
+            logger.exception("Failed to initialize TUI session history")
+            await self.query_one(ChatTimeline).reset()
+            await self.query_one(ChatTimeline).add_notice("Unable to load session history. See the system log for details.")
+        finally:
+            self.query_one(Composer).focus_input()
+
+    async def _load_session_history(self, session_id: str) -> None:
+        timeline = self.query_one(ChatTimeline)
+        await timeline.reset()
+        await timeline.add_notice("Loading session history…")
+
+        try:
+            records = await asyncio.to_thread(read_session_journal, self.journal_dir, session_id)
+        except FileNotFoundError:
+            if session_id != self.state.session.session_id:
+                return
+            await timeline.reset()
+            if session_id in self._known_session_ids:
+                await timeline.add_notice("No journal history is available for this older session.")
+            else:
+                await timeline.add_notice("Ask QMT Agent anything.")
+            return
+        except Exception:
+            logger.exception("Failed to read session journal for session %s", session_id)
+            if session_id != self.state.session.session_id:
+                return
+            await timeline.reset()
+            await timeline.add_notice("Session history is unavailable because its journal is invalid. See the system log for details.")
+            return
+
+        if session_id != self.state.session.session_id:
+            return
+
+        if records:
+            await timeline.render_history(records)
+        else:
+            await timeline.reset()
+            await timeline.add_notice("Ask QMT Agent anything.")
+
+    async def _dispatch_command(self, command: Command) -> None:
+        timeline = self.query_one(ChatTimeline)
+        if self._run_active and command.name in SESSION_MUTATION_COMMANDS:
+            await timeline.add_notice(f"Cannot run /{command.name} while the Agent is running.")
+            return
+
+        old_session_id = self.state.session.session_id
+        result = await dispatch_command(command, self.state)
+        if result.output:
+            await timeline.add_notice(result.output)
+        if result.exit_requested:
+            self.exit()
+            return
+
+        new_session_id = self.state.session.session_id
+        if new_session_id != old_session_id:
+            await self.refresh_sessions()
+            self.run_worker(
+                self._load_session_history(new_session_id),
+                group="history",
+                exclusive=True,
+                exit_on_error=False,
+            )
+        elif command.name == "title":
+            await self.refresh_sessions()
+
+        self.query_one(Composer).focus_input()
