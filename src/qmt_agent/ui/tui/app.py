@@ -465,14 +465,15 @@ class QMTAgentTUI(App[None]):
         self._refresh_run_status()
 
     def _format_run_status(self) -> str:
+        status = f"{self._run_status} · Effort {self.state.config.model('main').reasoning_effort}"
         if self._run_started_at is None:
-            return self._run_status
+            return status
 
         elapsed_seconds = max(0, int(monotonic() - self._run_started_at))
         hours, remainder = divmod(elapsed_seconds, 3600)
         minutes, seconds = divmod(remainder, 60)
         elapsed = f"{hours:02}:{minutes:02}:{seconds:02}" if hours else f"{minutes:02}:{seconds:02}"
-        return f"{self._run_status} · {elapsed}"
+        return f"{status} · {elapsed}"
 
     def _refresh_run_status(self) -> None:
         self.query_one("#run-status", Static).update(self._format_run_status())
@@ -645,6 +646,8 @@ class QMTAgentTUI(App[None]):
         else:
             if result.output:
                 await timeline.add_notice(result.output)
+            if command.name == "effort":
+                self._refresh_run_status()
             if command.name == "title":
                 await self.refresh_sessions()
 
