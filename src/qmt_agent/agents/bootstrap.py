@@ -30,6 +30,7 @@ async def run_bootstrap_sync(
         agent,
         prompt,
         context=context,
+        max_turns=context.config["runtime.max_turns"],
         run_config={"tracing_disabled": not context.config["observability.sdk_tracing_enabled"]},
     )
 
@@ -46,6 +47,7 @@ async def run_bootstrap_sync(
             agent,
             state,
             context=context,
+            max_turns=context.config["runtime.max_turns"],
             run_config={"tracing_disabled": not context.config["observability.sdk_tracing_enabled"]},
         )
 

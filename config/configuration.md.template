@@ -77,6 +77,8 @@ The runtime policy sections below are TOML-only and must be present in the effec
 
 They are validated at startup and again before an update is persisted. `background_job_dir` and `backtest.artifact_dir` must remain relative to the configured workspace.
 
+`runtime.max_turns` is passed explicitly to both normal Agent runs and bootstrap synchronization runs, including approval resumes. No Agent run relies on the Agents SDK default turn limit.
+
 ## Backtest Configuration
 
 The `[backtest]` section owns application-level RQAlpha data selection, artifact placement, defaults, inspection limits, and execution policy.
