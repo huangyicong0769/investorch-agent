@@ -13,6 +13,7 @@ import tomlkit
 
 REDACTED = "<redacted>"
 PROJECT_CONFIG_PATH = Path(__file__).resolve().parents[2] / "config" / "qmt.toml"
+REQUIRED_MODEL_AGENTS = ("main", "title", "activity", "bootstrap")
 
 RESTART_REQUIRED_KEYS = {
     "backtest.rqalpha_bundle_dir",
@@ -518,12 +519,12 @@ def _require_number(data: dict[str, Any], key: str, *, minimum: float = 0) -> in
 
 def _validate_config_data(data: dict[str, Any], root: Path) -> None:
     _require_string(data, "paths.root")
-    main_model = _required_config_value(data, "models.main")
-    if not isinstance(main_model, dict):
-        raise ConfigError("models.main must be a table")
     all_models = data.get("models")
     if not isinstance(all_models, dict):
         raise ConfigError("models must be a table")
+    for agent in REQUIRED_MODEL_AGENTS:
+        if agent not in all_models:
+            raise ConfigError(f"Missing required model: {agent}")
     for agent, model in all_models.items():
         if not isinstance(agent, str) or not agent or "." in agent or not isinstance(model, dict):
             raise ConfigError("models entries must be named tables")
