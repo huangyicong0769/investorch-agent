@@ -21,7 +21,7 @@ Daily frequency and the stock account are capability contracts. T+1, matching, p
 
 The process configuration snapshot selects one of two backtest data paths.
 
-With `backtest.use_cnequity=false`, strategy API calls flow through `RQAlpha DataProxy -> BaseDataSource -> RQAlpha bundle`. When `inspect_rqalpha_data` is available, use it as the authority for native bundle instrument metadata and observed daily-bar ranges. Do not infer RQAlpha coverage from CNEquity MCP results.
+With `backtest.use_cnequity=false`, strategy API calls flow through `RQAlpha DataProxy -> BaseDataSource -> RQAlpha bundle`, and the built-in CNEquity MCP server is not started. When `inspect_rqalpha_data` is available, use it as the authority for native bundle instrument metadata and observed daily-bar ranges. Do not infer RQAlpha coverage from independently configured CNEquity sources.
 
 With `backtest.use_cnequity=true`, strategy API calls flow through `RQAlpha DataProxy -> QMTDataSource`. For Shanghai and Shenzhen stocks, CNEquity supplies daily OHLCV, turnover, and adjustment factors, while native RQAlpha data retains instruments, calendars, limits, corporate actions, suspension evidence, and fallback market semantics. The RQAlpha inspection Tool is not exposed in this mode.
 

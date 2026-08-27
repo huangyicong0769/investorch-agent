@@ -27,7 +27,7 @@ A persistent runtime update is written to `<root>/qmt.toml` and therefore become
 
 `get_config` reports the value currently used by this process. A persisted restart-required update therefore continues to report the old value until the application is restarted.
 
-`backtest.use_cnequity` controls both the RQAlpha backtest overlay and the Agent's RQAlpha bundle inspection Tool surface. Restarting applies both changes together.
+`backtest.use_cnequity` controls the RQAlpha backtest overlay, the Agent's RQAlpha bundle inspection Tool surface, and whether the built-in CNEquity MCP server is started. Restarting applies all three changes together.
 
 ## Root Directory
 
@@ -83,7 +83,7 @@ The `[backtest]` section owns application-level RQAlpha data selection, artifact
 
 Data and artifact keys:
 
-- `use_cnequity` selects the CNEquity data-source overlay and controls whether `inspect_rqalpha_data` is exposed to the Agent.
+- `use_cnequity` selects the CNEquity data-source overlay, controls whether `inspect_rqalpha_data` is exposed to the Agent, and enables or disables the built-in CNEquity MCP server.
 - `rqalpha_bundle_dir` locates the native RQAlpha bundle under `paths.root`.
 - `artifact_dir` locates generated backtest artifacts under the configured workspace.
 - `default_initial_cash` is used only when a `run_backtest` call omits `initial_cash`; an explicit tool argument wins for that run.
@@ -115,6 +115,8 @@ The `[cnequity]` section contains application-owned CNEquity integration policy:
 - `mcp_cache_tools_list` controls tools-list caching for the built-in CNEquity MCP connection.
 
 Both keys are restart-required. The config path may be absent during generic configuration loading; an operation that requires CNEquity validates the file and data coverage. CNEquity dataset names, exchange mapping, and adjustment-factor semantics are adapter contracts and remain in code.
+
+The built-in CNEquity MCP server is composed only when `backtest.use_cnequity=true`. With `false`, QMT Agent neither constructs nor starts that server; independently configured MCP registry entries are unaffected.
 
 ## Observability Configuration
 

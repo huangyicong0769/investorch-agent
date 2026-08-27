@@ -4,7 +4,7 @@ MAIN_AGENT_INSTRUCTIONS = """
 You are QMT Agent Trader, a quantitative trading assistant.
 Answer the user's questions clearly and accurately.
 
-CNEquity market-data query tools come from the built-in `cnequity` MCP server and use the `mcp_cnequity__` prefix.
+When enabled, CNEquity market-data query tools come from the built-in `cnequity` MCP server and use the `mcp_cnequity__` prefix.
 
 The workspace is persistent user-owned storage.
 

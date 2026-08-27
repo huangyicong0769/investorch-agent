@@ -5,7 +5,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from agents import OpenAIResponsesModel, SQLiteSession, set_tracing_disabled
-from agents.mcp import MCPServerManager, MCPServerStdio
+from agents.mcp import MCPServer, MCPServerManager, MCPServerStdio
 from openai import AsyncOpenAI
 
 from qmt_agent.agents import (
@@ -23,12 +23,30 @@ from qmt_agent.context import AgentContext, AppState, ExecutionState
 from qmt_agent.initializer import initialize, sync_bootstrap_files
 from qmt_agent.journal import SessionJournal
 from qmt_agent.log import configure_logging
-from qmt_agent.mcp import load_mcp_servers
+from qmt_agent.mcp import load_mcp_servers as load_configured_mcp_servers
 from qmt_agent.output import OutputEvent
 from qmt_agent.tools import close_execution, start_execution
 from qmt_agent.ui import ConsoleRenderer, ConsoleUI, QMTAgentTUI
 
 logger = logging.getLogger(__name__)
+
+
+def _load_agent_mcp_servers(config: AppConfig) -> list[MCPServer]:
+    servers = load_configured_mcp_servers(
+        config.mcp_config_path,
+        config.secrets,
+        config["mcp.default_timeout_seconds"],
+    )
+    if not config["backtest.use_cnequity"]:
+        return servers
+
+    cnequity_server = MCPServerStdio(
+        name="cnequity",
+        params={"command": sys.executable, "args": ["-m", "cnequity", "mcp", "--config", str(config.cnequity_config_path)], "cwd": str(config.root)},
+        cache_tools_list=config["cnequity.mcp_cache_tools_list"],
+        client_session_timeout_seconds=config["mcp.default_timeout_seconds"],
+    )
+    return [cnequity_server, *servers]
 
 
 def _create_model(config: AppConfig) -> OpenAIResponsesModel:
@@ -145,13 +163,7 @@ async def _run_configured_app(
         ui.write(f"Bootstrap files synchronized: created={result.created}, updated={result.updated}, unchanged={result.unchanged}, backup={backup}")
         return
 
-    cnequity_server = MCPServerStdio(
-        name="cnequity",
-        params={"command": sys.executable, "args": ["-m", "cnequity", "mcp", "--config", str(config.cnequity_config_path)], "cwd": str(config.root)},
-        cache_tools_list=config["cnequity.mcp_cache_tools_list"],
-        client_session_timeout_seconds=config["mcp.default_timeout_seconds"],
-    )
-    mcp_servers = [cnequity_server, *load_mcp_servers(config.mcp_config_path, config.secrets, config["mcp.default_timeout_seconds"])]
+    mcp_servers = _load_agent_mcp_servers(config)
 
     state = AppState(
         config=config,
