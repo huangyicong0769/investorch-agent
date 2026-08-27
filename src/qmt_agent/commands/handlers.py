@@ -5,7 +5,7 @@ from dataclasses import dataclass
 
 from agents import SQLiteSession
 
-from qmt_agent.config import REASONING_EFFORTS
+from qmt_agent.config import PERMISSION_MODES, REASONING_EFFORTS
 from qmt_agent.context import AppState
 from qmt_agent.storage import (
     delete_session_metadata,
@@ -28,6 +28,7 @@ HELP = (
     "  /resume [prefix]   List or resume a session.\n"
     "  /title [title]     Show or set the session title.\n"
     "  /effort [level]    Show or set Main reasoning effort.\n"
+    "  /permission [mode] Show or set tool permission mode.\n"
     "  /clear             Clear the current session.\n"
     "  /ps                Show background commands.\n"
     "  /exit              Exit QMT Agent."
@@ -125,6 +126,19 @@ async def dispatch_command(command: Command, state: AppState) -> CommandResult:
 
             state.main_reasoning_effort = effort
             return CommandResult(f"Main reasoning effort set to: {effort}")
+
+        case "permission":
+            if not command.args:
+                return CommandResult(f"Permission mode: {state.permission_mode}")
+            if len(command.args) != 1:
+                return CommandResult("Usage: /permission [manual|review]")
+
+            mode = command.args[0].lower()
+            if mode not in PERMISSION_MODES:
+                return CommandResult(f"Unsupported permission mode: {command.args[0]}")
+
+            state.permission_mode = mode
+            return CommandResult(f"Permission mode set to: {mode}")
 
         case "clear":
             session_id = state.session.session_id

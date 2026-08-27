@@ -73,3 +73,4 @@ class AppState:
     execution: ExecutionState
     session: SQLiteSession
     main_reasoning_effort: str
+    permission_mode: str

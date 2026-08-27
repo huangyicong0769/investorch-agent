@@ -26,7 +26,7 @@ from .sidebar import SessionSidebar
 from .timeline import ActivityStep, ChatTimeline, format_json
 
 logger = logging.getLogger(__name__)
-RUN_BLOCKED_COMMANDS = {"new", "resume", "clear", "effort"}
+RUN_BLOCKED_COMMANDS = {"new", "resume", "clear", "effort", "permission"}
 RecordUserMessage = Callable[[str, str], Awaitable[None]]
 RecordActivityLabel = Callable[[str, int, str], Awaitable[None]]
 

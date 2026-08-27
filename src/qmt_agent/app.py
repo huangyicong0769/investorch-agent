@@ -177,6 +177,7 @@ async def _run_configured_app(
         execution=ExecutionState(),
         session=SQLiteSession(uuid.uuid4().hex, config.sessions_db),
         main_reasoning_effort=config.model("main").reasoning_effort,
+        permission_mode=config["permission.mode"],
     )
     logger.info("Started session %s", state.session.session_id)
     title_model, title_model_settings = _create_model(config, "title")
