@@ -1,5 +1,5 @@
-from html import escape
 import re
+from html import escape
 
 from agents import Agent, OpenAIResponsesModel, Runner
 
