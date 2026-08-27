@@ -10,8 +10,6 @@ name = "deepseek-v4-flash"
 base_url = "https://api.deepseek.com"
 
 [observability]
-summary_enabled = true
-summary_threshold = 1000
 sdk_tracing_enabled = false
 
 [logging]

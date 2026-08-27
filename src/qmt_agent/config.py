@@ -458,7 +458,6 @@ def _validate_config_data(data: dict[str, Any], root: Path) -> None:
     _require_string(data, "model.name")
     _require_string(data, "model.base_url")
 
-    _require_bool(data, "observability.summary_enabled")
     _require_bool(data, "observability.sdk_tracing_enabled")
     _require_bool(data, "backtest.use_cnequity")
     _require_bool(data, "backtest.stock_t1")
@@ -501,7 +500,6 @@ def _validate_config_data(data: dict[str, Any], root: Path) -> None:
     _resolve_under_root(root, _require_string(data, "backtest.rqalpha_bundle_dir"), "backtest.rqalpha_bundle_dir")
     _resolve_under_root(workspace, _require_string(data, "backtest.artifact_dir"), "backtest.artifact_dir")
 
-    _require_int(data, "observability.summary_threshold", minimum=1)
     timezone = _require_string(data, "runtime.default_timezone")
     _require_int(data, "runtime.max_turns", minimum=1)
 

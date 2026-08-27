@@ -1,10 +1,5 @@
 import asyncio
 import json
-import logging
-
-from agents import Agent, Runner
-
-from qmt_agent.config import AppConfig
 from qmt_agent.output import (
     AgentChanged,
     AssistantMessage,
@@ -13,9 +8,6 @@ from qmt_agent.output import (
     ToolCalled,
     ToolOutput,
 )
-
-logger = logging.getLogger(__name__)
-
 
 class ConsoleUI:
     def write(self, text: str) -> None:
@@ -50,62 +42,24 @@ class ConsoleUI:
 
 
 class ConsoleRenderer:
-    def __init__(
-        self,
-        ui: ConsoleUI,
-        summary_agent: Agent,
-        config: AppConfig,
-    ) -> None:
+    def __init__(self, ui: ConsoleUI) -> None:
         self._ui = ui
-        self._summary_agent = summary_agent
-        self._config = config
 
     async def handle(self, event: OutputEvent) -> None:
         if isinstance(event, AgentChanged):
             self._ui.write(f"\n[agent] {event.name}")
         elif isinstance(event, Reasoning):
-            await self._render_trace_content("reasoning", event.text)
+            self._render_trace_content("reasoning", event.text)
         elif isinstance(event, ToolCalled):
             self._render_tool_call(event)
         elif isinstance(event, ToolOutput):
-            await self._render_trace_content("observation", event.output)
+            self._render_trace_content("observation", event.output)
         elif isinstance(event, AssistantMessage):
             self._ui.write(f"Agent: {event.text}")
 
-    async def _summarize_trace(self, kind: str, text: str) -> str:
-        result = await Runner.run(
-            self._summary_agent,
-            f"Content type: {kind}.\nSummarize the following execution content:\n{text}",
-        )
-        summary = str(result.final_output).strip()
-
-        if not summary:
-            raise ValueError("Summary agent returned an empty summary.")
-
-        return summary
-
-    async def _render_trace_content(self, kind: str, text: str) -> None:
-        if (
-            not self._config["observability.summary_enabled"]
-            or len(text) <= self._config["observability.summary_threshold"]
-        ):
-            self._ui.write(f"\n[{kind}]")
-            self._ui.write(text)
-            return
-
-        try:
-            summary = await self._summarize_trace(kind, text)
-        except Exception as e:
-            # Presentation failure should never break the main agent run.
-            logger.warning("Summary generation failed: %s", e)
-            self._ui.write(f"\n[{kind}]")
-            self._ui.write(text)
-            self._ui.write(f"[summary failed: {e}]")
-            return
-
-        self._ui.write(f"\n[{kind} summary]")
-        self._ui.write(summary)
-        self._ui.write(f"[original: {len(text)} chars]")
+    def _render_trace_content(self, kind: str, text: str) -> None:
+        self._ui.write(f"\n[{kind}]")
+        self._ui.write(text)
 
     def _render_tool_call(self, event: ToolCalled) -> None:
         self._ui.write(f"\n[action] {event.name}")

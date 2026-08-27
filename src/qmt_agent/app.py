@@ -13,7 +13,6 @@ from qmt_agent.agents import (
     build_bootstrap_sync_prompt,
     create_agent,
     create_bootstrap_sync_agent,
-    create_summary_agent,
     create_title_agent,
     run_bootstrap_sync,
 )
@@ -159,12 +158,7 @@ async def _run_configured_app(
     )
     logger.info("Started session %s", state.session.session_id)
     title_agent = create_title_agent(model)
-    summary_agent = create_summary_agent(model)
-    renderer = ConsoleRenderer(
-        ui,
-        summary_agent,
-        config,
-    )
+    renderer = ConsoleRenderer(ui)
     journal = SessionJournal(
         config.session_journal_dir,
         ZoneInfo(config["runtime.default_timezone"]),
