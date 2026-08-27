@@ -36,6 +36,7 @@ RESTART_REQUIRED_KEYS = {
     "tui.composer_height",
     "tui.message_author_margin_bottom",
     "tui.message_author_margin_top",
+    "tui.run_timer_interval_seconds",
     "tui.sidebar_min_width",
     "tui.sidebar_width",
 }
@@ -485,6 +486,9 @@ def _validate_config_data(data: dict[str, Any], root: Path) -> None:
     message_author_margin_bottom = _require_int(data, "tui.message_author_margin_bottom", minimum=1)
     if message_author_margin_top <= message_author_margin_bottom:
         raise ConfigError("tui.message_author_margin_top must be > tui.message_author_margin_bottom")
+    run_timer_interval = _require_number(data, "tui.run_timer_interval_seconds", minimum=0.0)
+    if run_timer_interval <= 0:
+        raise ConfigError("tui.run_timer_interval_seconds must be greater than 0")
 
     _require_bool(data, "observability.sdk_tracing_enabled")
     _require_bool(data, "backtest.use_cnequity")

@@ -4,6 +4,7 @@ import asyncio
 import logging
 from collections.abc import Awaitable, Callable
 from pathlib import Path
+from time import monotonic
 from typing import TYPE_CHECKING
 
 from textual.app import App, ComposeResult
@@ -358,6 +359,8 @@ class QMTAgentTUI(App[None]):
         self.agent_loop: AgentLoop | None = None
         self.session_title: str | None = None
         self._run_active = False
+        self._run_status = "● Ready"
+        self._run_started_at: float | None = None
         self._known_session_ids: set[str] = set()
         self._current_user_message = ""
         self._session_usage: dict[str, TokenUsage] = {}
@@ -369,7 +372,7 @@ class QMTAgentTUI(App[None]):
             Horizontal(
                 Label("QMT Agent", id="brand"),
                 Label(self.session_title or "(untitled)", id="session-heading"),
-                Label("● Ready", id="run-status"),
+                Label(self._format_run_status(), id="run-status"),
                 id="top-heading",
             ),
             Label(self._format_usage_status(), id="usage-status"),
@@ -400,6 +403,10 @@ class QMTAgentTUI(App[None]):
         sidebar = self.query_one(SessionSidebar)
         sidebar.styles.width = self.state.config["tui.sidebar_width"]
         sidebar.styles.min_width = self.state.config["tui.sidebar_min_width"]
+        self.set_interval(
+            self.state.config["tui.run_timer_interval_seconds"],
+            self._refresh_run_status,
+        )
         self.query_one(Composer).focus_input()
         self.run_worker(
             self._refresh_and_load_current(),
@@ -454,7 +461,21 @@ class QMTAgentTUI(App[None]):
         self.exit()
 
     def set_status(self, status: str) -> None:
-        self.query_one("#run-status", Static).update(status)
+        self._run_status = status
+        self._refresh_run_status()
+
+    def _format_run_status(self) -> str:
+        if self._run_started_at is None:
+            return self._run_status
+
+        elapsed_seconds = max(0, int(monotonic() - self._run_started_at))
+        hours, remainder = divmod(elapsed_seconds, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        elapsed = f"{hours:02}:{minutes:02}:{seconds:02}" if hours else f"{minutes:02}:{seconds:02}"
+        return f"{self._run_status} · {elapsed}"
+
+    def _refresh_run_status(self) -> None:
+        self.query_one("#run-status", Static).update(self._format_run_status())
 
     def set_session_title(self, title: str | None) -> None:
         self.session_title = title
@@ -681,6 +702,10 @@ class QMTAgentTUI(App[None]):
             self.query_one(Composer).focus_input()
 
     def _set_run_controls(self, *, running: bool) -> None:
+        if running and self._run_started_at is None:
+            self._run_started_at = monotonic()
+        elif not running:
+            self._run_started_at = None
         self.set_status("● Running" if running else "● Ready")
         self.query_one(Composer).set_running(running)
         self.query_one(SessionSidebar).disabled = running

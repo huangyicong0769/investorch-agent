@@ -25,6 +25,7 @@ activity_detail_max_height = 12
 approval_arguments_max_height = 12
 message_author_margin_top = 3
 message_author_margin_bottom = 2
+run_timer_interval_seconds = 1.0
 
 [observability]
 sdk_tracing_enabled = false
