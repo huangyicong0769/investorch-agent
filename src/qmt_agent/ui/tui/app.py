@@ -153,7 +153,8 @@ class QMTAgentTUI(App[None]):
     }
 
     #top-bar {
-        height: 3;
+        height: auto;
+        min-height: 3;
         padding: 0 1;
         background: $panel;
         border-bottom: solid $primary-background;
@@ -180,7 +181,9 @@ class QMTAgentTUI(App[None]):
     }
 
     #usage-status {
-        height: 1;
+        width: 100%;
+        height: auto;
+        text-wrap: wrap;
         color: $text-muted;
     }
 
