@@ -4,6 +4,7 @@ import math
 import os
 import tomllib
 from copy import deepcopy
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -24,19 +25,6 @@ RESTART_REQUIRED_KEYS = {
     "mcp.default_timeout_seconds",
     "mcp.drop_failed_servers",
     "mcp.include_server_in_tool_names",
-    "activity_model.api_key_secret",
-    "activity_model.base_url",
-    "activity_model.name",
-    "bootstrap_model.api_key_secret",
-    "bootstrap_model.base_url",
-    "bootstrap_model.name",
-    "main_model.api_key_secret",
-    "main_model.base_url",
-    "main_model.context_window_tokens",
-    "main_model.name",
-    "title_model.api_key_secret",
-    "title_model.base_url",
-    "title_model.name",
     "observability.sdk_tracing_enabled",
     "paths.state",
     "paths.workspace",
@@ -51,12 +39,21 @@ RESTART_REQUIRED_KEYS = {
     "tui.sidebar_width",
 }
 
+
+@dataclass(frozen=True, slots=True)
+class ModelConfig:
+    name: str
+    base_url: str
+    api_key_secret: str
+    context_window_tokens: int | None = None
+
+
 class ConfigError(ValueError):
     pass
 
 
 class AppConfig:
-    def __init__(self, data: dict[str, dict[str, Any]], project_config_path: Path) -> None:
+    def __init__(self, data: dict[str, Any], project_config_path: Path) -> None:
         self._data = data
         self.project_config_path = project_config_path
 
@@ -189,22 +186,31 @@ class AppConfig:
         Internal access.
 
         Example:
-            config["main_model.name"]
+            config["models.main.name"]
         """
         return self.get(key, redact=False)
 
     def get(self, key: str, *, redact: bool = True) -> Any:
-        section, name = _split_key(key)
+        parts = _split_key(key)
+        value = _config_value(self._data, parts, key)
 
-        try:
-            value = self._data[section][name]
-        except KeyError as exc:
-            raise ConfigError(f"Unknown config key: {key}") from exc
-
-        if redact and section == "secrets":
+        if redact and parts[0] == "secrets":
             return REDACTED
 
         return value
+
+    def model(self, agent: str) -> ModelConfig:
+        raw = self[f"models.{agent}"]
+
+        if not isinstance(raw, dict):
+            raise ConfigError(f"models.{agent} must be a table")
+
+        return ModelConfig(
+            name=raw["name"],
+            base_url=raw["base_url"],
+            api_key_secret=raw["api_key_secret"],
+            context_window_tokens=raw.get("context_window_tokens"),
+        )
 
     def secret(self, name: str) -> str:
         """
@@ -251,18 +257,16 @@ class AppConfig:
         if key.startswith("bootstrap."):
             raise ConfigError("bootstrap cannot be changed at runtime")
 
-        if key in RESTART_REQUIRED_KEYS and not persist:
+        if _requires_restart(key) and not persist:
             raise ConfigError(f"{key} requires persist=true and an application restart")
 
-        section, name = _split_key(key)
+        parts = _split_key(key)
+        section = parts[0]
 
         # New arbitrary config fields are not allowed.
         # New secrets are allowed.
         if section != "secrets":
-            if section not in self._data or name not in self._data[section]:
-                raise ConfigError(f"Unknown config key: {key}")
-
-            current = self._data[section][name]
+            current = _config_value(self._data, parts, key)
 
             if key == "mcp.default_timeout_seconds":
                 if isinstance(value, bool) or not isinstance(value, (int, float)):
@@ -271,11 +275,13 @@ class AppConfig:
                 raise ConfigError(f"{key} must be {type(current).__name__}")
 
         else:
+            if len(parts) != 2:
+                raise ConfigError(f"Invalid secret key: {key}")
             if not isinstance(value, str):
                 raise ConfigError("Secrets must be strings")
 
         candidate = deepcopy(self._data)
-        candidate.setdefault(section, {})[name] = value
+        _set_config_value(candidate, parts, value)
 
         # Validate the complete candidate before touching memory or disk.
         self._validate_data(candidate)
@@ -285,7 +291,7 @@ class AppConfig:
         if persist:
             self._persist(key, value)
 
-        requires_restart = key in RESTART_REQUIRED_KEYS
+        requires_restart = _requires_restart(key)
 
         if not requires_restart:
             self._data = candidate
@@ -298,7 +304,7 @@ class AppConfig:
             "requires_restart": requires_restart,
         }
 
-    def _validate_data(self, data: dict[str, dict[str, Any]]) -> None:
+    def _validate_data(self, data: dict[str, Any]) -> None:
         _validate_config_data(data, self.root)
 
     def _resolve_root_path(self, key: str) -> Path:
@@ -312,12 +318,15 @@ class AppConfig:
         else:
             document = tomlkit.document()
 
-        section, name = _split_key(key)
+        parts = _split_key(key)
+        table = document
 
-        if section not in document:
-            document[section] = tomlkit.table()
+        for part in parts[:-1]:
+            if part not in table:
+                table[part] = tomlkit.table()
+            table = table[part]
 
-        document[section][name] = value
+        table[parts[-1]] = value
 
         path.write_text(
             tomlkit.dumps(document),
@@ -395,46 +404,80 @@ def _read_toml(path: Path,) -> dict[str, Any]:
         raise ConfigError(f"Invalid TOML in {path}: {exc}") from exc
 
 
-def _merge(*configs: dict[str, Any]) -> dict[str, dict[str, Any]]:
+def _merge(*configs: dict[str, Any]) -> dict[str, Any]:
     """
-    Merge shallow TOML sections.
+    Merge TOML tables recursively.
 
     Later configs override earlier configs.
     """
-    result: dict[str, dict[str, Any]] = {}
+    result: dict[str, Any] = {}
 
     for config in configs:
         for section, values in config.items():
             if not isinstance(values, dict):
                 raise ConfigError(f"Config section [{section}] must be a table")
 
-            result.setdefault(section, {}).update(values)
+            existing = result.get(section)
+            if existing is None:
+                result[section] = deepcopy(values)
+            elif isinstance(existing, dict):
+                _merge_table(existing, values)
+            else:
+                raise ConfigError(f"Config section [{section}] must be a table")
 
     return result
 
 
-def _split_key(key: str) -> tuple[str, str]:
-    try:
-        section, name = key.split(".", 1)
-    except ValueError as exc:
-        raise ConfigError(f"Invalid config key: {key}") from exc
+def _merge_table(target: dict[str, Any], override: dict[str, Any]) -> None:
+    for key, value in override.items():
+        current = target.get(key)
+        if isinstance(current, dict) and isinstance(value, dict):
+            _merge_table(current, value)
+        else:
+            target[key] = deepcopy(value)
 
-    if not section or not name:
+
+def _split_key(key: str) -> tuple[str, ...]:
+    parts = tuple(key.split("."))
+
+    if len(parts) < 2 or any(not part for part in parts):
         raise ConfigError(f"Invalid config key: {key}")
 
-    return section, name
+    return parts
+
+
+def _config_value(data: dict[str, Any], parts: tuple[str, ...], key: str) -> Any:
+    value: Any = data
+
+    for part in parts:
+        if not isinstance(value, dict) or part not in value:
+            raise ConfigError(f"Unknown config key: {key}")
+        value = value[part]
+
+    return value
+
+
+def _set_config_value(data: dict[str, Any], parts: tuple[str, ...], value: Any) -> None:
+    table = data
+
+    for part in parts[:-1]:
+        child = table.setdefault(part, {})
+        if not isinstance(child, dict):
+            raise ConfigError(f"Config key is not a table: {part}")
+        table = child
+
+    table[parts[-1]] = value
+
+
+def _requires_restart(key: str) -> bool:
+    return key in RESTART_REQUIRED_KEYS or key.startswith("models.")
 
 
 def _required_config_value(data: dict[str, Any], key: str) -> Any:
-    section, name = _split_key(key)
-
     try:
-        values = data[section]
-        value = values[name]
-    except (KeyError, TypeError) as exc:
+        return _config_value(data, _split_key(key), key)
+    except ConfigError as exc:
         raise ConfigError(f"Missing required config key: {key}") from exc
-
-    return value
 
 
 def _require_string(data: dict[str, Any], key: str) -> str:
@@ -475,11 +518,21 @@ def _require_number(data: dict[str, Any], key: str, *, minimum: float = 0) -> in
 
 def _validate_config_data(data: dict[str, Any], root: Path) -> None:
     _require_string(data, "paths.root")
-    for section in ("main_model", "title_model", "activity_model", "bootstrap_model"):
-        _require_string(data, f"{section}.name")
-        _require_string(data, f"{section}.base_url")
-        _require_string(data, f"{section}.api_key_secret")
-    _require_int(data, "main_model.context_window_tokens", minimum=1)
+    main_model = _required_config_value(data, "models.main")
+    if not isinstance(main_model, dict):
+        raise ConfigError("models.main must be a table")
+    all_models = data.get("models")
+    if not isinstance(all_models, dict):
+        raise ConfigError("models must be a table")
+    for agent, model in all_models.items():
+        if not isinstance(agent, str) or not agent or "." in agent or not isinstance(model, dict):
+            raise ConfigError("models entries must be named tables")
+        _require_string(data, f"models.{agent}.name")
+        _require_string(data, f"models.{agent}.base_url")
+        _require_string(data, f"models.{agent}.api_key_secret")
+        if "context_window_tokens" in model:
+            _require_int(data, f"models.{agent}.context_window_tokens", minimum=1)
+    _require_int(data, "models.main.context_window_tokens", minimum=1)
 
     _require_int(data, "activity.max_user_message_chars", minimum=1)
     _require_int(data, "activity.max_reasoning_chars", minimum=1)

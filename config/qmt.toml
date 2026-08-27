@@ -5,23 +5,23 @@ root = "~/.qmt-agent-trader"
 workspace = "workspace"
 state = ".qmt"
 
-[main_model]
+[models.main]
 name = "deepseek-v4-flash"
 base_url = "https://api.deepseek.com"
 api_key_secret = "DEEPSEEK_API_KEY"
 context_window_tokens = 1000000
 
-[title_model]
+[models.title]
 name = "deepseek-v4-flash"
 base_url = "https://api.deepseek.com"
 api_key_secret = "DEEPSEEK_API_KEY"
 
-[activity_model]
+[models.activity]
 name = "deepseek-v4-flash"
 base_url = "https://api.deepseek.com"
 api_key_secret = "DEEPSEEK_API_KEY"
 
-[bootstrap_model]
+[models.bootstrap]
 name = "deepseek-v4-flash"
 base_url = "https://api.deepseek.com"
 api_key_secret = "DEEPSEEK_API_KEY"

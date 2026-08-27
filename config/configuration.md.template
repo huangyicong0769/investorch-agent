@@ -22,7 +22,7 @@ A persistent runtime update is written to `<root>/qmt.toml` and therefore become
 | lifecycle | keys | behavior |
 | --- | --- | --- |
 | immutable | `paths.root`, `bootstrap.*` | Cannot be changed through runtime configuration. |
-| restart-required | `paths.workspace`, `paths.state`, `main_model.*`, `title_model.*`, `activity_model.*`, `bootstrap_model.*`, `tui.*`, `logging.*`, `mcp.*`, `cnequity.*`, `backtest.use_cnequity`, `backtest.rqalpha_bundle_dir`, `observability.sdk_tracing_enabled` | `persist=false` is rejected. `persist=true` writes the next-start value but does not change the current runtime; restart QMT Agent to apply it. |
+| restart-required | `paths.workspace`, `paths.state`, `models.*`, `tui.*`, `logging.*`, `mcp.*`, `cnequity.*`, `backtest.use_cnequity`, `backtest.rqalpha_bundle_dir`, `observability.sdk_tracing_enabled` | `persist=false` is rejected. `persist=true` writes the next-start value but does not change the current runtime; restart QMT Agent to apply it. |
 | hot | `runtime.*`, `activity.*`, execution/explore/calculate limits, `backtest.artifact_dir`, and backtest execution policy | Validated and applied to the current `AppConfig`; persistence is optional. The next applicable operation uses the new value. |
 
 `get_config` reports the value currently used by this process. A persisted restart-required update therefore continues to report the old value until the application is restarted.
@@ -63,7 +63,7 @@ Project configuration may be committed to Git and must not contain secrets.
 The runtime policy sections below are TOML-only and must be present in the effective configuration:
 
 - `[runtime].default_timezone`
-- `[main_model]`, `[title_model]`, `[activity_model]`, and `[bootstrap_model]` model connection settings
+- `[models.<agent>]` model connection settings
 - `[activity]` prompt input and label length limits
 - `[tui]` sidebar, composer, Activity, and approval dimensions
 - `[backtest]` data paths, artifact path, execution policy, default cash, and inspection limit
@@ -77,7 +77,7 @@ The runtime policy sections below are TOML-only and must be present in the effec
 
 They are validated at startup and again before an update is persisted. `background_job_dir` and `backtest.artifact_dir` must remain relative to the configured workspace.
 
-Each Agent owns an independent model section. Every section defines `name`, `base_url`, and `api_key_secret`; the secret field names a key in the local `[secrets]` table rather than containing a credential. `main_model.context_window_tokens` supplies the Main Agent capacity shown by the TUI. Normal startup constructs Main and Title models, Textual mode additionally constructs Activity, and `--sync` constructs only Bootstrap. All model settings are restart-required.
+Each Agent owns an independent `[models.<agent>]` table represented by `ModelConfig`. Every model defines `name`, `base_url`, and `api_key_secret`; the secret field names a key in the local `[secrets]` table rather than containing a credential. A model may also define `context_window_tokens`, and `models.main.context_window_tokens` is required for the Main Agent capacity shown by the TUI. Adding another Agent requires only another model table and a call to `AppConfig.model(agent)`; validation and restart handling apply to every model table without another list of model fields. Normal startup constructs Main and Title models, Textual mode additionally constructs Activity, and `--sync` constructs only Bootstrap. All model settings are restart-required.
 
 `runtime.max_turns` is passed explicitly to both normal Agent runs and bootstrap synchronization runs, including approval resumes. No Agent run relies on the Agents SDK default turn limit.
 
@@ -132,13 +132,13 @@ The built-in CNEquity MCP server is composed only when `backtest.use_cnequity=tr
 
 `qmt-agent` starts the Textual chat workspace by default. The session list occupies the full workspace height below the header. The conversation pane to its right contains the timeline and composer, so the input region never extends underneath the session list. User and assistant messages remain the primary timeline, with raw reasoning, tool arguments, approval state, and tool output inside collapsible activity steps. Approval requests replace the normal composer controls in the current input region; they do not open a modal screen.
 
-`main_model.context_window_tokens` supplies the configured Main Agent capacity shown by the interface. The `[activity]` section owns Activity Agent prompt truncation and label length limits. The `[tui]` section owns user-adjustable sidebar and composer dimensions, message-author spacing, run-timer refresh frequency, and maximum heights for the Activity title list, Activity detail, and inline approval arguments. `message_author_margin_top` must be greater than `message_author_margin_bottom`, so each `You` or `QMT Agent` heading has stronger separation from the preceding timeline content than from its own message body. While an Agent run is active, the header shows elapsed wall-clock time; approval waiting remains part of the same run and does not reset the timer. The timer disappears when the run returns to Ready. TUI settings are restart-required because the widget tree and timers apply them when the application mounts; Activity limits are hot and apply to the next generated label.
+`models.main.context_window_tokens` supplies the configured Main Agent capacity shown by the interface. The `[activity]` section owns Activity Agent prompt truncation and label length limits. The `[tui]` section owns user-adjustable sidebar and composer dimensions, message-author spacing, run-timer refresh frequency, and maximum heights for the Activity title list, Activity detail, and inline approval arguments. `message_author_margin_top` must be greater than `message_author_margin_bottom`, so each `You` or `QMT Agent` heading has stronger separation from the preceding timeline content than from its own message body. While an Agent run is active, the header shows elapsed wall-clock time; approval waiting remains part of the same run and does not reset the timer. The timer disappears when the run returns to Ready. TUI settings are restart-required because the widget tree and timers apply them when the application mounts; Activity limits are hot and apply to the next generated label.
 
 `qmt-agent --plain` starts the verbose Console fallback. Plain mode renders raw reasoning and tool output directly; it does not create the Activity Agent, generate activity labels, or backfill labels for historical sessions.
 
 Activity labels are presentation-only descriptions of what the Main Agent is doing. They do not enter the Main Agent context and do not replace raw execution content.
 
-The TUI shows per-session token usage observed during the current application process: requests, input, cached input, cache-write input, output, reasoning output, and total tokens. These totals include Main Agent runs plus title and Activity Agent calls made for that session. Cached and cache-write counts are input-token breakdowns, and reasoning is an output-token breakdown; they are not added to total a second time. `Main context` compares the Main Agent's last physical request total with `main_model.context_window_tokens`; cumulative multi-request totals are deliberately not used as context occupancy. Usage display state is not persisted across application restarts.
+The TUI shows per-session token usage observed during the current application process: requests, input, cached input, cache-write input, output, reasoning output, and total tokens. These totals include Main Agent runs plus title and Activity Agent calls made for that session. Cached and cache-write counts are input-token breakdowns, and reasoning is an output-token breakdown; they are not added to total a second time. `Main context` compares the Main Agent's last physical request total with `models.main.context_window_tokens`; cumulative multi-request totals are deliberately not used as context occupancy. Usage display state is not persisted across application restarts.
 
 ## Log and Session State Ownership
 
