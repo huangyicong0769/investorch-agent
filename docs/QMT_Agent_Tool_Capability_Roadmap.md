@@ -76,11 +76,11 @@
 - SQLite Session
 - Session 创建、恢复、清除、标题
 - Title Agent
-- Summary Agent
+- Activity Agent
 - Todo / Plan-Solve
 - Streaming runtime observability
 - reasoning / action / observation 展示
-- 长 reasoning / tool output 的 Summary Agent 压缩
+- Textual TUI 中可折叠的完整 reasoning / tool output
 - MCP Server Manager
 
 这些属于 Application Runtime / Agent Runtime，不应因为 Tool Roadmap 再包装一次。
@@ -332,7 +332,7 @@ explore(operation="list" | "read" | "search")
 - 支持 `.txt` / `.md` / 常见配置文本
 - 对超大文件提供合理的大小 / 行数控制
 
-大输出仍由现有 observability Summary Agent 负责“人类展示压缩”；不要因为 CLI 显示问题改变 Tool 实际返回给 Main Agent 的内容语义。
+大输出在 Textual TUI 中默认折叠并允许展开完整 raw 内容；不要因为显示问题改变 Tool 实际返回给 Main Agent 的内容语义。
 
 #### `explore(operation="search")`
 
@@ -609,7 +609,7 @@ export_backtest_result
 - tool error 是否清楚返回给 Agent
 - 并行 tool calls
 - observability
-- 长输出 Summary
+- 长输出折叠与完整 raw 保留
 - source / URL 保留
 
 而不是建立：
@@ -700,7 +700,7 @@ cancel_order
 Session 创建 / 恢复 / 删除
 Session Title
 Title Agent
-Summary Agent
+Activity Agent
 MCP 生命周期管理
 observability renderer
 tracing
@@ -841,7 +841,7 @@ Trading Agent
 [✓] Plan-Solve prompt
 [✓] runtime observability
 [✓] reasoning/action/observation
-[✓] Summary Agent for long traces
+[✓] Activity Agent labels + collapsible raw traces
 [✓] Tavily MCP
 ```
 
@@ -1021,11 +1021,11 @@ CapabilityRouter
 Agent reasoning
 Tool name
 Tool arguments
-Tool output / summary
+Tool output
 Tool error
 ```
 
-长输出允许 Summary Agent 压缩人类展示，但不能让显示层偷偷改变 Main Agent 实际得到的结果。
+长输出允许在 TUI 中默认折叠，但展开内容与 Journal 必须保留完整 raw 数据，显示层不能改变 Main Agent 实际得到的结果。
 
 ### 18.6 测试
 

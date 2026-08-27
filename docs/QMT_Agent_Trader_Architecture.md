@@ -921,7 +921,15 @@ storage -> agents
 
 ---
 
-## 20. CNEquity 集成
+## 20. Presentation 与执行事实
+
+默认 `qmt-agent` 使用 Textual TUI，`qmt-agent --plain` 保留完整 raw Console fallback。TUI 是 presentation layer，只消费 `OutputEvent`，不会进入 `AgentLoop` 或改变 Main Agent runtime。
+
+每个 session 的 JSONL Journal 保存 raw user message、reasoning、tool call/output、approval 与 final assistant message。Activity Agent 只为每个 live `ToolCalled` 异步生成一句操作标签，并以 `activity_label target_seq=<tool_called seq>` 追加为 derived annotation。它不使用 Tool 或 SDK Session，不进入 Main Agent context，也不阻塞 stream。
+
+TUI 历史直接全量读取 JSONL；缺少 annotation 时显示真实 tool name，缺少旧 session Journal 时仍可通过 SDK `sessions.db` resume。当前没有 projection、FTS、EventBus 或第三层 UI 数据库。
+
+## 21. CNEquity 集成
 
 CNEquity 作为 QMT Agent Trader 的运行时依赖安装，但其运维由用户自行管理。
 
@@ -937,7 +945,7 @@ QMT 不管理 CNEquity 配置、ingestion、retry、repair、status、locking �
 
 ---
 
-## 21. 总结
+## 22. 总结
 
 QMT Agent Trader v0.2 的核心思想：
 

@@ -23,7 +23,7 @@ A persistent runtime update is written to `<root>/qmt.toml` and therefore become
 | --- | --- | --- |
 | immutable | `paths.root`, `bootstrap.*` | Cannot be changed through runtime configuration. |
 | restart-required | `paths.workspace`, `paths.state`, `model.*`, `logging.*`, `mcp.*`, `cnequity.*`, `backtest.use_cnequity`, `backtest.rqalpha_bundle_dir`, `observability.sdk_tracing_enabled` | `persist=false` is rejected. `persist=true` writes the next-start value but does not change the current runtime; restart QMT Agent to apply it. |
-| hot | `runtime.*`, summary settings, execution/explore/calculate limits, `backtest.artifact_dir`, and backtest execution policy | Validated and applied to the current `AppConfig`; persistence is optional. The next applicable operation uses the new value. |
+| hot | `runtime.*`, execution/explore/calculate limits, `backtest.artifact_dir`, and backtest execution policy | Validated and applied to the current `AppConfig`; persistence is optional. The next applicable operation uses the new value. |
 
 `get_config` reports the value currently used by this process. A persisted restart-required update therefore continues to report the old value until the application is restarted.
 
@@ -68,7 +68,7 @@ The runtime policy sections below are TOML-only and must be present in the effec
 - `[execution].default_timeout_seconds`, `max_timeout_seconds`, and `background_job_dir`
 - `[explore].max_full_read_bytes`, `max_read_chars`, `max_search_results`, and `max_search_snippet_chars`
 - `[calculate].max_expression_chars`, `max_nodes`, `max_integer_bits`, and `max_abs_exponent`
-- `[observability].summary_threshold` and `sdk_tracing_enabled`
+- `[observability].sdk_tracing_enabled`
 - `[logging].level`, `max_bytes`, and `backup_count`
 - `[mcp].default_timeout_seconds`, `drop_failed_servers`, and `include_server_in_tool_names`
 
@@ -115,16 +115,25 @@ Both keys are restart-required. The config path may be absent during generic con
 
 ## Observability Configuration
 
-`observability.summary_enabled` and `observability.summary_threshold` control application summary behavior and are hot.
 `observability.sdk_tracing_enabled` uses positive `enabled` semantics and is restart-required because SDK tracing is initialized globally at process startup. Normal runtime and bootstrap Agent runs use the same process AppConfig policy.
+
+## User Interface
+
+`qmt-agent` starts the Textual chat workspace by default. It presents user and assistant messages as the primary timeline and keeps raw reasoning, tool arguments, approval state, and tool output inside collapsible activity steps.
+
+`qmt-agent --plain` starts the verbose Console fallback. Plain mode renders raw reasoning and tool output directly; it does not create the Activity Agent, generate activity labels, or backfill labels for historical sessions.
+
+Activity labels are presentation-only descriptions of what the Main Agent is doing. They do not enter the Main Agent context and do not replace raw execution content.
 
 ## Log and Session State Ownership
 
 The `[logging]` section controls the application diagnostic log level, rotation size, and retained backup count. These settings are restart-required. The active UTF-8 log is stored at `<state>/logs/qmt-agent.log`; it contains application lifecycle and failure diagnostics, not full user messages, reasoning, assistant answers, tool arguments, tool output, or secrets.
 
-Each chat session has an authoritative append-only event journal at `<state>/sessions/<full-session-id>.jsonl`. Journal records preserve raw user messages, semantic Agent output, and approval decisions with per-session sequence numbers. Console summaries never replace the raw journal content, and slash commands are not chat events.
+Each chat session has an authoritative append-only event journal at `<state>/sessions/<full-session-id>.jsonl`. Journal records preserve raw user messages, semantic Agent output, and approval decisions with per-session sequence numbers. Slash commands are not chat events.
 
-`<state>/sessions.db` remains owned by the OpenAI Agents SDK for model conversation continuation. Existing application session metadata remains there for now, but the database is not the journal. Future UI indexes or projections may be rebuilt from the JSONL journals; no projection is part of the current state layer.
+An `activity_label` record is a derived display annotation. Its `target_seq` refers to the `seq` of the corresponding `tool_called` record. Labels may arrive later than their target and may be deleted without changing execution truth or model continuation. The Textual history view reads the complete JSONL file directly, uses the last valid label for a target, and falls back to the raw tool name when no label exists.
+
+`<state>/sessions.db` remains owned by the OpenAI Agents SDK for model conversation continuation. Existing application session metadata remains there for now, but the database is not the journal. There is no UI projection, search index, or activity cache database.
 
 ## Local Configuration
 
