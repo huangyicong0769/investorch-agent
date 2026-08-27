@@ -23,6 +23,8 @@ composer_height = 7
 activity_panel_max_height = 8
 activity_detail_max_height = 12
 approval_arguments_max_height = 12
+message_author_margin_top = 3
+message_author_margin_bottom = 2
 
 [observability]
 sdk_tracing_enabled = false

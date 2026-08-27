@@ -23,18 +23,22 @@ def format_json(text: str | None) -> str:
 
 
 class UserMessageWidget(Vertical):
-    def __init__(self, text: str) -> None:
+    def __init__(self, text: str, author_margin_top: int, author_margin_bottom: int) -> None:
+        author = Label("You", classes="message-author")
+        author.styles.margin = (author_margin_top, 0, author_margin_bottom, 0)
         super().__init__(
-            Label("You", classes="message-author"),
+            author,
             Static(text, markup=False, classes="message-content"),
             classes="user-message",
         )
 
 
 class AssistantMessageWidget(Vertical):
-    def __init__(self, text: str) -> None:
+    def __init__(self, text: str, author_margin_top: int, author_margin_bottom: int) -> None:
+        author = Label("QMT Agent", classes="message-author")
+        author.styles.margin = (author_margin_top, 0, author_margin_bottom, 0)
         super().__init__(
-            Label("QMT Agent", classes="message-author"),
+            author,
             Markdown(text, classes="assistant-markdown"),
             classes="assistant-message",
         )
@@ -144,6 +148,8 @@ class ChatTimeline(VerticalScroll):
         self,
         activity_panel_max_height: int,
         activity_detail_max_height: int,
+        message_author_margin_top: int,
+        message_author_margin_bottom: int,
         initial_agent_name: str | None = None,
         *children,
         **kwargs,
@@ -151,6 +157,8 @@ class ChatTimeline(VerticalScroll):
         super().__init__(*children, **kwargs)
         self._activity_panel_max_height = activity_panel_max_height
         self._activity_detail_max_height = activity_detail_max_height
+        self._message_author_margin_top = message_author_margin_top
+        self._message_author_margin_bottom = message_author_margin_bottom
         self._initial_agent_name = initial_agent_name
         self._active_agent_name = initial_agent_name
         self._current_activity_group: ActivityGroup | None = None
@@ -173,13 +181,25 @@ class ChatTimeline(VerticalScroll):
     async def add_user_message(self, text: str) -> None:
         self._finish_activity()
         self._active_agent_name = self._initial_agent_name
-        await self.mount(UserMessageWidget(text))
+        await self.mount(
+            UserMessageWidget(
+                text,
+                self._message_author_margin_top,
+                self._message_author_margin_bottom,
+            )
+        )
         self.scroll_end(animate=False)
 
     async def add_assistant_message(self, text: str) -> None:
         follow_output = self.is_vertical_scroll_end
         self._finish_activity()
-        await self.mount(AssistantMessageWidget(text))
+        await self.mount(
+            AssistantMessageWidget(
+                text,
+                self._message_author_margin_top,
+                self._message_author_margin_bottom,
+            )
+        )
         self._follow_output(follow_output)
 
     async def add_notice(self, text: str) -> None:

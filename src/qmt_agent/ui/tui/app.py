@@ -381,6 +381,8 @@ class QMTAgentTUI(App[None]):
                 ChatTimeline(
                     self.state.config["tui.activity_panel_max_height"],
                     self.state.config["tui.activity_detail_max_height"],
+                    self.state.config["tui.message_author_margin_top"],
+                    self.state.config["tui.message_author_margin_bottom"],
                     initial_agent_name=self._main_agent_name,
                     id="timeline",
                 ),

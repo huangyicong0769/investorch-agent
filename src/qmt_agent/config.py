@@ -34,6 +34,8 @@ RESTART_REQUIRED_KEYS = {
     "tui.activity_panel_max_height",
     "tui.approval_arguments_max_height",
     "tui.composer_height",
+    "tui.message_author_margin_bottom",
+    "tui.message_author_margin_top",
     "tui.sidebar_min_width",
     "tui.sidebar_width",
 }
@@ -479,6 +481,10 @@ def _validate_config_data(data: dict[str, Any], root: Path) -> None:
     _require_int(data, "tui.activity_panel_max_height", minimum=1)
     _require_int(data, "tui.activity_detail_max_height", minimum=1)
     _require_int(data, "tui.approval_arguments_max_height", minimum=1)
+    message_author_margin_top = _require_int(data, "tui.message_author_margin_top", minimum=1)
+    message_author_margin_bottom = _require_int(data, "tui.message_author_margin_bottom", minimum=1)
+    if message_author_margin_top <= message_author_margin_bottom:
+        raise ConfigError("tui.message_author_margin_top must be > tui.message_author_margin_bottom")
 
     _require_bool(data, "observability.sdk_tracing_enabled")
     _require_bool(data, "backtest.use_cnequity")
