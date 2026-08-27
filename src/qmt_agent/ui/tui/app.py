@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Horizontal, Vertical
+from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.message import Message
 from textual.widgets import Button, Label, ListView, Static, TextArea
 
@@ -21,9 +21,8 @@ from qmt_agent.journal import read_session_journal
 from qmt_agent.output import OutputEvent, ToolCalled
 from qmt_agent.storage import get_session_title, list_sessions
 
-from .approval import ApprovalScreen
 from .sidebar import SessionSidebar
-from .timeline import ActivityStep, ChatTimeline
+from .timeline import ActivityStep, ChatTimeline, format_json
 
 logger = logging.getLogger(__name__)
 SESSION_MUTATION_COMMANDS = {"new", "resume", "clear"}
@@ -40,18 +39,46 @@ class Composer(Vertical):
             super().__init__()
             self.text = text
 
+    def __init__(self, normal_height: int, approval_arguments_max_height: int, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self._normal_height = normal_height
+        self._approval_arguments_max_height = approval_arguments_max_height
+        self._approval_future: asyncio.Future[bool] | None = None
+
     def compose(self) -> ComposeResult:
-        yield TextArea(
-            placeholder="输入消息……",
-            show_line_numbers=False,
-            soft_wrap=True,
-            id="composer-input",
+        yield Vertical(
+            TextArea(
+                placeholder="输入消息……",
+                show_line_numbers=False,
+                soft_wrap=True,
+                id="composer-input",
+            ),
+            Horizontal(
+                Label("Ctrl+Enter / Ctrl+S to send", id="send-hint"),
+                Button("Send", variant="primary", id="send-button"),
+                id="composer-actions",
+            ),
+            id="composer-normal",
         )
-        yield Horizontal(
-            Label("Ctrl+Enter / Ctrl+S to send", id="send-hint"),
-            Button("Send", variant="primary", id="send-button"),
-            id="composer-actions",
+        yield Vertical(
+            Label("Approval required", id="approval-title"),
+            Static(id="approval-tool", markup=False),
+            VerticalScroll(
+                Static(id="approval-arguments", markup=False),
+                id="approval-arguments-scroll",
+            ),
+            Horizontal(
+                Button("Reject", variant="error", id="reject-button"),
+                Button("Approve", variant="success", id="approve-button"),
+                id="approval-actions",
+            ),
+            id="composer-approval",
         )
+
+    def on_mount(self) -> None:
+        self.styles.height = self._normal_height
+        self.query_one("#approval-arguments-scroll").styles.max_height = self._approval_arguments_max_height
+        self.query_one("#composer-approval").display = False
 
     @property
     def text(self) -> str:
@@ -68,9 +95,45 @@ class Composer(Vertical):
         if text.strip():
             self.post_message(self.Submitted(text))
 
+    def set_running(self, running: bool) -> None:
+        self.query_one("#composer-input", TextArea).disabled = running
+        self.query_one("#send-button", Button).disabled = running
+
+    async def request_approval(self, tool_name: str, arguments: str | None) -> bool:
+        if self._approval_future is not None and not self._approval_future.done():
+            raise RuntimeError("An approval request is already active")
+
+        future = asyncio.get_running_loop().create_future()
+        self._approval_future = future
+        formatted = format_json(arguments)
+        self.query_one("#approval-tool", Static).update(f"Tool · {tool_name}")
+        self.query_one("#approval-arguments", Static).update(formatted)
+        self.query_one("#approval-arguments-scroll").display = bool(formatted)
+        self.query_one("#composer-normal").display = False
+        self.query_one("#composer-approval").display = True
+        self.styles.height = "auto"
+        self.query_one("#reject-button", Button).focus()
+
+        try:
+            return await future
+        finally:
+            if self._approval_future is future:
+                self._approval_future = None
+            self.query_one("#composer-approval").display = False
+            self.query_one("#composer-normal").display = True
+            self.styles.height = self._normal_height
+
+    def resolve_approval(self, approved: bool) -> None:
+        if self._approval_future is not None and not self._approval_future.done():
+            self._approval_future.set_result(approved)
+
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "send-button":
             self.submit()
+        elif event.button.id == "approve-button":
+            self.resolve_approval(True)
+        elif event.button.id == "reject-button":
+            self.resolve_approval(False)
 
 
 class QMTAgentTUI(App[None]):
@@ -79,6 +142,7 @@ class QMTAgentTUI(App[None]):
         Binding("ctrl+b", "toggle_sidebar", "Toggle sidebar"),
         Binding("ctrl+enter", "send_message", "Send"),
         Binding("ctrl+s", "send_message", "Send"),
+        Binding("escape", "reject_approval", "Reject approval", show=False),
         Binding("ctrl+q", "quit", "Quit"),
     ]
     CSS = """
@@ -207,7 +271,7 @@ class QMTAgentTUI(App[None]):
     }
 
     #composer-input {
-        height: 4;
+        height: 1fr;
         border: none;
     }
 
@@ -224,6 +288,32 @@ class QMTAgentTUI(App[None]):
 
     #send-button {
         min-width: 10;
+    }
+
+    #composer-normal, #composer-approval {
+        height: auto;
+    }
+
+    #approval-title {
+        text-style: bold;
+    }
+
+    #approval-tool {
+        color: $warning;
+    }
+
+    #approval-arguments-scroll, #approval-arguments {
+        height: auto;
+    }
+
+    #approval-actions {
+        height: 3;
+        align-horizontal: right;
+    }
+
+    #reject-button, #approve-button {
+        min-width: 12;
+        margin-left: 1;
     }
 
     .sidebar-hidden #session-sidebar {
@@ -269,7 +359,11 @@ class QMTAgentTUI(App[None]):
             ChatTimeline(id="timeline"),
             id="workspace",
         )
-        yield Composer(id="composer")
+        yield Composer(
+            self.state.config["tui.composer_height"],
+            self.state.config["tui.approval_arguments_max_height"],
+            id="composer",
+        )
 
     def on_mount(self) -> None:
         self.query_one(Composer).focus_input()
@@ -315,6 +409,9 @@ class QMTAgentTUI(App[None]):
 
     def action_send_message(self) -> None:
         self.query_one(Composer).submit()
+
+    def action_reject_approval(self) -> None:
+        self.query_one(Composer).resolve_approval(False)
 
     def action_quit(self) -> None:
         if self._run_active:
@@ -397,9 +494,9 @@ class QMTAgentTUI(App[None]):
     async def request_tool_approval(self, tool_name: str, arguments: str | None) -> bool:
         self.set_status("● Waiting approval")
         try:
-            approved = bool(await self.push_screen_wait(ApprovalScreen(tool_name, arguments)))
+            approved = await self.query_one(Composer).request_approval(tool_name, arguments)
         except Exception:
-            logger.exception("Approval modal failed for tool %s", tool_name)
+            logger.exception("Inline approval failed for tool %s", tool_name)
             approved = False
         finally:
             self.set_status("● Running" if self._run_active else "● Ready")
@@ -550,7 +647,7 @@ class QMTAgentTUI(App[None]):
 
     def _set_run_controls(self, *, running: bool) -> None:
         self.set_status("● Running" if running else "● Ready")
-        self.query_one(Composer).disabled = running
+        self.query_one(Composer).set_running(running)
         self.query_one(SessionSidebar).disabled = running
 
     async def _generate_step_activity(

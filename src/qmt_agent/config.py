@@ -475,7 +475,7 @@ def _validate_config_data(data: dict[str, Any], root: Path) -> None:
     sidebar_min_width = _require_int(data, "tui.sidebar_min_width", minimum=1)
     if sidebar_min_width > sidebar_width:
         raise ConfigError("tui.sidebar_min_width must be <= tui.sidebar_width")
-    _require_int(data, "tui.composer_height", minimum=3)
+    _require_int(data, "tui.composer_height", minimum=4)
     _require_int(data, "tui.activity_panel_height", minimum=1)
     _require_int(data, "tui.activity_detail_max_height", minimum=1)
     _require_int(data, "tui.approval_arguments_max_height", minimum=1)
