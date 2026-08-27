@@ -115,6 +115,10 @@ async def _run_configured_app(
     sync_force: bool,
     plain: bool,
 ) -> None:
+    def report_sync_progress(index: int, total: int, target: Path, status: str) -> None:
+        relative_target = target.relative_to(config.workspace_dir)
+        ui.write(f"[{index}/{total}] {status.capitalize()} {relative_target}")
+
     if initialized and not sync_force:
         logger.info("First initialization completed at %s", config.root)
         ui.write(
@@ -125,7 +129,7 @@ async def _run_configured_app(
 
     if sync_force:
         logger.info("Bootstrap force synchronization started")
-        result = await sync_bootstrap_files(config, force=True)
+        result = await sync_bootstrap_files(config, force=True, progress=report_sync_progress)
         backup = result.backup_dir or "none"
         logger.info(
             "Bootstrap force synchronization completed: created=%d updated=%d unchanged=%d backup=%s",
@@ -151,7 +155,7 @@ async def _run_configured_app(
             prompt = build_bootstrap_sync_prompt(target, config.workspace_dir, template, exists)
             await run_bootstrap_sync(agent, context, prompt, target)
 
-        result = await sync_bootstrap_files(config, merge_target)
+        result = await sync_bootstrap_files(config, merge_target, progress=report_sync_progress)
         backup = result.backup_dir or "none"
         logger.info(
             "Bootstrap synchronization completed: created=%d updated=%d unchanged=%d backup=%s",

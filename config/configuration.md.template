@@ -79,6 +79,8 @@ They are validated at startup and again before an update is persisted. `backgrou
 
 `runtime.max_turns` is passed explicitly to both normal Agent runs and bootstrap synchronization runs, including approval resumes. No Agent run relies on the Agents SDK default turn limit.
 
+`qmt-agent --sync` and `qmt-agent --sync-force` report per-file progress with the target's position, total target count, workspace-relative path, and `syncing`, `created`, `updated`, `unchanged`, or `failed` status. A changed file emits `syncing` before the potentially long operation and its final status afterward.
+
 ## Backtest Configuration
 
 The `[backtest]` section owns application-level RQAlpha data selection, artifact placement, defaults, inspection limits, and execution policy.

@@ -39,6 +39,7 @@ class _BootstrapTarget:
 
 
 BootstrapMergeCallback = Callable[[Path, str, bool], Awaitable[None]]
+BootstrapProgressCallback = Callable[[int, int, Path, str], None]
 
 
 def initialize(config: AppConfig, *, copy_bootstrap: bool = True) -> bool:
@@ -89,6 +90,7 @@ async def sync_bootstrap_files(
     merge: BootstrapMergeCallback | None = None,
     *,
     force: bool = False,
+    progress: BootstrapProgressCallback | None = None,
 ) -> BootstrapSyncResult:
     """Synchronize bootstrap templates through a merge callback or forced replacement."""
     if merge is None and not force:
@@ -101,9 +103,12 @@ async def sync_bootstrap_files(
     unchanged = 0
 
     try:
-        for entry in entries:
+        total = len(entries)
+        for index, entry in enumerate(entries, start=1):
             if entry.existed and entry.original == entry.template_bytes:
                 unchanged += 1
+                if progress:
+                    progress(index, total, entry.target, "unchanged")
                 continue
 
             if entry.existed and backup_dir is None:
@@ -112,6 +117,8 @@ async def sync_bootstrap_files(
             backup_path = _backup_target(config.workspace_dir, backup_dir, entry)
 
             try:
+                if progress:
+                    progress(index, total, entry.target, "syncing")
                 if force:
                     _atomic_write(entry.target, entry.template_bytes)
                 else:
@@ -120,6 +127,8 @@ async def sync_bootstrap_files(
                 _validate_bootstrap_target(entry.target)
                 current = entry.target.read_bytes()
             except Exception as exc:
+                if progress:
+                    progress(index, total, entry.target, "failed")
                 try:
                     _restore_bootstrap_target(entry, backup_path)
                 except Exception as restore_exc:
@@ -138,12 +147,18 @@ async def sync_bootstrap_files(
             if entry.existed:
                 if current == entry.original:
                     unchanged += 1
+                    status = "unchanged"
                     if backup_path:
                         _remove_backup(backup_path, backup_dir)
                 else:
                     updated += 1
+                    status = "updated"
             else:
                 created += 1
+                status = "created"
+
+            if progress:
+                progress(index, total, entry.target, status)
 
         if updated == 0 and backup_dir and _remove_empty_backup_dir(backup_dir):
             backup_dir = None
