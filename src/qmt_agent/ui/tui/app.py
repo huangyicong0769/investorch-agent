@@ -84,6 +84,9 @@ class Composer(Vertical):
             super().__init__()
             self.approved = approved
 
+    class StopRequested(Message):
+        pass
+
     def __init__(self, normal_height: int, approval_arguments_max_height: int, **kwargs) -> None:
         super().__init__(**kwargs)
         self._normal_height = normal_height
@@ -100,6 +103,7 @@ class Composer(Vertical):
             ),
             Horizontal(
                 Label("Ctrl+Enter / Ctrl+S to send", id="send-hint"),
+                Button("Stop", variant="error", id="stop-button"),
                 Button("Send", variant="primary", id="send-button"),
                 id="composer-actions",
             ),
@@ -149,14 +153,21 @@ class Composer(Vertical):
         *,
         loading: bool,
         running: bool,
+        run_phase: str | None,
         follow_up_behavior: str,
     ) -> None:
         self._loading = loading
         self.query_one("#composer-input", TextArea).disabled = loading
         self.query_one("#send-button", Button).disabled = loading
 
+        stopping = run_phase == "stopping"
+        self.query_one("#stop-button", Button).display = running
+        self.query_one("#stop-button", Button).disabled = stopping
+
         if loading:
             hint = "Loading session history…"
+        elif stopping:
+            hint = "Stopping current Run…"
         elif running and follow_up_behavior == "steer":
             hint = "Ctrl+Enter / Ctrl+S to send · Follow-ups steer current Run"
         elif running:
@@ -198,6 +209,8 @@ class Composer(Vertical):
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "send-button":
             self.submit()
+        elif event.button.id == "stop-button":
+            self.post_message(self.StopRequested())
         elif event.button.id == "approve-button":
             self.resolve_approval(True)
         elif event.button.id == "reject-button":
@@ -210,6 +223,7 @@ class QMTAgentTUI(App[None]):
         Binding("ctrl+b", "toggle_sidebar", "Toggle sidebar"),
         Binding("ctrl+enter", "send_message", "Send"),
         Binding("ctrl+s", "send_message", "Send"),
+        Binding("ctrl+g", "stop_run", "Stop Run"),
         Binding("escape", "reject_approval", "Reject approval", show=False),
         Binding("ctrl+q", "quit", "Quit"),
     ]
@@ -374,8 +388,12 @@ class QMTAgentTUI(App[None]):
         content-align: left middle;
     }
 
-    #send-button {
+    #send-button, #stop-button {
         min-width: 10;
+    }
+
+    #stop-button {
+        margin-left: 1;
     }
 
     #composer-normal, #composer-approval {
@@ -560,6 +578,9 @@ class QMTAgentTUI(App[None]):
     def action_send_message(self) -> None:
         self.query_one(Composer).submit()
 
+    async def action_stop_run(self) -> None:
+        await self._dispatch_command(Command("stop", ()))
+
     def action_reject_approval(self) -> None:
         self.query_one(Composer).resolve_approval(False)
 
@@ -570,6 +591,9 @@ class QMTAgentTUI(App[None]):
         if not pending.future.done():
             pending.future.set_result(event.approved)
         self._show_pending_approval()
+
+    async def on_composer_stop_requested(self, event: Composer.StopRequested) -> None:
+        await self._dispatch_command(Command("stop", ()))
 
     def action_quit(self) -> None:
         if self.runtime is not None and (
@@ -615,7 +639,15 @@ class QMTAgentTUI(App[None]):
             pending.request.session_id == selected_session_id
             for pending in self._pending_approvals
         )
-        run_status = "Waiting approval" if waiting_approval else "Running" if active_run is not None else "Ready"
+        run_status = (
+            "Waiting approval"
+            if waiting_approval
+            else "Stopping"
+            if active_run is not None and active_run.phase == "stopping"
+            else "Running"
+            if active_run is not None
+            else "Ready"
+        )
         follow_up_behavior = (
             active_run.options.follow_up_behavior
             if active_run is not None
@@ -965,8 +997,12 @@ class QMTAgentTUI(App[None]):
             elif event.status == "cancelled":
                 if event.session_id == self.state.selected_session_id:
                     await self.query_one(ChatTimeline).add_notice(
-                        "Agent run was cancelled."
+                        "Run stopped."
                     )
+                    if event.discarded_steer_count:
+                        await self.query_one(ChatTimeline).add_notice(
+                            "Run stopped; pending Steer messages were not applied."
+                        )
             else:
                 if event.session_id == self.state.selected_session_id:
                     await self.query_one(ChatTimeline).add_notice(
@@ -1157,7 +1193,7 @@ class QMTAgentTUI(App[None]):
                 self._set_main_context_tokens(new_session_id, None)
             if result.output:
                 await timeline.add_notice(result.output)
-            if command.name in {"effort", "followup"}:
+            if command.name in {"effort", "followup", "stop"}:
                 self._refresh_selected_controls()
             if command.name == "title":
                 await self.refresh_sessions()
@@ -1211,6 +1247,7 @@ class QMTAgentTUI(App[None]):
         self.query_one(Composer).set_input_state(
             loading=loading,
             running=active_run is not None,
+            run_phase=active_run.phase if active_run is not None else None,
             follow_up_behavior=follow_up_behavior,
         )
         if self.runtime is not None:
