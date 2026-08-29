@@ -169,13 +169,13 @@ async def dispatch_command(command: Command, state: AppState, *, runtime: AgentR
             except SessionBusyError:
                 return CommandResult("Cannot fork this session while it has an active operation.")
             except SessionForkRollbackError:
-                logger.exception("Session fork failed with incomplete cleanup source=%s target=%s", source_session_id, target_session_id)
+                logger.exception("Session fork failed with incomplete cleanup source=%s", source_session_id)
                 return CommandResult("Session fork failed and partial fork cleanup may be incomplete. See the system log.")
             except SessionForkError:
-                logger.exception("Session fork failed source=%s target=%s", source_session_id, target_session_id)
+                logger.exception("Session fork failed source=%s", source_session_id)
                 return CommandResult("Session fork failed. See the system log.")
             except Exception:
-                logger.exception("Unexpected session fork failure source=%s target=%s", source_session_id, target_session_id)
+                logger.exception("Unexpected session fork failure source=%s", source_session_id)
                 return CommandResult("Session fork failed. See the system log.")
 
             state.selected_session_id = target_session_id
