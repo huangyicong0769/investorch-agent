@@ -126,6 +126,11 @@ async def dispatch_command(
                 return CommandResult("Usage: /fork")
 
             source_session_id = state.selected_session_id
+            if runtime.has_queued_inputs(source_session_id):
+                return CommandResult(
+                    "Cannot fork a session with queued follow-ups.\n"
+                    "Finish or clear them first."
+                )
             target_session_id = uuid.uuid4().hex
             try:
                 async with runtime.reserve_session(source_session_id):
@@ -228,6 +233,11 @@ async def dispatch_command(
 
         case "clear":
             session_id = state.selected_session_id
+            if runtime.has_queued_inputs(session_id):
+                return CommandResult(
+                    "Cannot clear this session while it has queued follow-ups. "
+                    "Clear the queue first."
+                )
             try:
                 async with runtime.reserve_session(session_id):
                     session = SQLiteSession(session_id, state.config.sessions_db)
@@ -282,8 +292,11 @@ async def dispatch_command(
             return CommandResult(format_background_jobs(jobs))
 
         case "exit":
-            if runtime.has_active_runs():
-                return CommandResult("There are active Agent runs. Switch to them or wait for completion before exiting.")
+            if runtime.has_active_runs() or runtime.has_queued_inputs():
+                return CommandResult(
+                    "There are active or queued Agent tasks.\n"
+                    "Stop/finish runs and clear queued follow-ups before exiting."
+                )
             logger.info("Exit requested")
             return CommandResult(output="Exiting...", exit_requested=True)
 
