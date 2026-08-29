@@ -47,6 +47,26 @@ RunEndedHandler = Callable[[RuntimeRunEnded], Awaitable[None]]
 RuntimeFollowUpHandler = Callable[[RuntimeFollowUpEvent], Awaitable[None]]
 
 
+class _InputJournalBarrier:
+    def __init__(self) -> None:
+        self.event = asyncio.Event()
+        self.error: BaseException | None = None
+
+    async def wait(self) -> None:
+        await self.event.wait()
+        if self.error is not None:
+            raise SessionBusyError("The Run failed before its initial input was journaled") from self.error
+
+    def succeed(self) -> None:
+        if not self.event.is_set():
+            self.event.set()
+
+    def fail(self, error: BaseException) -> None:
+        if not self.event.is_set():
+            self.error = error
+            self.event.set()
+
+
 class AgentRuntime:
     """Owns active top-level Agent tasks and their ephemeral session handles."""
 
@@ -76,6 +96,7 @@ class AgentRuntime:
         self._active_by_session: dict[str, ActiveRun] = {}
         self._active_by_run: dict[str, ActiveRun] = {}
         self._controls_by_run: dict[str, RunControl] = {}
+        self._input_journal_by_run: dict[str, _InputJournalBarrier] = {}
         self._steer_fallback_by_session: dict[str, deque[PendingSteer]] = {}
         self._queued_by_session: dict[str, deque[QueuedInput]] = {}
         self._queue_paused_sessions: set[str] = set()
@@ -108,8 +129,12 @@ class AgentRuntime:
 
         run_id = uuid.uuid4().hex
         run_control = RunControl(session_id, run_id, lambda: self._notify_state(session_id))
+        input_journal = _InputJournalBarrier()
+        self._input_journal_by_run[run_id] = input_journal
         task = asyncio.create_task(
-            self._execute_run(run_id, session_id, user_input, options, run_control, record_user_message=record_user_message, start_gate=start_gate),
+            self._execute_run(
+                run_id, session_id, user_input, options, run_control, input_journal, record_user_message=record_user_message, start_gate=start_gate
+            ),
             name=f"agent-run-{run_id}",
         )
         active_run = ActiveRun(run_id=run_id, session_id=session_id, user_input=user_input, options=options, started_at=datetime.now(UTC), task=task)
@@ -165,6 +190,10 @@ class AgentRuntime:
             raise SessionBusyError(f"Session {session_id} Agent run is stopping and cannot accept follow-up input")
         if not text.strip():
             raise ValueError("Follow-up text must not be empty")
+        input_journal = self._input_journal_by_run[active_run.run_id]
+        await input_journal.wait()
+        if self._closed or self._active_by_session.get(session_id) is not active_run or active_run.phase == "stopping":
+            raise SessionBusyError(f"Session {session_id} Agent run no longer accepts follow-up input")
 
         if active_run.options.follow_up_behavior == "queue":
             queued_input = QueuedInput(
@@ -319,6 +348,7 @@ class AgentRuntime:
         self._active_by_session.clear()
         self._active_by_run.clear()
         self._controls_by_run.clear()
+        self._input_journal_by_run.clear()
         for session_id, pending in self._steer_fallback_by_session.items():
             if pending:
                 logger.info("Discarding Steer fallback during shutdown session=%s count=%d", session_id, len(pending))
@@ -336,6 +366,7 @@ class AgentRuntime:
         user_input: str,
         options: RunOptions,
         run_control: RunControl,
+        input_journal: _InputJournalBarrier,
         *,
         record_user_message: bool,
         start_gate: asyncio.Event | None,
@@ -388,6 +419,7 @@ class AgentRuntime:
             session = SQLiteSession(session_id, self._sessions_db)
             if record_user_message:
                 await self._record_user_message(session_id, user_input)
+                input_journal.succeed()
             result = await self._agent_loop.run(
                 user_input,
                 session,
@@ -403,11 +435,13 @@ class AgentRuntime:
             status = "completed"
             logger.info("Completed Agent run session=%s run=%s", session_id, run_id)
             return result
-        except asyncio.CancelledError:
+        except asyncio.CancelledError as error:
+            input_journal.fail(error)
             status = "cancelled"
             logger.info("Cancelled Agent run session=%s run=%s", session_id, run_id)
             raise
-        except Exception:
+        except Exception as error:
+            input_journal.fail(error)
             logger.exception("Failed Agent run session=%s run=%s", session_id, run_id)
             raise
         finally:
@@ -420,6 +454,7 @@ class AgentRuntime:
                 if active_run is not None and self._active_by_session.get(session_id) is active_run:
                     del self._active_by_session[session_id]
                 self._controls_by_run.pop(run_id, None)
+                self._input_journal_by_run.pop(run_id, None)
                 await run_control.wait_until_ready()
                 if status == "completed":
                     fallbacks = run_control.take_fallbacks()
@@ -479,6 +514,7 @@ class AgentRuntime:
         except Exception:
             self._steer_fallback_by_session.setdefault(session_id, deque()).appendleft(steer)
             raise
+        input_journal = self._input_journal_by_run[active_run.run_id]
 
         try:
             await self._notify_follow_up(
@@ -492,6 +528,7 @@ class AgentRuntime:
                     journal_seq=steer.journal_seq,
                 )
             )
+            input_journal.succeed()
         finally:
             start_gate.set()
         logger.info("Promoted Steer fallback session=%s source_run=%s run=%s steer=%s", session_id, steer.source_run_id, active_run.run_id, steer.steer_id)
@@ -518,10 +555,12 @@ class AgentRuntime:
         except Exception:
             self._queued_by_session.setdefault(session_id, deque()).appendleft(queued_input)
             raise
+        input_journal = self._input_journal_by_run[active_run.run_id]
 
         await asyncio.sleep(0)
         try:
             journal_seq = await self._record_user_message(session_id, queued_input.text)
+            input_journal.succeed()
             await self._notify_follow_up(
                 RuntimeFollowUpEvent(
                     kind="queue_promoted",
@@ -534,6 +573,7 @@ class AgentRuntime:
                 )
             )
         except BaseException as error:
+            input_journal.fail(error)
             self._queued_by_session.setdefault(session_id, deque()).appendleft(queued_input)
             self.pause_queue(session_id)
             active_run.task.cancel()
