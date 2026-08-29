@@ -131,18 +131,18 @@ async def dispatch_command(command: Command, state: AppState, *, runtime: AgentR
             if len(command.args) > 1:
                 return CommandResult("Usage: /unarchive [prefix]")
 
-            sessions = await asyncio.to_thread(list_archived_sessions, state.config.sessions_db)
+            archived_sessions = await asyncio.to_thread(list_archived_sessions, state.config.sessions_db)
             if not command.args:
-                if not sessions:
+                if not archived_sessions:
                     return CommandResult("No archived sessions.")
                 lines = ["Archived sessions:"]
-                for record in sessions:
+                for record in archived_sessions:
                     title = record.title or "(untitled)"
                     lines.append(f"  {record.session_id[:8]} {title}, (archived: {record.archived_at})")
                 return CommandResult("\n".join(lines))
 
             session_id_prefix = command.args[0]
-            matches = [record for record in sessions if record.session_id.startswith(session_id_prefix)]
+            matches = [record for record in archived_sessions if record.session_id.startswith(session_id_prefix)]
             if not matches:
                 return CommandResult(f"Archived session ID {session_id_prefix} not found.")
             if len(matches) > 1:
