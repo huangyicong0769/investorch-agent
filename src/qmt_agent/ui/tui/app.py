@@ -450,6 +450,11 @@ class QMTAgentTUI(App[None]):
                 await self.query_one(ChatTimeline).add_notice("The active Run changed before this follow-up could be submitted. Please send it again.")
                 self._refresh_selected_controls()
                 return
+            except Exception:
+                logger.exception("Failed to save follow-up input session=%s", session_id)
+                await self.query_one(ChatTimeline).add_notice("Follow-up could not be saved and was not sent. Please try again.")
+                self._refresh_selected_controls()
+                return
             composer.clear()
             self._refresh_selected_controls()
             return
