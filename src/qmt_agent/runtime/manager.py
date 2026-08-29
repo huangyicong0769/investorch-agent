@@ -47,6 +47,18 @@ RunEndedHandler = Callable[[RuntimeRunEnded], Awaitable[None]]
 RuntimeFollowUpHandler = Callable[[RuntimeFollowUpEvent], Awaitable[None]]
 
 
+async def _await_journal_write(awaitable: Awaitable[int]) -> tuple[int, asyncio.CancelledError | None]:
+    task = asyncio.ensure_future(awaitable)
+    cancellation: asyncio.CancelledError | None = None
+    while not task.done():
+        try:
+            await asyncio.shield(task)
+        except asyncio.CancelledError as error:
+            if cancellation is None:
+                cancellation = error
+    return task.result(), cancellation
+
+
 class _InputJournalBarrier:
     def __init__(self) -> None:
         self.event = asyncio.Event()
@@ -233,11 +245,14 @@ class AgentRuntime:
         control = self._controls_by_run[active_run.run_id]
         steer = control.reserve_steer(text, next_run_options)
         try:
-            journal_seq = await self._record_user_steer(session_id, active_run.run_id, text)
+            journal_seq, cancellation = await _await_journal_write(self._record_user_steer(session_id, active_run.run_id, text))
         except BaseException:
             control.discard_submission(steer.steer_id)
             logger.exception("Failed to append Steer input to journal session=%s run=%s steer=%s", session_id, active_run.run_id, steer.steer_id)
             raise
+        if cancellation is not None:
+            control.mark_ready(steer.steer_id, journal_seq)
+            raise cancellation
 
         try:
             await self._notify_follow_up(
@@ -594,19 +609,7 @@ class AgentRuntime:
 
         await asyncio.sleep(0)
         try:
-            journal_seq = await self._record_user_message(session_id, queued_input.text)
-            input_journal.succeed()
-            await self._notify_follow_up(
-                RuntimeFollowUpEvent(
-                    kind="queue_promoted",
-                    session_id=session_id,
-                    run_id=active_run.run_id,
-                    source_run_id=active_run.run_id,
-                    follow_up_id=queued_input.queue_id,
-                    text=queued_input.text,
-                    journal_seq=journal_seq,
-                )
-            )
+            journal_seq, cancellation = await _await_journal_write(self._record_user_message(session_id, queued_input.text))
         except BaseException as error:
             input_journal.fail(error)
             self._queued_by_session.setdefault(session_id, deque()).appendleft(queued_input)
@@ -618,6 +621,24 @@ class AgentRuntime:
                 raise
             logger.exception("Queued input promotion failed before Agent execution session=%s run=%s queue=%s", session_id, active_run.run_id, queued_input.queue_id)
             return
-        else:
+
+        input_journal.succeed()
+        if cancellation is not None:
+            start_gate.set()
+            logger.info("Queued input journal committed during cancelled promotion session=%s run=%s queue=%s", session_id, active_run.run_id, queued_input.queue_id)
+            raise cancellation
+        try:
+            await self._notify_follow_up(
+                RuntimeFollowUpEvent(
+                    kind="queue_promoted",
+                    session_id=session_id,
+                    run_id=active_run.run_id,
+                    source_run_id=active_run.run_id,
+                    follow_up_id=queued_input.queue_id,
+                    text=queued_input.text,
+                    journal_seq=journal_seq,
+                )
+            )
+        finally:
             start_gate.set()
         logger.info("Queued input promoted session=%s run=%s queue=%s", session_id, active_run.run_id, queued_input.queue_id)
