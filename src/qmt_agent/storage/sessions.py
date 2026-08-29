@@ -26,6 +26,15 @@ def create_session(db_path: str | Path, session_id: str) -> None:
         connection.commit()
 
 
+def session_exists(db_path: str | Path, session_id: str) -> bool:
+    with closing(sqlite3.connect(db_path)) as connection:
+        row = connection.execute(
+            "SELECT 1 FROM agent_sessions WHERE session_id = ?",
+            (session_id,),
+        ).fetchone()
+    return row is not None
+
+
 def init_session_metadata(db_path: str | Path,) -> None:
     with closing(sqlite3.connect(db_path)) as connection:
         connection.execute(

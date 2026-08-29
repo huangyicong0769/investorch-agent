@@ -3,8 +3,10 @@ import json
 import os
 import stat
 import tempfile
+from collections.abc import Awaitable
 from datetime import datetime
 from pathlib import Path
+from typing import TypeVar
 from zoneinfo import ZoneInfo
 
 from qmt_agent.output.events import (
@@ -15,6 +17,29 @@ from qmt_agent.output.events import (
     ToolCalled,
     ToolOutput,
 )
+
+_T = TypeVar("_T")
+
+
+async def _await_filesystem_operation(awaitable: Awaitable[_T]) -> _T:
+    task = asyncio.ensure_future(awaitable)
+    cancellation: asyncio.CancelledError | None = None
+    while not task.done():
+        try:
+            await asyncio.wait({task})
+        except asyncio.CancelledError as error:
+            if cancellation is None:
+                cancellation = error
+
+    try:
+        result = task.result()
+    except BaseException:
+        if cancellation is not None:
+            raise cancellation from None
+        raise
+    if cancellation is not None:
+        raise cancellation from None
+    return result
 
 
 class SessionJournal:
@@ -108,14 +133,9 @@ class SessionJournal:
             if source == target:
                 raise ValueError("source and target session IDs must be different")
 
-            operation = asyncio.create_task(
+            cloned = await _await_filesystem_operation(
                 asyncio.to_thread(self._clone_session_file, source, target)
             )
-            try:
-                cloned = await asyncio.shield(operation)
-            except asyncio.CancelledError:
-                await asyncio.gather(operation, return_exceptions=True)
-                raise
 
             self._next_seq.pop(target_session_id, None)
             return cloned
@@ -123,16 +143,23 @@ class SessionJournal:
     async def delete_session(self, session_id: str) -> None:
         async with self._lock:
             path = self._session_path(session_id)
-            operation = asyncio.create_task(
-                asyncio.to_thread(self._delete_session_file, path)
-            )
             try:
-                await asyncio.shield(operation)
-            except asyncio.CancelledError:
-                await asyncio.gather(operation, return_exceptions=True)
-                raise
+                await _await_filesystem_operation(
+                    asyncio.to_thread(self._delete_session_file, path)
+                )
             finally:
                 self._next_seq.pop(session_id, None)
+
+    async def session_exists(self, session_id: str) -> bool:
+        async with self._lock:
+            path = self._session_path(session_id)
+            if path.is_symlink():
+                raise RuntimeError(f"Session journal is not a regular file: {path}")
+            if not path.exists():
+                return False
+            if not path.is_file():
+                raise RuntimeError(f"Session journal is not a regular file: {path}")
+            return True
 
     async def _record(self, session_id: str, event: dict[str, object]) -> int:
         async with self._lock:
