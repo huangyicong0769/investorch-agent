@@ -201,8 +201,10 @@ class AgentRuntime:
         active_run = self._active_by_session.get(session_id)
         if active_run is None:
             raise SessionBusyError(f"Session {session_id} does not have an active Agent run")
-        if active_run.phase != "running":
-            raise SessionBusyError(f"Session {session_id} Agent run is stopping")
+        if active_run.phase == "stopping":
+            raise SessionBusyError(
+                f"Session {session_id} Agent run is stopping and cannot accept follow-up input"
+            )
         if not text.strip():
             raise ValueError("Follow-up text must not be empty")
 
@@ -449,16 +451,34 @@ class AgentRuntime:
             tool_name: str,
             arguments: str | None,
         ) -> ApprovalOutcome:
-            return await self._approval_handler(
-                ApprovalRequest(
-                    run_id=run_id,
-                    session_id=session_id,
-                    user_input=approval_user_input,
-                    permission_mode=options.permission_mode,
-                    tool_name=tool_name,
-                    arguments=arguments,
+            active_run = self._active_by_run.get(run_id)
+            if (
+                active_run is not None
+                and active_run.session_id == session_id
+                and self._active_by_session.get(session_id) is active_run
+            ):
+                active_run.phase = "waiting_approval"
+                self._notify_state(session_id)
+            try:
+                return await self._approval_handler(
+                    ApprovalRequest(
+                        run_id=run_id,
+                        session_id=session_id,
+                        user_input=approval_user_input,
+                        permission_mode=options.permission_mode,
+                        tool_name=tool_name,
+                        arguments=arguments,
+                    )
                 )
-            )
+            finally:
+                if (
+                    active_run is not None
+                    and self._active_by_run.get(run_id) is active_run
+                    and self._active_by_session.get(session_id) is active_run
+                    and active_run.phase == "waiting_approval"
+                ):
+                    active_run.phase = "running"
+                    self._notify_state(session_id)
 
         async def handle_todo_update(todos: list[TodoItem]) -> None:
             active_run = self._active_by_run.get(run_id)
