@@ -2,8 +2,11 @@ import asyncio
 import json
 import os
 import stat
+import tempfile
+from collections.abc import Awaitable
 from datetime import datetime
 from pathlib import Path
+from typing import TypeVar
 from zoneinfo import ZoneInfo
 
 from qmt_agent.output.events import (
@@ -14,6 +17,29 @@ from qmt_agent.output.events import (
     ToolCalled,
     ToolOutput,
 )
+
+_T = TypeVar("_T")
+
+
+async def _await_filesystem_operation(awaitable: Awaitable[_T]) -> _T:
+    task = asyncio.ensure_future(awaitable)
+    cancellation: asyncio.CancelledError | None = None
+    while not task.done():
+        try:
+            await asyncio.wait({task})
+        except asyncio.CancelledError as error:
+            if cancellation is None:
+                cancellation = error
+
+    try:
+        result = task.result()
+    except BaseException:
+        if cancellation is not None:
+            raise cancellation from None
+        raise
+    if cancellation is not None:
+        raise cancellation from None
+    return result
 
 
 class SessionJournal:
@@ -96,6 +122,45 @@ class SessionJournal:
             },
         )
 
+    async def clone_session(
+        self,
+        source_session_id: str,
+        target_session_id: str,
+    ) -> bool:
+        async with self._lock:
+            source = self._session_path(source_session_id)
+            target = self._session_path(target_session_id)
+            if source == target:
+                raise ValueError("source and target session IDs must be different")
+
+            cloned = await _await_filesystem_operation(
+                asyncio.to_thread(self._clone_session_file, source, target)
+            )
+
+            self._next_seq.pop(target_session_id, None)
+            return cloned
+
+    async def delete_session(self, session_id: str) -> None:
+        async with self._lock:
+            path = self._session_path(session_id)
+            try:
+                await _await_filesystem_operation(
+                    asyncio.to_thread(self._delete_session_file, path)
+                )
+            finally:
+                self._next_seq.pop(session_id, None)
+
+    async def session_exists(self, session_id: str) -> bool:
+        async with self._lock:
+            path = self._session_path(session_id)
+            if path.is_symlink():
+                raise RuntimeError(f"Session journal is not a regular file: {path}")
+            if not path.exists():
+                return False
+            if not path.is_file():
+                raise RuntimeError(f"Session journal is not a regular file: {path}")
+            return True
+
     async def _record(self, session_id: str, event: dict[str, object]) -> int:
         async with self._lock:
             path = self._session_path(session_id)
@@ -110,8 +175,10 @@ class SessionJournal:
                     "timestamp": datetime.now(self._timezone).isoformat(timespec="milliseconds"),
                     **event,
                 }
-                await asyncio.to_thread(self._append, path, record)
-            except Exception:
+                await _await_filesystem_operation(
+                    asyncio.to_thread(self._append, path, record)
+                )
+            except BaseException:
                 self._next_seq.pop(session_id, None)
                 raise
 
@@ -178,6 +245,53 @@ class SessionJournal:
         finally:
             if descriptor >= 0:
                 os.close(descriptor)
+
+    def _clone_session_file(self, source: Path, target: Path) -> bool:
+        if target.is_symlink() or target.exists():
+            raise FileExistsError(f"Target session journal already exists: {target}")
+        if source.is_symlink():
+            raise RuntimeError(f"Session journal is not a regular file: {source}")
+        if not source.exists():
+            return False
+        if not source.is_file():
+            raise RuntimeError(f"Session journal is not a regular file: {source}")
+
+        data = source.read_bytes()
+        descriptor, temporary_name = tempfile.mkstemp(
+            prefix=f".{target.name}.",
+            suffix=".tmp",
+            dir=self._directory,
+        )
+        temporary = Path(temporary_name)
+
+        try:
+            if os.name == "posix":
+                os.fchmod(descriptor, 0o600)
+            with os.fdopen(descriptor, "wb") as file:
+                descriptor = -1
+                file.write(data)
+                file.flush()
+                os.fsync(file.fileno())
+
+            if target.is_symlink() or target.exists():
+                raise FileExistsError(f"Target session journal already exists: {target}")
+            os.replace(temporary, target)
+        finally:
+            if descriptor >= 0:
+                os.close(descriptor)
+            if temporary.exists():
+                temporary.unlink()
+
+        return True
+
+    def _delete_session_file(self, path: Path) -> None:
+        if path.is_symlink():
+            raise RuntimeError(f"Session journal is not a regular file: {path}")
+        if not path.exists():
+            return
+        if not path.is_file():
+            raise RuntimeError(f"Session journal is not a regular file: {path}")
+        path.unlink()
 
 
 def _serialize_output_event(event: OutputEvent) -> dict[str, object]:

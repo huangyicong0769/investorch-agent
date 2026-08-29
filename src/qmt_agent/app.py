@@ -72,6 +72,7 @@ async def _run_console(
     state: AppState,
     runtime: AgentRuntime,
     ui: ConsoleUI,
+    journal: SessionJournal,
 ) -> None:
     while True:
         user_input = (await ui.read_user_input()).strip()
@@ -83,7 +84,12 @@ async def _run_console(
             continue
 
         if command is not None:
-            result = await dispatch_command(command, state, runtime=runtime)
+            result = await dispatch_command(
+                command,
+                state,
+                runtime=runtime,
+                journal=journal,
+            )
             if result.output:
                 ui.write(result.output)
             if result.exit_requested:
@@ -237,6 +243,7 @@ async def _run_configured_app(
         tui = QMTAgentTUI(
             state,
             config.session_journal_dir,
+            journal,
             activity_agent,
             record_activity_label,
         )
@@ -368,7 +375,7 @@ async def _run_configured_app(
                 )
                 try:
                     if tui is None:
-                        await _run_console(state, runtime, ui)
+                        await _run_console(state, runtime, ui, journal)
                     else:
                         tui.bind_runtime(runtime)
                         await tui.run_async()

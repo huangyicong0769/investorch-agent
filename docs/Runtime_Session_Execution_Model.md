@@ -67,6 +67,7 @@ SDK handoffs and agents-as-tools remain inside one top-level Run and share its `
 
 - `/new` creates and selects a new persistent Session identity. Existing Runs continue.
 - `/resume` changes only `selected_session_id`.
+- `/fork` clones the selected Session's stable head and selects the new Session.
 - `/effort` and `/permission` change defaults for future Runs only.
 - `/title` edits metadata for the selected Session.
 - `/clear` rejects only when the selected Session is active.
@@ -74,7 +75,23 @@ SDK handoffs and agents-as-tools remain inside one top-level Run and share its `
 - `/exit` and Ctrl+Q reject normal exit while any Run remains active.
 - `/ps` remains global across Sessions.
 
-Manual compaction and a top-level Run are mutually exclusive for the same Session. Auto compaction remains post-turn work inside its originating Run.
+Manual compaction, clear, fork, and a top-level Run are mutually exclusive for the same Session through one Runtime maintenance reservation. Operations on different Sessions remain independent. Auto compaction remains post-turn work inside its originating Run.
+
+## Stable-head Session fork
+
+`/fork` requires the selected source Session to be idle. It creates a new independent Session from the source's last stable committed head:
+
+- Agents SDK continuation items are copied through the SDK's public Session API;
+- the JSONL replay journal is cloned byte-for-byte when it exists;
+- a non-empty title receives the suffix ` (fork)`;
+- `branch_from_session_id` records the direct source Session;
+- selection changes to the target only after every persistence step succeeds.
+
+An empty or older no-journal Session can still be forked. A compacted source stays compacted because continuation is copied from the SDK Session rather than reconstructed from replay history. Failure leaves the source unchanged and rolls back the target across SDK state, journal, and metadata; incomplete rollback is reported explicitly.
+
+The target does not inherit active Runs, Run options, pending approvals, background processes, usage counters, context-occupancy caches, or UI state. Source and target evolve independently after the snapshot. Forking a fork stores its immediate parent rather than flattening ancestry.
+
+This operation is not conversation branching: it cannot select or edit a historical turn and does not use the SDK's turn-branching APIs. There is no branch tree UI in this version.
 
 ## Output and replay
 
@@ -132,4 +149,4 @@ Run failure and cancellation use the same cleanup path and cannot leave a Sessio
 
 All Sessions share one workspace, sandbox, MCP manager, and background-process registry. Concurrent Runs may therefore edit the same workspace paths. This version intentionally does not provide filesystem locking or per-Session workspaces.
 
-It also does not implement Run persistence, Run queues, `/fork`, conversation branching, WebUI transport, cancellation commands, an actor system, or a distributed scheduler.
+It also does not implement Run persistence, Run queues, conversation branching, WebUI transport, cancellation commands, an actor system, or a distributed scheduler.

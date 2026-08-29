@@ -3,7 +3,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -42,7 +43,7 @@ class AgentRuntime:
         self._record_user_message = record_user_message
         self._active_by_session: dict[str, ActiveRun] = {}
         self._active_by_run: dict[str, ActiveRun] = {}
-        self._compacting_sessions: set[str] = set()
+        self._maintenance_sessions: set[str] = set()
         self._closed = False
 
     def start_run(
@@ -53,7 +54,7 @@ class AgentRuntime:
     ) -> ActiveRun:
         if self._closed:
             raise RuntimeError("Agent runtime is closed")
-        if session_id in self._active_by_session or session_id in self._compacting_sessions:
+        if session_id in self._active_by_session or session_id in self._maintenance_sessions:
             raise SessionBusyError(f"Session {session_id} already has an active operation")
 
         run_id = uuid.uuid4().hex
@@ -90,23 +91,28 @@ class AgentRuntime:
     def agent_name(self) -> str:
         return self._agent_loop.agent_name
 
-    async def compact_session(self, session_id: str) -> CompactionResult:
+    @asynccontextmanager
+    async def reserve_session(self, session_id: str) -> AsyncIterator[None]:
         if self._closed:
             raise RuntimeError("Agent runtime is closed")
-        if session_id in self._active_by_session or session_id in self._compacting_sessions:
+        if session_id in self._active_by_session or session_id in self._maintenance_sessions:
             raise SessionBusyError(f"Session {session_id} already has an active operation")
 
-        self._compacting_sessions.add(session_id)
-        session: SQLiteSession | None = None
+        self._maintenance_sessions.add(session_id)
         try:
-            session = SQLiteSession(session_id, self._sessions_db)
-            return await self._agent_loop.compact(session)
+            yield
         finally:
+            self._maintenance_sessions.discard(session_id)
+
+    async def compact_session(self, session_id: str) -> CompactionResult:
+        async with self.reserve_session(session_id):
+            session: SQLiteSession | None = None
             try:
+                session = SQLiteSession(session_id, self._sessions_db)
+                return await self._agent_loop.compact(session)
+            finally:
                 if session is not None:
                     session.close()
-            finally:
-                self._compacting_sessions.discard(session_id)
 
     async def aclose(self) -> None:
         self._closed = True

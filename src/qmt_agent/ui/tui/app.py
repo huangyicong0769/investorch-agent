@@ -20,7 +20,7 @@ from agents import Agent
 from qmt_agent.agents import TokenUsage, generate_activity_label
 from qmt_agent.commands import Command, dispatch_command, parse_command
 from qmt_agent.context import AppState
-from qmt_agent.journal import read_session_journal
+from qmt_agent.journal import SessionJournal, read_session_journal
 from qmt_agent.output import OutputEvent, Reasoning, ToolCalled
 from qmt_agent.runtime import ActiveRun, AgentRuntime, ApprovalRequest, RunOptions, SessionBusyError
 from qmt_agent.storage import get_session_title, list_sessions
@@ -387,12 +387,14 @@ class QMTAgentTUI(App[None]):
         self,
         state: AppState,
         journal_dir: Path,
+        journal: SessionJournal,
         activity_agent: Agent,
         record_activity_label: RecordActivityLabel,
     ) -> None:
         super().__init__()
         self.state = state
         self.journal_dir = journal_dir
+        self.journal = journal
         self.activity_agent = activity_agent
         self._record_activity_label = record_activity_label
         self.runtime: AgentRuntime | None = None
@@ -866,6 +868,7 @@ class QMTAgentTUI(App[None]):
             command,
             self.state,
             runtime=self.runtime,
+            journal=self.journal,
         )
         if result.exit_requested:
             if result.output:

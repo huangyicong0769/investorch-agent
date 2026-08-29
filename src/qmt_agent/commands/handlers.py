@@ -8,11 +8,16 @@ from agents import SQLiteSession
 from qmt_agent.agents import CompactionResult, session_history_restore_failed
 from qmt_agent.config import PERMISSION_MODES, REASONING_EFFORTS
 from qmt_agent.context import AppState
+from qmt_agent.journal import SessionJournal
 from qmt_agent.runtime import AgentRuntime, SessionBusyError
 from qmt_agent.storage import (
+    SessionForkError,
+    SessionForkRollbackError,
     create_session,
     delete_session_metadata,
     find_session_ids,
+    fork_session,
+    get_session_branch_from,
     get_session_title,
     list_sessions,
     set_session_title,
@@ -29,6 +34,7 @@ HELP = (
     "  /session           Show the current session.\n"
     "  /new               Start a new session.\n"
     "  /resume [prefix]   List or resume a session.\n"
+    "  /fork              Fork the current session.\n"
     "  /title [title]     Show or set the session title.\n"
     "  /effort [level]    Show or set Main reasoning effort.\n"
     "  /permission [mode] Show or set tool permission mode.\n"
@@ -46,17 +52,32 @@ class CommandResult:
     compaction: CompactionResult | None = None
 
 
-async def dispatch_command(command: Command, state: AppState, *, runtime: AgentRuntime) -> CommandResult:
+async def dispatch_command(
+    command: Command,
+    state: AppState,
+    *,
+    runtime: AgentRuntime,
+    journal: SessionJournal,
+) -> CommandResult:
     match command.name:
         case "session":
-            title = await asyncio.to_thread(
-                get_session_title,
-                state.config.sessions_db,
-                state.selected_session_id,
+            title, branch_from = await asyncio.gather(
+                asyncio.to_thread(
+                    get_session_title,
+                    state.config.sessions_db,
+                    state.selected_session_id,
+                ),
+                asyncio.to_thread(
+                    get_session_branch_from,
+                    state.config.sessions_db,
+                    state.selected_session_id,
+                ),
             )
             lines = [f"Current session ID: {state.selected_session_id}"]
             if title:
                 lines.append(f"Session title: {title}")
+            if branch_from:
+                lines.append(f"Branched from: {branch_from}")
             return CommandResult("\n".join(lines))
 
         case "new":
@@ -98,6 +119,53 @@ async def dispatch_command(command: Command, state: AppState, *, runtime: AgentR
             if title:
                 lines.append(f"Session title: {title}")
             return CommandResult("\n".join(lines))
+
+        case "fork":
+            if command.args:
+                return CommandResult("Usage: /fork")
+
+            source_session_id = state.selected_session_id
+            target_session_id = uuid.uuid4().hex
+            try:
+                async with runtime.reserve_session(source_session_id):
+                    await fork_session(
+                        source_session_id=source_session_id,
+                        target_session_id=target_session_id,
+                        sessions_db=state.config.sessions_db,
+                        journal=journal,
+                    )
+            except SessionBusyError:
+                return CommandResult(
+                    "Cannot fork this session while it has an active operation."
+                )
+            except SessionForkRollbackError:
+                logger.exception(
+                    "Session fork failed with incomplete cleanup source=%s target=%s",
+                    source_session_id,
+                    target_session_id,
+                )
+                return CommandResult(
+                    "Session fork failed and partial fork cleanup may be incomplete. See the system log."
+                )
+            except SessionForkError:
+                logger.exception(
+                    "Session fork failed source=%s target=%s",
+                    source_session_id,
+                    target_session_id,
+                )
+                return CommandResult("Session fork failed. See the system log.")
+            except Exception:
+                logger.exception(
+                    "Unexpected session fork failure source=%s target=%s",
+                    source_session_id,
+                    target_session_id,
+                )
+                return CommandResult("Session fork failed. See the system log.")
+
+            state.selected_session_id = target_session_id
+            return CommandResult(
+                f"Forked session {source_session_id[:8]} -> {target_session_id[:8]}."
+            )
 
         case "title":
             if not command.args:
@@ -146,16 +214,28 @@ async def dispatch_command(command: Command, state: AppState, *, runtime: AgentR
 
         case "clear":
             session_id = state.selected_session_id
-            if runtime.is_session_active(session_id):
-                return CommandResult("Cannot clear this session while its Agent run is active.")
-            session = SQLiteSession(session_id, state.config.sessions_db)
             try:
-                await session.clear_session()
-            finally:
-                session.close()
-            await asyncio.to_thread(delete_session_metadata, state.config.sessions_db, session_id)
-            new_session_id = uuid.uuid4().hex
-            await asyncio.to_thread(create_session, state.config.sessions_db, new_session_id)
+                async with runtime.reserve_session(session_id):
+                    session = SQLiteSession(session_id, state.config.sessions_db)
+                    try:
+                        await session.clear_session()
+                    finally:
+                        session.close()
+                    await asyncio.to_thread(
+                        delete_session_metadata,
+                        state.config.sessions_db,
+                        session_id,
+                    )
+                    new_session_id = uuid.uuid4().hex
+                    await asyncio.to_thread(
+                        create_session,
+                        state.config.sessions_db,
+                        new_session_id,
+                    )
+            except SessionBusyError:
+                return CommandResult(
+                    "Cannot clear this session while it has an active operation."
+                )
             state.selected_session_id = new_session_id
             logger.info("Cleared session %s and started session %s", session_id, new_session_id)
             return CommandResult(f"Cleared session and started new session: {new_session_id}")
@@ -164,12 +244,12 @@ async def dispatch_command(command: Command, state: AppState, *, runtime: AgentR
             if command.args:
                 return CommandResult("Usage: /compact")
             session_id = state.selected_session_id
-            if runtime.is_session_active(session_id):
-                return CommandResult("Cannot compact this session while its Agent run is active.")
             try:
                 result = await runtime.compact_session(session_id)
             except SessionBusyError:
-                return CommandResult("Cannot compact this session while its Agent run is active.")
+                return CommandResult(
+                    "Cannot compact this session while it has an active operation."
+                )
             except BaseException as exc:
                 if session_history_restore_failed(exc):
                     logger.exception("Manual context compaction failed and session history restoration was unsuccessful")
