@@ -6,16 +6,20 @@ from .session_fork import (
 )
 from .sessions import (
     SessionRecord,
+    archive_session,
     create_session,
     delete_session_metadata,
     find_session_ids,
     get_session_branch_from,
     get_session_title,
     init_session_metadata,
+    is_session_archived,
+    list_archived_sessions,
     list_sessions,
     session_exists,
     set_session_branch_from,
     set_session_title,
+    unarchive_session,
 )
 
 __all__ = (
@@ -23,6 +27,7 @@ __all__ = (
     "SessionForkResult",
     "SessionForkRollbackError",
     "SessionRecord",
+    "archive_session",
     "create_session",
     "delete_session_metadata",
     "find_session_ids",
@@ -30,8 +35,11 @@ __all__ = (
     "get_session_branch_from",
     "get_session_title",
     "init_session_metadata",
+    "is_session_archived",
+    "list_archived_sessions",
     "list_sessions",
     "session_exists",
     "set_session_branch_from",
     "set_session_title",
+    "unarchive_session",
 )

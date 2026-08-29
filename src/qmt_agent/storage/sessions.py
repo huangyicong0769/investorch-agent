@@ -1,6 +1,7 @@
 import sqlite3
 from contextlib import closing
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 
 from agents import SQLiteSession
@@ -11,6 +12,7 @@ class SessionRecord:
     session_id: str
     title: str | None
     branch_from_session_id: str | None
+    archived_at: str | None
     created_at: str
     updated_at: str
 
@@ -41,10 +43,21 @@ def init_session_metadata(db_path: str | Path,) -> None:
             """
             CREATE TABLE IF NOT EXISTS extra_session_metadata (
                 session_id TEXT PRIMARY KEY,
-                title TEXT NOT NULL
+                title TEXT NOT NULL,
+                archived_at TEXT
             )
             """
         )
+        columns = {
+            row[1]
+            for row in connection.execute(
+                "PRAGMA table_info(extra_session_metadata)"
+            )
+        }
+        if "archived_at" not in columns:
+            connection.execute(
+                "ALTER TABLE extra_session_metadata ADD COLUMN archived_at TEXT"
+            )
         connection.execute(
             """
             CREATE TABLE IF NOT EXISTS session_lineage (
@@ -56,14 +69,20 @@ def init_session_metadata(db_path: str | Path,) -> None:
         connection.commit()
 
 
-def list_sessions(db_path: str | Path,) -> list[SessionRecord]:
+def list_sessions(
+    db_path: str | Path,
+    *,
+    include_archived: bool = False,
+) -> list[SessionRecord]:
+    archived_filter = "" if include_archived else "WHERE metadata.archived_at IS NULL"
     with closing(sqlite3.connect(db_path)) as connection:
         rows = connection.execute(
-            """
+            f"""
             SELECT
                 sessions.session_id,
                 metadata.title,
                 lineage.branch_from_session_id,
+                metadata.archived_at,
                 sessions.created_at,
                 sessions.updated_at
             FROM agent_sessions AS sessions
@@ -71,6 +90,7 @@ def list_sessions(db_path: str | Path,) -> list[SessionRecord]:
                 ON metadata.session_id = sessions.session_id
             LEFT JOIN session_lineage AS lineage
                 ON lineage.session_id = sessions.session_id
+            {archived_filter}
             ORDER BY sessions.updated_at DESC
             """
         ).fetchall()
@@ -80,8 +100,9 @@ def list_sessions(db_path: str | Path,) -> list[SessionRecord]:
             session_id=row[0],
             title=row[1],
             branch_from_session_id=row[2],
-            created_at=row[3],
-            updated_at=row[4],
+            archived_at=row[3],
+            created_at=row[4],
+            updated_at=row[5],
         )
         for row in rows
     ]
@@ -91,10 +112,13 @@ def find_session_ids(db_path: str | Path, session_id_prefix: str,) -> list[str]:
     with closing(sqlite3.connect(db_path)) as connection:
         rows = connection.execute(
             """
-            SELECT session_id
-            FROM agent_sessions
-            WHERE substr(session_id, 1, ?) = ?
-            ORDER BY updated_at DESC
+            SELECT sessions.session_id
+            FROM agent_sessions AS sessions
+            LEFT JOIN extra_session_metadata AS metadata
+                ON metadata.session_id = sessions.session_id
+            WHERE substr(sessions.session_id, 1, ?) = ?
+                AND metadata.archived_at IS NULL
+            ORDER BY sessions.updated_at DESC
             """,
             (
                 len(session_id_prefix),
@@ -103,6 +127,55 @@ def find_session_ids(db_path: str | Path, session_id_prefix: str,) -> list[str]:
         ).fetchall()
 
     return [row[0] for row in rows]
+
+
+def archive_session(db_path: str | Path, session_id: str) -> None:
+    archived_at = datetime.now(UTC).isoformat()
+    with closing(sqlite3.connect(db_path)) as connection:
+        connection.execute(
+            """
+            INSERT INTO extra_session_metadata (session_id, title, archived_at)
+            VALUES (?, '', ?)
+            ON CONFLICT(session_id) DO UPDATE
+            SET archived_at = excluded.archived_at
+            """,
+            (session_id, archived_at),
+        )
+        connection.commit()
+
+
+def unarchive_session(db_path: str | Path, session_id: str) -> None:
+    with closing(sqlite3.connect(db_path)) as connection:
+        connection.execute(
+            """
+            UPDATE extra_session_metadata
+            SET archived_at = NULL
+            WHERE session_id = ?
+            """,
+            (session_id,),
+        )
+        connection.commit()
+
+
+def is_session_archived(db_path: str | Path, session_id: str) -> bool:
+    with closing(sqlite3.connect(db_path)) as connection:
+        row = connection.execute(
+            """
+            SELECT archived_at
+            FROM extra_session_metadata
+            WHERE session_id = ?
+            """,
+            (session_id,),
+        ).fetchone()
+    return row is not None and row[0] is not None
+
+
+def list_archived_sessions(db_path: str | Path) -> list[SessionRecord]:
+    return [
+        record
+        for record in list_sessions(db_path, include_archived=True)
+        if record.archived_at is not None
+    ]
 
 def get_session_title(db_path: str | Path, session_id: str,) -> str | None:
     with closing(sqlite3.connect(db_path)) as connection:
