@@ -39,6 +39,7 @@ HELP = (
     "  /effort [level]    Show or set Main reasoning effort.\n"
     "  /permission [mode] Show or set tool permission mode.\n"
     "  /followup [mode]   Show or set follow-up behavior.\n"
+    "  /stop              Stop the current Agent run.\n"
     "  /compact           Compact the current Agent context.\n"
     "  /clear             Clear the current session.\n"
     "  /ps                Show background commands.\n"
@@ -230,6 +231,23 @@ async def dispatch_command(
 
             state.follow_up_behavior = behavior
             return CommandResult(f"Follow-up behavior set to: {behavior}")
+
+        case "stop":
+            if command.args:
+                return CommandResult("Usage: /stop")
+            session_id = state.selected_session_id
+            queued = runtime.has_queued_inputs(session_id)
+            try:
+                active_run = runtime.cancel_run(session_id)
+            except SessionBusyError:
+                return CommandResult("No active Run in this session.")
+
+            lines = ["Stopping current Run."]
+            if queued:
+                lines.append("Queued follow-ups remain paused.")
+            if active_run.stopped_pending_steer_count:
+                lines.append("Pending Steer messages will not be applied.")
+            return CommandResult("\n".join(lines))
 
         case "clear":
             session_id = state.selected_session_id
