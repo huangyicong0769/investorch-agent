@@ -486,6 +486,12 @@ class AgentRuntime:
                 return
             active_run.todos = [dict(todo) for todo in todos]
             self._notify_state(session_id)
+            logger.info(
+                "Todo updated session=%s run=%s count=%d",
+                session_id,
+                run_id,
+                len(todos),
+            )
 
         try:
             if start_gate is not None:
