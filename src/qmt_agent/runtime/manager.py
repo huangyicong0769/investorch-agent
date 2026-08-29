@@ -96,6 +96,7 @@ class AgentRuntime:
         self._active_by_session: dict[str, ActiveRun] = {}
         self._active_by_run: dict[str, ActiveRun] = {}
         self._run_tasks: set[asyncio.Task[AgentRunResult]] = set()
+        self._promotion_tasks: set[asyncio.Task[object]] = set()
         self._controls_by_run: dict[str, RunControl] = {}
         self._input_journal_by_run: dict[str, _InputJournalBarrier] = {}
         self._steer_fallback_by_session: dict[str, deque[PendingSteer]] = {}
@@ -343,7 +344,7 @@ class AgentRuntime:
 
     async def aclose(self) -> None:
         self._closed = True
-        tasks = list(self._run_tasks)
+        tasks = list(self._run_tasks | self._promotion_tasks)
         for task in tasks:
             task.cancel()
         if tasks:
@@ -504,6 +505,16 @@ class AgentRuntime:
             )
 
     async def _try_promote_steer_fallback(self, session_id: str) -> None:
+        task = asyncio.current_task()
+        if task is None:
+            raise RuntimeError("Follow-up promotion requires an asyncio task")
+        self._promotion_tasks.add(task)
+        try:
+            await self._promote_steer_fallback(session_id)
+        finally:
+            self._promotion_tasks.discard(task)
+
+    async def _promote_steer_fallback(self, session_id: str) -> None:
         queue = self._steer_fallback_by_session.get(session_id)
         if self._closed or not queue or session_id in self._active_by_session or session_id in self._maintenance_sessions:
             return
@@ -537,6 +548,16 @@ class AgentRuntime:
         logger.info("Promoted Steer fallback session=%s source_run=%s run=%s steer=%s", session_id, steer.source_run_id, active_run.run_id, steer.steer_id)
 
     async def _try_promote_queue(self, session_id: str) -> None:
+        task = asyncio.current_task()
+        if task is None:
+            raise RuntimeError("Follow-up promotion requires an asyncio task")
+        self._promotion_tasks.add(task)
+        try:
+            await self._promote_queue(session_id)
+        finally:
+            self._promotion_tasks.discard(task)
+
+    async def _promote_queue(self, session_id: str) -> None:
         queue = self._queued_by_session.get(session_id)
         if (
             self._closed
