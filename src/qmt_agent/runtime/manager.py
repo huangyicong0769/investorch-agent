@@ -95,6 +95,7 @@ class AgentRuntime:
         self._follow_up_handler = follow_up_handler
         self._active_by_session: dict[str, ActiveRun] = {}
         self._active_by_run: dict[str, ActiveRun] = {}
+        self._run_tasks: set[asyncio.Task[AgentRunResult]] = set()
         self._controls_by_run: dict[str, RunControl] = {}
         self._input_journal_by_run: dict[str, _InputJournalBarrier] = {}
         self._steer_fallback_by_session: dict[str, deque[PendingSteer]] = {}
@@ -137,6 +138,8 @@ class AgentRuntime:
             ),
             name=f"agent-run-{run_id}",
         )
+        self._run_tasks.add(task)
+        task.add_done_callback(self._run_tasks.discard)
         active_run = ActiveRun(run_id=run_id, session_id=session_id, user_input=user_input, options=options, started_at=datetime.now(UTC), task=task)
         self._active_by_session[session_id] = active_run
         self._active_by_run[run_id] = active_run
@@ -340,7 +343,7 @@ class AgentRuntime:
 
     async def aclose(self) -> None:
         self._closed = True
-        tasks = [run.task for run in self._active_by_session.values()]
+        tasks = list(self._run_tasks)
         for task in tasks:
             task.cancel()
         if tasks:
