@@ -1724,7 +1724,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "cnequity", specifier = "==0.7.3" },
-    { name = "openai-agents", specifier = ">=0.20.0" },
+    { name = "openai-agents", specifier = ">=0.22.0" },
     { name = "rqalpha", specifier = "==6.3.0" },
     { name = "textual", specifier = "==8.2.8" },
     { name = "tomlkit", specifier = ">=0.15.1" },

@@ -49,6 +49,36 @@ class RuntimeOutput:
 
 
 @dataclass(frozen=True, slots=True)
+class PendingSteer:
+    steer_id: str
+    session_id: str
+    source_run_id: str
+    text: str
+    options: RunOptions
+    created_at: datetime
+    journal_seq: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class FollowUpSubmission:
+    session_id: str
+    active_run_id: str
+    behavior: FollowUpBehavior
+    follow_up_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeFollowUpEvent:
+    kind: Literal["steer_submitted", "steer_fallback_promoted"]
+    session_id: str
+    run_id: str
+    source_run_id: str
+    follow_up_id: str
+    text: str
+    journal_seq: int | None
+
+
+@dataclass(frozen=True, slots=True)
 class RuntimeSessionSnapshot:
     session_id: str
     run_id: str | None
