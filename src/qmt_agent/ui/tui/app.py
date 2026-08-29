@@ -11,7 +11,7 @@ from pathlib import Path
 from agents import Agent
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Horizontal, Vertical
+from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.css.query import NoMatches
 from textual.message import Message
 from textual.widgets import Button, Label, ListView, Static, TextArea
@@ -247,6 +247,13 @@ class QMTAgentTUI(App[None]):
         height: 100%;
     }
 
+    #interaction-scroll {
+        width: 100%;
+        height: auto;
+        max-height: 9;
+        scrollbar-size-vertical: 1;
+    }
+
     .user-message, .assistant-message {
         width: 100%;
         height: auto;
@@ -386,9 +393,12 @@ class QMTAgentTUI(App[None]):
                     initial_agent_name=self._main_agent_name,
                     id="timeline",
                 ),
-                TodoPanel(id="todo-panel"),
-                QueuePanel(id="queue-panel"),
-                ApprovalPanel(self.state.config["tui.approval_arguments_max_height"], id="approval-panel"),
+                VerticalScroll(
+                    TodoPanel(id="todo-panel"),
+                    QueuePanel(id="queue-panel"),
+                    ApprovalPanel(self.state.config["tui.approval_arguments_max_height"], id="approval-panel"),
+                    id="interaction-scroll",
+                ),
                 Composer(self.state.config["tui.composer_height"], id="composer"),
                 id="conversation-pane",
             ),
