@@ -59,14 +59,7 @@ class SessionJournal:
         return await self._record(session_id, {"type": "user_message", "text": text})
 
     async def record_user_steer(self, session_id: str, run_id: str, text: str) -> int:
-        return await self._record(
-            session_id,
-            {
-                "type": "user_steer",
-                "run_id": run_id,
-                "text": text,
-            },
-        )
+        return await self._record(session_id, {"type": "user_steer", "run_id": run_id, "text": text})
 
     async def record_output(self, session_id: str, event: OutputEvent) -> int:
         return await self._record(session_id, _serialize_output_event(event))
@@ -93,29 +86,15 @@ class SessionJournal:
             if not review_reason:
                 raise ValueError("review_reason must not be empty")
 
-        record: dict[str, object] = {
-            "type": "approval",
-            "tool_name": tool_name,
-            "arguments": arguments,
-            "approved": approved,
-            "source": source,
-        }
+        record: dict[str, object] = {"type": "approval", "tool_name": tool_name, "arguments": arguments, "approved": approved, "source": source}
         if review_decision is not None:
             record["review_decision"] = review_decision
         if review_reason is not None:
             record["review_reason"] = review_reason
 
-        return await self._record(
-            session_id,
-            record,
-        )
+        return await self._record(session_id, record)
 
-    async def record_activity_label(
-        self,
-        session_id: str,
-        target_seq: int,
-        text: str,
-    ) -> int:
+    async def record_activity_label(self, session_id: str, target_seq: int, text: str) -> int:
         if type(target_seq) is not int or target_seq < 1:
             raise ValueError("target_seq must be a positive integer")
 
@@ -123,29 +102,16 @@ class SessionJournal:
         if not label:
             raise ValueError("activity label text must not be empty")
 
-        return await self._record(
-            session_id,
-            {
-                "type": "activity_label",
-                "target_seq": target_seq,
-                "text": label,
-            },
-        )
+        return await self._record(session_id, {"type": "activity_label", "target_seq": target_seq, "text": label})
 
-    async def clone_session(
-        self,
-        source_session_id: str,
-        target_session_id: str,
-    ) -> bool:
+    async def clone_session(self, source_session_id: str, target_session_id: str) -> bool:
         async with self._lock:
             source = self._session_path(source_session_id)
             target = self._session_path(target_session_id)
             if source == target:
                 raise ValueError("source and target session IDs must be different")
 
-            cloned = await _await_filesystem_operation(
-                asyncio.to_thread(self._clone_session_file, source, target)
-            )
+            cloned = await _await_filesystem_operation(asyncio.to_thread(self._clone_session_file, source, target))
 
             self._next_seq.pop(target_session_id, None)
             return cloned
@@ -154,9 +120,7 @@ class SessionJournal:
         async with self._lock:
             path = self._session_path(session_id)
             try:
-                await _await_filesystem_operation(
-                    asyncio.to_thread(self._delete_session_file, path)
-                )
+                await _await_filesystem_operation(asyncio.to_thread(self._delete_session_file, path))
             finally:
                 self._next_seq.pop(session_id, None)
 
@@ -180,14 +144,8 @@ class SessionJournal:
                 if next_seq is None:
                     next_seq = await asyncio.to_thread(self._recover_next_seq, path)
 
-                record = {
-                    "seq": next_seq,
-                    "timestamp": datetime.now(self._timezone).isoformat(timespec="milliseconds"),
-                    **event,
-                }
-                await _await_filesystem_operation(
-                    asyncio.to_thread(self._append, path, record)
-                )
+                record = {"seq": next_seq, "timestamp": datetime.now(self._timezone).isoformat(timespec="milliseconds"), **event}
+                await _await_filesystem_operation(asyncio.to_thread(self._append, path, record))
             except BaseException:
                 self._next_seq.pop(session_id, None)
                 raise
@@ -196,13 +154,7 @@ class SessionJournal:
             return next_seq
 
     def _session_path(self, session_id: str) -> Path:
-        if (
-            not session_id
-            or session_id in {".", ".."}
-            or "/" in session_id
-            or "\\" in session_id
-            or Path(session_id).name != session_id
-        ):
+        if not session_id or session_id in {".", ".."} or "/" in session_id or "\\" in session_id or Path(session_id).name != session_id:
             raise ValueError("session_id must be a non-empty filename-safe value")
 
         return self._directory / f"{session_id}.jsonl"
@@ -267,11 +219,7 @@ class SessionJournal:
             raise RuntimeError(f"Session journal is not a regular file: {source}")
 
         data = source.read_bytes()
-        descriptor, temporary_name = tempfile.mkstemp(
-            prefix=f".{target.name}.",
-            suffix=".tmp",
-            dir=self._directory,
-        )
+        descriptor, temporary_name = tempfile.mkstemp(prefix=f".{target.name}.", suffix=".tmp", dir=self._directory)
         temporary = Path(temporary_name)
 
         try:

@@ -79,12 +79,7 @@ class FollowUpSubmission:
 
 @dataclass(frozen=True, slots=True)
 class RuntimeFollowUpEvent:
-    kind: Literal[
-        "steer_submitted",
-        "steer_fallback_promoted",
-        "queue_submitted",
-        "queue_promoted",
-    ]
+    kind: Literal["steer_submitted", "steer_fallback_promoted", "queue_submitted", "queue_promoted"]
     session_id: str
     run_id: str
     source_run_id: str

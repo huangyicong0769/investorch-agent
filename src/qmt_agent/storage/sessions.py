@@ -21,23 +21,17 @@ def create_session(db_path: str | Path, session_id: str) -> None:
     session = SQLiteSession(session_id, db_path)
     session.close()
     with closing(sqlite3.connect(db_path)) as connection:
-        connection.execute(
-            "INSERT OR IGNORE INTO agent_sessions (session_id) VALUES (?)",
-            (session_id,),
-        )
+        connection.execute("INSERT OR IGNORE INTO agent_sessions (session_id) VALUES (?)", (session_id,))
         connection.commit()
 
 
 def session_exists(db_path: str | Path, session_id: str) -> bool:
     with closing(sqlite3.connect(db_path)) as connection:
-        row = connection.execute(
-            "SELECT 1 FROM agent_sessions WHERE session_id = ?",
-            (session_id,),
-        ).fetchone()
+        row = connection.execute("SELECT 1 FROM agent_sessions WHERE session_id = ?", (session_id,)).fetchone()
     return row is not None
 
 
-def init_session_metadata(db_path: str | Path,) -> None:
+def init_session_metadata(db_path: str | Path) -> None:
     with closing(sqlite3.connect(db_path)) as connection:
         connection.execute(
             """
@@ -48,16 +42,9 @@ def init_session_metadata(db_path: str | Path,) -> None:
             )
             """
         )
-        columns = {
-            row[1]
-            for row in connection.execute(
-                "PRAGMA table_info(extra_session_metadata)"
-            )
-        }
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(extra_session_metadata)")}
         if "archived_at" not in columns:
-            connection.execute(
-                "ALTER TABLE extra_session_metadata ADD COLUMN archived_at TEXT"
-            )
+            connection.execute("ALTER TABLE extra_session_metadata ADD COLUMN archived_at TEXT")
         connection.execute(
             """
             CREATE TABLE IF NOT EXISTS session_lineage (
@@ -69,11 +56,7 @@ def init_session_metadata(db_path: str | Path,) -> None:
         connection.commit()
 
 
-def list_sessions(
-    db_path: str | Path,
-    *,
-    include_archived: bool = False,
-) -> list[SessionRecord]:
+def list_sessions(db_path: str | Path, *, include_archived: bool = False) -> list[SessionRecord]:
     archived_filter = "" if include_archived else "WHERE metadata.archived_at IS NULL"
     with closing(sqlite3.connect(db_path)) as connection:
         rows = connection.execute(
@@ -96,19 +79,11 @@ def list_sessions(
         ).fetchall()
 
     return [
-        SessionRecord(
-            session_id=row[0],
-            title=row[1],
-            branch_from_session_id=row[2],
-            archived_at=row[3],
-            created_at=row[4],
-            updated_at=row[5],
-        )
-        for row in rows
+        SessionRecord(session_id=row[0], title=row[1], branch_from_session_id=row[2], archived_at=row[3], created_at=row[4], updated_at=row[5]) for row in rows
     ]
 
 
-def find_session_ids(db_path: str | Path, session_id_prefix: str,) -> list[str]:
+def find_session_ids(db_path: str | Path, session_id_prefix: str) -> list[str]:
     with closing(sqlite3.connect(db_path)) as connection:
         rows = connection.execute(
             """
@@ -120,10 +95,7 @@ def find_session_ids(db_path: str | Path, session_id_prefix: str,) -> list[str]:
                 AND metadata.archived_at IS NULL
             ORDER BY sessions.updated_at DESC
             """,
-            (
-                len(session_id_prefix),
-                session_id_prefix,
-            )
+            (len(session_id_prefix), session_id_prefix),
         ).fetchall()
 
     return [row[0] for row in rows]
@@ -171,13 +143,10 @@ def is_session_archived(db_path: str | Path, session_id: str) -> bool:
 
 
 def list_archived_sessions(db_path: str | Path) -> list[SessionRecord]:
-    return [
-        record
-        for record in list_sessions(db_path, include_archived=True)
-        if record.archived_at is not None
-    ]
+    return [record for record in list_sessions(db_path, include_archived=True) if record.archived_at is not None]
 
-def get_session_title(db_path: str | Path, session_id: str,) -> str | None:
+
+def get_session_title(db_path: str | Path, session_id: str) -> str | None:
     with closing(sqlite3.connect(db_path)) as connection:
         row = connection.execute(
             """
@@ -191,7 +160,7 @@ def get_session_title(db_path: str | Path, session_id: str,) -> str | None:
     return row[0] if row else None
 
 
-def set_session_title(db_path: str | Path, session_id: str, title: str,) -> None:
+def set_session_title(db_path: str | Path, session_id: str, title: str) -> None:
     with closing(sqlite3.connect(db_path)) as connection:
         connection.execute(
             """
@@ -204,7 +173,7 @@ def set_session_title(db_path: str | Path, session_id: str, title: str,) -> None
         connection.commit()
 
 
-def get_session_branch_from(db_path: str | Path, session_id: str,) -> str | None:
+def get_session_branch_from(db_path: str | Path, session_id: str) -> str | None:
     with closing(sqlite3.connect(db_path)) as connection:
         row = connection.execute(
             """
@@ -218,7 +187,7 @@ def get_session_branch_from(db_path: str | Path, session_id: str,) -> str | None
     return row[0] if row else None
 
 
-def set_session_branch_from(db_path: str | Path, session_id: str, branch_from_session_id: str,) -> None:
+def set_session_branch_from(db_path: str | Path, session_id: str, branch_from_session_id: str) -> None:
     with closing(sqlite3.connect(db_path)) as connection:
         connection.execute(
             """
@@ -232,7 +201,7 @@ def set_session_branch_from(db_path: str | Path, session_id: str, branch_from_se
         connection.commit()
 
 
-def delete_session_metadata(db_path: str | Path, session_id: str,) -> None:
+def delete_session_metadata(db_path: str | Path, session_id: str) -> None:
     with closing(sqlite3.connect(db_path)) as connection:
         connection.execute(
             """

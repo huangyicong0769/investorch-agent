@@ -10,18 +10,10 @@ from typing_extensions import TypedDict
 
 from qmt_agent.config import AppConfig
 
-TodoStatus = Literal[
-    "pending",
-    "in_progress",
-    "completed",
-    "failed",
-]
+TodoStatus = Literal["pending", "in_progress", "completed", "failed"]
 
-BackgroundJobStatus = Literal[
-    "running",
-    "exited",
-    "lost",
-]
+BackgroundJobStatus = Literal["running", "exited", "lost"]
+
 
 class TodoItem(TypedDict):
     content: str

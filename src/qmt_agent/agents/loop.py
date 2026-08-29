@@ -21,6 +21,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+
 @dataclass(frozen=True, slots=True)
 class ApprovalOutcome:
     approved: bool
@@ -47,13 +48,7 @@ def should_auto_compact(*, enabled: bool, context_tokens: int | None, context_wi
 
 
 class AgentLoop:
-    def __init__(
-        self,
-        agent: Agent[AgentContext],
-        title_agent: Agent,
-        compaction_agent: Agent,
-        config: AppConfig,
-    ) -> None:
+    def __init__(self, agent: Agent[AgentContext], title_agent: Agent, compaction_agent: Agent, config: AppConfig) -> None:
         self._agent = agent
         self._title_agent = title_agent
         self._compaction_agent = compaction_agent
@@ -73,24 +68,10 @@ class AgentLoop:
         run_control: RunControl,
         todo_update_handler: TodoUpdateHandler | None = None,
     ) -> AgentRunResult:
-        settings = self._agent.model_settings.resolve(
-            {"reasoning": {"effort": reasoning_effort}}
-        )
+        settings = self._agent.model_settings.resolve({"reasoning": {"effort": reasoning_effort}})
         run_agent = self._agent.clone(model_settings=settings)
-        agent_context = AgentContext(
-            config=self._config,
-            execution=execution,
-            session_id=session_id,
-            run_id=run_id,
-            todo_update_handler=todo_update_handler,
-        )
-        result = Runner.run_streamed(
-            run_agent,
-            user_input,
-            session=session,
-            context=agent_context,
-            max_turns=self._config["runtime.max_turns"],
-        )
+        agent_context = AgentContext(config=self._config, execution=execution, session_id=session_id, run_id=run_id, todo_update_handler=todo_update_handler)
+        result = Runner.run_streamed(run_agent, user_input, session=session, context=agent_context, max_turns=self._config["runtime.max_turns"])
 
         current_agent_name = run_agent.name
         approval_usage = TokenUsage()
@@ -98,36 +79,22 @@ class AgentLoop:
         while True:
             run_control.bind_stream(result)
             try:
-                current_agent_name = await consume_run_events(
-                    result,
-                    output_handler,
-                    current_agent_name,
-                )
+                current_agent_name = await consume_run_events(result, output_handler, current_agent_name)
             finally:
                 run_control.unbind_stream(result)
 
             sdk_state = result.to_state() if result.interruptions else None
             if sdk_state is not None:
                 for interruption in result.interruptions:
-                    outcome = await approval_handler(
-                        user_input,
-                        interruption.name or "unknown_tool",
-                        interruption.arguments,
-                    )
+                    outcome = await approval_handler(user_input, interruption.name or "unknown_tool", interruption.arguments)
                     approval_usage += outcome.usage
 
                     if outcome.approved:
                         sdk_state.approve(interruption, always_approve=False)
                     else:
-                        sdk_state.reject(
-                            interruption,
-                            always_reject=False,
-                            rejection_message="The tool action was rejected.",
-                        )
+                        sdk_state.reject(interruption, always_reject=False, rejection_message="The tool action was rejected.")
 
-            pending_steers = await run_control.pending_for_boundary(
-                seal_if_empty=not result.interruptions
-            )
+            pending_steers = await run_control.pending_for_boundary(seal_if_empty=not result.interruptions)
             staged_ids: list[str] = []
             if pending_steers:
                 sdk_state = sdk_state or result.to_state()
@@ -147,20 +114,10 @@ class AgentLoop:
                     )
                 else:
                     run_control.mark_staged(staged_ids)
-                    logger.info(
-                        "Steer staged session=%s run=%s count=%d",
-                        session_id,
-                        run_id,
-                        len(staged_ids),
-                    )
+                    logger.info("Steer staged session=%s run=%s count=%d", session_id, run_id, len(staged_ids))
 
             if sdk_state is not None and (result.interruptions or staged_ids):
-                result = Runner.run_streamed(
-                    run_agent,
-                    sdk_state,
-                    session=session,
-                    max_turns=self._config["runtime.max_turns"],
-                )
+                result = Runner.run_streamed(run_agent, sdk_state, session=session, max_turns=self._config["runtime.max_turns"])
                 continue
             break
 
@@ -220,12 +177,7 @@ class AgentLoop:
             return None, True, False
 
         if result.changed:
-            logger.info(
-                "Context compaction completed: trigger=auto session=%s context_tokens=%d threshold=%d",
-                session.session_id,
-                context_tokens,
-                threshold,
-            )
+            logger.info("Context compaction completed: trigger=auto session=%s context_tokens=%d threshold=%d", session.session_id, context_tokens, threshold)
         return result, False, False
 
     @property

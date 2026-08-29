@@ -48,11 +48,7 @@ logger = logging.getLogger(__name__)
 
 
 def _load_agent_mcp_servers(config: AppConfig) -> list[MCPServer]:
-    servers = load_configured_mcp_servers(
-        config.mcp_config_path,
-        config.secrets,
-        config["mcp.default_timeout_seconds"],
-    )
+    servers = load_configured_mcp_servers(config.mcp_config_path, config.secrets, config["mcp.default_timeout_seconds"])
     if not config["backtest.use_cnequity"]:
         return servers
 
@@ -67,22 +63,11 @@ def _load_agent_mcp_servers(config: AppConfig) -> list[MCPServer]:
 
 def _create_model(config: AppConfig, agent: str) -> tuple[OpenAIResponsesModel, ModelSettings]:
     model = config.model(agent)
-    client = AsyncOpenAI(
-        api_key=config.secret(model.api_key_secret),
-        base_url=model.base_url,
-    )
-    return (
-        OpenAIResponsesModel(model=model.name, openai_client=client),
-        ModelSettings(reasoning={"effort": model.reasoning_effort}),
-    )
+    client = AsyncOpenAI(api_key=config.secret(model.api_key_secret), base_url=model.base_url)
+    return (OpenAIResponsesModel(model=model.name, openai_client=client), ModelSettings(reasoning={"effort": model.reasoning_effort}))
 
 
-async def _run_console(
-    state: AppState,
-    runtime: AgentRuntime,
-    ui: ConsoleUI,
-    journal: SessionJournal,
-) -> None:
+async def _run_console(state: AppState, runtime: AgentRuntime, ui: ConsoleUI, journal: SessionJournal) -> None:
     while True:
         user_input = (await ui.read_user_input()).strip()
 
@@ -93,12 +78,7 @@ async def _run_console(
             continue
 
         if command is not None:
-            result = await dispatch_command(
-                command,
-                state,
-                runtime=runtime,
-                journal=journal,
-            )
+            result = await dispatch_command(command, state, runtime=runtime, journal=journal)
             if result.output:
                 ui.write(result.output)
             if result.exit_requested:
@@ -106,23 +86,13 @@ async def _run_console(
             continue
 
         session_id = state.selected_session_id
-        if await asyncio.to_thread(
-            is_session_archived,
-            state.config.sessions_db,
-            session_id,
-        ):
-            ui.write(
-                "Archived sessions are read-only. Unarchive or switch sessions first."
-            )
+        if await asyncio.to_thread(is_session_archived, state.config.sessions_db, session_id):
+            ui.write("Archived sessions are read-only. Unarchive or switch sessions first.")
             continue
         active_run = runtime.start_run(
             session_id,
             user_input,
-            RunOptions(
-                reasoning_effort=state.main_reasoning_effort,
-                permission_mode=state.permission_mode,
-                follow_up_behavior=state.follow_up_behavior,
-            ),
+            RunOptions(reasoning_effort=state.main_reasoning_effort, permission_mode=state.permission_mode, follow_up_behavior=state.follow_up_behavior),
         )
         result = await active_run.task
         if result.auto_compaction is not None and result.auto_compaction.changed:
@@ -151,24 +121,14 @@ async def run_app(sync: bool = False, sync_force: bool = False, plain: bool = Fa
         logger.info("QMT Agent stopped")
 
 
-async def _run_configured_app(
-    ui: ConsoleUI,
-    config: AppConfig,
-    initialized: bool,
-    sync: bool,
-    sync_force: bool,
-    plain: bool,
-) -> None:
+async def _run_configured_app(ui: ConsoleUI, config: AppConfig, initialized: bool, sync: bool, sync_force: bool, plain: bool) -> None:
     def report_sync_progress(index: int, total: int, target: Path, status: str) -> None:
         relative_target = target.relative_to(config.workspace_dir)
         ui.write(f"[{index}/{total}] {status.capitalize()} {relative_target}")
 
     if initialized and not sync_force:
         logger.info("First initialization completed at %s", config.root)
-        ui.write(
-            f"QMT Agent initialized at {config.root}\n"
-            f"Please configure required secrets in {config.root_config_path} and start QMT Agent again."
-        )
+        ui.write(f"QMT Agent initialized at {config.root}\nPlease configure required secrets in {config.root_config_path} and start QMT Agent again.")
         return
 
     if sync_force:
@@ -176,11 +136,7 @@ async def _run_configured_app(
         result = await sync_bootstrap_files(config, force=True, progress=report_sync_progress)
         backup = result.backup_dir or "none"
         logger.info(
-            "Bootstrap force synchronization completed: created=%d updated=%d unchanged=%d backup=%s",
-            result.created,
-            result.updated,
-            result.unchanged,
-            backup,
+            "Bootstrap force synchronization completed: created=%d updated=%d unchanged=%d backup=%s", result.created, result.updated, result.unchanged, backup
         )
         ui.write(f"Bootstrap files force-synchronized: created={result.created}, updated={result.updated}, unchanged={result.unchanged}, backup={backup}")
         if initialized:
@@ -194,23 +150,14 @@ async def _run_configured_app(
         agent = create_bootstrap_sync_agent(model, model_settings)
 
         async def merge_target(target: Path, template: str, exists: bool) -> None:
-            context = AgentContext(
-                config=config,
-                execution=ExecutionState(),
-                session_id="bootstrap-sync",
-                run_id="bootstrap-sync",
-            )
+            context = AgentContext(config=config, execution=ExecutionState(), session_id="bootstrap-sync", run_id="bootstrap-sync")
             prompt = build_bootstrap_sync_prompt(target, config.workspace_dir, template, exists)
             await run_bootstrap_sync(agent, context, prompt, target)
 
         result = await sync_bootstrap_files(config, merge_target, progress=report_sync_progress)
         backup = result.backup_dir or "none"
         logger.info(
-            "Bootstrap synchronization completed: created=%d updated=%d unchanged=%d backup=%s",
-            result.created,
-            result.updated,
-            result.unchanged,
-            backup,
+            "Bootstrap synchronization completed: created=%d updated=%d unchanged=%d backup=%s", result.created, result.updated, result.unchanged, backup
         )
         ui.write(f"Bootstrap files synchronized: created={result.created}, updated={result.updated}, unchanged={result.unchanged}, backup={backup}")
         return
@@ -233,10 +180,7 @@ async def _run_configured_app(
     compact_agent = create_compaction_agent(compact_model, compact_model_settings)
     permission_model, permission_model_settings = _create_model(config, "permission")
     permission_agent = create_permission_agent(permission_model, permission_model_settings)
-    journal = SessionJournal(
-        config.session_journal_dir,
-        ZoneInfo(config["runtime.default_timezone"]),
-    )
+    journal = SessionJournal(config.session_journal_dir, ZoneInfo(config["runtime.default_timezone"]))
     renderer = ConsoleRenderer(ui) if plain else None
     tui: QMTAgentTUI | None = None
 
@@ -251,33 +195,19 @@ async def _run_configured_app(
         try:
             return await journal.record_user_steer(session_id, run_id, text)
         except Exception:
-            logger.exception(
-                "Failed to append Steer input to session journal for session %s run %s",
-                session_id,
-                run_id,
-            )
+            logger.exception("Failed to append Steer input to session journal for session %s run %s", session_id, run_id)
             return None
 
     async def record_activity_label(session_id: str, target_seq: int, text: str) -> None:
         try:
             await journal.record_activity_label(session_id, target_seq, text)
         except Exception:
-            logger.exception(
-                "Failed to append activity label to session journal for session %s target %d",
-                session_id,
-                target_seq,
-            )
+            logger.exception("Failed to append activity label to session journal for session %s target %d", session_id, target_seq)
 
     if not plain:
         activity_model, activity_model_settings = _create_model(config, "activity")
         activity_agent = create_activity_agent(activity_model, activity_model_settings)
-        tui = QMTAgentTUI(
-            state,
-            config.session_journal_dir,
-            journal,
-            activity_agent,
-            record_activity_label,
-        )
+        tui = QMTAgentTUI(state, config.session_journal_dir, journal, activity_agent, record_activity_label)
 
     async def handle_output(output: RuntimeOutput) -> None:
         journal_seq = None
@@ -291,12 +221,7 @@ async def _run_configured_app(
             return
 
         assert tui is not None
-        await tui.handle_output(
-            output.event,
-            session_id=output.session_id,
-            run_id=output.run_id,
-            journal_seq=journal_seq,
-        )
+        await tui.handle_output(output.event, session_id=output.session_id, run_id=output.run_id, journal_seq=journal_seq)
 
     async def handle_follow_up(event: RuntimeFollowUpEvent) -> None:
         if tui is not None:
@@ -310,10 +235,7 @@ async def _run_configured_app(
         if tui is not None:
             tui.handle_runtime_state(snapshot)
 
-    async def request_user_approval(
-        request: ApprovalRequest,
-        review_reason: str | None = None,
-    ) -> bool:
+    async def request_user_approval(request: ApprovalRequest, review_reason: str | None = None) -> bool:
         if tui is None:
             return await ui.request_tool_approval(request.tool_name, request.arguments, review_reason)
         return await tui.request_tool_approval(request, review_reason)
@@ -327,21 +249,12 @@ async def _run_configured_app(
             source = "user"
         else:
             try:
-                review_result = await review_permission(
-                    permission_agent,
-                    config,
-                    request.user_input,
-                    request.tool_name,
-                    request.arguments,
-                )
+                review_result = await review_permission(permission_agent, config, request.user_input, request.tool_name, request.arguments)
                 review_usage = review_result.usage
                 review = review_result.review
             except Exception:
                 logger.exception("Permission review failed for tool %s; falling back to manual approval", request.tool_name)
-                review = PermissionReview(
-                    decision="ask",
-                    reason="AutoReview is unavailable; manual approval is required.",
-                )
+                review = PermissionReview(decision="ask", reason="AutoReview is unavailable; manual approval is required.")
 
             review_decision = review.decision
             review_reason = review.reason
@@ -361,13 +274,7 @@ async def _run_configured_app(
         journal_seq = None
         try:
             journal_seq = await journal.record_approval(
-                request.session_id,
-                request.tool_name,
-                request.arguments,
-                approved,
-                source=source,
-                review_decision=review_decision,
-                review_reason=review_reason,
+                request.session_id, request.tool_name, request.arguments, approved, source=source, review_decision=review_decision, review_reason=review_reason
             )
         except Exception:
             logger.exception("Failed to append approval to session journal for session %s", request.session_id)
@@ -396,18 +303,8 @@ async def _run_configured_app(
             try:
                 logger.info("MCP server manager started with %d active servers", len(mcp_manager.active_servers))
                 main_model, main_model_settings = _create_model(config, "main")
-                agent = create_agent(
-                    model=main_model,
-                    model_settings=main_model_settings,
-                    config=config,
-                    mcp_servers=mcp_manager.active_servers,
-                )
-                agent_loop = AgentLoop(
-                    agent,
-                    title_agent,
-                    compact_agent,
-                    config,
-                )
+                agent = create_agent(model=main_model, model_settings=main_model_settings, config=config, mcp_servers=mcp_manager.active_servers)
+                agent_loop = AgentLoop(agent, title_agent, compact_agent, config)
                 runtime = AgentRuntime(
                     agent_loop,
                     state.execution,

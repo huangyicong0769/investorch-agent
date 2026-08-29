@@ -117,7 +117,7 @@ class AppConfig:
         return self.state_dir / "sessions"
 
     @property
-    def bootstrap_files(self,) -> list[tuple[Path, Path]]:
+    def bootstrap_files(self) -> list[tuple[Path, Path]]:
         """
         Return configured bootstrap files as:
 
@@ -240,7 +240,7 @@ class AppConfig:
         data = deepcopy(self._data)
 
         if "secrets" in data:
-            data["secrets"] = { key: REDACTED for key in data["secrets"] }
+            data["secrets"] = {key: REDACTED for key in data["secrets"]}
 
         return data
 
@@ -334,10 +334,7 @@ class AppConfig:
 
         table[parts[-1]] = value
 
-        path.write_text(
-            tomlkit.dumps(document),
-            encoding="utf-8",
-        )
+        path.write_text(tomlkit.dumps(document), encoding="utf-8")
 
         # root/qmt.toml contains secrets.
         if os.name == "posix":
@@ -369,9 +366,7 @@ def load_config(project_config_path: str | Path | None = None) -> AppConfig:
     root = root.resolve()
 
     if root.exists() and not root.is_dir():
-        raise ConfigError(
-            f"paths.root is not a directory: {root}"
-        )
+        raise ConfigError(f"paths.root is not a directory: {root}")
 
     root_config_path = root / "qmt.toml"
 
@@ -395,13 +390,10 @@ def load_config(project_config_path: str | Path | None = None) -> AppConfig:
     # Bootstrap root always wins.
     data.setdefault("paths", {})["root"] = str(root)
 
-    return AppConfig(
-        data=data,
-        project_config_path=project_path,
-    )
+    return AppConfig(data=data, project_config_path=project_path)
 
 
-def _read_toml(path: Path,) -> dict[str, Any]:
+def _read_toml(path: Path) -> dict[str, Any]:
     try:
         with path.open("rb") as file:
             return tomllib.load(file)
@@ -570,10 +562,7 @@ def _validate_config_data(data: dict[str, Any], root: Path) -> None:
 
     follow_up_behavior = _require_string(data, "interaction.follow_up_behavior")
     if follow_up_behavior not in FOLLOW_UP_BEHAVIORS:
-        raise ConfigError(
-            "interaction.follow_up_behavior must be one of "
-            f"{', '.join(FOLLOW_UP_BEHAVIORS)}"
-        )
+        raise ConfigError(f"interaction.follow_up_behavior must be one of {', '.join(FOLLOW_UP_BEHAVIORS)}")
 
     sidebar_width = _require_int(data, "tui.sidebar_width", minimum=1)
     sidebar_min_width = _require_int(data, "tui.sidebar_min_width", minimum=1)
