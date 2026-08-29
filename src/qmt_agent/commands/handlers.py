@@ -164,10 +164,12 @@ async def dispatch_command(command: Command, state: AppState, *, compact_handler
                 return CommandResult("Context compaction is unavailable in this runtime.")
             try:
                 result = await compact_handler(state.session)
-            except Exception as exc:
+            except BaseException as exc:
                 if session_history_restore_failed(exc):
                     logger.exception("Manual context compaction failed and session history restoration was unsuccessful")
                     return CommandResult("Context compaction failed and context storage may be damaged. Stop this session and see the system log.")
+                if not isinstance(exc, Exception):
+                    raise
                 logger.exception("Manual context compaction failed; existing context was kept")
                 return CommandResult("Context compaction failed; existing context was kept. See the system log.")
             if not result.changed:

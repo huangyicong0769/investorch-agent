@@ -139,7 +139,7 @@ class AgentLoop:
         threshold = math.floor(context_window_tokens * trigger_ratio)
         try:
             result = await self.compact(session)
-        except Exception as exc:
+        except BaseException as exc:
             consistency_uncertain = session_history_restore_failed(exc)
             if consistency_uncertain:
                 logger.exception(
@@ -148,14 +148,16 @@ class AgentLoop:
                     context_tokens,
                     threshold,
                 )
-            else:
-                logger.exception(
-                    "Automatic context compaction failed; existing context was kept: session=%s context_tokens=%d threshold=%d",
-                    session.session_id,
-                    context_tokens,
-                    threshold,
-                )
-            return None, True, consistency_uncertain
+                return None, True, True
+            if not isinstance(exc, Exception):
+                raise
+            logger.exception(
+                "Automatic context compaction failed; existing context was kept: session=%s context_tokens=%d threshold=%d",
+                session.session_id,
+                context_tokens,
+                threshold,
+            )
+            return None, True, False
 
         if result.changed:
             logger.info(
