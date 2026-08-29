@@ -10,7 +10,6 @@ from openai import AsyncOpenAI
 
 from qmt_agent.agents import (
     AgentLoop,
-    ApprovalHandler,
     ApprovalOutcome,
     PermissionReview,
     build_bootstrap_sync_prompt,
@@ -31,7 +30,7 @@ from qmt_agent.initializer import initialize, sync_bootstrap_files
 from qmt_agent.journal import SessionJournal
 from qmt_agent.log import configure_logging
 from qmt_agent.mcp import load_mcp_servers as load_configured_mcp_servers
-from qmt_agent.output import OutputEvent, OutputHandler
+from qmt_agent.runtime import AgentRuntime, ApprovalRequest, RunOptions, RuntimeOutput
 from qmt_agent.tools import close_execution, start_execution
 from qmt_agent.ui import ConsoleRenderer, ConsoleUI, QMTAgentTUI
 
@@ -70,11 +69,8 @@ def _create_model(config: AppConfig, agent: str) -> tuple[OpenAIResponsesModel, 
 
 async def _run_console(
     state: AppState,
-    agent_loop: AgentLoop,
+    runtime: AgentRuntime,
     ui: ConsoleUI,
-    journal: SessionJournal,
-    output_handler: OutputHandler,
-    approval_handler: ApprovalHandler,
 ) -> None:
     while True:
         user_input = (await ui.read_user_input()).strip()
@@ -86,7 +82,7 @@ async def _run_console(
             continue
 
         if command is not None:
-            result = await dispatch_command(command, state, compact_handler=agent_loop.compact)
+            result = await dispatch_command(command, state, compact_handler=runtime.compact_session)
             if result.output:
                 ui.write(result.output)
             if result.exit_requested:
@@ -94,21 +90,15 @@ async def _run_console(
             continue
 
         session_id = state.session.session_id
-        try:
-            await journal.record_user_message(session_id, user_input)
-        except Exception:
-            logger.exception("Failed to append user message to session journal for session %s", session_id)
-
-        result = await agent_loop.run(
+        active_run = runtime.start_run(
+            session_id,
             user_input,
-            state.session,
-            state.execution,
-            run_id=uuid.uuid4().hex,
-            session_id=session_id,
-            reasoning_effort=state.main_reasoning_effort,
-            approval_handler=approval_handler,
-            output_handler=output_handler,
+            RunOptions(
+                reasoning_effort=state.main_reasoning_effort,
+                permission_mode=state.permission_mode,
+            ),
         )
+        result = await active_run.task
         if result.auto_compaction is not None and result.auto_compaction.changed:
             ui.write("Context compacted automatically.")
         elif result.auto_compaction_consistency_uncertain:
@@ -245,29 +235,27 @@ async def _run_configured_app(
             state,
             config.session_journal_dir,
             activity_agent,
-            record_user_message,
             record_activity_label,
         )
 
-    async def handle_output(event: OutputEvent) -> None:
-        session_id = state.session.session_id
-        if renderer is not None:
-            await renderer.handle(event)
-
-            try:
-                await journal.record_output(session_id, event)
-            except Exception:
-                logger.exception("Failed to append output to session journal for session %s", session_id)
-            return
-
+    async def handle_output(output: RuntimeOutput) -> None:
         journal_seq = None
         try:
-            journal_seq = await journal.record_output(session_id, event)
+            journal_seq = await journal.record_output(output.session_id, output.event)
         except Exception:
-            logger.exception("Failed to append output to session journal for session %s", session_id)
+            logger.exception("Failed to append output to session journal for session %s", output.session_id)
+
+        if renderer is not None:
+            await renderer.handle(output.event)
+            return
 
         assert tui is not None
-        await tui.handle_output(event, session_id=session_id, journal_seq=journal_seq)
+        await tui.handle_output(
+            output.event,
+            session_id=output.session_id,
+            run_id=output.run_id,
+            journal_seq=journal_seq,
+        )
 
     async def request_user_approval(
         tool_name: str,
@@ -278,21 +266,26 @@ async def _run_configured_app(
             return await ui.request_tool_approval(tool_name, arguments, review_reason)
         return await tui.request_tool_approval(tool_name, arguments, review_reason)
 
-    async def handle_approval(user_input: str, tool_name: str, arguments: str | None) -> ApprovalOutcome:
-        session_id = state.session.session_id
+    async def handle_approval(request: ApprovalRequest) -> ApprovalOutcome:
         review_usage = TokenUsage()
         review_decision = None
         review_reason = None
-        if state.permission_mode == "manual":
-            approved = await request_user_approval(tool_name, arguments)
+        if request.permission_mode == "manual":
+            approved = await request_user_approval(request.tool_name, request.arguments)
             source = "user"
         else:
             try:
-                review_result = await review_permission(permission_agent, config, user_input, tool_name, arguments)
+                review_result = await review_permission(
+                    permission_agent,
+                    config,
+                    request.user_input,
+                    request.tool_name,
+                    request.arguments,
+                )
                 review_usage = review_result.usage
                 review = review_result.review
             except Exception:
-                logger.exception("Permission review failed for tool %s; falling back to manual approval", tool_name)
+                logger.exception("Permission review failed for tool %s; falling back to manual approval", request.tool_name)
                 review = PermissionReview(
                     decision="ask",
                     reason="AutoReview is unavailable; manual approval is required.",
@@ -301,25 +294,25 @@ async def _run_configured_app(
             review_decision = review.decision
             review_reason = review.reason
             if review.decision == "approve":
-                logger.info("Permission auto-approved tool %s", tool_name)
+                logger.info("Permission auto-approved tool %s", request.tool_name)
                 approved = True
                 source = "permission"
             elif review.decision == "reject":
-                logger.info("Permission auto-rejected tool %s", tool_name)
+                logger.info("Permission auto-rejected tool %s", request.tool_name)
                 approved = False
                 source = "permission"
             else:
-                logger.info("Permission escalated tool %s to user", tool_name)
-                approved = await request_user_approval(tool_name, arguments, review.reason)
+                logger.info("Permission escalated tool %s to user", request.tool_name)
+                approved = await request_user_approval(request.tool_name, request.arguments, review.reason)
                 source = "user"
 
             if source == "permission":
                 if tui is None:
-                    ui.report_permission_decision(tool_name, approved, review.reason)
+                    ui.report_permission_decision(request.tool_name, approved, review.reason)
                 else:
                     await tui.report_tool_approval(
-                        tool_name,
-                        arguments,
+                        request.tool_name,
+                        request.arguments,
                         approved,
                         source=source,
                         review_decision=review.decision,
@@ -328,16 +321,16 @@ async def _run_configured_app(
 
         try:
             await journal.record_approval(
-                session_id,
-                tool_name,
-                arguments,
+                request.session_id,
+                request.tool_name,
+                request.arguments,
                 approved,
                 source=source,
                 review_decision=review_decision,
                 review_reason=review_reason,
             )
         except Exception:
-            logger.exception("Failed to append approval to session journal for session %s", session_id)
+            logger.exception("Failed to append approval to session journal for session %s", request.session_id)
 
         return ApprovalOutcome(approved=approved, usage=review_usage)
 
@@ -360,18 +353,22 @@ async def _run_configured_app(
                 compact_agent,
                 config,
             )
-            if tui is None:
-                await _run_console(
-                    state,
-                    agent_loop,
-                    ui,
-                    journal,
-                    handle_output,
-                    handle_approval,
-                )
-            else:
-                tui.bind_agent_loop(agent_loop, handle_output, handle_approval)
-                await tui.run_async()
+            runtime = AgentRuntime(
+                agent_loop,
+                state.execution,
+                config.sessions_db,
+                handle_output,
+                handle_approval,
+                record_user_message,
+            )
+            try:
+                if tui is None:
+                    await _run_console(state, runtime, ui)
+                else:
+                    tui.bind_runtime(runtime)
+                    await tui.run_async()
+            finally:
+                await runtime.aclose()
     finally:
         try:
             await close_execution(state.execution)

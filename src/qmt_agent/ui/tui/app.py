@@ -2,11 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import uuid
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from time import monotonic
-from typing import TYPE_CHECKING
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
@@ -21,6 +19,7 @@ from qmt_agent.commands import Command, dispatch_command, parse_command
 from qmt_agent.context import AppState
 from qmt_agent.journal import read_session_journal
 from qmt_agent.output import OutputEvent, ToolCalled
+from qmt_agent.runtime import ActiveRun, AgentRuntime, RunOptions
 from qmt_agent.storage import get_session_title, list_sessions
 
 from .sidebar import SessionSidebar
@@ -28,12 +27,7 @@ from .timeline import ActivityStep, ChatTimeline, format_json
 
 logger = logging.getLogger(__name__)
 RUN_BLOCKED_COMMANDS = {"new", "resume", "clear", "effort", "permission", "compact"}
-RecordUserMessage = Callable[[str, str], Awaitable[None]]
 RecordActivityLabel = Callable[[str, int, str], Awaitable[None]]
-
-if TYPE_CHECKING:
-    from qmt_agent.agents import AgentLoop, ApprovalHandler
-    from qmt_agent.output import OutputHandler
 
 
 class Composer(Vertical):
@@ -360,18 +354,14 @@ class QMTAgentTUI(App[None]):
         state: AppState,
         journal_dir: Path,
         activity_agent: Agent,
-        record_user_message: RecordUserMessage,
         record_activity_label: RecordActivityLabel,
     ) -> None:
         super().__init__()
         self.state = state
         self.journal_dir = journal_dir
         self.activity_agent = activity_agent
-        self._record_user_message = record_user_message
         self._record_activity_label = record_activity_label
-        self.agent_loop: AgentLoop | None = None
-        self._output_handler: OutputHandler | None = None
-        self._approval_handler: ApprovalHandler | None = None
+        self.runtime: AgentRuntime | None = None
         self.session_title: str | None = None
         self._run_active = False
         self._run_status = "● Ready"
@@ -536,22 +526,16 @@ class QMTAgentTUI(App[None]):
     def add_auxiliary_usage(self, session_id: str, usage: TokenUsage) -> None:
         self._add_usage(session_id, usage)
 
-    def bind_agent_loop(
-        self,
-        agent_loop: AgentLoop,
-        output_handler: OutputHandler,
-        approval_handler: ApprovalHandler,
-    ) -> None:
-        self.agent_loop = agent_loop
-        self._output_handler = output_handler
-        self._approval_handler = approval_handler
-        self._main_agent_name = agent_loop.agent_name
+    def bind_runtime(self, runtime: AgentRuntime) -> None:
+        self.runtime = runtime
+        self._main_agent_name = runtime.agent_name
 
     async def handle_output(
         self,
         event: OutputEvent,
         *,
         session_id: str,
+        run_id: str,
         journal_seq: int | None,
     ) -> None:
         if session_id != self.state.session.session_id:
@@ -562,7 +546,8 @@ class QMTAgentTUI(App[None]):
         if isinstance(event, ToolCalled) and step is not None:
             step.session_id = session_id
             step.target_seq = journal_seq
-            user_message = self._current_user_message
+            active_run = self.runtime.get_active_run(session_id) if self.runtime is not None else None
+            user_message = active_run.user_input if active_run is not None and active_run.run_id == run_id else ""
             reasoning = step.label_reasoning
             self.run_worker(
                 self._generate_step_activity(
@@ -689,7 +674,7 @@ class QMTAgentTUI(App[None]):
         result = await dispatch_command(
             command,
             self.state,
-            compact_handler=self.agent_loop.compact if self.agent_loop is not None else None,
+            compact_handler=self.runtime.compact_session if self.runtime is not None else None,
         )
         if result.exit_requested:
             if result.output:
@@ -730,44 +715,35 @@ class QMTAgentTUI(App[None]):
 
     async def _start_agent_run(self, user_message: str) -> None:
         timeline = self.query_one(ChatTimeline)
-        if self.agent_loop is None:
+        if self.runtime is None:
             await timeline.add_notice("Agent runtime is not ready.")
             return
 
         session_id = self.state.session.session_id
-        session = self.state.session
         self._run_active = True
         self._current_user_message = user_message
         self._set_run_controls(running=True)
         await timeline.add_user_message(user_message)
 
-        try:
-            await self._record_user_message(session_id, user_message)
-        except Exception:
-            logger.exception("Failed to append user message to session journal for session %s", session_id)
-
+        active_run = self.runtime.start_run(
+            session_id,
+            user_message,
+            RunOptions(
+                reasoning_effort=self.state.main_reasoning_effort,
+                permission_mode=self.state.permission_mode,
+            ),
+        )
         self.run_worker(
-            self._run_agent(user_message, session_id, session),
+            self._run_agent(active_run),
             group="agent-run",
             exclusive=True,
             exit_on_error=False,
         )
 
-    async def _run_agent(self, user_message: str, session_id: str, session) -> None:
+    async def _run_agent(self, active_run: ActiveRun) -> None:
+        session_id = active_run.session_id
         try:
-            assert self.agent_loop is not None
-            assert self._output_handler is not None
-            assert self._approval_handler is not None
-            result = await self.agent_loop.run(
-                user_message,
-                session,
-                self.state.execution,
-                run_id=uuid.uuid4().hex,
-                session_id=session_id,
-                reasoning_effort=self.state.main_reasoning_effort,
-                approval_handler=self._approval_handler,
-                output_handler=self._output_handler,
-            )
+            result = await active_run.task
             self._add_usage(session_id, result.main_usage)
             compacted = result.auto_compaction is not None and result.auto_compaction.changed
             self._set_main_context_tokens(session_id, None if compacted else result.main_usage.last_request_total_tokens)

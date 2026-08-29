@@ -86,6 +86,10 @@ class AgentRuntime:
     def has_active_runs(self) -> bool:
         return bool(self._active_by_session)
 
+    @property
+    def agent_name(self) -> str:
+        return self._agent_loop.agent_name
+
     async def compact_session(self, session_id: str) -> CompactionResult:
         if self._closed:
             raise RuntimeError("Agent runtime is closed")

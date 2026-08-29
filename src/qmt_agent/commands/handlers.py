@@ -45,7 +45,7 @@ class CommandResult:
     compaction: CompactionResult | None = None
 
 
-CompactHandler = Callable[[SQLiteSession], Awaitable[CompactionResult]]
+CompactHandler = Callable[[str], Awaitable[CompactionResult]]
 
 
 async def dispatch_command(command: Command, state: AppState, *, compact_handler: CompactHandler | None = None) -> CommandResult:
@@ -163,7 +163,7 @@ async def dispatch_command(command: Command, state: AppState, *, compact_handler
             if compact_handler is None:
                 return CommandResult("Context compaction is unavailable in this runtime.")
             try:
-                result = await compact_handler(state.session)
+                result = await compact_handler(state.session.session_id)
             except BaseException as exc:
                 if session_history_restore_failed(exc):
                     logger.exception("Manual context compaction failed and session history restoration was unsuccessful")
