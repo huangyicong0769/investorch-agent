@@ -23,7 +23,7 @@ A persistent runtime update is written to `<root>/qmt.toml` and therefore become
 | --- | --- | --- |
 | immutable | `paths.root`, `bootstrap.*` | Cannot be changed through runtime configuration. |
 | restart-required | `paths.workspace`, `paths.state`, `models.*`, `permission.*`, `tui.*`, `logging.*`, `mcp.*`, `cnequity.*`, `backtest.use_cnequity`, `backtest.rqalpha_bundle_dir`, `observability.sdk_tracing_enabled` | `persist=false` is rejected. `persist=true` writes the next-start value but does not change the current runtime; restart QMT Agent to apply it. |
-| hot | `runtime.*`, `activity.*`, execution/explore/calculate limits, `backtest.artifact_dir`, and backtest execution policy | Validated and applied to the current `AppConfig`; persistence is optional. The next applicable operation uses the new value. |
+| hot | `runtime.*`, `activity.*`, `compaction.*`, execution/explore/calculate limits, `backtest.artifact_dir`, and backtest execution policy | Validated and applied to the current `AppConfig`; persistence is optional. The next applicable operation uses the new value. |
 
 `get_config` reports the value currently used by this process. A persisted restart-required update therefore continues to report the old value until the application is restarted.
 
@@ -65,6 +65,7 @@ The runtime policy sections below are TOML-only and must be present in the effec
 - `[runtime].default_timezone`
 - `[models.<agent>]` model connection settings
 - `[activity]` prompt input and label length limits
+- `[compaction]` automatic context-compaction policy and summary output budget
 - `[permission]` tool approval mode and complete-input limits
 - `[tui]` sidebar, composer, Activity, and approval dimensions
 - `[backtest]` data paths, artifact path, execution policy, default cash, and inspection limit
@@ -78,7 +79,7 @@ The runtime policy sections below are TOML-only and must be present in the effec
 
 They are validated at startup and again before an update is persisted. `background_job_dir` and `backtest.artifact_dir` must remain relative to the configured workspace.
 
-Each Agent owns an independent `[models.<agent>]` table represented by `ModelConfig`. Every model defines `name`, `base_url`, `api_key_secret`, and `reasoning_effort`; the secret field names a key in the local `[secrets]` table rather than containing a credential. Supported reasoning effort values are `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, and `max`; `none` is the instant/non-thinking setting. A model may also define `context_window_tokens`, and `models.main.context_window_tokens` is required for the Main Agent capacity shown by the TUI. Adding another required Agent means registering its name once, adding its model table, and calling `AppConfig.model(agent)`; validation and restart handling apply to every model table without another list of model fields. Normal startup constructs Main, Title, and Permission models, Textual mode additionally constructs Activity, and `--sync` constructs only Bootstrap. All model settings are restart-required.
+Each Agent owns an independent `[models.<agent>]` table represented by `ModelConfig`. Every model defines `name`, `base_url`, `api_key_secret`, and `reasoning_effort`; the secret field names a key in the local `[secrets]` table rather than containing a credential. Supported reasoning effort values are `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, and `max`; `none` is the instant/non-thinking setting. A model may also define `context_window_tokens`, and `models.main.context_window_tokens` is required for the Main Agent capacity shown by the TUI. Adding another required Agent means registering its name once, adding its model table, and calling `AppConfig.model(agent)`; validation and restart handling apply to every model table without another list of model fields. Normal startup constructs Main, Title, Permission, and Compact models, Textual mode additionally constructs Activity, and `--sync` constructs only Bootstrap. All model settings are restart-required.
 
 ## Tool Permission Review
 
@@ -87,6 +88,22 @@ Each Agent owns an independent `[models.<agent>]` table represented by `ModelCon
 The Permission Agent receives the current user request and complete tool arguments, subject to `permission.max_user_message_chars` and `permission.max_tool_arguments_chars`. If either input exceeds its configured limit, or if review fails or returns invalid output, the decision falls back to `ASK` without sending truncated material to the model. Review reasons are limited by `permission.max_reason_chars`.
 
 Changing `models.permission` to another provider sends these approval materials to that provider. The Agent-facing configuration tool may read Permission settings but cannot modify `permission.*` or `models.permission.*`; only the operator can change the subsystem configuration.
+
+## Context Compaction
+
+`/compact` replaces the current OpenAI Agents SDK session history with one high-fidelity assistant continuation summary. It preserves the session ID and title. The append-only JSONL journal is never compacted, so TUI history replay and resumed visual history retain the complete conversation.
+
+The Compact Agent is independent of the Main Agent and has no tools or application context. It receives the complete SDK session history as untrusted data and neither continues the user's task nor writes memory or configuration. The summary is stored as a marked assistant message, not a system, developer, or user instruction. Changing `models.compact` to another provider sends the complete SDK session history to that provider.
+
+The hot `[compaction]` section defines:
+
+- `auto_enabled`: whether a completed Main turn may trigger automatic compaction; it does not disable explicit `/compact`.
+- `trigger_ratio`: a finite number strictly between zero and one, applied to `models.main.context_window_tokens`.
+- `max_output_tokens`: a positive integer passed as the Compact Agent summary output budget.
+
+Automatic compaction runs synchronously after the Main answer and initial title generation, before the next user input is accepted. Its only occupancy signal is the Main Agent's last physical request total; cumulative session usage and Title, Activity, Permission, or Compact Agent usage do not participate. A compaction failure does not discard a completed Main answer. Session replacement retains an in-memory snapshot and attempts to restore it after any replacement exception or cancellation.
+
+Compact Agent usage contributes to per-session auxiliary token totals. After successful manual or automatic compaction, `Main context` is unknown until the next physical Main request supplies real usage; Compact Agent usage and summary character length are not used as estimates.
 
 `runtime.max_turns` is passed explicitly to both normal Agent runs and bootstrap synchronization runs, including approval resumes. No Agent run relies on the Agents SDK default turn limit.
 
@@ -147,17 +164,17 @@ The built-in CNEquity MCP server is composed only when `backtest.use_cnequity=tr
 
 Activity labels are presentation-only descriptions of what the Main Agent is doing. They do not enter the Main Agent context and do not replace raw execution content.
 
-The TUI shows per-session token usage observed during the current application process: requests, input, cached input, cache-write input, output, reasoning output, and total tokens. These totals include Main Agent runs plus title and Activity Agent calls made for that session. Cached and cache-write counts are input-token breakdowns, and reasoning is an output-token breakdown; they are not added to total a second time. `Main context` compares the Main Agent's last physical request total with `models.main.context_window_tokens`; cumulative multi-request totals are deliberately not used as context occupancy. Usage display state is not persisted across application restarts.
+The TUI shows per-session token usage observed during the current application process: requests, input, cached input, cache-write input, output, reasoning output, and total tokens. These totals include Main Agent runs plus Title, Activity, Permission, and Compact Agent calls made for that session. Cached and cache-write counts are input-token breakdowns, and reasoning is an output-token breakdown; they are not added to total a second time. `Main context` compares the Main Agent's last physical request total with `models.main.context_window_tokens`; cumulative multi-request totals are deliberately not used as context occupancy. Usage display state is not persisted across application restarts.
 
 ## Log and Session State Ownership
 
-The `[logging]` section controls the application diagnostic log level, rotation size, and retained backup count. These settings are restart-required. The active UTF-8 log is stored at `<state>/logs/qmt-agent.log`; it contains application lifecycle and failure diagnostics, not full user messages, reasoning, assistant answers, tool arguments, tool output, or secrets.
+The `[logging]` section controls the application diagnostic log level, rotation size, and retained backup count. These settings are restart-required. The active UTF-8 log is stored at `<state>/logs/qmt-agent.log`; it contains application lifecycle, compaction metadata, and failure diagnostics, not full user messages, reasoning, assistant answers, compact summaries, tool arguments, tool output, or secrets.
 
 Each chat session has an authoritative append-only event journal at `<state>/sessions/<full-session-id>.jsonl`. Journal records preserve raw user messages, semantic Agent output, and approval decisions with per-session sequence numbers. Slash commands are not chat events.
 
 An `activity_label` record is a derived display annotation. Its `target_seq` refers to the `seq` of the corresponding `tool_called` record. Labels may arrive later than their target and may be deleted without changing execution truth or model continuation. The Textual history view reads the complete JSONL file directly, uses the last valid label for a target, and falls back to the raw tool name when no label exists.
 
-`<state>/sessions.db` remains owned by the OpenAI Agents SDK for model conversation continuation. Existing application session metadata remains there for now, but the database is not the journal. There is no UI projection, search index, or activity cache database.
+`<state>/sessions.db` remains owned by the OpenAI Agents SDK for model conversation continuation. Context compaction modifies only this model-continuation history through the SDK's public Session API. Existing application session metadata remains there for now, but the database is not the journal. There is no UI projection, search index, or activity cache database.
 
 ## Local Configuration
 
