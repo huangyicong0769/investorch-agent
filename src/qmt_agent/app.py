@@ -261,20 +261,21 @@ async def _run_configured_app(
         )
 
     async def request_user_approval(
+        session_id: str,
         tool_name: str,
         arguments: str | None,
         review_reason: str | None = None,
     ) -> bool:
         if tui is None:
             return await ui.request_tool_approval(tool_name, arguments, review_reason)
-        return await tui.request_tool_approval(tool_name, arguments, review_reason)
+        return await tui.request_tool_approval(session_id, tool_name, arguments, review_reason)
 
     async def handle_approval(request: ApprovalRequest) -> ApprovalOutcome:
         review_usage = TokenUsage()
         review_decision = None
         review_reason = None
         if request.permission_mode == "manual":
-            approved = await request_user_approval(request.tool_name, request.arguments)
+            approved = await request_user_approval(request.session_id, request.tool_name, request.arguments)
             source = "user"
         else:
             try:
@@ -306,7 +307,12 @@ async def _run_configured_app(
                 source = "permission"
             else:
                 logger.info("Permission escalated tool %s to user", request.tool_name)
-                approved = await request_user_approval(request.tool_name, request.arguments, review.reason)
+                approved = await request_user_approval(
+                    request.session_id,
+                    request.tool_name,
+                    request.arguments,
+                    review.reason,
+                )
                 source = "user"
 
             if source == "permission":
@@ -314,6 +320,7 @@ async def _run_configured_app(
                     ui.report_permission_decision(request.tool_name, approved, review.reason)
                 else:
                     await tui.report_tool_approval(
+                        request.session_id,
                         request.tool_name,
                         request.arguments,
                         approved,

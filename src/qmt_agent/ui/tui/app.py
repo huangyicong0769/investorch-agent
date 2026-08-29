@@ -3,12 +3,13 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable
+from datetime import datetime, timezone
 from pathlib import Path
-from time import monotonic
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.css.query import NoMatches
 from textual.message import Message
 from textual.widgets import Button, Label, ListView, Static, TextArea
 
@@ -18,15 +19,14 @@ from qmt_agent.agents import TokenUsage, generate_activity_label
 from qmt_agent.commands import Command, dispatch_command, parse_command
 from qmt_agent.context import AppState
 from qmt_agent.journal import read_session_journal
-from qmt_agent.output import OutputEvent, ToolCalled
-from qmt_agent.runtime import ActiveRun, AgentRuntime, RunOptions
+from qmt_agent.output import OutputEvent, Reasoning, ToolCalled
+from qmt_agent.runtime import ActiveRun, AgentRuntime, RunOptions, SessionBusyError
 from qmt_agent.storage import get_session_title, list_sessions
 
 from .sidebar import SessionSidebar
 from .timeline import ActivityStep, ChatTimeline, format_json
 
 logger = logging.getLogger(__name__)
-RUN_BLOCKED_COMMANDS = {"new", "resume", "clear", "effort", "permission", "compact"}
 RecordActivityLabel = Callable[[str, int, str], Awaitable[None]]
 
 
@@ -363,14 +363,15 @@ class QMTAgentTUI(App[None]):
         self._record_activity_label = record_activity_label
         self.runtime: AgentRuntime | None = None
         self.session_title: str | None = None
-        self._run_active = False
-        self._run_status = "● Ready"
-        self._run_started_at: float | None = None
         self._known_session_ids: set[str] = set()
-        self._current_user_message = ""
         self._session_usage: dict[str, TokenUsage] = {}
         self._main_context_tokens: dict[str, int | None] = {}
         self._main_agent_name: str | None = None
+        self._loading_session_id: str | None = None
+        self._buffered_live_events: list[tuple[str, str, int | None, OutputEvent, str]] = []
+        self._last_rendered_seq: dict[str, int] = {}
+        self._timeline_lock = asyncio.Lock()
+        self._reasoning_by_run: dict[str, list[str]] = {}
 
     def compose(self) -> ComposeResult:
         yield Vertical(
@@ -433,7 +434,7 @@ class QMTAgentTUI(App[None]):
             await self._dispatch_command(command)
             return
 
-        if self._run_active:
+        if self.runtime is not None and self.runtime.is_session_active(self.state.selected_session_id):
             return
 
         composer.clear()
@@ -444,10 +445,6 @@ class QMTAgentTUI(App[None]):
         session_id = getattr(item, "session_id", None)
         if not isinstance(session_id, str) or session_id == self.state.selected_session_id:
             return
-        if self._run_active:
-            await self.query_one(ChatTimeline).add_notice("Cannot switch sessions while the Agent is running.")
-            return
-
         await self._dispatch_command(Command("resume", (session_id,)))
 
     def action_toggle_sidebar(self) -> None:
@@ -460,28 +457,29 @@ class QMTAgentTUI(App[None]):
         self.query_one(Composer).resolve_approval(False)
 
     def action_quit(self) -> None:
-        if self._run_active:
-            self.notify("Wait for the active Agent run to finish before exiting.", severity="warning")
+        if self.runtime is not None and self.runtime.has_active_runs():
+            self.notify("Wait for all active Agent runs to finish before exiting.", severity="warning")
             return
         self.exit()
 
-    def set_status(self, status: str) -> None:
-        self._run_status = status
-        self._refresh_run_status()
-
     def _format_run_status(self) -> str:
-        status = f"{self._run_status} · Effort {self.state.main_reasoning_effort}"
-        if self._run_started_at is None:
+        active_run = self.runtime.get_active_run(self.state.selected_session_id) if self.runtime is not None else None
+        status = f"● {'Running' if active_run is not None else 'Ready'} · Default effort {self.state.main_reasoning_effort}"
+        if active_run is None:
             return status
 
-        elapsed_seconds = max(0, int(monotonic() - self._run_started_at))
+        elapsed_seconds = max(0, int((datetime.now(timezone.utc) - active_run.started_at).total_seconds()))
         hours, remainder = divmod(elapsed_seconds, 3600)
         minutes, seconds = divmod(remainder, 60)
         elapsed = f"{hours:02}:{minutes:02}:{seconds:02}" if hours else f"{minutes:02}:{seconds:02}"
         return f"{status} · {elapsed}"
 
     def _refresh_run_status(self) -> None:
-        self.query_one("#run-status", Static).update(self._format_run_status())
+        try:
+            status = self.query_one("#run-status", Static)
+        except NoMatches:
+            return
+        status.update(self._format_run_status())
 
     def set_session_title(self, title: str | None) -> None:
         self.session_title = title
@@ -523,9 +521,6 @@ class QMTAgentTUI(App[None]):
         if session_id == self.state.selected_session_id:
             self.query_one("#usage-status", Static).update(self._format_usage_status())
 
-    def add_auxiliary_usage(self, session_id: str, usage: TokenUsage) -> None:
-        self._add_usage(session_id, usage)
-
     def bind_runtime(self, runtime: AgentRuntime) -> None:
         self.runtime = runtime
         self._main_agent_name = runtime.agent_name
@@ -538,47 +533,108 @@ class QMTAgentTUI(App[None]):
         run_id: str,
         journal_seq: int | None,
     ) -> None:
-        if session_id != self.state.selected_session_id:
-            logger.warning("Ignored TUI output for inactive session %s", session_id)
+        activity_reasoning = ""
+        if isinstance(event, Reasoning):
+            self._reasoning_by_run.setdefault(run_id, []).append(event.text)
+        elif isinstance(event, ToolCalled):
+            activity_reasoning = "".join(self._reasoning_by_run.pop(run_id, []))
+
+        async with self._timeline_lock:
+            if session_id != self.state.selected_session_id:
+                if isinstance(event, ToolCalled):
+                    self._start_activity_generation(
+                        None,
+                        session_id=session_id,
+                        run_id=run_id,
+                        target_seq=journal_seq,
+                        reasoning=activity_reasoning,
+                        tool_name=event.name,
+                        arguments=event.arguments,
+                    )
+                return
+            if self._loading_session_id == session_id:
+                self._buffered_live_events.append((session_id, run_id, journal_seq, event, activity_reasoning))
+                return
+            await self._render_live_output(
+                event,
+                session_id=session_id,
+                run_id=run_id,
+                journal_seq=journal_seq,
+                activity_reasoning=activity_reasoning,
+            )
+
+    async def _render_live_output(
+        self,
+        event: OutputEvent,
+        *,
+        session_id: str,
+        run_id: str,
+        journal_seq: int | None,
+        activity_reasoning: str,
+    ) -> None:
+        if journal_seq is not None and journal_seq <= self._last_rendered_seq.get(session_id, 0):
             return
 
         step = await self.query_one(ChatTimeline).handle_output(event)
+        if journal_seq is not None:
+            self._last_rendered_seq[session_id] = journal_seq
         if isinstance(event, ToolCalled) and step is not None:
             step.session_id = session_id
             step.target_seq = journal_seq
-            active_run = self.runtime.get_active_run(session_id) if self.runtime is not None else None
-            user_message = active_run.user_input if active_run is not None and active_run.run_id == run_id else ""
-            reasoning = step.label_reasoning
-            self.run_worker(
-                self._generate_step_activity(
-                    step,
-                    session_id=session_id,
-                    target_seq=journal_seq,
-                    user_message=user_message,
-                    reasoning=reasoning,
-                    tool_name=event.name,
-                    arguments=event.arguments,
-                ),
-                group=f"activity-{session_id}-{journal_seq or id(step)}",
-                exit_on_error=False,
+            self._start_activity_generation(
+                step,
+                session_id=session_id,
+                run_id=run_id,
+                target_seq=journal_seq,
+                reasoning=activity_reasoning or step.label_reasoning,
+                tool_name=event.name,
+                arguments=event.arguments,
             )
+
+    def _start_activity_generation(
+        self,
+        step: ActivityStep | None,
+        *,
+        session_id: str,
+        run_id: str,
+        target_seq: int | None,
+        reasoning: str,
+        tool_name: str,
+        arguments: str | None,
+    ) -> None:
+        active_run = self.runtime.get_active_run(session_id) if self.runtime is not None else None
+        user_message = active_run.user_input if active_run is not None and active_run.run_id == run_id else ""
+        self.run_worker(
+            self._generate_step_activity(
+                step,
+                session_id=session_id,
+                target_seq=target_seq,
+                user_message=user_message,
+                reasoning=reasoning,
+                tool_name=tool_name,
+                arguments=arguments,
+            ),
+            group=f"activity-{session_id}-{target_seq or id(step)}",
+            exit_on_error=False,
+        )
 
     async def request_tool_approval(
         self,
+        session_id: str,
         tool_name: str,
         arguments: str | None,
         review_reason: str | None = None,
     ) -> bool:
-        self.set_status("● Waiting approval")
         try:
             approved = await self.query_one(Composer).request_approval(tool_name, arguments, review_reason)
         except Exception:
             logger.exception("Inline approval failed for tool %s", tool_name)
             approved = False
         finally:
-            self.set_status("● Running" if self._run_active else "● Ready")
+            self._refresh_selected_controls()
 
         await self.report_tool_approval(
+            session_id,
             tool_name,
             arguments,
             approved,
@@ -590,6 +646,7 @@ class QMTAgentTUI(App[None]):
 
     async def report_tool_approval(
         self,
+        session_id: str,
         tool_name: str,
         arguments: str | None,
         approved: bool,
@@ -598,20 +655,32 @@ class QMTAgentTUI(App[None]):
         review_decision: str | None = None,
         review_reason: str | None = None,
     ) -> None:
-        await self.query_one(ChatTimeline).add_approval(
-            tool_name,
-            arguments,
-            approved,
-            source=source,
-            review_decision=review_decision,
-            review_reason=review_reason,
-        )
+        async with self._timeline_lock:
+            if session_id != self.state.selected_session_id or self._loading_session_id == session_id:
+                return
+            await self.query_one(ChatTimeline).add_approval(
+                tool_name,
+                arguments,
+                approved,
+                source=source,
+                review_decision=review_decision,
+                review_reason=review_reason,
+            )
 
     async def refresh_sessions(self) -> None:
         records = await asyncio.to_thread(list_sessions, self.state.config.sessions_db)
         self._known_session_ids = {record.session_id for record in records}
         current_session_id = self.state.selected_session_id
-        await self.query_one(SessionSidebar).replace_sessions(records, current_session_id)
+        active_session_ids = (
+            {run.session_id for run in self.runtime.list_active_runs()}
+            if self.runtime is not None
+            else set()
+        )
+        await self.query_one(SessionSidebar).replace_sessions(
+            records,
+            current_session_id,
+            active_session_ids,
+        )
         title = await asyncio.to_thread(
             get_session_title,
             self.state.config.sessions_db,
@@ -619,6 +688,7 @@ class QMTAgentTUI(App[None]):
         )
         self.set_session_title(title)
         self.query_one("#usage-status", Static).update(self._format_usage_status())
+        self._refresh_selected_controls()
 
     async def _refresh_and_load_current(self) -> None:
         try:
@@ -632,47 +702,71 @@ class QMTAgentTUI(App[None]):
             self.query_one(Composer).focus_input()
 
     async def _load_session_history(self, session_id: str) -> None:
+        self._loading_session_id = session_id
+        self._buffered_live_events.clear()
+        self._refresh_selected_controls()
         timeline = self.query_one(ChatTimeline)
-        await timeline.reset()
-        await timeline.add_notice("Loading session history…")
+        async with self._timeline_lock:
+            if session_id != self.state.selected_session_id:
+                return
+            await timeline.reset()
+            await timeline.add_notice("Loading session history…")
 
         try:
-            records = await asyncio.to_thread(read_session_journal, self.journal_dir, session_id)
-        except FileNotFoundError:
-            if session_id != self.state.selected_session_id:
+            try:
+                records = await asyncio.to_thread(read_session_journal, self.journal_dir, session_id)
+            except FileNotFoundError:
+                async with self._timeline_lock:
+                    if session_id != self.state.selected_session_id:
+                        return
+                    await timeline.reset()
+                    self._last_rendered_seq[session_id] = 0
+                    if session_id in self._known_session_ids:
+                        await timeline.add_notice("No journal history is available for this older session.")
+                    else:
+                        await timeline.add_notice("Ask QMT Agent anything.")
                 return
-            await timeline.reset()
-            if session_id in self._known_session_ids:
-                await timeline.add_notice("No journal history is available for this older session.")
-            else:
-                await timeline.add_notice("Ask QMT Agent anything.")
-            return
-        except Exception:
-            logger.exception("Failed to read session journal for session %s", session_id)
-            if session_id != self.state.selected_session_id:
+            except Exception:
+                logger.exception("Failed to read session journal for session %s", session_id)
+                async with self._timeline_lock:
+                    if session_id != self.state.selected_session_id:
+                        return
+                    await timeline.reset()
+                    await timeline.add_notice("Session history is unavailable because its journal is invalid. See the system log for details.")
                 return
-            await timeline.reset()
-            await timeline.add_notice("Session history is unavailable because its journal is invalid. See the system log for details.")
-            return
 
-        if session_id != self.state.selected_session_id:
-            return
-
-        if records:
-            await timeline.render_history(records)
-        else:
-            await timeline.reset()
-            await timeline.add_notice("Ask QMT Agent anything.")
+            async with self._timeline_lock:
+                if session_id != self.state.selected_session_id:
+                    return
+                if records:
+                    await timeline.render_history(records)
+                    self._last_rendered_seq[session_id] = max(record["seq"] for record in records if type(record.get("seq")) is int)
+                else:
+                    self._last_rendered_seq[session_id] = 0
+                    await timeline.reset()
+                    await timeline.add_notice("Ask QMT Agent anything.")
+        finally:
+            if self._loading_session_id == session_id:
+                async with self._timeline_lock:
+                    buffered = self._buffered_live_events
+                    self._buffered_live_events = []
+                    self._loading_session_id = None
+                    if session_id == self.state.selected_session_id:
+                        for event_session_id, run_id, journal_seq, event, activity_reasoning in buffered:
+                            await self._render_live_output(
+                                event,
+                                session_id=event_session_id,
+                                run_id=run_id,
+                                journal_seq=journal_seq,
+                                activity_reasoning=activity_reasoning,
+                            )
+                self._refresh_selected_controls()
 
     async def _dispatch_command(self, command: Command) -> None:
         timeline = self.query_one(ChatTimeline)
         if self.runtime is None:
             await timeline.add_notice("Agent runtime is not ready.")
             return
-        if self._run_active and command.name in RUN_BLOCKED_COMMANDS:
-            await timeline.add_notice(f"Cannot run /{command.name} while the Agent is running.")
-            return
-
         old_session_id = self.state.selected_session_id
         result = await dispatch_command(
             command,
@@ -687,6 +781,9 @@ class QMTAgentTUI(App[None]):
 
         new_session_id = self.state.selected_session_id
         if new_session_id != old_session_id:
+            self._loading_session_id = new_session_id
+            self._buffered_live_events.clear()
+            self._refresh_selected_controls()
             await self.refresh_sessions()
             self.run_worker(
                 self._load_session_history_with_notice(new_session_id, result.output),
@@ -723,23 +820,26 @@ class QMTAgentTUI(App[None]):
             return
 
         session_id = self.state.selected_session_id
-        self._run_active = True
-        self._current_user_message = user_message
-        self._set_run_controls(running=True)
         await timeline.add_user_message(user_message)
 
-        active_run = self.runtime.start_run(
-            session_id,
-            user_message,
-            RunOptions(
-                reasoning_effort=self.state.main_reasoning_effort,
-                permission_mode=self.state.permission_mode,
-            ),
-        )
+        try:
+            active_run = self.runtime.start_run(
+                session_id,
+                user_message,
+                RunOptions(
+                    reasoning_effort=self.state.main_reasoning_effort,
+                    permission_mode=self.state.permission_mode,
+                ),
+            )
+        except SessionBusyError:
+            await timeline.add_notice("This session already has an active Agent run.")
+            self._refresh_selected_controls()
+            return
+        self._refresh_selected_controls()
+        await self.refresh_sessions()
         self.run_worker(
             self._run_agent(active_run),
-            group="agent-run",
-            exclusive=True,
+            group=f"agent-run-{active_run.run_id}",
             exit_on_error=False,
         )
 
@@ -755,36 +855,36 @@ class QMTAgentTUI(App[None]):
                 context_tokens = result.main_usage.last_request_total_tokens
                 capacity = self.state.config.model("main").context_window_tokens
                 assert context_tokens is not None and capacity is not None
-                await self.query_one(ChatTimeline).add_notice(f"Context compacted automatically after Main context reached {context_tokens / capacity:.1%} of capacity.")
+                if session_id == self.state.selected_session_id:
+                    await self.query_one(ChatTimeline).add_notice(f"Context compacted automatically after Main context reached {context_tokens / capacity:.1%} of capacity.")
             elif result.auto_compaction_consistency_uncertain:
-                await self.query_one(ChatTimeline).add_notice("Automatic context compaction failed and context storage may be damaged. Stop this session and see the system log.")
+                if session_id == self.state.selected_session_id:
+                    await self.query_one(ChatTimeline).add_notice("Automatic context compaction failed and context storage may be damaged. Stop this session and see the system log.")
             elif result.auto_compaction_failed:
-                await self.query_one(ChatTimeline).add_notice("Automatic context compaction failed; existing context was kept. Use /compact to retry.")
+                if session_id == self.state.selected_session_id:
+                    await self.query_one(ChatTimeline).add_notice("Automatic context compaction failed; existing context was kept. Use /compact to retry.")
         except Exception:
             logger.exception("Agent run failed for session %s", session_id)
-            await self.query_one(ChatTimeline).add_notice("Agent run failed. See the system log for details.")
+            if session_id == self.state.selected_session_id:
+                await self.query_one(ChatTimeline).add_notice("Agent run failed. See the system log for details.")
         finally:
-            self._run_active = False
-            self._current_user_message = ""
-            self._set_run_controls(running=False)
+            self._reasoning_by_run.pop(active_run.run_id, None)
             try:
                 await self.refresh_sessions()
             except Exception:
                 logger.exception("Failed to refresh sessions after Agent run")
             self.query_one(Composer).focus_input()
 
-    def _set_run_controls(self, *, running: bool) -> None:
-        if running and self._run_started_at is None:
-            self._run_started_at = monotonic()
-        elif not running:
-            self._run_started_at = None
-        self.set_status("● Running" if running else "● Ready")
-        self.query_one(Composer).set_running(running)
-        self.query_one(SessionSidebar).disabled = running
+    def _refresh_selected_controls(self) -> None:
+        selected_session_id = self.state.selected_session_id
+        running = self.runtime.is_session_active(selected_session_id) if self.runtime is not None else False
+        loading = self._loading_session_id == selected_session_id
+        self.query_one(Composer).set_running(running or loading)
+        self._refresh_run_status()
 
     async def _generate_step_activity(
         self,
-        step: ActivityStep,
+        step: ActivityStep | None,
         *,
         session_id: str,
         target_seq: int | None,
@@ -808,7 +908,7 @@ class QMTAgentTUI(App[None]):
 
         self._add_usage(session_id, result.usage)
 
-        if step.is_mounted:
+        if step is not None and step.is_mounted:
             step.set_activity_label(result.label)
 
         if target_seq is None:
