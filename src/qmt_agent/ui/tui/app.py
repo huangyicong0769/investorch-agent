@@ -8,14 +8,13 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
+from agents import Agent
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.css.query import NoMatches
 from textual.message import Message
 from textual.widgets import Button, Label, ListView, Static, TextArea
-
-from agents import Agent
 
 from qmt_agent.agents import TokenUsage, generate_activity_label
 from qmt_agent.commands import Command, dispatch_command, parse_command

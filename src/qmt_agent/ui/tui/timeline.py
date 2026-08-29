@@ -7,7 +7,14 @@ from collections import deque
 from textual.containers import Vertical, VerticalScroll
 from textual.widgets import Collapsible, Label, Markdown, Static
 
-from qmt_agent.output import AgentChanged, AssistantMessage, OutputEvent, Reasoning, ToolCalled, ToolOutput
+from qmt_agent.output import (
+    AgentChanged,
+    AssistantMessage,
+    OutputEvent,
+    Reasoning,
+    ToolCalled,
+    ToolOutput,
+)
 
 logger = logging.getLogger(__name__)
 

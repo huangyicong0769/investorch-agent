@@ -13,6 +13,7 @@ from qmt_agent.agents import (
     AgentLoop,
     ApprovalOutcome,
     PermissionReview,
+    TokenUsage,
     build_bootstrap_sync_prompt,
     create_activity_agent,
     create_agent,
@@ -22,7 +23,6 @@ from qmt_agent.agents import (
     create_title_agent,
     review_permission,
     run_bootstrap_sync,
-    TokenUsage,
 )
 from qmt_agent.commands import dispatch_command, parse_command
 from qmt_agent.config import AppConfig, load_config
