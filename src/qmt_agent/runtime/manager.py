@@ -97,6 +97,7 @@ class AgentRuntime:
         self._active_by_run: dict[str, ActiveRun] = {}
         self._run_tasks: set[asyncio.Task[AgentRunResult]] = set()
         self._promotion_tasks: set[asyncio.Task[object]] = set()
+        self._submission_tasks: set[asyncio.Task[object]] = set()
         self._controls_by_run: dict[str, RunControl] = {}
         self._input_journal_by_run: dict[str, _InputJournalBarrier] = {}
         self._steer_fallback_by_session: dict[str, deque[PendingSteer]] = {}
@@ -185,6 +186,16 @@ class AgentRuntime:
         return any(self._queued_by_session.values())
 
     async def submit_follow_up(self, session_id: str, text: str, next_run_options: RunOptions) -> FollowUpSubmission:
+        task = asyncio.current_task()
+        if task is None:
+            raise RuntimeError("Follow-up submission requires an asyncio task")
+        self._submission_tasks.add(task)
+        try:
+            return await self._submit_follow_up(session_id, text, next_run_options)
+        finally:
+            self._submission_tasks.discard(task)
+
+    async def _submit_follow_up(self, session_id: str, text: str, next_run_options: RunOptions) -> FollowUpSubmission:
         if self._closed:
             raise RuntimeError("Agent runtime is closed")
         active_run = self._active_by_session.get(session_id)
@@ -344,7 +355,7 @@ class AgentRuntime:
 
     async def aclose(self) -> None:
         self._closed = True
-        tasks = list(self._run_tasks | self._promotion_tasks)
+        tasks = list(self._run_tasks | self._promotion_tasks | self._submission_tasks)
         for task in tasks:
             task.cancel()
         if tasks:
