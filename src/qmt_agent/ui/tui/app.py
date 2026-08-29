@@ -7,6 +7,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import ClassVar
 
 from agents import Agent
 from textual.app import App, ComposeResult
@@ -151,7 +152,7 @@ class Composer(Vertical):
 
 class QMTAgentTUI(App[None]):
     TITLE = "QMT Agent"
-    BINDINGS = [
+    BINDINGS: ClassVar[list[Binding]] = [
         Binding("ctrl+b", "toggle_sidebar", "Toggle sidebar"),
         Binding("ctrl+enter", "send_message", "Send"),
         Binding("ctrl+s", "send_message", "Send"),
