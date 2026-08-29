@@ -22,7 +22,14 @@ from qmt_agent.commands import Command, dispatch_command, parse_command
 from qmt_agent.context import AppState
 from qmt_agent.journal import SessionJournal, read_session_journal
 from qmt_agent.output import OutputEvent, Reasoning, ToolCalled
-from qmt_agent.runtime import ActiveRun, AgentRuntime, ApprovalRequest, RunOptions, SessionBusyError
+from qmt_agent.runtime import (
+    AgentRuntime,
+    ApprovalRequest,
+    RunOptions,
+    RuntimeFollowUpEvent,
+    RuntimeRunEnded,
+    SessionBusyError,
+)
 from qmt_agent.storage import get_session_title, list_sessions
 
 from .sidebar import SessionSidebar
@@ -30,6 +37,10 @@ from .timeline import ActivityStep, ChatTimeline, format_json
 
 logger = logging.getLogger(__name__)
 RecordActivityLabel = Callable[[str, int, str], Awaitable[None]]
+_STEER_FALLBACK_NOTICE = (
+    "The Run finished before the follow-up could be steered; "
+    "it will continue as the next turn."
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -75,6 +86,7 @@ class Composer(Vertical):
         super().__init__(**kwargs)
         self._normal_height = normal_height
         self._approval_arguments_max_height = approval_arguments_max_height
+        self._loading = False
 
     def compose(self) -> ComposeResult:
         yield Vertical(
@@ -124,15 +136,32 @@ class Composer(Vertical):
         self.query_one("#composer-input", TextArea).focus()
 
     def submit(self) -> None:
-        if self.query_one("#composer-approval").display:
+        if self._loading or self.query_one("#composer-approval").display:
             return
         text = self.text
         if text.strip():
             self.post_message(self.Submitted(text))
 
-    def set_running(self, running: bool) -> None:
-        self.query_one("#composer-input", TextArea).disabled = running
-        self.query_one("#send-button", Button).disabled = running
+    def set_input_state(
+        self,
+        *,
+        loading: bool,
+        running: bool,
+        follow_up_behavior: str,
+    ) -> None:
+        self._loading = loading
+        self.query_one("#composer-input", TextArea).disabled = loading
+        self.query_one("#send-button", Button).disabled = loading
+
+        if loading:
+            hint = "Loading session history…"
+        elif running and follow_up_behavior == "steer":
+            hint = "Ctrl+Enter / Ctrl+S to send · Follow-ups steer current Run"
+        elif running:
+            hint = "Ctrl+Enter / Ctrl+S to send · Follow-ups queue next turn"
+        else:
+            hint = f"Ctrl+Enter / Ctrl+S to send · Follow-ups: {follow_up_behavior.title()}"
+        self.query_one("#send-hint", Label).update(hint)
 
     def show_approval(
         self,
@@ -404,8 +433,12 @@ class QMTAgentTUI(App[None]):
         self._main_context_tokens: dict[str, int | None] = {}
         self._main_agent_name: str | None = None
         self._loading_session_id: str | None = None
-        self._buffered_live_events: list[BufferedOutput | BufferedApproval] = []
+        self._buffered_live_events: list[
+            BufferedOutput | BufferedApproval | RuntimeFollowUpEvent
+        ] = []
         self._last_rendered_seq: dict[str, int] = {}
+        self._rendered_steer_seqs: dict[str, set[int]] = {}
+        self._pending_follow_up_notices: dict[str, list[str]] = {}
         self._timeline_lock = asyncio.Lock()
         self._reasoning_by_run: dict[str, list[str]] = {}
         self._pending_approvals: deque[PendingApproval] = deque()
@@ -450,7 +483,8 @@ class QMTAgentTUI(App[None]):
             self.state.config["tui.run_timer_interval_seconds"],
             self._refresh_run_status,
         )
-        self.query_one(Composer).focus_input()
+        self._loading_session_id = self.state.selected_session_id
+        self._refresh_selected_controls()
         self.run_worker(
             self._refresh_and_load_current(),
             group="history",
@@ -459,8 +493,6 @@ class QMTAgentTUI(App[None]):
         )
 
     async def on_composer_submitted(self, event: Composer.Submitted) -> None:
-        if self._pending_approvals:
-            return
         composer = self.query_one(Composer)
         try:
             command = parse_command(event.text)
@@ -473,7 +505,29 @@ class QMTAgentTUI(App[None]):
             await self._dispatch_command(command)
             return
 
-        if self.runtime is not None and self.runtime.is_session_active(self.state.selected_session_id):
+        session_id = self.state.selected_session_id
+        if self._loading_session_id == session_id:
+            return
+
+        if self.runtime is not None and self.runtime.is_session_active(session_id):
+            try:
+                await self.runtime.submit_follow_up(
+                    session_id,
+                    event.text,
+                    RunOptions(
+                        reasoning_effort=self.state.main_reasoning_effort,
+                        permission_mode=self.state.permission_mode,
+                        follow_up_behavior=self.state.follow_up_behavior,
+                    ),
+                )
+            except SessionBusyError:
+                await self.query_one(ChatTimeline).add_notice(
+                    "The active Run changed before this follow-up could be submitted. Please send it again."
+                )
+                self._refresh_selected_controls()
+                return
+            composer.clear()
+            self._refresh_selected_controls()
             return
 
         composer.clear()
@@ -517,7 +571,15 @@ class QMTAgentTUI(App[None]):
             for pending in self._pending_approvals
         )
         run_status = "Waiting approval" if waiting_approval else "Running" if active_run is not None else "Ready"
-        status = f"● {run_status} · Default effort {self.state.main_reasoning_effort}"
+        follow_up_behavior = (
+            active_run.options.follow_up_behavior
+            if active_run is not None
+            else self.state.follow_up_behavior
+        )
+        status = (
+            f"● {run_status} · Follow-ups: {follow_up_behavior.title()} "
+            f"· Default effort {self.state.main_reasoning_effort}"
+        )
         if active_run is None:
             return status
 
@@ -743,6 +805,118 @@ class QMTAgentTUI(App[None]):
                 return
             await self._render_live_approval(approval)
 
+    async def handle_follow_up(self, event: RuntimeFollowUpEvent) -> None:
+        async with self._timeline_lock:
+            if event.session_id != self.state.selected_session_id:
+                if event.kind == "steer_fallback_promoted":
+                    self._pending_follow_up_notices.setdefault(
+                        event.session_id,
+                        [],
+                    ).append(_STEER_FALLBACK_NOTICE)
+            elif self._loading_session_id == event.session_id:
+                self._buffered_live_events.append(event)
+            else:
+                await self._render_live_follow_up(event)
+
+        if event.kind == "steer_fallback_promoted" and self.is_running:
+            try:
+                await self.refresh_sessions()
+            except Exception:
+                logger.exception(
+                    "Failed to refresh sessions after Steer fallback promotion"
+                )
+
+    async def _render_live_follow_up(self, event: RuntimeFollowUpEvent) -> None:
+        if event.kind == "steer_submitted":
+            if (
+                event.journal_seq is not None
+                and event.journal_seq
+                in self._rendered_steer_seqs.setdefault(event.session_id, set())
+            ):
+                return
+            await self.query_one(ChatTimeline).add_steer_message(event.text)
+            if event.journal_seq is not None:
+                self._rendered_steer_seqs[event.session_id].add(event.journal_seq)
+                self._last_rendered_seq[event.session_id] = max(
+                    event.journal_seq,
+                    self._last_rendered_seq.get(event.session_id, 0),
+                )
+            return
+
+        await self.query_one(ChatTimeline).add_notice(_STEER_FALLBACK_NOTICE)
+
+    async def handle_run_ended(self, event: RuntimeRunEnded) -> None:
+        self._reasoning_by_run.pop(event.run_id, None)
+        if not self.is_running:
+            return
+
+        try:
+            if event.status == "completed":
+                if event.result is None:
+                    logger.error(
+                        "Completed Agent run has no result for session %s run %s",
+                        event.session_id,
+                        event.run_id,
+                    )
+                    if event.session_id == self.state.selected_session_id:
+                        await self.query_one(ChatTimeline).add_notice(
+                            "Agent run failed. See the system log for details."
+                        )
+                else:
+                    result = event.result
+                    self._add_usage(event.session_id, result.main_usage)
+                    compacted = (
+                        result.auto_compaction is not None
+                        and result.auto_compaction.changed
+                    )
+                    self._set_main_context_tokens(
+                        event.session_id,
+                        None
+                        if compacted
+                        else result.main_usage.last_request_total_tokens,
+                    )
+                    self._add_usage(event.session_id, result.auxiliary_usage)
+                    if compacted:
+                        context_tokens = result.main_usage.last_request_total_tokens
+                        capacity = self.state.config.model(
+                            "main"
+                        ).context_window_tokens
+                        assert context_tokens is not None and capacity is not None
+                        if event.session_id == self.state.selected_session_id:
+                            await self.query_one(ChatTimeline).add_notice(
+                                "Context compacted automatically after Main context "
+                                f"reached {context_tokens / capacity:.1%} of capacity."
+                            )
+                    elif result.auto_compaction_consistency_uncertain:
+                        if event.session_id == self.state.selected_session_id:
+                            await self.query_one(ChatTimeline).add_notice(
+                                "Automatic context compaction failed and context storage "
+                                "may be damaged. Stop this session and see the system log."
+                            )
+                    elif result.auto_compaction_failed:
+                        if event.session_id == self.state.selected_session_id:
+                            await self.query_one(ChatTimeline).add_notice(
+                                "Automatic context compaction failed; existing context "
+                                "was kept. Use /compact to retry."
+                            )
+            elif event.status == "cancelled":
+                if event.session_id == self.state.selected_session_id:
+                    await self.query_one(ChatTimeline).add_notice(
+                        "Agent run was cancelled."
+                    )
+            else:
+                if event.session_id == self.state.selected_session_id:
+                    await self.query_one(ChatTimeline).add_notice(
+                        "Agent run failed. See the system log for details."
+                    )
+        finally:
+            try:
+                await self.refresh_sessions()
+            except Exception:
+                logger.exception("Failed to refresh sessions after Agent run")
+                self._refresh_selected_controls()
+            self.query_one(Composer).focus_input()
+
     async def _render_live_approval(self, approval: BufferedApproval) -> None:
         if approval.journal_seq is not None and approval.journal_seq <= self._last_rendered_seq.get(approval.session_id, 0):
             return
@@ -781,19 +955,24 @@ class QMTAgentTUI(App[None]):
         self._refresh_selected_controls()
 
     async def _refresh_and_load_current(self) -> None:
+        session_id = self.state.selected_session_id
         try:
             await self.refresh_sessions()
-            await self._load_session_history(self.state.selected_session_id)
+            await self._load_session_history(session_id)
         except Exception:
             logger.exception("Failed to initialize TUI session history")
             await self.query_one(ChatTimeline).reset()
             await self.query_one(ChatTimeline).add_notice("Unable to load session history. See the system log for details.")
         finally:
+            if self._loading_session_id == session_id:
+                self._loading_session_id = None
+                self._refresh_selected_controls()
             self.query_one(Composer).focus_input()
 
     async def _load_session_history(self, session_id: str) -> None:
         self._loading_session_id = session_id
         self._buffered_live_events.clear()
+        self._rendered_steer_seqs.pop(session_id, None)
         self._refresh_selected_controls()
         timeline = self.query_one(ChatTimeline)
         async with self._timeline_lock:
@@ -831,8 +1010,15 @@ class QMTAgentTUI(App[None]):
                 if records:
                     await timeline.render_history(records)
                     self._last_rendered_seq[session_id] = max(record["seq"] for record in records if type(record.get("seq")) is int)
+                    self._rendered_steer_seqs[session_id] = {
+                        record["seq"]
+                        for record in records
+                        if record.get("type") == "user_steer"
+                        and type(record.get("seq")) is int
+                    }
                 else:
                     self._last_rendered_seq[session_id] = 0
+                    self._rendered_steer_seqs[session_id] = set()
                     await timeline.reset()
                     await timeline.add_notice("Ask QMT Agent anything.")
         finally:
@@ -843,7 +1029,14 @@ class QMTAgentTUI(App[None]):
                     self._loading_session_id = None
                     if session_id == self.state.selected_session_id:
                         buffered.sort(
-                            key=lambda item: item.journal_seq if item.journal_seq is not None else float("inf")
+                            key=lambda item: (
+                                float("inf")
+                                if isinstance(item, RuntimeFollowUpEvent)
+                                and item.kind == "steer_fallback_promoted"
+                                else item.journal_seq
+                                if item.journal_seq is not None
+                                else float("inf")
+                            )
                         )
                         for item in buffered:
                             if isinstance(item, BufferedOutput):
@@ -854,8 +1047,15 @@ class QMTAgentTUI(App[None]):
                                     activity_reasoning=item.activity_reasoning,
                                     activity_user_message=item.activity_user_message,
                                 )
-                            else:
+                            elif isinstance(item, BufferedApproval):
                                 await self._render_live_approval(item)
+                            else:
+                                await self._render_live_follow_up(item)
+                        for notice in self._pending_follow_up_notices.pop(
+                            session_id,
+                            [],
+                        ):
+                            await timeline.add_notice(notice)
                 self._refresh_selected_controls()
 
     async def _dispatch_command(self, command: Command) -> None:
@@ -894,8 +1094,8 @@ class QMTAgentTUI(App[None]):
                 self._set_main_context_tokens(new_session_id, None)
             if result.output:
                 await timeline.add_notice(result.output)
-            if command.name == "effort":
-                self._refresh_run_status()
+            if command.name in {"effort", "followup"}:
+                self._refresh_selected_controls()
             if command.name == "title":
                 await self.refresh_sessions()
 
@@ -920,7 +1120,7 @@ class QMTAgentTUI(App[None]):
         await timeline.add_user_message(user_message)
 
         try:
-            active_run = self.runtime.start_run(
+            self.runtime.start_run(
                 session_id,
                 user_message,
                 RunOptions(
@@ -935,49 +1135,21 @@ class QMTAgentTUI(App[None]):
             return
         self._refresh_selected_controls()
         await self.refresh_sessions()
-        self.run_worker(
-            self._run_agent(active_run),
-            group=f"agent-run-{active_run.run_id}",
-            exit_on_error=False,
-        )
-
-    async def _run_agent(self, active_run: ActiveRun) -> None:
-        session_id = active_run.session_id
-        try:
-            result = await active_run.task
-            self._add_usage(session_id, result.main_usage)
-            compacted = result.auto_compaction is not None and result.auto_compaction.changed
-            self._set_main_context_tokens(session_id, None if compacted else result.main_usage.last_request_total_tokens)
-            self._add_usage(session_id, result.auxiliary_usage)
-            if compacted:
-                context_tokens = result.main_usage.last_request_total_tokens
-                capacity = self.state.config.model("main").context_window_tokens
-                assert context_tokens is not None and capacity is not None
-                if session_id == self.state.selected_session_id:
-                    await self.query_one(ChatTimeline).add_notice(f"Context compacted automatically after Main context reached {context_tokens / capacity:.1%} of capacity.")
-            elif result.auto_compaction_consistency_uncertain:
-                if session_id == self.state.selected_session_id:
-                    await self.query_one(ChatTimeline).add_notice("Automatic context compaction failed and context storage may be damaged. Stop this session and see the system log.")
-            elif result.auto_compaction_failed:
-                if session_id == self.state.selected_session_id:
-                    await self.query_one(ChatTimeline).add_notice("Automatic context compaction failed; existing context was kept. Use /compact to retry.")
-        except Exception:
-            logger.exception("Agent run failed for session %s", session_id)
-            if session_id == self.state.selected_session_id:
-                await self.query_one(ChatTimeline).add_notice("Agent run failed. See the system log for details.")
-        finally:
-            self._reasoning_by_run.pop(active_run.run_id, None)
-            try:
-                await self.refresh_sessions()
-            except Exception:
-                logger.exception("Failed to refresh sessions after Agent run")
-            self.query_one(Composer).focus_input()
 
     def _refresh_selected_controls(self) -> None:
         selected_session_id = self.state.selected_session_id
-        running = self.runtime.is_session_active(selected_session_id) if self.runtime is not None else False
+        active_run = self.runtime.get_active_run(selected_session_id) if self.runtime is not None else None
         loading = self._loading_session_id == selected_session_id
-        self.query_one(Composer).set_running(running or loading)
+        follow_up_behavior = (
+            active_run.options.follow_up_behavior
+            if active_run is not None
+            else self.state.follow_up_behavior
+        )
+        self.query_one(Composer).set_input_state(
+            loading=loading,
+            running=active_run is not None,
+            follow_up_behavior=follow_up_behavior,
+        )
         self._refresh_run_status()
 
     async def _generate_step_activity(

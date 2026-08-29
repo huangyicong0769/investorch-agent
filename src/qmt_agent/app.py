@@ -30,7 +30,14 @@ from qmt_agent.initializer import initialize, sync_bootstrap_files
 from qmt_agent.journal import SessionJournal
 from qmt_agent.log import configure_logging
 from qmt_agent.mcp import load_mcp_servers as load_configured_mcp_servers
-from qmt_agent.runtime import AgentRuntime, ApprovalRequest, RunOptions, RuntimeOutput
+from qmt_agent.runtime import (
+    AgentRuntime,
+    ApprovalRequest,
+    RunOptions,
+    RuntimeFollowUpEvent,
+    RuntimeOutput,
+    RuntimeRunEnded,
+)
 from qmt_agent.storage import create_session
 from qmt_agent.tools import close_execution, start_execution
 from qmt_agent.ui import ConsoleRenderer, ConsoleUI, QMTAgentTUI
@@ -279,6 +286,14 @@ async def _run_configured_app(
             journal_seq=journal_seq,
         )
 
+    async def handle_follow_up(event: RuntimeFollowUpEvent) -> None:
+        if tui is not None:
+            await tui.handle_follow_up(event)
+
+    async def handle_run_ended(event: RuntimeRunEnded) -> None:
+        if tui is not None:
+            await tui.handle_run_ended(event)
+
     async def request_user_approval(
         request: ApprovalRequest,
         review_reason: str | None = None,
@@ -384,7 +399,9 @@ async def _run_configured_app(
                     handle_output,
                     handle_approval,
                     record_user_message,
+                    run_ended_handler=handle_run_ended,
                     record_user_steer=record_user_steer,
+                    follow_up_handler=handle_follow_up,
                 )
                 try:
                     if tui is None:

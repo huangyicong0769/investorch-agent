@@ -23,8 +23,15 @@ def format_json(text: str | None) -> str:
 
 
 class UserMessageWidget(Vertical):
-    def __init__(self, text: str, author_margin_top: int, author_margin_bottom: int) -> None:
-        author = Label("You", classes="message-author")
+    def __init__(
+        self,
+        text: str,
+        author_margin_top: int,
+        author_margin_bottom: int,
+        *,
+        author_label: str = "You",
+    ) -> None:
+        author = Label(author_label, classes="message-author")
         author.styles.margin = (author_margin_top, 0, author_margin_bottom, 0)
         super().__init__(
             author,
@@ -229,6 +236,18 @@ class ChatTimeline(VerticalScroll):
         )
         self.scroll_end(animate=False)
 
+    async def add_steer_message(self, text: str) -> None:
+        self._finish_assistant_turn()
+        await self.mount(
+            UserMessageWidget(
+                text,
+                self._message_author_margin_top,
+                self._message_author_margin_bottom,
+                author_label="You · Steer",
+            )
+        )
+        self.scroll_end(animate=False)
+
     async def add_assistant_message(self, text: str) -> None:
         follow_output = self.is_vertical_scroll_end
         turn = await self._ensure_assistant_turn()
@@ -360,6 +379,8 @@ class ChatTimeline(VerticalScroll):
                 continue
             if event_type == "user_message" and isinstance(record.get("text"), str):
                 await self.add_user_message(record["text"])
+            elif event_type == "user_steer" and isinstance(record.get("text"), str):
+                await self.add_steer_message(record["text"])
             elif event_type == "reasoning" and isinstance(record.get("text"), str):
                 await self.add_reasoning(record["text"])
             elif event_type == "tool_called" and isinstance(record.get("name"), str):
