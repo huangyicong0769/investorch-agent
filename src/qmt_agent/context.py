@@ -3,14 +3,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal
+from typing import Any, Literal
 
 from typing_extensions import TypedDict
 
 from qmt_agent.config import AppConfig
-
-if TYPE_CHECKING:
-    from agents import SQLiteSession
 
 TodoStatus = Literal[
     "pending",
@@ -69,10 +66,10 @@ class AgentContext:
 
 @dataclass
 class AppState:
-    """Mutable state shared for the lifetime of one application process."""
+    """Application selection plus defaults captured by future Agent runs."""
 
     config: AppConfig
     execution: ExecutionState
-    session: SQLiteSession
+    selected_session_id: str
     main_reasoning_effort: str
     permission_mode: str

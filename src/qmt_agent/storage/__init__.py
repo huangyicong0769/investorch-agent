@@ -1,5 +1,6 @@
 from .sessions import (
     SessionRecord,
+    create_session,
     delete_session_metadata,
     find_session_ids,
     get_session_title,
@@ -10,6 +11,7 @@ from .sessions import (
 
 __all__ = (
     "SessionRecord",
+    "create_session",
     "delete_session_metadata",
     "find_session_ids",
     "get_session_title",

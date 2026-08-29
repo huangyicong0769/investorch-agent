@@ -4,7 +4,7 @@ import uuid
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from agents import ModelSettings, OpenAIResponsesModel, SQLiteSession, set_tracing_disabled
+from agents import ModelSettings, OpenAIResponsesModel, set_tracing_disabled
 from agents.mcp import MCPServer, MCPServerManager, MCPServerStdio
 from openai import AsyncOpenAI
 
@@ -31,6 +31,7 @@ from qmt_agent.journal import SessionJournal
 from qmt_agent.log import configure_logging
 from qmt_agent.mcp import load_mcp_servers as load_configured_mcp_servers
 from qmt_agent.runtime import AgentRuntime, ApprovalRequest, RunOptions, RuntimeOutput
+from qmt_agent.storage import create_session
 from qmt_agent.tools import close_execution, start_execution
 from qmt_agent.ui import ConsoleRenderer, ConsoleUI, QMTAgentTUI
 
@@ -82,14 +83,14 @@ async def _run_console(
             continue
 
         if command is not None:
-            result = await dispatch_command(command, state, compact_handler=runtime.compact_session)
+            result = await dispatch_command(command, state, runtime=runtime)
             if result.output:
                 ui.write(result.output)
             if result.exit_requested:
                 break
             continue
 
-        session_id = state.session.session_id
+        session_id = state.selected_session_id
         active_run = runtime.start_run(
             session_id,
             user_input,
@@ -191,14 +192,16 @@ async def _run_configured_app(
 
     mcp_servers = _load_agent_mcp_servers(config)
 
+    initial_session_id = uuid.uuid4().hex
+    create_session(config.sessions_db, initial_session_id)
     state = AppState(
         config=config,
         execution=ExecutionState(),
-        session=SQLiteSession(uuid.uuid4().hex, config.sessions_db),
+        selected_session_id=initial_session_id,
         main_reasoning_effort=config.model("main").reasoning_effort,
         permission_mode=config["permission.mode"],
     )
-    logger.info("Started session %s", state.session.session_id)
+    logger.info("Started session %s", state.selected_session_id)
     title_model, title_model_settings = _create_model(config, "title")
     title_agent = create_title_agent(title_model, title_model_settings)
     compact_model, compact_model_settings = _create_model(config, "compact")
@@ -370,7 +373,4 @@ async def _run_configured_app(
             finally:
                 await runtime.aclose()
     finally:
-        try:
-            await close_execution(state.execution)
-        finally:
-            state.session.close()
+        await close_execution(state.execution)

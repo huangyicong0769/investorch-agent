@@ -1,7 +1,6 @@
 import asyncio
 import logging
 import uuid
-from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
 from agents import SQLiteSession
@@ -9,7 +8,9 @@ from agents import SQLiteSession
 from qmt_agent.agents import CompactionResult, session_history_restore_failed
 from qmt_agent.config import PERMISSION_MODES, REASONING_EFFORTS
 from qmt_agent.context import AppState
+from qmt_agent.runtime import AgentRuntime, SessionBusyError
 from qmt_agent.storage import (
+    create_session,
     delete_session_metadata,
     find_session_ids,
     get_session_title,
@@ -45,26 +46,23 @@ class CommandResult:
     compaction: CompactionResult | None = None
 
 
-CompactHandler = Callable[[str], Awaitable[CompactionResult]]
-
-
-async def dispatch_command(command: Command, state: AppState, *, compact_handler: CompactHandler | None = None) -> CommandResult:
+async def dispatch_command(command: Command, state: AppState, *, runtime: AgentRuntime) -> CommandResult:
     match command.name:
         case "session":
             title = await asyncio.to_thread(
                 get_session_title,
                 state.config.sessions_db,
-                state.session.session_id,
+                state.selected_session_id,
             )
-            lines = [f"Current session ID: {state.session.session_id}"]
+            lines = [f"Current session ID: {state.selected_session_id}"]
             if title:
                 lines.append(f"Session title: {title}")
             return CommandResult("\n".join(lines))
 
         case "new":
-            state.session.close()
             session_id = uuid.uuid4().hex
-            state.session = SQLiteSession(session_id, state.config.sessions_db)
+            await asyncio.to_thread(create_session, state.config.sessions_db, session_id)
+            state.selected_session_id = session_id
             logger.info("Started session %s", session_id)
             return CommandResult(f"Started new session: {session_id}")
 
@@ -73,7 +71,7 @@ async def dispatch_command(command: Command, state: AppState, *, compact_handler
                 sessions = await asyncio.to_thread(list_sessions, state.config.sessions_db)
                 lines = ["Available sessions:"]
                 for record in sessions:
-                    marker = "*" if record.session_id == state.session.session_id else " "
+                    marker = "*" if record.session_id == state.selected_session_id else " "
                     title = record.title or "(untitled)"
                     lines.append(f"{marker} {record.session_id[:8]} {title}, (updated: {record.updated_at}, created: {record.created_at})")
                 return CommandResult("\n".join(lines))
@@ -90,11 +88,10 @@ async def dispatch_command(command: Command, state: AppState, *, compact_handler
                 return CommandResult("\n".join(lines))
 
             session_id = matches[0]
-            if session_id == state.session.session_id:
+            if session_id == state.selected_session_id:
                 return CommandResult()
 
-            state.session.close()
-            state.session = SQLiteSession(session_id, state.config.sessions_db)
+            state.selected_session_id = session_id
             logger.info("Resumed session %s", session_id)
             title = await asyncio.to_thread(get_session_title, state.config.sessions_db, session_id)
             lines = [f"Resumed session: {session_id}"]
@@ -107,7 +104,7 @@ async def dispatch_command(command: Command, state: AppState, *, compact_handler
                 title = await asyncio.to_thread(
                     get_session_title,
                     state.config.sessions_db,
-                    state.session.session_id,
+                    state.selected_session_id,
                 )
                 return CommandResult(f"Session title: {title}" if title else "Session has no title.")
 
@@ -115,10 +112,10 @@ async def dispatch_command(command: Command, state: AppState, *, compact_handler
             await asyncio.to_thread(
                 set_session_title,
                 state.config.sessions_db,
-                state.session.session_id,
+                state.selected_session_id,
                 title,
             )
-            logger.info("Updated title for session %s", state.session.session_id)
+            logger.info("Updated title for session %s", state.selected_session_id)
             return CommandResult(f"Set session title to: {title}")
 
         case "effort":
@@ -148,22 +145,31 @@ async def dispatch_command(command: Command, state: AppState, *, compact_handler
             return CommandResult(f"Permission mode set to: {mode}")
 
         case "clear":
-            session_id = state.session.session_id
-            await state.session.clear_session()
+            session_id = state.selected_session_id
+            if runtime.is_session_active(session_id):
+                return CommandResult("Cannot clear this session while its Agent run is active.")
+            session = SQLiteSession(session_id, state.config.sessions_db)
+            try:
+                await session.clear_session()
+            finally:
+                session.close()
             await asyncio.to_thread(delete_session_metadata, state.config.sessions_db, session_id)
-            state.session.close()
             new_session_id = uuid.uuid4().hex
-            state.session = SQLiteSession(new_session_id, state.config.sessions_db)
+            await asyncio.to_thread(create_session, state.config.sessions_db, new_session_id)
+            state.selected_session_id = new_session_id
             logger.info("Cleared session %s and started session %s", session_id, new_session_id)
             return CommandResult(f"Cleared session and started new session: {new_session_id}")
 
         case "compact":
             if command.args:
                 return CommandResult("Usage: /compact")
-            if compact_handler is None:
-                return CommandResult("Context compaction is unavailable in this runtime.")
+            session_id = state.selected_session_id
+            if runtime.is_session_active(session_id):
+                return CommandResult("Cannot compact this session while its Agent run is active.")
             try:
-                result = await compact_handler(state.session.session_id)
+                result = await runtime.compact_session(session_id)
+            except SessionBusyError:
+                return CommandResult("Cannot compact this session while its Agent run is active.")
             except BaseException as exc:
                 if session_history_restore_failed(exc):
                     logger.exception("Manual context compaction failed and session history restoration was unsuccessful")
@@ -174,7 +180,7 @@ async def dispatch_command(command: Command, state: AppState, *, compact_handler
                 return CommandResult("Context compaction failed; existing context was kept. See the system log.")
             if not result.changed:
                 return CommandResult("Session context is already empty or compacted.")
-            logger.info("Context compaction completed: trigger=manual session=%s", state.session.session_id)
+            logger.info("Context compaction completed: trigger=manual session=%s", session_id)
             return CommandResult("Session context compacted.", compaction=result)
 
         case "ps":
@@ -182,6 +188,8 @@ async def dispatch_command(command: Command, state: AppState, *, compact_handler
             return CommandResult(format_background_jobs(jobs))
 
         case "exit":
+            if runtime.has_active_runs():
+                return CommandResult("There are active Agent runs. Switch to them or wait for completion before exiting.")
             logger.info("Exit requested")
             return CommandResult(output="Exiting...", exit_requested=True)
 

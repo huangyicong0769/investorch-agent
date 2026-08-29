@@ -3,6 +3,8 @@ from contextlib import closing
 from dataclasses import dataclass
 from pathlib import Path
 
+from agents import SQLiteSession
+
 
 @dataclass(frozen=True)
 class SessionRecord:
@@ -10,6 +12,17 @@ class SessionRecord:
     title: str | None
     created_at: str
     updated_at: str
+
+
+def create_session(db_path: str | Path, session_id: str) -> None:
+    session = SQLiteSession(session_id, db_path)
+    session.close()
+    with closing(sqlite3.connect(db_path)) as connection:
+        connection.execute(
+            "INSERT OR IGNORE INTO agent_sessions (session_id) VALUES (?)",
+            (session_id,),
+        )
+        connection.commit()
 
 
 def init_session_metadata(db_path: str | Path,) -> None:

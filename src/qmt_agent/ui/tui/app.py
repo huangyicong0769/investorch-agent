@@ -442,7 +442,7 @@ class QMTAgentTUI(App[None]):
     async def on_list_view_selected(self, event: ListView.Selected) -> None:
         item = event.item
         session_id = getattr(item, "session_id", None)
-        if not isinstance(session_id, str) or session_id == self.state.session.session_id:
+        if not isinstance(session_id, str) or session_id == self.state.selected_session_id:
             return
         if self._run_active:
             await self.query_one(ChatTimeline).add_notice("Cannot switch sessions while the Agent is running.")
@@ -496,7 +496,7 @@ class QMTAgentTUI(App[None]):
         return str(value)
 
     def _format_usage_status(self) -> str:
-        session_id = self.state.session.session_id
+        session_id = self.state.selected_session_id
         usage = self._session_usage.get(session_id, TokenUsage())
         context_tokens = self._main_context_tokens.get(session_id)
         context_used = "—" if context_tokens is None else self._format_token_count(context_tokens)
@@ -515,12 +515,12 @@ class QMTAgentTUI(App[None]):
 
     def _add_usage(self, session_id: str, usage: TokenUsage) -> None:
         self._session_usage[session_id] = self._session_usage.get(session_id, TokenUsage()) + usage
-        if session_id == self.state.session.session_id:
+        if session_id == self.state.selected_session_id:
             self.query_one("#usage-status", Static).update(self._format_usage_status())
 
     def _set_main_context_tokens(self, session_id: str, context_tokens: int | None) -> None:
         self._main_context_tokens[session_id] = context_tokens
-        if session_id == self.state.session.session_id:
+        if session_id == self.state.selected_session_id:
             self.query_one("#usage-status", Static).update(self._format_usage_status())
 
     def add_auxiliary_usage(self, session_id: str, usage: TokenUsage) -> None:
@@ -538,7 +538,7 @@ class QMTAgentTUI(App[None]):
         run_id: str,
         journal_seq: int | None,
     ) -> None:
-        if session_id != self.state.session.session_id:
+        if session_id != self.state.selected_session_id:
             logger.warning("Ignored TUI output for inactive session %s", session_id)
             return
 
@@ -610,7 +610,7 @@ class QMTAgentTUI(App[None]):
     async def refresh_sessions(self) -> None:
         records = await asyncio.to_thread(list_sessions, self.state.config.sessions_db)
         self._known_session_ids = {record.session_id for record in records}
-        current_session_id = self.state.session.session_id
+        current_session_id = self.state.selected_session_id
         await self.query_one(SessionSidebar).replace_sessions(records, current_session_id)
         title = await asyncio.to_thread(
             get_session_title,
@@ -623,7 +623,7 @@ class QMTAgentTUI(App[None]):
     async def _refresh_and_load_current(self) -> None:
         try:
             await self.refresh_sessions()
-            await self._load_session_history(self.state.session.session_id)
+            await self._load_session_history(self.state.selected_session_id)
         except Exception:
             logger.exception("Failed to initialize TUI session history")
             await self.query_one(ChatTimeline).reset()
@@ -639,7 +639,7 @@ class QMTAgentTUI(App[None]):
         try:
             records = await asyncio.to_thread(read_session_journal, self.journal_dir, session_id)
         except FileNotFoundError:
-            if session_id != self.state.session.session_id:
+            if session_id != self.state.selected_session_id:
                 return
             await timeline.reset()
             if session_id in self._known_session_ids:
@@ -649,13 +649,13 @@ class QMTAgentTUI(App[None]):
             return
         except Exception:
             logger.exception("Failed to read session journal for session %s", session_id)
-            if session_id != self.state.session.session_id:
+            if session_id != self.state.selected_session_id:
                 return
             await timeline.reset()
             await timeline.add_notice("Session history is unavailable because its journal is invalid. See the system log for details.")
             return
 
-        if session_id != self.state.session.session_id:
+        if session_id != self.state.selected_session_id:
             return
 
         if records:
@@ -666,15 +666,18 @@ class QMTAgentTUI(App[None]):
 
     async def _dispatch_command(self, command: Command) -> None:
         timeline = self.query_one(ChatTimeline)
+        if self.runtime is None:
+            await timeline.add_notice("Agent runtime is not ready.")
+            return
         if self._run_active and command.name in RUN_BLOCKED_COMMANDS:
             await timeline.add_notice(f"Cannot run /{command.name} while the Agent is running.")
             return
 
-        old_session_id = self.state.session.session_id
+        old_session_id = self.state.selected_session_id
         result = await dispatch_command(
             command,
             self.state,
-            compact_handler=self.runtime.compact_session if self.runtime is not None else None,
+            runtime=self.runtime,
         )
         if result.exit_requested:
             if result.output:
@@ -682,7 +685,7 @@ class QMTAgentTUI(App[None]):
             self.exit()
             return
 
-        new_session_id = self.state.session.session_id
+        new_session_id = self.state.selected_session_id
         if new_session_id != old_session_id:
             await self.refresh_sessions()
             self.run_worker(
@@ -710,7 +713,7 @@ class QMTAgentTUI(App[None]):
         notice: str | None,
     ) -> None:
         await self._load_session_history(session_id)
-        if notice and session_id == self.state.session.session_id:
+        if notice and session_id == self.state.selected_session_id:
             await self.query_one(ChatTimeline).add_notice(notice)
 
     async def _start_agent_run(self, user_message: str) -> None:
@@ -719,7 +722,7 @@ class QMTAgentTUI(App[None]):
             await timeline.add_notice("Agent runtime is not ready.")
             return
 
-        session_id = self.state.session.session_id
+        session_id = self.state.selected_session_id
         self._run_active = True
         self._current_user_message = user_message
         self._set_run_controls(running=True)
