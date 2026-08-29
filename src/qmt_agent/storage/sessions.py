@@ -31,6 +31,32 @@ def session_exists(db_path: str | Path, session_id: str) -> bool:
     return row is not None
 
 
+def delete_unused_session(db_path: str | Path, session_id: str) -> bool:
+    with closing(sqlite3.connect(db_path)) as connection:
+        cursor = connection.execute(
+            """
+            DELETE FROM agent_sessions
+            WHERE session_id = ?
+                AND NOT EXISTS (
+                    SELECT 1 FROM agent_messages
+                    WHERE agent_messages.session_id = agent_sessions.session_id
+                )
+                AND NOT EXISTS (
+                    SELECT 1 FROM extra_session_metadata
+                    WHERE extra_session_metadata.session_id = agent_sessions.session_id
+                )
+                AND NOT EXISTS (
+                    SELECT 1 FROM session_lineage
+                    WHERE session_lineage.session_id = agent_sessions.session_id
+                        OR session_lineage.branch_from_session_id = agent_sessions.session_id
+                )
+            """,
+            (session_id,),
+        )
+        connection.commit()
+    return cursor.rowcount == 1
+
+
 def init_session_metadata(db_path: str | Path) -> None:
     with closing(sqlite3.connect(db_path)) as connection:
         connection.execute(
