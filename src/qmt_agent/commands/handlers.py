@@ -154,6 +154,13 @@ async def dispatch_command(
                     target_session_id,
                 )
                 return CommandResult("Session fork failed. See the system log.")
+            except Exception:
+                logger.exception(
+                    "Unexpected session fork failure source=%s target=%s",
+                    source_session_id,
+                    target_session_id,
+                )
+                return CommandResult("Session fork failed. See the system log.")
 
             state.selected_session_id = target_session_id
             return CommandResult(
