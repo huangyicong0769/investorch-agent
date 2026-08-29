@@ -343,35 +343,39 @@ async def _run_configured_app(
 
         logger.info("Starting MCP server manager with %d configured servers", len(mcp_servers))
         async with MCPServerManager(mcp_servers, drop_failed_servers=config["mcp.drop_failed_servers"]) as mcp_manager:
-            logger.info("MCP server manager started with %d active servers", len(mcp_manager.active_servers))
-            main_model, main_model_settings = _create_model(config, "main")
-            agent = create_agent(
-                model=main_model,
-                model_settings=main_model_settings,
-                config=config,
-                mcp_servers=mcp_manager.active_servers,
-            )
-            agent_loop = AgentLoop(
-                agent,
-                title_agent,
-                compact_agent,
-                config,
-            )
-            runtime = AgentRuntime(
-                agent_loop,
-                state.execution,
-                config.sessions_db,
-                handle_output,
-                handle_approval,
-                record_user_message,
-            )
             try:
-                if tui is None:
-                    await _run_console(state, runtime, ui)
-                else:
-                    tui.bind_runtime(runtime)
-                    await tui.run_async()
+                logger.info("MCP server manager started with %d active servers", len(mcp_manager.active_servers))
+                main_model, main_model_settings = _create_model(config, "main")
+                agent = create_agent(
+                    model=main_model,
+                    model_settings=main_model_settings,
+                    config=config,
+                    mcp_servers=mcp_manager.active_servers,
+                )
+                agent_loop = AgentLoop(
+                    agent,
+                    title_agent,
+                    compact_agent,
+                    config,
+                )
+                runtime = AgentRuntime(
+                    agent_loop,
+                    state.execution,
+                    config.sessions_db,
+                    handle_output,
+                    handle_approval,
+                    record_user_message,
+                )
+                try:
+                    if tui is None:
+                        await _run_console(state, runtime, ui)
+                    else:
+                        tui.bind_runtime(runtime)
+                        await tui.run_async()
+                finally:
+                    await runtime.aclose()
             finally:
-                await runtime.aclose()
+                await close_execution(state.execution)
     finally:
-        await close_execution(state.execution)
+        if state.execution.sandbox is not None:
+            await close_execution(state.execution)
