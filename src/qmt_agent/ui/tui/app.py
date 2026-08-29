@@ -21,6 +21,7 @@ from qmt_agent.agents import TokenUsage, generate_activity_label
 from qmt_agent.application import (
     ActiveRunChangedError,
     ArchivedSessionInputError,
+    FollowUpSubmissionError,
     QueuedFollowUpsPendingError,
     SteerPromotionPendingError,
     SessionOperations,
@@ -460,13 +461,18 @@ class QMTAgentTUI(App[None]):
             await self.query_one(ChatTimeline).add_notice(notice)
             self._refresh_selected_controls()
             return
-        except ActiveRunChangedError:
-            await self.query_one(ChatTimeline).add_notice("The active Run changed before this input could be submitted. Please send it again.")
+        except ActiveRunChangedError as exc:
+            notice = (
+                "The active Run changed before this follow-up could be submitted. Please send it again."
+                if exc.follow_up
+                else "This session already has an active Agent run."
+            )
+            await self.query_one(ChatTimeline).add_notice(notice)
             self._refresh_selected_controls()
             return
-        except Exception:
-            logger.exception("Failed to submit user input session=%s", session_id)
-            await self.query_one(ChatTimeline).add_notice("Input could not be saved and was not sent. Please try again.")
+        except FollowUpSubmissionError:
+            logger.exception("Failed to save follow-up input session=%s", session_id)
+            await self.query_one(ChatTimeline).add_notice("Follow-up could not be saved and was not sent. Please try again.")
             self._refresh_selected_controls()
             return
 

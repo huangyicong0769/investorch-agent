@@ -35,6 +35,11 @@ class QueuedFollowUpsPendingError(UserInputRejected):
 
 
 class ActiveRunChangedError(UserInputRejected):
+    def __init__(self, *, follow_up: bool) -> None:
+        self.follow_up = follow_up
+
+
+class FollowUpSubmissionError(UserInputRejected):
     pass
 
 
@@ -62,7 +67,9 @@ async def submit_user_input(
         try:
             submission = await runtime.submit_follow_up(session_id, text, _current_run_options(state))
         except SessionBusyError as exc:
-            raise ActiveRunChangedError from exc
+            raise ActiveRunChangedError(follow_up=True) from exc
+        except Exception as exc:
+            raise FollowUpSubmissionError from exc
         return UserInputSubmission(
             session_id=session_id,
             disposition="queue_submitted" if submission.behavior == "queue" else "steer_submitted",
@@ -79,5 +86,5 @@ async def submit_user_input(
     try:
         active_run = runtime.start_run(session_id, text, _current_run_options(state))
     except SessionBusyError as exc:
-        raise ActiveRunChangedError from exc
+        raise ActiveRunChangedError(follow_up=False) from exc
     return UserInputSubmission(session_id=session_id, disposition="run_started", run_id=active_run.run_id)

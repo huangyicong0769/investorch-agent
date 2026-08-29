@@ -1,6 +1,7 @@
 from .interaction import (
     ActiveRunChangedError,
     ArchivedSessionInputError,
+    FollowUpSubmissionError,
     QueuedFollowUpsPendingError,
     SteerPromotionPendingError,
     UserInputRejected,
@@ -18,6 +19,7 @@ from .sessions import (
 __all__ = [
     "ActiveRunChangedError",
     "ArchivedSessionInputError",
+    "FollowUpSubmissionError",
     "QueuedFollowUpsPendingError",
     "SessionAlreadyArchivedError",
     "SessionArchivedError",
