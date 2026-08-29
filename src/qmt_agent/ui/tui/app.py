@@ -31,7 +31,7 @@ from qmt_agent.runtime import (
     RuntimeSessionSnapshot,
     SessionBusyError,
 )
-from qmt_agent.storage import get_session_title, list_sessions
+from qmt_agent.storage import get_session_title, is_session_archived, list_sessions
 
 from .approval import ApprovalPanel
 from .queue import QueuePanel
@@ -447,6 +447,16 @@ class QMTAgentTUI(App[None]):
 
         session_id = self.state.selected_session_id
         if self._loading_session_id == session_id:
+            return
+
+        if await asyncio.to_thread(
+            is_session_archived,
+            self.state.config.sessions_db,
+            session_id,
+        ):
+            await self.query_one(ChatTimeline).add_notice(
+                "Archived sessions are read-only. Unarchive or switch sessions first."
+            )
             return
 
         if self.runtime is not None and self.runtime.is_session_active(session_id):
@@ -967,13 +977,23 @@ class QMTAgentTUI(App[None]):
             self._last_rendered_seq[approval.session_id] = approval.journal_seq
 
     async def refresh_sessions(self) -> None:
-        records = await asyncio.to_thread(list_sessions, self.state.config.sessions_db)
+        current_session_id = self.state.selected_session_id
+        all_records = await asyncio.to_thread(
+            list_sessions,
+            self.state.config.sessions_db,
+            include_archived=True,
+        )
+        records = [
+            record
+            for record in all_records
+            if record.archived_at is None
+            or record.session_id == current_session_id
+        ]
         self._known_session_ids = {record.session_id for record in records}
         self._session_titles = {
             record.session_id: record.title
             for record in records
         }
-        current_session_id = self.state.selected_session_id
         active_session_ids = (
             {run.session_id for run in self.runtime.list_active_runs()}
             if self.runtime is not None
@@ -1135,7 +1155,7 @@ class QMTAgentTUI(App[None]):
                 await timeline.add_notice(result.output)
             if command.name in {"effort", "followup", "stop"}:
                 self._refresh_selected_controls()
-            if command.name == "title":
+            if command.name in {"archive", "title", "unarchive"}:
                 await self.refresh_sessions()
 
         self.query_one(Composer).focus_input()
