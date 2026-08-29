@@ -13,14 +13,18 @@ from qmt_agent.runtime import AgentRuntime, SessionBusyError
 from qmt_agent.storage import (
     SessionForkError,
     SessionForkRollbackError,
+    archive_session,
     create_session,
     delete_session_metadata,
     find_session_ids,
     fork_session,
     get_session_branch_from,
     get_session_title,
+    is_session_archived,
+    list_archived_sessions,
     list_sessions,
     set_session_title,
+    unarchive_session,
 )
 from qmt_agent.tools import format_background_jobs, list_background_jobs
 
@@ -34,6 +38,8 @@ HELP = (
     "  /session           Show the current session.\n"
     "  /new               Start a new session.\n"
     "  /resume [prefix]   List or resume a session.\n"
+    "  /archive           Archive the current session.\n"
+    "  /unarchive [prefix] List or restore an archived session.\n"
     "  /fork              Fork the current session.\n"
     "  /title [title]     Show or set the session title.\n"
     "  /effort [level]    Show or set Main reasoning effort.\n"
@@ -122,6 +128,85 @@ async def dispatch_command(
                 lines.append(f"Session title: {title}")
             return CommandResult("\n".join(lines))
 
+        case "archive":
+            if command.args:
+                return CommandResult("Usage: /archive")
+
+            session_id = state.selected_session_id
+            if runtime.has_queued_inputs(session_id):
+                return CommandResult(
+                    "Cannot archive a session with queued follow-ups.\n"
+                    "Finish or clear them first."
+                )
+            try:
+                async with runtime.reserve_session(session_id):
+                    archived = await asyncio.to_thread(
+                        is_session_archived,
+                        state.config.sessions_db,
+                        session_id,
+                    )
+                    if archived:
+                        return CommandResult("This session is already archived.")
+                    await asyncio.to_thread(
+                        archive_session,
+                        state.config.sessions_db,
+                        session_id,
+                    )
+            except SessionBusyError:
+                return CommandResult(
+                    "Cannot archive this session while it has an active operation."
+                )
+
+            logger.info("Session archived session=%s", session_id)
+            return CommandResult(f"Session archived: {session_id}")
+
+        case "unarchive":
+            if len(command.args) > 1:
+                return CommandResult("Usage: /unarchive [prefix]")
+
+            sessions = await asyncio.to_thread(
+                list_archived_sessions,
+                state.config.sessions_db,
+            )
+            if not command.args:
+                if not sessions:
+                    return CommandResult("No archived sessions.")
+                lines = ["Archived sessions:"]
+                for record in sessions:
+                    title = record.title or "(untitled)"
+                    lines.append(
+                        f"  {record.session_id[:8]} {title}, "
+                        f"(archived: {record.archived_at})"
+                    )
+                return CommandResult("\n".join(lines))
+
+            session_id_prefix = command.args[0]
+            matches = [
+                record
+                for record in sessions
+                if record.session_id.startswith(session_id_prefix)
+            ]
+            if not matches:
+                return CommandResult(
+                    f"Archived session ID {session_id_prefix} not found."
+                )
+            if len(matches) > 1:
+                lines = [
+                    f"Multiple archived sessions found with prefix {session_id_prefix}:"
+                ]
+                lines.extend(f"  {record.session_id}" for record in matches)
+                return CommandResult("\n".join(lines))
+
+            session_id = matches[0].session_id
+            await asyncio.to_thread(
+                unarchive_session,
+                state.config.sessions_db,
+                session_id,
+            )
+            state.selected_session_id = session_id
+            logger.info("Session unarchived session=%s", session_id)
+            return CommandResult(f"Session unarchived: {session_id}")
+
         case "fork":
             if command.args:
                 return CommandResult("Usage: /fork")
@@ -182,6 +267,15 @@ async def dispatch_command(
                     state.selected_session_id,
                 )
                 return CommandResult(f"Session title: {title}" if title else "Session has no title.")
+
+            if await asyncio.to_thread(
+                is_session_archived,
+                state.config.sessions_db,
+                state.selected_session_id,
+            ):
+                return CommandResult(
+                    "Archived sessions are read-only. Unarchive or switch sessions first."
+                )
 
             title = " ".join(command.args).strip()
             await asyncio.to_thread(
@@ -251,6 +345,14 @@ async def dispatch_command(
 
         case "clear":
             session_id = state.selected_session_id
+            if await asyncio.to_thread(
+                is_session_archived,
+                state.config.sessions_db,
+                session_id,
+            ):
+                return CommandResult(
+                    "Archived sessions are read-only. Unarchive or switch sessions first."
+                )
             if runtime.has_queued_inputs(session_id):
                 return CommandResult(
                     "Cannot clear this session while it has queued follow-ups. "
@@ -286,6 +388,14 @@ async def dispatch_command(
             if command.args:
                 return CommandResult("Usage: /compact")
             session_id = state.selected_session_id
+            if await asyncio.to_thread(
+                is_session_archived,
+                state.config.sessions_db,
+                session_id,
+            ):
+                return CommandResult(
+                    "Archived sessions are read-only. Unarchive or switch sessions first."
+                )
             try:
                 result = await runtime.compact_session(session_id)
             except SessionBusyError:

@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import sys
 import uuid
@@ -39,7 +40,7 @@ from qmt_agent.runtime import (
     RuntimeRunEnded,
     RuntimeSessionSnapshot,
 )
-from qmt_agent.storage import create_session
+from qmt_agent.storage import create_session, is_session_archived
 from qmt_agent.tools import close_execution, start_execution
 from qmt_agent.ui import ConsoleRenderer, ConsoleUI, QMTAgentTUI
 
@@ -105,6 +106,15 @@ async def _run_console(
             continue
 
         session_id = state.selected_session_id
+        if await asyncio.to_thread(
+            is_session_archived,
+            state.config.sessions_db,
+            session_id,
+        ):
+            ui.write(
+                "Archived sessions are read-only. Unarchive or switch sessions first."
+            )
+            continue
         active_run = runtime.start_run(
             session_id,
             user_input,
