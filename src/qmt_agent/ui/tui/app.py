@@ -736,7 +736,7 @@ class QMTAgentTUI(App[None]):
                 review_reason=pending.review_reason,
                 pending_count=len(self._pending_approvals),
             )
-            self.call_after_refresh(interaction_scroll.scroll_to_widget, panel, animate=False)
+            self.call_after_refresh(interaction_scroll.scroll_end, animate=False, immediate=True)
         else:
             panel.replace_approval(None)
             self.call_after_refresh(interaction_scroll.scroll_home, animate=False)
