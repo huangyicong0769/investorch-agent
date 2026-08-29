@@ -22,6 +22,7 @@ from .models import (
     ApprovalRequest,
     FollowUpSubmission,
     PendingSteer,
+    QueuedInput,
     RunOptions,
     RuntimeFollowUpEvent,
     RuntimeOutput,
@@ -34,7 +35,7 @@ logger = logging.getLogger(__name__)
 
 RuntimeOutputHandler = Callable[[RuntimeOutput], Awaitable[None]]
 RuntimeApprovalHandler = Callable[[ApprovalRequest], Awaitable[ApprovalOutcome]]
-RecordUserMessage = Callable[[str, str], Awaitable[None]]
+RecordUserMessage = Callable[[str, str], Awaitable[int | None]]
 RecordUserSteer = Callable[[str, str, str], Awaitable[int | None]]
 RuntimeStateHandler = Callable[[RuntimeSessionSnapshot], None]
 RunEndedHandler = Callable[[RuntimeRunEnded], Awaitable[None]]
@@ -71,6 +72,8 @@ class AgentRuntime:
         self._active_by_run: dict[str, ActiveRun] = {}
         self._controls_by_run: dict[str, RunControl] = {}
         self._steer_fallback_by_session: dict[str, deque[PendingSteer]] = {}
+        self._queued_by_session: dict[str, deque[QueuedInput]] = {}
+        self._queue_paused_sessions: set[str] = set()
         self._maintenance_sessions: set[str] = set()
         self._closed = False
 
@@ -91,6 +94,7 @@ class AgentRuntime:
         record_user_message: bool = True,
         start_gate: asyncio.Event | None = None,
         allow_steer_fallback: bool = False,
+        allow_queue_promotion: bool = False,
     ) -> ActiveRun:
         if self._closed:
             raise RuntimeError("Agent runtime is closed")
@@ -100,6 +104,10 @@ class AgentRuntime:
             or (
                 not allow_steer_fallback
                 and bool(self._steer_fallback_by_session.get(session_id))
+            )
+            or (
+                not allow_queue_promotion
+                and bool(self._queued_by_session.get(session_id))
             )
         ):
             raise SessionBusyError(f"Session {session_id} already has an active operation")
@@ -149,6 +157,11 @@ class AgentRuntime:
     def has_active_runs(self) -> bool:
         return bool(self._active_by_session) or any(self._steer_fallback_by_session.values())
 
+    def has_queued_inputs(self, session_id: str | None = None) -> bool:
+        if session_id is not None:
+            return bool(self._queued_by_session.get(session_id))
+        return any(self._queued_by_session.values())
+
     async def submit_follow_up(
         self,
         session_id: str,
@@ -160,10 +173,42 @@ class AgentRuntime:
         active_run = self._active_by_session.get(session_id)
         if active_run is None:
             raise SessionBusyError(f"Session {session_id} does not have an active Agent run")
-        if active_run.options.follow_up_behavior != "steer":
-            raise SessionBusyError(f"Session {session_id} active Run does not accept Steer follow-ups")
         if not text.strip():
             raise ValueError("Follow-up text must not be empty")
+
+        if active_run.options.follow_up_behavior == "queue":
+            queued_input = QueuedInput(
+                queue_id=uuid.uuid4().hex,
+                session_id=session_id,
+                text=text,
+                options=next_run_options,
+                created_at=datetime.now(timezone.utc),
+            )
+            self._queued_by_session.setdefault(session_id, deque()).append(queued_input)
+            self._notify_state(session_id)
+            await self._notify_follow_up(
+                RuntimeFollowUpEvent(
+                    kind="queue_submitted",
+                    session_id=session_id,
+                    run_id=active_run.run_id,
+                    source_run_id=active_run.run_id,
+                    follow_up_id=queued_input.queue_id,
+                    text=text,
+                    journal_seq=None,
+                )
+            )
+            logger.info(
+                "Follow-up submitted behavior=queue session=%s run=%s queue=%s",
+                session_id,
+                active_run.run_id,
+                queued_input.queue_id,
+            )
+            return FollowUpSubmission(
+                session_id=session_id,
+                active_run_id=active_run.run_id,
+                behavior="queue",
+                follow_up_id=queued_input.queue_id,
+            )
 
         control = self._controls_by_run[active_run.run_id]
         steer = control.reserve_steer(text, next_run_options)
@@ -221,14 +266,70 @@ class AgentRuntime:
             active_follow_up_behavior=(
                 active_run.options.follow_up_behavior if active_run is not None else None
             ),
-            queued_count=0,
-            queue_paused=False,
+            queued_count=len(self._queued_by_session.get(session_id, ())),
+            queue_paused=session_id in self._queue_paused_sessions,
             pending_steer_count=(
                 (control.pending_count() if control is not None else 0)
                 + len(self._steer_fallback_by_session.get(session_id, ()))
             ),
             todos=tuple(dict(todo) for todo in active_run.todos) if active_run is not None else (),
         )
+
+    def list_queued_inputs(self, session_id: str) -> list[QueuedInput]:
+        return list(self._queued_by_session.get(session_id, ()))
+
+    def remove_queued_input(self, session_id: str, queue_id: str) -> QueuedInput:
+        queue = self._queued_by_session.get(session_id)
+        if not queue:
+            raise KeyError(f"Unknown queued input: {queue_id}")
+        for queued_input in queue:
+            if queued_input.queue_id == queue_id:
+                queue.remove(queued_input)
+                if not queue:
+                    self._queued_by_session.pop(session_id, None)
+                    self._queue_paused_sessions.discard(session_id)
+                self._notify_state(session_id)
+                return queued_input
+        raise KeyError(f"Unknown queued input: {queue_id}")
+
+    def clear_queue(self, session_id: str) -> int:
+        queue = self._queued_by_session.pop(session_id, None)
+        count = len(queue) if queue is not None else 0
+        self._queue_paused_sessions.discard(session_id)
+        if count:
+            self._notify_state(session_id)
+            logger.info("Queue cleared session=%s count=%d", session_id, count)
+        return count
+
+    def pause_queue(self, session_id: str) -> None:
+        if not self._queued_by_session.get(session_id):
+            return
+        if session_id not in self._queue_paused_sessions:
+            self._queue_paused_sessions.add(session_id)
+            self._notify_state(session_id)
+            logger.info(
+                "Queue paused session=%s count=%d",
+                session_id,
+                len(self._queued_by_session[session_id]),
+            )
+
+    async def resume_queue(self, session_id: str) -> None:
+        if self._closed:
+            raise RuntimeError("Agent runtime is closed")
+        if session_id in self._active_by_session or session_id in self._maintenance_sessions:
+            raise SessionBusyError(f"Session {session_id} already has an active operation")
+        if not self._queued_by_session.get(session_id):
+            raise ValueError(f"Session {session_id} does not have queued inputs")
+        if session_id not in self._queue_paused_sessions:
+            raise ValueError(f"Session {session_id} queue is not paused")
+        self._queue_paused_sessions.discard(session_id)
+        self._notify_state(session_id)
+        logger.info(
+            "Queue resumed session=%s count=%d",
+            session_id,
+            len(self._queued_by_session[session_id]),
+        )
+        await self._try_promote_queue(session_id)
 
     @property
     def agent_name(self) -> str:
@@ -248,7 +349,10 @@ class AgentRuntime:
             or session_id in self._maintenance_sessions
             or (
                 not allow_pending_work
-                and bool(self._steer_fallback_by_session.get(session_id))
+                and (
+                    bool(self._steer_fallback_by_session.get(session_id))
+                    or bool(self._queued_by_session.get(session_id))
+                )
             )
         ):
             raise SessionBusyError(f"Session {session_id} already has an active operation")
@@ -259,6 +363,7 @@ class AgentRuntime:
         finally:
             self._maintenance_sessions.discard(session_id)
             await self._try_promote_steer_fallback(session_id)
+            await self._try_promote_queue(session_id)
 
     async def compact_session(self, session_id: str) -> CompactionResult:
         async with self.reserve_session(session_id, allow_pending_work=True):
@@ -281,6 +386,8 @@ class AgentRuntime:
         self._active_by_run.clear()
         self._controls_by_run.clear()
         self._steer_fallback_by_session.clear()
+        self._queued_by_session.clear()
+        self._queue_paused_sessions.clear()
 
     async def _execute_run(
         self,
@@ -380,6 +487,7 @@ class AgentRuntime:
                             status,
                             discarded,
                         )
+                    self.pause_queue(session_id)
                 if not self._steer_fallback_by_session.get(session_id):
                     self._notify_state(session_id)
                 await self._notify_run_ended(
@@ -391,6 +499,7 @@ class AgentRuntime:
                     )
                 )
                 await self._try_promote_steer_fallback(session_id)
+                await self._try_promote_queue(session_id)
 
     def _notify_state(self, session_id: str) -> None:
         if self._state_handler is None:
@@ -473,4 +582,54 @@ class AgentRuntime:
             steer.source_run_id,
             active_run.run_id,
             steer.steer_id,
+        )
+
+    async def _try_promote_queue(self, session_id: str) -> None:
+        queue = self._queued_by_session.get(session_id)
+        if (
+            self._closed
+            or not queue
+            or session_id in self._queue_paused_sessions
+            or session_id in self._active_by_session
+            or session_id in self._maintenance_sessions
+        ):
+            return
+
+        queued_input = queue.popleft()
+        if not queue:
+            self._queued_by_session.pop(session_id, None)
+        start_gate = asyncio.Event()
+        try:
+            active_run = self._start_run(
+                session_id,
+                queued_input.text,
+                queued_input.options,
+                record_user_message=False,
+                start_gate=start_gate,
+                allow_queue_promotion=True,
+            )
+        except Exception:
+            self._queued_by_session.setdefault(session_id, deque()).appendleft(queued_input)
+            raise
+
+        try:
+            journal_seq = await self._record_user_message(session_id, queued_input.text)
+            await self._notify_follow_up(
+                RuntimeFollowUpEvent(
+                    kind="queue_promoted",
+                    session_id=session_id,
+                    run_id=active_run.run_id,
+                    source_run_id=active_run.run_id,
+                    follow_up_id=queued_input.queue_id,
+                    text=queued_input.text,
+                    journal_seq=journal_seq,
+                )
+            )
+        finally:
+            start_gate.set()
+        logger.info(
+            "Queued input promoted session=%s run=%s queue=%s",
+            session_id,
+            active_run.run_id,
+            queued_input.queue_id,
         )

@@ -60,6 +60,15 @@ class PendingSteer:
 
 
 @dataclass(frozen=True, slots=True)
+class QueuedInput:
+    queue_id: str
+    session_id: str
+    text: str
+    options: RunOptions
+    created_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
 class FollowUpSubmission:
     session_id: str
     active_run_id: str
@@ -69,7 +78,12 @@ class FollowUpSubmission:
 
 @dataclass(frozen=True, slots=True)
 class RuntimeFollowUpEvent:
-    kind: Literal["steer_submitted", "steer_fallback_promoted"]
+    kind: Literal[
+        "steer_submitted",
+        "steer_fallback_promoted",
+        "queue_submitted",
+        "queue_promoted",
+    ]
     session_id: str
     run_id: str
     source_run_id: str
