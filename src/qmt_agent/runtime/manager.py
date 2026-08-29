@@ -97,12 +97,16 @@ class AgentRuntime:
             raise SessionBusyError(f"Session {session_id} already has an active operation")
 
         self._compacting_sessions.add(session_id)
-        session = SQLiteSession(session_id, self._sessions_db)
+        session: SQLiteSession | None = None
         try:
+            session = SQLiteSession(session_id, self._sessions_db)
             return await self._agent_loop.compact(session)
         finally:
-            session.close()
-            self._compacting_sessions.discard(session_id)
+            try:
+                if session is not None:
+                    session.close()
+            finally:
+                self._compacting_sessions.discard(session_id)
 
     async def aclose(self) -> None:
         self._closed = True
@@ -170,8 +174,10 @@ class AgentRuntime:
             logger.exception("Failed Agent run session=%s run=%s", session_id, run_id)
             raise
         finally:
-            if session is not None:
-                session.close()
-            active_run = self._active_by_run.pop(run_id, None)
-            if active_run is not None and self._active_by_session.get(session_id) is active_run:
-                del self._active_by_session[session_id]
+            try:
+                if session is not None:
+                    session.close()
+            finally:
+                active_run = self._active_by_run.pop(run_id, None)
+                if active_run is not None and self._active_by_session.get(session_id) is active_run:
+                    del self._active_by_session[session_id]
