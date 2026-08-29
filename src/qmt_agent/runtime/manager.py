@@ -513,6 +513,7 @@ class AgentRuntime:
             self._queued_by_session.setdefault(session_id, deque()).appendleft(queued_input)
             raise
 
+        await asyncio.sleep(0)
         try:
             journal_seq = await self._record_user_message(session_id, queued_input.text)
             await self._notify_follow_up(
@@ -526,6 +527,16 @@ class AgentRuntime:
                     journal_seq=journal_seq,
                 )
             )
-        finally:
+        except BaseException as error:
+            self._queued_by_session.setdefault(session_id, deque()).appendleft(queued_input)
+            self.pause_queue(session_id)
+            active_run.task.cancel()
+            start_gate.set()
+            await asyncio.gather(active_run.task, return_exceptions=True)
+            if isinstance(error, asyncio.CancelledError):
+                raise
+            logger.exception("Queued input promotion failed before Agent execution session=%s run=%s queue=%s", session_id, active_run.run_id, queued_input.queue_id)
+            return
+        else:
             start_gate.set()
         logger.info("Queued input promoted session=%s run=%s queue=%s", session_id, active_run.run_id, queued_input.queue_id)
