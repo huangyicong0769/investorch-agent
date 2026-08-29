@@ -926,6 +926,7 @@ class QMTAgentTUI(App[None]):
                 RunOptions(
                     reasoning_effort=self.state.main_reasoning_effort,
                     permission_mode=self.state.permission_mode,
+                    follow_up_behavior=self.state.follow_up_behavior,
                 ),
             )
         except SessionBusyError:

@@ -60,6 +60,9 @@ max_user_message_chars = 16000
 max_tool_arguments_chars = 32000
 max_reason_chars = 1000
 
+[interaction]
+follow_up_behavior = "steer"
+
 [tui]
 sidebar_width = 30
 sidebar_min_width = 20

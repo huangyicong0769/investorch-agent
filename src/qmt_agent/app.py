@@ -103,6 +103,7 @@ async def _run_console(
             RunOptions(
                 reasoning_effort=state.main_reasoning_effort,
                 permission_mode=state.permission_mode,
+                follow_up_behavior=state.follow_up_behavior,
             ),
         )
         result = await active_run.task

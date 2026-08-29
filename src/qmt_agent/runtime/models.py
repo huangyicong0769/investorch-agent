@@ -1,14 +1,19 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
+from qmt_agent.context import TodoItem
 from qmt_agent.output import OutputEvent
 
 if TYPE_CHECKING:
     from qmt_agent.agents import AgentRunResult
+
+
+FollowUpBehavior = Literal["steer", "queue"]
+RunPhase = Literal["running", "waiting_approval", "stopping"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -17,6 +22,7 @@ class RunOptions:
 
     reasoning_effort: str
     permission_mode: str
+    follow_up_behavior: FollowUpBehavior
 
 
 @dataclass(slots=True)
@@ -27,6 +33,8 @@ class ActiveRun:
     options: RunOptions
     started_at: datetime
     task: asyncio.Task[AgentRunResult]
+    phase: RunPhase = "running"
+    todos: list[TodoItem] = field(default_factory=list)
 
 
 class SessionBusyError(RuntimeError):
@@ -38,6 +46,27 @@ class RuntimeOutput:
     run_id: str
     session_id: str
     event: OutputEvent
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeSessionSnapshot:
+    session_id: str
+    run_id: str | None
+    run_started_at: datetime | None
+    run_phase: RunPhase | None
+    active_follow_up_behavior: FollowUpBehavior | None
+    queued_count: int
+    queue_paused: bool
+    pending_steer_count: int
+    todos: tuple[TodoItem, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeRunEnded:
+    session_id: str
+    run_id: str
+    status: Literal["completed", "cancelled", "failed"]
+    result: AgentRunResult | None
 
 
 @dataclass(frozen=True, slots=True)

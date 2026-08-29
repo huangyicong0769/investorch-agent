@@ -19,7 +19,8 @@ Application
 ├── AppState
 │   ├── selected_session_id
 │   ├── main_reasoning_effort   # future-run default
-│   └── permission_mode         # future-run default
+│   ├── permission_mode         # future-run default
+│   └── follow_up_behavior      # AppConfig-backed future-run default
 ├── AgentRuntime
 │   ├── Session A -> ActiveRun A1
 │   ├── Session B -> idle
@@ -38,7 +39,7 @@ Application
 
 1. rejects a second top-level Run for the same Session;
 2. generates a unique `run_id`;
-3. snapshots reasoning effort and permission mode into `RunOptions`;
+3. snapshots reasoning effort, permission mode, and follow-up behavior into `RunOptions`;
 4. creates and registers an `asyncio.Task` without awaiting.
 
 The task then:

@@ -75,3 +75,11 @@ class AppState:
     selected_session_id: str
     main_reasoning_effort: str
     permission_mode: str
+
+    @property
+    def follow_up_behavior(self) -> str:
+        return self.config["interaction.follow_up_behavior"]
+
+    @follow_up_behavior.setter
+    def follow_up_behavior(self, value: str) -> None:
+        self.config.update("interaction.follow_up_behavior", value, persist=False)

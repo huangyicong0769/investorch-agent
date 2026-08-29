@@ -16,6 +16,7 @@ PROJECT_CONFIG_PATH = Path(__file__).resolve().parents[2] / "config" / "qmt.toml
 REQUIRED_MODEL_AGENTS = ("main", "title", "activity", "bootstrap", "permission", "compact")
 REASONING_EFFORTS = ("none", "minimal", "low", "medium", "high", "xhigh", "max")
 PERMISSION_MODES = ("manual", "review")
+FOLLOW_UP_BEHAVIORS = ("steer", "queue")
 
 RESTART_REQUIRED_KEYS = {
     "backtest.rqalpha_bundle_dir",
@@ -566,6 +567,13 @@ def _validate_config_data(data: dict[str, Any], root: Path) -> None:
     _require_int(data, "permission.max_user_message_chars", minimum=1)
     _require_int(data, "permission.max_tool_arguments_chars", minimum=1)
     _require_int(data, "permission.max_reason_chars", minimum=1)
+
+    follow_up_behavior = _require_string(data, "interaction.follow_up_behavior")
+    if follow_up_behavior not in FOLLOW_UP_BEHAVIORS:
+        raise ConfigError(
+            "interaction.follow_up_behavior must be one of "
+            f"{', '.join(FOLLOW_UP_BEHAVIORS)}"
+        )
 
     sidebar_width = _require_int(data, "tui.sidebar_width", minimum=1)
     sidebar_min_width = _require_int(data, "tui.sidebar_min_width", minimum=1)
