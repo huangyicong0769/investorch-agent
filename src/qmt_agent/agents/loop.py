@@ -148,7 +148,7 @@ class AgentLoop:
                 else:
                     run_control.mark_staged(staged_ids)
                     logger.info(
-                        "Staged Steer input session=%s run=%s count=%d",
+                        "Steer staged session=%s run=%s count=%d",
                         session_id,
                         run_id,
                         len(staged_ids),
