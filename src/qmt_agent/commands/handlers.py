@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from agents import SQLiteSession
 
 from qmt_agent.agents import CompactionResult, session_history_restore_failed
-from qmt_agent.config import PERMISSION_MODES, REASONING_EFFORTS
+from qmt_agent.config import FOLLOW_UP_BEHAVIORS, PERMISSION_MODES, REASONING_EFFORTS
 from qmt_agent.context import AppState
 from qmt_agent.journal import SessionJournal
 from qmt_agent.runtime import AgentRuntime, SessionBusyError
@@ -38,6 +38,7 @@ HELP = (
     "  /title [title]     Show or set the session title.\n"
     "  /effort [level]    Show or set Main reasoning effort.\n"
     "  /permission [mode] Show or set tool permission mode.\n"
+    "  /followup [mode]   Show or set follow-up behavior.\n"
     "  /compact           Compact the current Agent context.\n"
     "  /clear             Clear the current session.\n"
     "  /ps                Show background commands.\n"
@@ -211,6 +212,19 @@ async def dispatch_command(
 
             state.permission_mode = mode
             return CommandResult(f"Permission mode set to: {mode}")
+
+        case "followup":
+            if not command.args:
+                return CommandResult(f"Follow-up behavior: {state.follow_up_behavior}")
+            if len(command.args) != 1:
+                return CommandResult("Usage: /followup [steer|queue]")
+
+            behavior = command.args[0].lower()
+            if behavior not in FOLLOW_UP_BEHAVIORS:
+                return CommandResult(f"Unsupported follow-up behavior: {command.args[0]}")
+
+            state.follow_up_behavior = behavior
+            return CommandResult(f"Follow-up behavior set to: {behavior}")
 
         case "clear":
             session_id = state.selected_session_id
