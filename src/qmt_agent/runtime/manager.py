@@ -319,6 +319,12 @@ class AgentRuntime:
         self._active_by_session.clear()
         self._active_by_run.clear()
         self._controls_by_run.clear()
+        for session_id, pending in self._steer_fallback_by_session.items():
+            if pending:
+                logger.info("Discarding Steer fallback during shutdown session=%s count=%d", session_id, len(pending))
+        for session_id, queued in self._queued_by_session.items():
+            if queued:
+                logger.info("Discarding queued input during shutdown session=%s count=%d", session_id, len(queued))
         self._steer_fallback_by_session.clear()
         self._queued_by_session.clear()
         self._queue_paused_sessions.clear()
