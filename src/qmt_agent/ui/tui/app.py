@@ -31,11 +31,16 @@ from qmt_agent.runtime import (
     RuntimeSessionSnapshot,
     SessionBusyError,
 )
-from qmt_agent.storage import get_session_title, is_session_archived, list_sessions
+from qmt_agent.storage import (
+    SessionRecord,
+    get_session_title,
+    is_session_archived,
+    list_sessions,
+)
 
 from .approval import ApprovalPanel
 from .queue import QueuePanel
-from .sidebar import SessionSidebar
+from .sidebar import SessionSidebar, format_session_status
 from .timeline import ActivityStep, ChatTimeline
 from .todo import TodoPanel
 
@@ -243,6 +248,10 @@ class QMTAgentTUI(App[None]):
         color: $text-muted;
     }
 
+    .session-status {
+        color: $text-muted;
+    }
+
     #timeline {
         width: 1fr;
         height: 1fr;
@@ -362,6 +371,8 @@ class QMTAgentTUI(App[None]):
         self.session_title: str | None = None
         self._known_session_ids: set[str] = set()
         self._session_titles: dict[str, str | None] = {}
+        self._session_records: list[SessionRecord] = []
+        self._runtime_snapshots: dict[str, RuntimeSessionSnapshot] = {}
         self._session_usage: dict[str, TokenUsage] = {}
         self._main_context_tokens: dict[str, int | None] = {}
         self._main_agent_name: str | None = None
@@ -570,25 +581,21 @@ class QMTAgentTUI(App[None]):
 
     def _format_run_status(self) -> str:
         selected_session_id = self.state.selected_session_id
-        active_run = self.runtime.get_active_run(selected_session_id) if self.runtime is not None else None
-        run_status = (
-            "Waiting approval"
-            if active_run is not None and active_run.phase == "waiting_approval"
-            else "Stopping"
-            if active_run is not None and active_run.phase == "stopping"
-            else "Running"
-            if active_run is not None
-            else "Ready"
+        snapshot = (
+            self.runtime.session_snapshot(selected_session_id)
+            if self.runtime is not None
+            else None
         )
+        active_run = self.runtime.get_active_run(selected_session_id) if self.runtime is not None else None
         follow_up_behavior = (
-            active_run.options.follow_up_behavior
-            if active_run is not None
+            snapshot.active_follow_up_behavior
+            if snapshot is not None and snapshot.active_follow_up_behavior is not None
             else self.state.follow_up_behavior
         )
-        status = (
-            f"● {run_status} · Follow-ups: {follow_up_behavior.title()} "
-            f"· Default effort {self.state.main_reasoning_effort}"
-        )
+        status = f"● {format_session_status(snapshot)}"
+        if active_run is None:
+            status += f" · Follow-ups default: {follow_up_behavior.title()}"
+        status += f" · Default effort {self.state.main_reasoning_effort}"
         if active_run is None:
             return status
 
@@ -650,6 +657,8 @@ class QMTAgentTUI(App[None]):
         self._main_agent_name = runtime.agent_name
 
     def handle_runtime_state(self, snapshot: RuntimeSessionSnapshot) -> None:
+        previous = self._runtime_snapshots.get(snapshot.session_id)
+        self._runtime_snapshots[snapshot.session_id] = snapshot
         if snapshot.run_id is not None:
             if self._todo_run_ids.get(snapshot.session_id) != snapshot.run_id:
                 self._todo_run_ids[snapshot.session_id] = snapshot.run_id
@@ -658,6 +667,34 @@ class QMTAgentTUI(App[None]):
             )
         if self.is_running and snapshot.session_id == self.state.selected_session_id:
             self.call_later(self._refresh_selected_controls)
+        if (
+            self.is_running
+            and self._snapshot_presentation(previous)
+            != self._snapshot_presentation(snapshot)
+        ):
+            self.call_later(self._refresh_sidebar_from_cache)
+
+    @staticmethod
+    def _snapshot_presentation(
+        snapshot: RuntimeSessionSnapshot | None,
+    ) -> tuple[object, ...] | None:
+        if snapshot is None:
+            return None
+        return (
+            snapshot.run_id,
+            snapshot.run_phase,
+            snapshot.active_follow_up_behavior,
+            snapshot.queued_count,
+            snapshot.queue_paused,
+            snapshot.pending_steer_count,
+        )
+
+    async def _refresh_sidebar_from_cache(self) -> None:
+        await self.query_one(SessionSidebar).replace_sessions(
+            self._session_records,
+            self.state.selected_session_id,
+            self._runtime_snapshots,
+        )
 
     async def handle_output(
         self,
@@ -989,21 +1026,18 @@ class QMTAgentTUI(App[None]):
             if record.archived_at is None
             or record.session_id == current_session_id
         ]
+        self._session_records = records
         self._known_session_ids = {record.session_id for record in records}
         self._session_titles = {
             record.session_id: record.title
             for record in records
         }
-        active_session_ids = (
-            {run.session_id for run in self.runtime.list_active_runs()}
-            if self.runtime is not None
-            else set()
-        )
-        await self.query_one(SessionSidebar).replace_sessions(
-            records,
-            current_session_id,
-            active_session_ids,
-        )
+        if self.runtime is not None:
+            for record in records:
+                self._runtime_snapshots[record.session_id] = self.runtime.session_snapshot(
+                    record.session_id
+                )
+        await self._refresh_sidebar_from_cache()
         title = await asyncio.to_thread(
             get_session_title,
             self.state.config.sessions_db,
