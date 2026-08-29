@@ -40,11 +40,35 @@ from qmt_agent.runtime import (
     RuntimeRunEnded,
     RuntimeSessionSnapshot,
 )
-from qmt_agent.storage import create_session, is_session_archived
+from qmt_agent.storage import (
+    create_session,
+    delete_unused_session,
+    is_session_archived,
+    list_sessions,
+)
 from qmt_agent.tools import close_execution, start_execution
 from qmt_agent.ui import ConsoleRenderer, ConsoleUI, QMTAgentTUI
 
 logger = logging.getLogger(__name__)
+
+
+async def _discard_unused_session(config: AppConfig, journal: SessionJournal, session_id: str) -> bool:
+    try:
+        if await journal.session_exists(session_id):
+            return False
+        return await asyncio.to_thread(delete_unused_session, config.sessions_db, session_id)
+    except Exception:
+        logger.exception("Failed to discard unused session %s", session_id)
+        return False
+
+
+async def _discard_legacy_unused_sessions(config: AppConfig, journal: SessionJournal) -> None:
+    records = await asyncio.to_thread(list_sessions, config.sessions_db, include_archived=True)
+    discarded = 0
+    for record in records:
+        discarded += await _discard_unused_session(config, journal, record.session_id)
+    if discarded:
+        logger.info("Discarded %d legacy unused sessions", discarded)
 
 
 def _load_agent_mcp_servers(config: AppConfig) -> list[MCPServer]:
@@ -164,6 +188,8 @@ async def _run_configured_app(ui: ConsoleUI, config: AppConfig, initialized: boo
 
     mcp_servers = _load_agent_mcp_servers(config)
 
+    journal = SessionJournal(config.session_journal_dir, ZoneInfo(config["runtime.default_timezone"]))
+    await _discard_legacy_unused_sessions(config, journal)
     initial_session_id = uuid.uuid4().hex
     create_session(config.sessions_db, initial_session_id)
     state = AppState(
@@ -180,7 +206,6 @@ async def _run_configured_app(ui: ConsoleUI, config: AppConfig, initialized: boo
     compact_agent = create_compaction_agent(compact_model, compact_model_settings)
     permission_model, permission_model_settings = _create_model(config, "permission")
     permission_agent = create_permission_agent(permission_model, permission_model_settings)
-    journal = SessionJournal(config.session_journal_dir, ZoneInfo(config["runtime.default_timezone"]))
     renderer = ConsoleRenderer(ui) if plain else None
     tui: QMTAgentTUI | None = None
 
@@ -322,3 +347,4 @@ async def _run_configured_app(ui: ConsoleUI, config: AppConfig, initialized: boo
     finally:
         if state.execution.sandbox is not None:
             await close_execution(state.execution)
+        await _discard_unused_session(config, journal, state.selected_session_id)
