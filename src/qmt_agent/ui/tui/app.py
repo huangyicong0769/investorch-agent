@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections import deque
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -20,7 +22,7 @@ from qmt_agent.commands import Command, dispatch_command, parse_command
 from qmt_agent.context import AppState
 from qmt_agent.journal import read_session_journal
 from qmt_agent.output import OutputEvent, Reasoning, ToolCalled
-from qmt_agent.runtime import ActiveRun, AgentRuntime, RunOptions, SessionBusyError
+from qmt_agent.runtime import ActiveRun, AgentRuntime, ApprovalRequest, RunOptions, SessionBusyError
 from qmt_agent.storage import get_session_title, list_sessions
 
 from .sidebar import SessionSidebar
@@ -30,17 +32,49 @@ logger = logging.getLogger(__name__)
 RecordActivityLabel = Callable[[str, int, str], Awaitable[None]]
 
 
+@dataclass(frozen=True, slots=True)
+class BufferedOutput:
+    session_id: str
+    run_id: str
+    journal_seq: int | None
+    event: OutputEvent
+    activity_reasoning: str
+
+
+@dataclass(frozen=True, slots=True)
+class BufferedApproval:
+    session_id: str
+    journal_seq: int | None
+    tool_name: str
+    arguments: str | None
+    approved: bool
+    source: str
+    review_decision: str | None
+    review_reason: str | None
+
+
+@dataclass(slots=True)
+class PendingApproval:
+    request: ApprovalRequest
+    review_reason: str | None
+    future: asyncio.Future[bool]
+
+
 class Composer(Vertical):
     class Submitted(Message):
         def __init__(self, text: str) -> None:
             super().__init__()
             self.text = text
 
+    class ApprovalResolved(Message):
+        def __init__(self, approved: bool) -> None:
+            super().__init__()
+            self.approved = approved
+
     def __init__(self, normal_height: int, approval_arguments_max_height: int, **kwargs) -> None:
         super().__init__(**kwargs)
         self._normal_height = normal_height
         self._approval_arguments_max_height = approval_arguments_max_height
-        self._approval_future: asyncio.Future[bool] | None = None
 
     def compose(self) -> ComposeResult:
         yield Vertical(
@@ -98,18 +132,20 @@ class Composer(Vertical):
         self.query_one("#composer-input", TextArea).disabled = running
         self.query_one("#send-button", Button).disabled = running
 
-    async def request_approval(self, tool_name: str, arguments: str | None, review_reason: str | None = None) -> bool:
-        if self._approval_future is not None and not self._approval_future.done():
-            raise RuntimeError("An approval request is already active")
-
-        future = asyncio.get_running_loop().create_future()
-        self._approval_future = future
-        formatted = format_json(arguments)
+    def show_approval(
+        self,
+        request: ApprovalRequest,
+        review_reason: str | None = None,
+    ) -> None:
+        formatted = format_json(request.arguments)
+        self.query_one("#approval-title", Label).update(
+            f"Approval required · Session {request.session_id[:8]}"
+        )
         self.query_one("#approval-review", Static).update(
             f"AutoReview · ASK\n{review_reason}" if review_reason is not None else ""
         )
         self.query_one("#approval-review").display = review_reason is not None
-        self.query_one("#approval-tool", Static).update(f"Tool · {tool_name}")
+        self.query_one("#approval-tool", Static).update(f"Tool · {request.tool_name}")
         self.query_one("#approval-arguments", Static).update(formatted)
         self.query_one("#approval-arguments-scroll").display = bool(formatted)
         self.query_one("#composer-normal").display = False
@@ -117,18 +153,14 @@ class Composer(Vertical):
         self.styles.height = "auto"
         self.query_one("#reject-button", Button).focus()
 
-        try:
-            return await future
-        finally:
-            if self._approval_future is future:
-                self._approval_future = None
-            self.query_one("#composer-approval").display = False
-            self.query_one("#composer-normal").display = True
-            self.styles.height = self._normal_height
+    def hide_approval(self) -> None:
+        self.query_one("#composer-approval").display = False
+        self.query_one("#composer-normal").display = True
+        self.styles.height = self._normal_height
 
     def resolve_approval(self, approved: bool) -> None:
-        if self._approval_future is not None and not self._approval_future.done():
-            self._approval_future.set_result(approved)
+        if self.query_one("#composer-approval").display:
+            self.post_message(self.ApprovalResolved(approved))
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "send-button":
@@ -368,10 +400,11 @@ class QMTAgentTUI(App[None]):
         self._main_context_tokens: dict[str, int | None] = {}
         self._main_agent_name: str | None = None
         self._loading_session_id: str | None = None
-        self._buffered_live_events: list[tuple[str, str, int | None, OutputEvent, str]] = []
+        self._buffered_live_events: list[BufferedOutput | BufferedApproval] = []
         self._last_rendered_seq: dict[str, int] = {}
         self._timeline_lock = asyncio.Lock()
         self._reasoning_by_run: dict[str, list[str]] = {}
+        self._pending_approvals: deque[PendingApproval] = deque()
 
     def compose(self) -> ComposeResult:
         yield Vertical(
@@ -456,6 +489,14 @@ class QMTAgentTUI(App[None]):
     def action_reject_approval(self) -> None:
         self.query_one(Composer).resolve_approval(False)
 
+    def on_composer_approval_resolved(self, event: Composer.ApprovalResolved) -> None:
+        if not self._pending_approvals:
+            return
+        pending = self._pending_approvals.popleft()
+        if not pending.future.done():
+            pending.future.set_result(event.approved)
+        self._show_pending_approval()
+
     def action_quit(self) -> None:
         if self.runtime is not None and self.runtime.has_active_runs():
             self.notify("Wait for all active Agent runs to finish before exiting.", severity="warning")
@@ -463,8 +504,14 @@ class QMTAgentTUI(App[None]):
         self.exit()
 
     def _format_run_status(self) -> str:
-        active_run = self.runtime.get_active_run(self.state.selected_session_id) if self.runtime is not None else None
-        status = f"● {'Running' if active_run is not None else 'Ready'} · Default effort {self.state.main_reasoning_effort}"
+        selected_session_id = self.state.selected_session_id
+        active_run = self.runtime.get_active_run(selected_session_id) if self.runtime is not None else None
+        waiting_approval = any(
+            pending.request.session_id == selected_session_id
+            for pending in self._pending_approvals
+        )
+        run_status = "Waiting approval" if waiting_approval else "Running" if active_run is not None else "Ready"
+        status = f"● {run_status} · Default effort {self.state.main_reasoning_effort}"
         if active_run is None:
             return status
 
@@ -553,7 +600,15 @@ class QMTAgentTUI(App[None]):
                     )
                 return
             if self._loading_session_id == session_id:
-                self._buffered_live_events.append((session_id, run_id, journal_seq, event, activity_reasoning))
+                self._buffered_live_events.append(
+                    BufferedOutput(
+                        session_id=session_id,
+                        run_id=run_id,
+                        journal_seq=journal_seq,
+                        event=event,
+                        activity_reasoning=activity_reasoning,
+                    )
+                )
                 return
             await self._render_live_output(
                 event,
@@ -620,29 +675,35 @@ class QMTAgentTUI(App[None]):
 
     async def request_tool_approval(
         self,
-        session_id: str,
-        tool_name: str,
-        arguments: str | None,
+        request: ApprovalRequest,
         review_reason: str | None = None,
     ) -> bool:
+        future = asyncio.get_running_loop().create_future()
+        pending = PendingApproval(request=request, review_reason=review_reason, future=future)
+        self._pending_approvals.append(pending)
+        if len(self._pending_approvals) == 1:
+            self._show_pending_approval()
         try:
-            approved = await self.query_one(Composer).request_approval(tool_name, arguments, review_reason)
-        except Exception:
-            logger.exception("Inline approval failed for tool %s", tool_name)
-            approved = False
+            return await future
         finally:
-            self._refresh_selected_controls()
+            if pending in self._pending_approvals:
+                was_head = self._pending_approvals[0] is pending
+                self._pending_approvals.remove(pending)
+                if was_head:
+                    self._show_pending_approval()
 
-        await self.report_tool_approval(
-            session_id,
-            tool_name,
-            arguments,
-            approved,
-            source="user",
-            review_decision="ask" if review_reason is not None else None,
-            review_reason=review_reason,
-        )
-        return approved
+    def _show_pending_approval(self) -> None:
+        try:
+            composer = self.query_one(Composer)
+        except NoMatches:
+            return
+        if self._pending_approvals:
+            pending = self._pending_approvals[0]
+            composer.show_approval(pending.request, pending.review_reason)
+        else:
+            composer.hide_approval()
+            composer.focus_input()
+        self._refresh_selected_controls()
 
     async def report_tool_approval(
         self,
@@ -654,18 +715,39 @@ class QMTAgentTUI(App[None]):
         source: str,
         review_decision: str | None = None,
         review_reason: str | None = None,
+        journal_seq: int | None = None,
     ) -> None:
         async with self._timeline_lock:
-            if session_id != self.state.selected_session_id or self._loading_session_id == session_id:
+            if session_id != self.state.selected_session_id:
                 return
-            await self.query_one(ChatTimeline).add_approval(
-                tool_name,
-                arguments,
-                approved,
+            approval = BufferedApproval(
+                session_id=session_id,
+                journal_seq=journal_seq,
+                tool_name=tool_name,
+                arguments=arguments,
+                approved=approved,
                 source=source,
                 review_decision=review_decision,
                 review_reason=review_reason,
             )
+            if self._loading_session_id == session_id:
+                self._buffered_live_events.append(approval)
+                return
+            await self._render_live_approval(approval)
+
+    async def _render_live_approval(self, approval: BufferedApproval) -> None:
+        if approval.journal_seq is not None and approval.journal_seq <= self._last_rendered_seq.get(approval.session_id, 0):
+            return
+        await self.query_one(ChatTimeline).add_approval(
+            approval.tool_name,
+            approval.arguments,
+            approval.approved,
+            source=approval.source,
+            review_decision=approval.review_decision,
+            review_reason=approval.review_reason,
+        )
+        if approval.journal_seq is not None:
+            self._last_rendered_seq[approval.session_id] = approval.journal_seq
 
     async def refresh_sessions(self) -> None:
         records = await asyncio.to_thread(list_sessions, self.state.config.sessions_db)
@@ -752,14 +834,20 @@ class QMTAgentTUI(App[None]):
                     self._buffered_live_events = []
                     self._loading_session_id = None
                     if session_id == self.state.selected_session_id:
-                        for event_session_id, run_id, journal_seq, event, activity_reasoning in buffered:
-                            await self._render_live_output(
-                                event,
-                                session_id=event_session_id,
-                                run_id=run_id,
-                                journal_seq=journal_seq,
-                                activity_reasoning=activity_reasoning,
-                            )
+                        buffered.sort(
+                            key=lambda item: item.journal_seq if item.journal_seq is not None else float("inf")
+                        )
+                        for item in buffered:
+                            if isinstance(item, BufferedOutput):
+                                await self._render_live_output(
+                                    item.event,
+                                    session_id=item.session_id,
+                                    run_id=item.run_id,
+                                    journal_seq=item.journal_seq,
+                                    activity_reasoning=item.activity_reasoning,
+                                )
+                            else:
+                                await self._render_live_approval(item)
                 self._refresh_selected_controls()
 
     async def _dispatch_command(self, command: Command) -> None:
