@@ -26,7 +26,7 @@ from .sidebar import SessionSidebar
 from .timeline import ActivityStep, ChatTimeline, format_json
 
 logger = logging.getLogger(__name__)
-RUN_BLOCKED_COMMANDS = {"new", "resume", "clear", "effort", "permission"}
+RUN_BLOCKED_COMMANDS = {"new", "resume", "clear", "effort", "permission", "compact"}
 RecordUserMessage = Callable[[str, str], Awaitable[None]]
 RecordActivityLabel = Callable[[str, int, str], Awaitable[None]]
 
@@ -672,7 +672,11 @@ class QMTAgentTUI(App[None]):
             return
 
         old_session_id = self.state.session.session_id
-        result = await dispatch_command(command, self.state)
+        result = await dispatch_command(
+            command,
+            self.state,
+            compact_handler=self.agent_loop.compact if self.agent_loop is not None else None,
+        )
         if result.exit_requested:
             if result.output:
                 await timeline.add_notice(result.output)

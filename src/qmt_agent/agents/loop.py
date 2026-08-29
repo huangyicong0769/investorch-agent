@@ -9,6 +9,7 @@ from qmt_agent.output import AssistantMessage, OutputHandler, consume_run_events
 
 from .title import ensure_session_title
 from .usage import TokenUsage
+from .compact import CompactionResult, compact_session
 
 ApprovalHandler = Callable[[str, str, str | None], Awaitable[bool]]
 ReasoningEffortProvider = Callable[[], str]
@@ -26,6 +27,7 @@ class AgentLoop:
         self,
         agent: Agent[AgentContext],
         title_agent: Agent,
+        compaction_agent: Agent,
         config: AppConfig,
         reasoning_effort: ReasoningEffortProvider,
         approval_handler: ApprovalHandler,
@@ -33,6 +35,7 @@ class AgentLoop:
     ) -> None:
         self._agent = agent
         self._title_agent = title_agent
+        self._compaction_agent = compaction_agent
         self._config = config
         self._reasoning_effort = reasoning_effort
         self._approval_handler = approval_handler
@@ -93,6 +96,9 @@ class AgentLoop:
         title_usage = await ensure_session_title(self._title_agent, session, self._config.sessions_db)
         await self._output_handler(AssistantMessage(text=output))
         return AgentRunResult(output=output, main_usage=main_usage, auxiliary_usage=title_usage)
+
+    async def compact(self, session: SQLiteSession) -> CompactionResult:
+        return await compact_session(self._compaction_agent, session, self._config)
 
     @property
     def agent_name(self) -> str:

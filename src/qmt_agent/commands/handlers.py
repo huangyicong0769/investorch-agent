@@ -1,10 +1,12 @@
 import asyncio
 import logging
 import uuid
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
 from agents import SQLiteSession
 
+from qmt_agent.agents import CompactionResult, SessionHistoryRestoreError
 from qmt_agent.config import PERMISSION_MODES, REASONING_EFFORTS
 from qmt_agent.context import AppState
 from qmt_agent.storage import (
@@ -29,6 +31,7 @@ HELP = (
     "  /title [title]     Show or set the session title.\n"
     "  /effort [level]    Show or set Main reasoning effort.\n"
     "  /permission [mode] Show or set tool permission mode.\n"
+    "  /compact           Compact the current Agent context.\n"
     "  /clear             Clear the current session.\n"
     "  /ps                Show background commands.\n"
     "  /exit              Exit QMT Agent."
@@ -39,9 +42,13 @@ HELP = (
 class CommandResult:
     output: str | None = None
     exit_requested: bool = False
+    compaction: CompactionResult | None = None
 
 
-async def dispatch_command(command: Command, state: AppState) -> CommandResult:
+CompactHandler = Callable[[SQLiteSession], Awaitable[CompactionResult]]
+
+
+async def dispatch_command(command: Command, state: AppState, *, compact_handler: CompactHandler | None = None) -> CommandResult:
     match command.name:
         case "session":
             title = await asyncio.to_thread(
@@ -149,6 +156,24 @@ async def dispatch_command(command: Command, state: AppState) -> CommandResult:
             state.session = SQLiteSession(new_session_id, state.config.sessions_db)
             logger.info("Cleared session %s and started session %s", session_id, new_session_id)
             return CommandResult(f"Cleared session and started new session: {new_session_id}")
+
+        case "compact":
+            if command.args:
+                return CommandResult("Usage: /compact")
+            if compact_handler is None:
+                return CommandResult("Context compaction is unavailable in this runtime.")
+            try:
+                result = await compact_handler(state.session)
+            except SessionHistoryRestoreError:
+                logger.exception("Manual context compaction failed and session history restoration was unsuccessful")
+                return CommandResult("Context compaction failed and context storage may be damaged. Stop this session and see the system log.")
+            except Exception:
+                logger.exception("Manual context compaction failed; existing context was kept")
+                return CommandResult("Context compaction failed; existing context was kept. See the system log.")
+            if not result.changed:
+                return CommandResult("Session context is already empty or compacted.")
+            logger.info("Context compaction completed: trigger=manual session=%s", state.session.session_id)
+            return CommandResult("Session context compacted.", compaction=result)
 
         case "ps":
             jobs = await list_background_jobs(state.execution)

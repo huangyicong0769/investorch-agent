@@ -15,6 +15,7 @@ from qmt_agent.agents import (
     create_activity_agent,
     create_agent,
     create_bootstrap_sync_agent,
+    create_compaction_agent,
     create_permission_agent,
     create_title_agent,
     review_permission,
@@ -80,7 +81,7 @@ async def _run_console(
             continue
 
         if command is not None:
-            result = await dispatch_command(command, state)
+            result = await dispatch_command(command, state, compact_handler=agent_loop.compact)
             if result.output:
                 ui.write(result.output)
             if result.exit_requested:
@@ -185,6 +186,8 @@ async def _run_configured_app(
     logger.info("Started session %s", state.session.session_id)
     title_model, title_model_settings = _create_model(config, "title")
     title_agent = create_title_agent(title_model, title_model_settings)
+    compact_model, compact_model_settings = _create_model(config, "compact")
+    compact_agent = create_compaction_agent(compact_model, compact_model_settings)
     permission_model, permission_model_settings = _create_model(config, "permission")
     permission_agent = create_permission_agent(permission_model, permission_model_settings)
     journal = SessionJournal(
@@ -329,6 +332,7 @@ async def _run_configured_app(
             agent_loop = AgentLoop(
                 agent,
                 title_agent,
+                compact_agent,
                 config,
                 lambda: state.main_reasoning_effort,
                 handle_approval,
