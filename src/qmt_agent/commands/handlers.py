@@ -16,6 +16,7 @@ from qmt_agent.storage import (
     archive_session,
     create_session,
     delete_session_metadata,
+    delete_unused_session,
     find_session_ids,
     fork_session,
     get_session_branch_from,
@@ -60,6 +61,23 @@ class CommandResult:
     compaction: CompactionResult | None = None
 
 
+async def _discard_previous_session_if_unused(session_id: str, state: AppState, *, runtime: AgentRuntime, journal: SessionJournal) -> None:
+    if runtime.has_queued_inputs(session_id):
+        return
+    try:
+        async with runtime.reserve_session(session_id):
+            if await journal.session_exists(session_id):
+                return
+            deleted = await asyncio.to_thread(delete_unused_session, state.config.sessions_db, session_id)
+    except SessionBusyError:
+        return
+    except Exception:
+        logger.exception("Failed to discard unused session %s", session_id)
+        return
+    if deleted:
+        logger.info("Discarded unused session %s", session_id)
+
+
 async def dispatch_command(command: Command, state: AppState, *, runtime: AgentRuntime, journal: SessionJournal) -> CommandResult:
     match command.name:
         case "session":
@@ -75,9 +93,11 @@ async def dispatch_command(command: Command, state: AppState, *, runtime: AgentR
             return CommandResult("\n".join(lines))
 
         case "new":
+            previous_session_id = state.selected_session_id
             session_id = uuid.uuid4().hex
             await asyncio.to_thread(create_session, state.config.sessions_db, session_id)
             state.selected_session_id = session_id
+            await _discard_previous_session_if_unused(previous_session_id, state, runtime=runtime, journal=journal)
             logger.info("Started session %s", session_id)
             return CommandResult(f"Started new session: {session_id}")
 
@@ -106,7 +126,9 @@ async def dispatch_command(command: Command, state: AppState, *, runtime: AgentR
             if session_id == state.selected_session_id:
                 return CommandResult()
 
+            previous_session_id = state.selected_session_id
             state.selected_session_id = session_id
+            await _discard_previous_session_if_unused(previous_session_id, state, runtime=runtime, journal=journal)
             logger.info("Resumed session %s", session_id)
             title = await asyncio.to_thread(get_session_title, state.config.sessions_db, session_id)
             lines = [f"Resumed session: {session_id}"]
@@ -158,7 +180,9 @@ async def dispatch_command(command: Command, state: AppState, *, runtime: AgentR
 
             session_id = matches[0].session_id
             await asyncio.to_thread(unarchive_session, state.config.sessions_db, session_id)
+            previous_session_id = state.selected_session_id
             state.selected_session_id = session_id
+            await _discard_previous_session_if_unused(previous_session_id, state, runtime=runtime, journal=journal)
             logger.info("Session unarchived session=%s", session_id)
             return CommandResult(f"Session unarchived: {session_id}")
 
@@ -188,6 +212,7 @@ async def dispatch_command(command: Command, state: AppState, *, runtime: AgentR
                 return CommandResult("Session fork failed. See the system log.")
 
             state.selected_session_id = target_session_id
+            await _discard_previous_session_if_unused(source_session_id, state, runtime=runtime, journal=journal)
             return CommandResult(f"Forked session {source_session_id[:8]} -> {target_session_id[:8]}.")
 
         case "title":
