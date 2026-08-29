@@ -6,7 +6,7 @@ import uuid
 from collections import deque
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 
@@ -112,7 +112,7 @@ class AgentRuntime:
             self._execute_run(run_id, session_id, user_input, options, run_control, record_user_message=record_user_message, start_gate=start_gate),
             name=f"agent-run-{run_id}",
         )
-        active_run = ActiveRun(run_id=run_id, session_id=session_id, user_input=user_input, options=options, started_at=datetime.now(timezone.utc), task=task)
+        active_run = ActiveRun(run_id=run_id, session_id=session_id, user_input=user_input, options=options, started_at=datetime.now(UTC), task=task)
         self._active_by_session[session_id] = active_run
         self._active_by_run[run_id] = active_run
         self._controls_by_run[run_id] = run_control
@@ -168,7 +168,7 @@ class AgentRuntime:
 
         if active_run.options.follow_up_behavior == "queue":
             queued_input = QueuedInput(
-                queue_id=uuid.uuid4().hex, session_id=session_id, text=text, options=next_run_options, created_at=datetime.now(timezone.utc)
+                queue_id=uuid.uuid4().hex, session_id=session_id, text=text, options=next_run_options, created_at=datetime.now(UTC)
             )
             self._queued_by_session.setdefault(session_id, deque()).append(queued_input)
             self._notify_state(session_id)

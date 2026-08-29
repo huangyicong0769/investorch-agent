@@ -5,7 +5,7 @@ import uuid
 from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass, replace
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from agents import RunResultStreaming
 
@@ -56,7 +56,7 @@ class RunControl:
             source_run_id=self._run_id,
             text=text,
             options=options,
-            created_at=datetime.now(timezone.utc),
+            created_at=datetime.now(UTC),
         )
         target = self._pending if self._accepting_current else self._fallback
         target.append(_SteerEntry(steer=steer))

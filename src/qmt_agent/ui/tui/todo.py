@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import ClassVar
+
 from textual.app import ComposeResult
 from textual.containers import Vertical
 from textual.widgets import Collapsible, Static
@@ -46,7 +48,7 @@ class TodoPanel(Vertical):
     }
     """
 
-    _SYMBOLS = {"pending": "○", "in_progress": "●", "completed": "✓", "failed": "✗"}
+    _SYMBOLS: ClassVar[dict[str, str]] = {"pending": "○", "in_progress": "●", "completed": "✓", "failed": "✗"}
 
     def __init__(self, todos: tuple[TodoItem, ...] = (), **kwargs) -> None:
         super().__init__(**kwargs)

@@ -5,7 +5,7 @@ import logging
 from collections import deque
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from agents import Agent
@@ -550,7 +550,7 @@ class QMTAgentTUI(App[None]):
         if active_run is None:
             return status
 
-        elapsed_seconds = max(0, int((datetime.now(timezone.utc) - active_run.started_at).total_seconds()))
+        elapsed_seconds = max(0, int((datetime.now(UTC) - active_run.started_at).total_seconds()))
         hours, remainder = divmod(elapsed_seconds, 3600)
         minutes, seconds = divmod(remainder, 60)
         elapsed = f"{hours:02}:{minutes:02}:{seconds:02}" if hours else f"{minutes:02}:{seconds:02}"
