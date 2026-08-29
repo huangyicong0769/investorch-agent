@@ -85,8 +85,8 @@ def serialize_run_ended(event: RuntimeRunEnded) -> dict[str, object]:
         "auxiliary_usage": serialize_token_usage(result.auxiliary_usage) if result is not None else None,
         "main_context_tokens": result.main_usage.last_request_total_tokens if result is not None else None,
         "auto_compaction": serialize_compaction_result(result.auto_compaction) if result is not None and result.auto_compaction is not None else None,
-        "auto_compaction_failed": result.auto_compaction_failed if result is not None else False,
-        "auto_compaction_consistency_uncertain": result.auto_compaction_consistency_uncertain if result is not None else False,
+        "auto_compaction_failed": result.auto_compaction_failed if result is not None else None,
+        "auto_compaction_consistency_uncertain": result.auto_compaction_consistency_uncertain if result is not None else None,
     }
 
 
