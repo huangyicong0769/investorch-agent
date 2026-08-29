@@ -721,6 +721,7 @@ class QMTAgentTUI(App[None]):
             panel = self.query_one(ApprovalPanel)
         except NoMatches:
             return
+        interaction_scroll = self.query_one("#interaction-scroll", VerticalScroll)
         if self._pending_approvals:
             pending = self._pending_approvals[0]
             panel.replace_approval(
@@ -730,8 +731,10 @@ class QMTAgentTUI(App[None]):
                 review_reason=pending.review_reason,
                 pending_count=len(self._pending_approvals),
             )
+            self.call_after_refresh(interaction_scroll.scroll_to_widget, panel, animate=False)
         else:
             panel.replace_approval(None)
+            self.call_after_refresh(interaction_scroll.scroll_home, animate=False)
         self._refresh_selected_controls()
 
     async def report_tool_approval(
