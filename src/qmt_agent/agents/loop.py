@@ -15,8 +15,13 @@ from .usage import TokenUsage
 
 logger = logging.getLogger(__name__)
 
-ApprovalHandler = Callable[[str, str, str | None], Awaitable[bool]]
-ReasoningEffortProvider = Callable[[], str]
+@dataclass(frozen=True, slots=True)
+class ApprovalOutcome:
+    approved: bool
+    usage: TokenUsage
+
+
+ApprovalHandler = Callable[[str, str, str | None], Awaitable[ApprovalOutcome]]
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,37 +47,49 @@ class AgentLoop:
         title_agent: Agent,
         compaction_agent: Agent,
         config: AppConfig,
-        reasoning_effort: ReasoningEffortProvider,
-        approval_handler: ApprovalHandler,
-        output_handler: OutputHandler,
     ) -> None:
         self._agent = agent
         self._title_agent = title_agent
         self._compaction_agent = compaction_agent
         self._config = config
-        self._reasoning_effort = reasoning_effort
-        self._approval_handler = approval_handler
-        self._output_handler = output_handler
 
-    async def run(self, user_input: str, session: SQLiteSession, execution: ExecutionState) -> AgentRunResult:
-        self._agent.model_settings = self._agent.model_settings.resolve(
-            {"reasoning": {"effort": self._reasoning_effort()}}
+    async def run(
+        self,
+        user_input: str,
+        session: SQLiteSession,
+        execution: ExecutionState,
+        *,
+        run_id: str,
+        session_id: str,
+        reasoning_effort: str,
+        approval_handler: ApprovalHandler,
+        output_handler: OutputHandler,
+    ) -> AgentRunResult:
+        settings = self._agent.model_settings.resolve(
+            {"reasoning": {"effort": reasoning_effort}}
         )
-        agent_context = AgentContext(config=self._config, execution=execution)
+        run_agent = self._agent.clone(model_settings=settings)
+        agent_context = AgentContext(
+            config=self._config,
+            execution=execution,
+            session_id=session_id,
+            run_id=run_id,
+        )
         result = Runner.run_streamed(
-            self._agent,
+            run_agent,
             user_input,
             session=session,
             context=agent_context,
             max_turns=self._config["runtime.max_turns"],
         )
 
-        current_agent_name = self._agent.name
+        current_agent_name = run_agent.name
+        approval_usage = TokenUsage()
 
         while True:
             current_agent_name = await consume_run_events(
                 result,
-                self._output_handler,
+                output_handler,
                 current_agent_name,
             )
 
@@ -82,13 +99,14 @@ class AgentLoop:
             sdk_state = result.to_state()
 
             for interruption in result.interruptions:
-                approved = await self._approval_handler(
+                outcome = await approval_handler(
                     user_input,
                     interruption.name or "unknown_tool",
                     interruption.arguments,
                 )
+                approval_usage += outcome.usage
 
-                if approved:
+                if outcome.approved:
                     sdk_state.approve(interruption, always_approve=False)
                 else:
                     sdk_state.reject(
@@ -98,7 +116,7 @@ class AgentLoop:
                     )
 
             result = Runner.run_streamed(
-                self._agent,
+                run_agent,
                 sdk_state,
                 session=session,
                 max_turns=self._config["runtime.max_turns"],
@@ -107,9 +125,9 @@ class AgentLoop:
         output = str(result.final_output)
         main_usage = TokenUsage.from_sdk(result.context_wrapper.usage)
         title_usage = await ensure_session_title(self._title_agent, session, self._config.sessions_db)
-        await self._output_handler(AssistantMessage(text=output))
+        await output_handler(AssistantMessage(text=output))
         auto_compaction, auto_compaction_failed, consistency_uncertain = await self._auto_compact(session, main_usage)
-        auxiliary_usage = title_usage + (auto_compaction.usage if auto_compaction is not None else TokenUsage())
+        auxiliary_usage = approval_usage + title_usage + (auto_compaction.usage if auto_compaction is not None else TokenUsage())
         return AgentRunResult(
             output=output,
             main_usage=main_usage,

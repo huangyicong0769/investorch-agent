@@ -62,6 +62,8 @@ class TurnState:
 class AgentContext:
     config: AppConfig
     execution: ExecutionState
+    session_id: str
+    run_id: str
     turn: TurnState = field(default_factory=TurnState)
 
 

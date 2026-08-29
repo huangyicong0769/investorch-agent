@@ -10,6 +10,8 @@ from openai import AsyncOpenAI
 
 from qmt_agent.agents import (
     AgentLoop,
+    ApprovalHandler,
+    ApprovalOutcome,
     PermissionReview,
     build_bootstrap_sync_prompt,
     create_activity_agent,
@@ -20,6 +22,7 @@ from qmt_agent.agents import (
     create_title_agent,
     review_permission,
     run_bootstrap_sync,
+    TokenUsage,
 )
 from qmt_agent.commands import dispatch_command, parse_command
 from qmt_agent.config import AppConfig, load_config
@@ -28,7 +31,7 @@ from qmt_agent.initializer import initialize, sync_bootstrap_files
 from qmt_agent.journal import SessionJournal
 from qmt_agent.log import configure_logging
 from qmt_agent.mcp import load_mcp_servers as load_configured_mcp_servers
-from qmt_agent.output import OutputEvent
+from qmt_agent.output import OutputEvent, OutputHandler
 from qmt_agent.tools import close_execution, start_execution
 from qmt_agent.ui import ConsoleRenderer, ConsoleUI, QMTAgentTUI
 
@@ -70,6 +73,8 @@ async def _run_console(
     agent_loop: AgentLoop,
     ui: ConsoleUI,
     journal: SessionJournal,
+    output_handler: OutputHandler,
+    approval_handler: ApprovalHandler,
 ) -> None:
     while True:
         user_input = (await ui.read_user_input()).strip()
@@ -94,7 +99,16 @@ async def _run_console(
         except Exception:
             logger.exception("Failed to append user message to session journal for session %s", session_id)
 
-        result = await agent_loop.run(user_input, state.session, state.execution)
+        result = await agent_loop.run(
+            user_input,
+            state.session,
+            state.execution,
+            run_id=uuid.uuid4().hex,
+            session_id=session_id,
+            reasoning_effort=state.main_reasoning_effort,
+            approval_handler=approval_handler,
+            output_handler=output_handler,
+        )
         if result.auto_compaction is not None and result.auto_compaction.changed:
             ui.write("Context compacted automatically.")
         elif result.auto_compaction_consistency_uncertain:
@@ -164,7 +178,12 @@ async def _run_configured_app(
         agent = create_bootstrap_sync_agent(model, model_settings)
 
         async def merge_target(target: Path, template: str, exists: bool) -> None:
-            context = AgentContext(config=config, execution=ExecutionState())
+            context = AgentContext(
+                config=config,
+                execution=ExecutionState(),
+                session_id="bootstrap-sync",
+                run_id="bootstrap-sync",
+            )
             prompt = build_bootstrap_sync_prompt(target, config.workspace_dir, template, exists)
             await run_bootstrap_sync(agent, context, prompt, target)
 
@@ -259,8 +278,9 @@ async def _run_configured_app(
             return await ui.request_tool_approval(tool_name, arguments, review_reason)
         return await tui.request_tool_approval(tool_name, arguments, review_reason)
 
-    async def handle_approval(user_input: str, tool_name: str, arguments: str | None) -> bool:
+    async def handle_approval(user_input: str, tool_name: str, arguments: str | None) -> ApprovalOutcome:
         session_id = state.session.session_id
+        review_usage = TokenUsage()
         review_decision = None
         review_reason = None
         if state.permission_mode == "manual":
@@ -269,8 +289,7 @@ async def _run_configured_app(
         else:
             try:
                 review_result = await review_permission(permission_agent, config, user_input, tool_name, arguments)
-                if tui is not None:
-                    tui.add_auxiliary_usage(session_id, review_result.usage)
+                review_usage = review_result.usage
                 review = review_result.review
             except Exception:
                 logger.exception("Permission review failed for tool %s; falling back to manual approval", tool_name)
@@ -320,7 +339,7 @@ async def _run_configured_app(
         except Exception:
             logger.exception("Failed to append approval to session journal for session %s", session_id)
 
-        return approved
+        return ApprovalOutcome(approved=approved, usage=review_usage)
 
     try:
         await start_execution(state.execution, state.config.workspace_dir)
@@ -340,14 +359,18 @@ async def _run_configured_app(
                 title_agent,
                 compact_agent,
                 config,
-                lambda: state.main_reasoning_effort,
-                handle_approval,
-                handle_output,
             )
             if tui is None:
-                await _run_console(state, agent_loop, ui, journal)
+                await _run_console(
+                    state,
+                    agent_loop,
+                    ui,
+                    journal,
+                    handle_output,
+                    handle_approval,
+                )
             else:
-                tui.bind_agent_loop(agent_loop)
+                tui.bind_agent_loop(agent_loop, handle_output, handle_approval)
                 await tui.run_async()
     finally:
         try:

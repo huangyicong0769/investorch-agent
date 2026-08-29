@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import uuid
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from time import monotonic
@@ -31,7 +32,8 @@ RecordUserMessage = Callable[[str, str], Awaitable[None]]
 RecordActivityLabel = Callable[[str, int, str], Awaitable[None]]
 
 if TYPE_CHECKING:
-    from qmt_agent.agents import AgentLoop
+    from qmt_agent.agents import AgentLoop, ApprovalHandler
+    from qmt_agent.output import OutputHandler
 
 
 class Composer(Vertical):
@@ -368,6 +370,8 @@ class QMTAgentTUI(App[None]):
         self._record_user_message = record_user_message
         self._record_activity_label = record_activity_label
         self.agent_loop: AgentLoop | None = None
+        self._output_handler: OutputHandler | None = None
+        self._approval_handler: ApprovalHandler | None = None
         self.session_title: str | None = None
         self._run_active = False
         self._run_status = "● Ready"
@@ -532,8 +536,15 @@ class QMTAgentTUI(App[None]):
     def add_auxiliary_usage(self, session_id: str, usage: TokenUsage) -> None:
         self._add_usage(session_id, usage)
 
-    def bind_agent_loop(self, agent_loop: AgentLoop) -> None:
+    def bind_agent_loop(
+        self,
+        agent_loop: AgentLoop,
+        output_handler: OutputHandler,
+        approval_handler: ApprovalHandler,
+    ) -> None:
         self.agent_loop = agent_loop
+        self._output_handler = output_handler
+        self._approval_handler = approval_handler
         self._main_agent_name = agent_loop.agent_name
 
     async def handle_output(
@@ -745,7 +756,18 @@ class QMTAgentTUI(App[None]):
     async def _run_agent(self, user_message: str, session_id: str, session) -> None:
         try:
             assert self.agent_loop is not None
-            result = await self.agent_loop.run(user_message, session, self.state.execution)
+            assert self._output_handler is not None
+            assert self._approval_handler is not None
+            result = await self.agent_loop.run(
+                user_message,
+                session,
+                self.state.execution,
+                run_id=uuid.uuid4().hex,
+                session_id=session_id,
+                reasoning_effort=self.state.main_reasoning_effort,
+                approval_handler=self._approval_handler,
+                output_handler=self._output_handler,
+            )
             self._add_usage(session_id, result.main_usage)
             compacted = result.auto_compaction is not None and result.auto_compaction.changed
             self._set_main_context_tokens(session_id, None if compacted else result.main_usage.last_request_total_tokens)
