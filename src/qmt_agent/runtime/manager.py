@@ -12,8 +12,13 @@ from typing import Literal
 
 from agents import SQLiteSession
 
-from qmt_agent.agents import AgentLoop, AgentRunResult, ApprovalOutcome, CompactionResult
-from qmt_agent.context import ExecutionState
+from qmt_agent.agents import (
+    AgentLoop,
+    AgentRunResult,
+    ApprovalOutcome,
+    CompactionResult,
+)
+from qmt_agent.context import ExecutionState, TodoItem
 from qmt_agent.output import OutputEvent
 
 from .control import RunControl
@@ -455,6 +460,13 @@ class AgentRuntime:
                 )
             )
 
+        async def handle_todo_update(todos: list[TodoItem]) -> None:
+            active_run = self._active_by_run.get(run_id)
+            if active_run is None or active_run.session_id != session_id:
+                return
+            active_run.todos = [dict(todo) for todo in todos]
+            self._notify_state(session_id)
+
         try:
             if start_gate is not None:
                 await start_gate.wait()
@@ -471,6 +483,7 @@ class AgentRuntime:
                 approval_handler=handle_approval,
                 output_handler=handle_output,
                 run_control=run_control,
+                todo_update_handler=handle_todo_update,
             )
             status = "completed"
             logger.info("Completed Agent run session=%s run=%s", session_id, run_id)

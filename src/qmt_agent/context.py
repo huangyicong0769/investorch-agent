@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -25,6 +26,9 @@ BackgroundJobStatus = Literal[
 class TodoItem(TypedDict):
     content: str
     status: TodoStatus
+
+
+TodoUpdateHandler = Callable[[list[TodoItem]], Awaitable[None]]
 
 
 @dataclass
@@ -64,6 +68,7 @@ class AgentContext:
     session_id: str
     run_id: str
     turn: TurnState = field(default_factory=TurnState)
+    todo_update_handler: TodoUpdateHandler | None = None
 
 
 @dataclass

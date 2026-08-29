@@ -5,7 +5,7 @@ from qmt_agent.context import AgentContext, TodoItem
 
 
 @tool
-def write_todos(context: RunContextWrapper[AgentContext], todos: list[TodoItem],) -> str:
+async def write_todos(context: RunContextWrapper[AgentContext], todos: list[TodoItem]) -> str:
     """
     Create or update the complete todo list for the current task.
 
@@ -29,10 +29,17 @@ def write_todos(context: RunContextWrapper[AgentContext], todos: list[TodoItem],
             "Only one todo may be in progress at a time."
         )
 
-    context.context.turn.todos = [
+    updated_todos = [
         dict(todo)
         for todo in todos
     ]
+    context.context.turn.todos = updated_todos
+
+    if context.context.todo_update_handler is not None:
+        await context.context.todo_update_handler([
+            dict(todo)
+            for todo in updated_todos
+        ])
 
     symbols = {
         "pending": "[ ]",
@@ -43,5 +50,5 @@ def write_todos(context: RunContextWrapper[AgentContext], todos: list[TodoItem],
 
     return "\n".join(
         f"{symbols[todo['status']]} {todo['content']}"
-        for todo in context.context.turn.todos
+        for todo in updated_todos
     )

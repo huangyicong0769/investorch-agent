@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 from agents import Agent, Runner, SQLiteSession, UserError
 
 from qmt_agent.config import AppConfig
-from qmt_agent.context import AgentContext, ExecutionState
+from qmt_agent.context import AgentContext, ExecutionState, TodoUpdateHandler
 from qmt_agent.output import AssistantMessage, OutputHandler, consume_run_events
 
 from .compact import CompactionResult, compact_session, session_history_restore_failed
@@ -71,6 +71,7 @@ class AgentLoop:
         approval_handler: ApprovalHandler,
         output_handler: OutputHandler,
         run_control: RunControl,
+        todo_update_handler: TodoUpdateHandler | None = None,
     ) -> AgentRunResult:
         settings = self._agent.model_settings.resolve(
             {"reasoning": {"effort": reasoning_effort}}
@@ -81,6 +82,7 @@ class AgentLoop:
             execution=execution,
             session_id=session_id,
             run_id=run_id,
+            todo_update_handler=todo_update_handler,
         )
         result = Runner.run_streamed(
             run_agent,
