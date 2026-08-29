@@ -185,18 +185,10 @@ async def _run_configured_app(ui: ConsoleUI, config: AppConfig, initialized: boo
     tui: QMTAgentTUI | None = None
 
     async def record_user_message(session_id: str, text: str) -> int | None:
-        try:
-            return await journal.record_user_message(session_id, text)
-        except Exception:
-            logger.exception("Failed to append user message to session journal for session %s", session_id)
-            return None
+        return await journal.record_user_message(session_id, text)
 
     async def record_user_steer(session_id: str, run_id: str, text: str) -> int | None:
-        try:
-            return await journal.record_user_steer(session_id, run_id, text)
-        except Exception:
-            logger.exception("Failed to append Steer input to session journal for session %s run %s", session_id, run_id)
-            return None
+        return await journal.record_user_steer(session_id, run_id, text)
 
     async def record_activity_label(session_id: str, target_seq: int, text: str) -> None:
         try:

@@ -71,6 +71,16 @@ class RunControl:
         entry.ready = True
         self._changed.set()
 
+    def discard_submission(self, steer_id: str) -> None:
+        for entries in (self._pending, self._fallback):
+            for entry in entries:
+                if entry.steer.steer_id == steer_id:
+                    entries.remove(entry)
+                    self._changed.set()
+                    self._state_changed()
+                    return
+        raise KeyError(f"Unknown Steer input: {steer_id}")
+
     async def pending_for_boundary(self, *, seal_if_empty: bool) -> tuple[PendingSteer, ...]:
         while self._pending and any(not entry.ready for entry in self._pending):
             self._changed.clear()

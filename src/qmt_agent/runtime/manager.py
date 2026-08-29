@@ -188,13 +188,14 @@ class AgentRuntime:
 
         control = self._controls_by_run[active_run.run_id]
         steer = control.reserve_steer(text, next_run_options)
-        journal_seq = None
         try:
-            try:
-                if self._record_user_steer is not None:
-                    journal_seq = await self._record_user_steer(session_id, active_run.run_id, text)
-            except Exception:
-                logger.exception("Failed to append Steer input to journal session=%s run=%s steer=%s", session_id, active_run.run_id, steer.steer_id)
+            journal_seq = await self._record_user_steer(session_id, active_run.run_id, text) if self._record_user_steer is not None else None
+        except BaseException:
+            control.discard_submission(steer.steer_id)
+            logger.exception("Failed to append Steer input to journal session=%s run=%s steer=%s", session_id, active_run.run_id, steer.steer_id)
+            raise
+
+        try:
             await self._notify_follow_up(
                 RuntimeFollowUpEvent(
                     kind="steer_submitted",
