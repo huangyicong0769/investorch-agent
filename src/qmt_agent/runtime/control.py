@@ -38,7 +38,7 @@ class RunControl:
             raise RuntimeError("A streaming result is already bound to this Run")
         self._bound_stream = result
         self._after_turn_requested = False
-        if self._pending:
+        if any(entry.ready for entry in self._pending):
             self._request_after_turn()
 
     def unbind_stream(self, result: RunResultStreaming) -> None:
@@ -60,8 +60,6 @@ class RunControl:
         )
         target = self._pending if self._accepting_current else self._fallback
         target.append(_SteerEntry(steer=steer))
-        if self._accepting_current:
-            self._request_after_turn()
         self._state_changed()
         return steer
 
@@ -69,6 +67,8 @@ class RunControl:
         entry = self._find_entry(steer_id)
         entry.steer = replace(entry.steer, journal_seq=journal_seq)
         entry.ready = True
+        if self._accepting_current and any(candidate is entry for candidate in self._pending):
+            self._request_after_turn()
         self._changed.set()
 
     def discard_submission(self, steer_id: str) -> None:
