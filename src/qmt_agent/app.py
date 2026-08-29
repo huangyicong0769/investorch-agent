@@ -24,6 +24,7 @@ from qmt_agent.agents import (
     review_permission,
     run_bootstrap_sync,
 )
+from qmt_agent.application import SessionOperations
 from qmt_agent.commands import dispatch_command, parse_command
 from qmt_agent.config import AppConfig, load_config
 from qmt_agent.context import AgentContext, AppState, ExecutionState
@@ -91,7 +92,7 @@ def _create_model(config: AppConfig, agent: str) -> tuple[OpenAIResponsesModel, 
     return (OpenAIResponsesModel(model=model.name, openai_client=client), ModelSettings(reasoning={"effort": model.reasoning_effort}))
 
 
-async def _run_console(state: AppState, runtime: AgentRuntime, ui: ConsoleUI, journal: SessionJournal) -> None:
+async def _run_console(state: AppState, runtime: AgentRuntime, sessions: SessionOperations, ui: ConsoleUI) -> None:
     while True:
         user_input = (await ui.read_user_input()).strip()
 
@@ -102,7 +103,7 @@ async def _run_console(state: AppState, runtime: AgentRuntime, ui: ConsoleUI, jo
             continue
 
         if command is not None:
-            result = await dispatch_command(command, state, runtime=runtime, journal=journal)
+            result = await dispatch_command(command, state, runtime=runtime, sessions=sessions)
             if result.output:
                 ui.write(result.output)
             if result.exit_requested:
@@ -334,11 +335,12 @@ async def _run_configured_app(ui: ConsoleUI, config: AppConfig, initialized: boo
                     run_ended_handler=handle_run_ended,
                     follow_up_handler=handle_follow_up,
                 )
+                sessions = SessionOperations(config=config, runtime=runtime, journal=journal)
                 try:
                     if tui is None:
-                        await _run_console(state, runtime, ui, journal)
+                        await _run_console(state, runtime, sessions, ui)
                     else:
-                        tui.bind_runtime(runtime)
+                        tui.bind_runtime(runtime, sessions)
                         await tui.run_async()
                 finally:
                     await runtime.aclose()

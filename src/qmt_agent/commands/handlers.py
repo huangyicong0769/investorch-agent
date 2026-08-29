@@ -1,31 +1,26 @@
 import asyncio
 import logging
-import uuid
 from dataclasses import dataclass
 
-from agents import SQLiteSession
-
-from qmt_agent.agents import CompactionResult, session_history_restore_failed
+from qmt_agent.agents import CompactionResult
+from qmt_agent.application import (
+    SessionAlreadyArchivedError,
+    SessionArchivedError,
+    SessionCompactionError,
+    SessionHasQueuedInputsError,
+    SessionOperations,
+)
 from qmt_agent.config import FOLLOW_UP_BEHAVIORS, PERMISSION_MODES, REASONING_EFFORTS
 from qmt_agent.context import AppState
-from qmt_agent.journal import SessionJournal
 from qmt_agent.runtime import AgentRuntime, SessionBusyError
 from qmt_agent.storage import (
     SessionForkError,
     SessionForkRollbackError,
-    archive_session,
-    create_session,
-    delete_session_metadata,
-    delete_unused_session,
     find_session_ids,
-    fork_session,
     get_session_branch_from,
     get_session_title,
-    is_session_archived,
     list_archived_sessions,
     list_sessions,
-    set_session_title,
-    unarchive_session,
 )
 from qmt_agent.tools import format_background_jobs, list_background_jobs
 
@@ -61,24 +56,7 @@ class CommandResult:
     compaction: CompactionResult | None = None
 
 
-async def _discard_previous_session_if_unused(session_id: str, state: AppState, *, runtime: AgentRuntime, journal: SessionJournal) -> None:
-    if runtime.has_queued_inputs(session_id):
-        return
-    try:
-        async with runtime.reserve_session(session_id):
-            if await journal.session_exists(session_id):
-                return
-            deleted = await asyncio.to_thread(delete_unused_session, state.config.sessions_db, session_id)
-    except SessionBusyError:
-        return
-    except Exception:
-        logger.exception("Failed to discard unused session %s", session_id)
-        return
-    if deleted:
-        logger.info("Discarded unused session %s", session_id)
-
-
-async def dispatch_command(command: Command, state: AppState, *, runtime: AgentRuntime, journal: SessionJournal) -> CommandResult:
+async def dispatch_command(command: Command, state: AppState, *, runtime: AgentRuntime, sessions: SessionOperations) -> CommandResult:
     match command.name:
         case "session":
             title, branch_from = await asyncio.gather(
@@ -94,11 +72,9 @@ async def dispatch_command(command: Command, state: AppState, *, runtime: AgentR
 
         case "new":
             previous_session_id = state.selected_session_id
-            session_id = uuid.uuid4().hex
-            await asyncio.to_thread(create_session, state.config.sessions_db, session_id)
+            session_id = await sessions.create()
             state.selected_session_id = session_id
-            await _discard_previous_session_if_unused(previous_session_id, state, runtime=runtime, journal=journal)
-            logger.info("Started session %s", session_id)
+            await sessions.discard_if_unused(previous_session_id)
             return CommandResult(f"Started new session: {session_id}")
 
         case "resume":
@@ -128,7 +104,7 @@ async def dispatch_command(command: Command, state: AppState, *, runtime: AgentR
 
             previous_session_id = state.selected_session_id
             state.selected_session_id = session_id
-            await _discard_previous_session_if_unused(previous_session_id, state, runtime=runtime, journal=journal)
+            await sessions.discard_if_unused(previous_session_id)
             logger.info("Resumed session %s", session_id)
             title = await asyncio.to_thread(get_session_title, state.config.sessions_db, session_id)
             lines = [f"Resumed session: {session_id}"]
@@ -141,18 +117,14 @@ async def dispatch_command(command: Command, state: AppState, *, runtime: AgentR
                 return CommandResult("Usage: /archive")
 
             session_id = state.selected_session_id
-            if runtime.has_queued_inputs(session_id):
-                return CommandResult("Cannot archive a session with queued follow-ups.\nFinish or clear them first.")
             try:
-                async with runtime.reserve_session(session_id):
-                    archived = await asyncio.to_thread(is_session_archived, state.config.sessions_db, session_id)
-                    if archived:
-                        return CommandResult("This session is already archived.")
-                    await asyncio.to_thread(archive_session, state.config.sessions_db, session_id)
+                await sessions.archive(session_id)
+            except SessionHasQueuedInputsError:
+                return CommandResult("Cannot archive a session with queued follow-ups.\nFinish or clear them first.")
+            except SessionAlreadyArchivedError:
+                return CommandResult("This session is already archived.")
             except SessionBusyError:
                 return CommandResult("Cannot archive this session while it has an active operation.")
-
-            logger.info("Session archived session=%s", session_id)
             return CommandResult(f"Session archived: {session_id}")
 
         case "unarchive":
@@ -179,11 +151,10 @@ async def dispatch_command(command: Command, state: AppState, *, runtime: AgentR
                 return CommandResult("\n".join(lines))
 
             session_id = matches[0].session_id
-            await asyncio.to_thread(unarchive_session, state.config.sessions_db, session_id)
+            await sessions.unarchive(session_id)
             previous_session_id = state.selected_session_id
             state.selected_session_id = session_id
-            await _discard_previous_session_if_unused(previous_session_id, state, runtime=runtime, journal=journal)
-            logger.info("Session unarchived session=%s", session_id)
+            await sessions.discard_if_unused(previous_session_id)
             return CommandResult(f"Session unarchived: {session_id}")
 
         case "fork":
@@ -191,14 +162,10 @@ async def dispatch_command(command: Command, state: AppState, *, runtime: AgentR
                 return CommandResult("Usage: /fork")
 
             source_session_id = state.selected_session_id
-            if runtime.has_queued_inputs(source_session_id):
-                return CommandResult("Cannot fork a session with queued follow-ups.\nFinish or clear them first.")
-            target_session_id = uuid.uuid4().hex
             try:
-                async with runtime.reserve_session(source_session_id):
-                    await fork_session(
-                        source_session_id=source_session_id, target_session_id=target_session_id, sessions_db=state.config.sessions_db, journal=journal
-                    )
+                target_session_id = await sessions.fork(source_session_id)
+            except SessionHasQueuedInputsError:
+                return CommandResult("Cannot fork a session with queued follow-ups.\nFinish or clear them first.")
             except SessionBusyError:
                 return CommandResult("Cannot fork this session while it has an active operation.")
             except SessionForkRollbackError:
@@ -212,7 +179,7 @@ async def dispatch_command(command: Command, state: AppState, *, runtime: AgentR
                 return CommandResult("Session fork failed. See the system log.")
 
             state.selected_session_id = target_session_id
-            await _discard_previous_session_if_unused(source_session_id, state, runtime=runtime, journal=journal)
+            await sessions.discard_if_unused(source_session_id)
             return CommandResult(f"Forked session {source_session_id[:8]} -> {target_session_id[:8]}.")
 
         case "title":
@@ -220,12 +187,11 @@ async def dispatch_command(command: Command, state: AppState, *, runtime: AgentR
                 title = await asyncio.to_thread(get_session_title, state.config.sessions_db, state.selected_session_id)
                 return CommandResult(f"Session title: {title}" if title else "Session has no title.")
 
-            if await asyncio.to_thread(is_session_archived, state.config.sessions_db, state.selected_session_id):
-                return CommandResult("Archived sessions are read-only. Unarchive or switch sessions first.")
-
             title = " ".join(command.args).strip()
-            await asyncio.to_thread(set_session_title, state.config.sessions_db, state.selected_session_id, title)
-            logger.info("Updated title for session %s", state.selected_session_id)
+            try:
+                await sessions.set_title(state.selected_session_id, title)
+            except SessionArchivedError:
+                return CommandResult("Archived sessions are read-only. Unarchive or switch sessions first.")
             return CommandResult(f"Set session title to: {title}")
 
         case "effort":
@@ -286,47 +252,33 @@ async def dispatch_command(command: Command, state: AppState, *, runtime: AgentR
 
         case "clear":
             session_id = state.selected_session_id
-            if await asyncio.to_thread(is_session_archived, state.config.sessions_db, session_id):
-                return CommandResult("Archived sessions are read-only. Unarchive or switch sessions first.")
-            if runtime.has_queued_inputs(session_id):
-                return CommandResult("Cannot clear this session while it has queued follow-ups. Clear the queue first.")
             try:
-                async with runtime.reserve_session(session_id):
-                    session = SQLiteSession(session_id, state.config.sessions_db)
-                    try:
-                        await session.clear_session()
-                    finally:
-                        session.close()
-                    await asyncio.to_thread(delete_session_metadata, state.config.sessions_db, session_id)
-                    new_session_id = uuid.uuid4().hex
-                    await asyncio.to_thread(create_session, state.config.sessions_db, new_session_id)
+                new_session_id = await sessions.clear(session_id)
+            except SessionArchivedError:
+                return CommandResult("Archived sessions are read-only. Unarchive or switch sessions first.")
+            except SessionHasQueuedInputsError:
+                return CommandResult("Cannot clear this session while it has queued follow-ups. Clear the queue first.")
             except SessionBusyError:
                 return CommandResult("Cannot clear this session while it has an active operation.")
             state.selected_session_id = new_session_id
-            logger.info("Cleared session %s and started session %s", session_id, new_session_id)
             return CommandResult(f"Cleared session and started new session: {new_session_id}")
 
         case "compact":
             if command.args:
                 return CommandResult("Usage: /compact")
             session_id = state.selected_session_id
-            if await asyncio.to_thread(is_session_archived, state.config.sessions_db, session_id):
-                return CommandResult("Archived sessions are read-only. Unarchive or switch sessions first.")
             try:
-                result = await runtime.compact_session(session_id)
+                result = await sessions.compact(session_id)
+            except SessionArchivedError:
+                return CommandResult("Archived sessions are read-only. Unarchive or switch sessions first.")
             except SessionBusyError:
                 return CommandResult("Cannot compact this session while it has an active operation.")
-            except BaseException as exc:
-                if session_history_restore_failed(exc):
-                    logger.exception("Manual context compaction failed and session history restoration was unsuccessful")
+            except SessionCompactionError as exc:
+                if exc.consistency_uncertain:
                     return CommandResult("Context compaction failed and context storage may be damaged. Stop this session and see the system log.")
-                if not isinstance(exc, Exception):
-                    raise
-                logger.exception("Manual context compaction failed; existing context was kept")
                 return CommandResult("Context compaction failed; existing context was kept. See the system log.")
             if not result.changed:
                 return CommandResult("Session context is already empty or compacted.")
-            logger.info("Context compaction completed: trigger=manual session=%s", session_id)
             return CommandResult("Session context compacted.", compaction=result)
 
         case "ps":

@@ -23,6 +23,7 @@ from qmt_agent.application import (
     ArchivedSessionInputError,
     QueuedFollowUpsPendingError,
     SteerPromotionPendingError,
+    SessionOperations,
     submit_user_input,
 )
 from qmt_agent.commands import Command, dispatch_command, parse_command
@@ -358,6 +359,7 @@ class QMTAgentTUI(App[None]):
         self.activity_agent = activity_agent
         self._record_activity_label = record_activity_label
         self.runtime: AgentRuntime | None = None
+        self.sessions: SessionOperations | None = None
         self.session_title: str | None = None
         self._known_session_ids: set[str] = set()
         self._session_titles: dict[str, str | None] = {}
@@ -602,8 +604,9 @@ class QMTAgentTUI(App[None]):
         if session_id == self.state.selected_session_id:
             self.query_one("#usage-status", Static).update(self._format_usage_status())
 
-    def bind_runtime(self, runtime: AgentRuntime) -> None:
+    def bind_runtime(self, runtime: AgentRuntime, sessions: SessionOperations) -> None:
         self.runtime = runtime
+        self.sessions = sessions
         self._main_agent_name = runtime.agent_name
 
     def handle_runtime_state(self, snapshot: RuntimeSessionSnapshot) -> None:
@@ -990,11 +993,11 @@ class QMTAgentTUI(App[None]):
 
     async def _dispatch_command(self, command: Command) -> None:
         timeline = self.query_one(ChatTimeline)
-        if self.runtime is None:
+        if self.runtime is None or self.sessions is None:
             await timeline.add_notice("Agent runtime is not ready.")
             return
         old_session_id = self.state.selected_session_id
-        result = await dispatch_command(command, self.state, runtime=self.runtime, journal=self.journal)
+        result = await dispatch_command(command, self.state, runtime=self.runtime, sessions=self.sessions)
         if result.exit_requested:
             if result.output:
                 await timeline.add_notice(result.output)

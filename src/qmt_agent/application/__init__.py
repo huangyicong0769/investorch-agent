@@ -7,11 +7,23 @@ from .interaction import (
     UserInputSubmission,
     submit_user_input,
 )
+from .sessions import (
+    SessionAlreadyArchivedError,
+    SessionArchivedError,
+    SessionCompactionError,
+    SessionHasQueuedInputsError,
+    SessionOperations,
+)
 
 __all__ = [
     "ActiveRunChangedError",
     "ArchivedSessionInputError",
     "QueuedFollowUpsPendingError",
+    "SessionAlreadyArchivedError",
+    "SessionArchivedError",
+    "SessionCompactionError",
+    "SessionHasQueuedInputsError",
+    "SessionOperations",
     "SteerPromotionPendingError",
     "UserInputRejected",
     "UserInputSubmission",
