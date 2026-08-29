@@ -19,7 +19,7 @@ from agents import Agent
 
 from qmt_agent.agents import TokenUsage, generate_activity_label
 from qmt_agent.commands import Command, dispatch_command, parse_command
-from qmt_agent.context import AppState
+from qmt_agent.context import AppState, TodoItem
 from qmt_agent.journal import SessionJournal, read_session_journal
 from qmt_agent.output import OutputEvent, Reasoning, ToolCalled
 from qmt_agent.runtime import (
@@ -36,6 +36,7 @@ from qmt_agent.storage import get_session_title, list_sessions
 from .queue import QueuePanel
 from .sidebar import SessionSidebar
 from .timeline import ActivityStep, ChatTimeline, format_json
+from .todo import TodoPanel
 
 logger = logging.getLogger(__name__)
 RecordActivityLabel = Callable[[str, int, str], Awaitable[None]]
@@ -462,6 +463,8 @@ class QMTAgentTUI(App[None]):
         self._timeline_lock = asyncio.Lock()
         self._reasoning_by_run: dict[str, list[str]] = {}
         self._pending_approvals: deque[PendingApproval] = deque()
+        self._session_todos: dict[str, tuple[TodoItem, ...]] = {}
+        self._todo_run_ids: dict[str, str] = {}
 
     def compose(self) -> ComposeResult:
         yield Vertical(
@@ -485,6 +488,7 @@ class QMTAgentTUI(App[None]):
                     initial_agent_name=self._main_agent_name,
                     id="timeline",
                 ),
+                TodoPanel(id="todo-panel"),
                 QueuePanel(id="queue-panel"),
                 Composer(
                     self.state.config["tui.composer_height"],
@@ -718,6 +722,12 @@ class QMTAgentTUI(App[None]):
         self._main_agent_name = runtime.agent_name
 
     def handle_runtime_state(self, snapshot: RuntimeSessionSnapshot) -> None:
+        if snapshot.run_id is not None:
+            if self._todo_run_ids.get(snapshot.session_id) != snapshot.run_id:
+                self._todo_run_ids[snapshot.session_id] = snapshot.run_id
+            self._session_todos[snapshot.session_id] = tuple(
+                dict(todo) for todo in snapshot.todos
+            )
         if self.is_running and snapshot.session_id == self.state.selected_session_id:
             self.call_later(self._refresh_selected_controls)
 
@@ -1252,6 +1262,9 @@ class QMTAgentTUI(App[None]):
         )
         if self.runtime is not None:
             snapshot = self.runtime.session_snapshot(selected_session_id)
+            self.query_one(TodoPanel).replace_todos(
+                self._session_todos.get(selected_session_id, ())
+            )
             self.query_one(QueuePanel).replace_queue(
                 selected_session_id,
                 self.runtime.list_queued_inputs(selected_session_id),
