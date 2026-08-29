@@ -112,6 +112,7 @@ class RuntimeRunEnded:
 
 @dataclass(frozen=True, slots=True)
 class ApprovalRequest:
+    approval_id: str
     run_id: str
     session_id: str
     user_input: str

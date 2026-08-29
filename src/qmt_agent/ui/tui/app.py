@@ -78,7 +78,6 @@ class BufferedApproval:
 
 @dataclass(slots=True)
 class PendingApproval:
-    approval_key: int
     request: ApprovalRequest
     session_title: str | None
     review_reason: str | None
@@ -500,7 +499,7 @@ class QMTAgentTUI(App[None]):
         if not self._pending_approvals:
             return
         pending = self._pending_approvals[0]
-        if pending.approval_key != event.approval_key or pending.request.run_id != event.run_id:
+        if pending.request.approval_id != event.approval_id or pending.request.run_id != event.run_id:
             self._show_pending_approval()
             return
         self._pending_approvals.popleft()
@@ -712,7 +711,7 @@ class QMTAgentTUI(App[None]):
     async def request_tool_approval(self, request: ApprovalRequest, review_reason: str | None = None) -> bool:
         future = asyncio.get_running_loop().create_future()
         pending = PendingApproval(
-            approval_key=id(future), request=request, session_title=self._session_titles.get(request.session_id), review_reason=review_reason, future=future
+            request=request, session_title=self._session_titles.get(request.session_id), review_reason=review_reason, future=future
         )
         self._pending_approvals.append(pending)
         self._show_pending_approval()
@@ -733,7 +732,6 @@ class QMTAgentTUI(App[None]):
             pending = self._pending_approvals[0]
             panel.replace_approval(
                 pending.request,
-                approval_key=pending.approval_key,
                 session_title=pending.session_title,
                 review_reason=pending.review_reason,
                 pending_count=len(self._pending_approvals),

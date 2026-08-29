@@ -67,6 +67,8 @@ class SessionJournal:
     async def record_approval(
         self,
         session_id: str,
+        run_id: str,
+        approval_id: str,
         tool_name: str,
         arguments: str | None,
         approved: bool,
@@ -86,7 +88,15 @@ class SessionJournal:
             if not review_reason:
                 raise ValueError("review_reason must not be empty")
 
-        record: dict[str, object] = {"type": "approval", "tool_name": tool_name, "arguments": arguments, "approved": approved, "source": source}
+        record: dict[str, object] = {
+            "type": "approval",
+            "run_id": run_id,
+            "approval_id": approval_id,
+            "tool_name": tool_name,
+            "arguments": arguments,
+            "approved": approved,
+            "source": source,
+        }
         if review_decision is not None:
             record["review_decision"] = review_decision
         if review_reason is not None:

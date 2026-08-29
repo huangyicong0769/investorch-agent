@@ -55,16 +55,16 @@ class ApprovalPanel(Vertical):
     """
 
     class Resolved(Message):
-        def __init__(self, approval_key: int, run_id: str, approved: bool) -> None:
+        def __init__(self, approval_id: str, run_id: str, approved: bool) -> None:
             super().__init__()
-            self.approval_key = approval_key
+            self.approval_id = approval_id
             self.run_id = run_id
             self.approved = approved
 
     def __init__(self, arguments_max_height: int, **kwargs) -> None:
         super().__init__(**kwargs)
         self._arguments_max_height = arguments_max_height
-        self._approval_key: int | None = None
+        self._approval_id: str | None = None
         self._run_id: str | None = None
         self._awaiting_resolution = False
 
@@ -86,12 +86,11 @@ class ApprovalPanel(Vertical):
         self,
         request: ApprovalRequest | None,
         *,
-        approval_key: int | None = None,
         session_title: str | None = None,
         review_reason: str | None = None,
         pending_count: int = 0,
     ) -> None:
-        self._approval_key = approval_key
+        self._approval_id = request.approval_id if request is not None else None
         self._run_id = request.run_id if request is not None else None
         self._awaiting_resolution = False
         self.query_one("#approve-button", Button).disabled = False
@@ -110,11 +109,11 @@ class ApprovalPanel(Vertical):
         self.query_one("#approval-arguments-scroll").display = bool(formatted)
 
     def resolve(self, approved: bool) -> None:
-        if self.display and self._approval_key is not None and self._run_id is not None and not self._awaiting_resolution:
+        if self.display and self._approval_id is not None and self._run_id is not None and not self._awaiting_resolution:
             self._awaiting_resolution = True
             self.query_one("#approve-button", Button).disabled = True
             self.query_one("#reject-button", Button).disabled = True
-            self.post_message(self.Resolved(self._approval_key, self._run_id, approved))
+            self.post_message(self.Resolved(self._approval_id, self._run_id, approved))
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "approve-button":

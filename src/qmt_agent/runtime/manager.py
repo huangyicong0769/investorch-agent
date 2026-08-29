@@ -417,6 +417,7 @@ class AgentRuntime:
             try:
                 return await self._approval_handler(
                     ApprovalRequest(
+                        approval_id=uuid.uuid4().hex,
                         run_id=run_id,
                         session_id=session_id,
                         user_input=approval_user_input,

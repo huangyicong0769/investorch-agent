@@ -292,7 +292,15 @@ async def _run_configured_app(ui: ConsoleUI, config: AppConfig, initialized: boo
         journal_seq = None
         try:
             journal_seq = await journal.record_approval(
-                request.session_id, request.tool_name, request.arguments, approved, source=source, review_decision=review_decision, review_reason=review_reason
+                request.session_id,
+                request.run_id,
+                request.approval_id,
+                request.tool_name,
+                request.arguments,
+                approved,
+                source=source,
+                review_decision=review_decision,
+                review_reason=review_reason,
             )
         except Exception:
             logger.exception("Failed to append approval to session journal for session %s", request.session_id)
