@@ -126,6 +126,8 @@ async def exec_command(
             workspace=workspace,
             background_job_dir=config.background_job_dir,
             command=command,
+            owner_session_id=context.context.session_id,
+            owner_run_id=context.context.run_id,
         )
 
     result = await sandbox.exec(
@@ -846,7 +848,7 @@ def format_background_jobs(jobs: list[BackgroundJob]) -> str:
 
     lines = [
         "QMT background processes:",
-        "PID\tSTATUS\tELAPSED\tCOMMAND",
+        "PID\tSTATUS\tSESSION\tELAPSED\tCOMMAND",
     ]
 
     for job in jobs:
@@ -858,7 +860,9 @@ def format_background_jobs(jobs: list[BackgroundJob]) -> str:
             status = f"exited({job.exit_code})"
 
         command = job.command.replace("\n", "\\n")
-        lines.append(f"{job.pid}\t{status}\t{_format_elapsed(job)}\t{command}")
+        lines.append(
+            f"{job.pid}\t{status}\t{job.owner_session_id[:8]}\t{_format_elapsed(job)}\t{command}"
+        )
 
     return "\n".join(lines)
 
@@ -903,6 +907,8 @@ async def _start_background_command(
     workspace: Path,
     background_job_dir: Path,
     command: str,
+    owner_session_id: str,
+    owner_run_id: str,
 ) -> dict[str, Any]:
     job_id = uuid.uuid4().hex[:12]
     job_directory = background_job_dir / job_id
@@ -933,6 +939,8 @@ async def _start_background_command(
     now = datetime.now(UTC)
     job = BackgroundJob(
         job_id=job_id,
+        owner_session_id=owner_session_id,
+        owner_run_id=owner_run_id,
         process_id=update.process_id,
         pid=pid,
         command=command,

@@ -30,6 +30,8 @@ class TodoItem(TypedDict):
 @dataclass
 class BackgroundJob:
     job_id: str
+    owner_session_id: str
+    owner_run_id: str
     process_id: int | None
     pid: int
     command: str
