@@ -163,7 +163,7 @@ SDK handoffs and agents-as-tools remain inside one top-level Run and share its `
 
 ## Session commands
 
-- `/new` creates and selects a new persistent Session identity. Existing Runs continue.
+- `/new` creates and selects a new Session identity. Existing Runs continue. A Session that is left without SDK messages, journal records, metadata, queued intent, or fork lineage is discarded automatically.
 - `/resume` changes only `selected_session_id`.
 - `/fork` clones the selected Session's stable head and selects the new Session.
 - `/effort`, `/permission`, and `/followup` change defaults for future Runs only.
@@ -177,6 +177,8 @@ SDK handoffs and agents-as-tools remain inside one top-level Run and share its `
   inputs have not entered continuation history.
 - `/exit` and Ctrl+Q reject normal exit while any Run or queued follow-up remains.
 - `/ps` remains global across Sessions.
+
+Application startup removes legacy unused Session identities before creating the initial Session. Shutdown also removes the selected Session if it remained unused; Sessions with user-visible or continuation state are preserved.
 
 Manual compaction, clear, fork, archive, and a top-level Run are mutually exclusive for
 the same Session through one Runtime maintenance reservation. Operations on different
