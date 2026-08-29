@@ -5,21 +5,26 @@ from qmt_agent.runtime import RuntimeSessionSnapshot
 from qmt_agent.storage import SessionRecord
 
 
-def format_session_status(snapshot: RuntimeSessionSnapshot | None) -> str:
+def session_status_label(snapshot: RuntimeSessionSnapshot | None) -> str:
     if snapshot is None:
         return "Ready"
     if snapshot.run_phase == "waiting_approval":
-        status = "Waiting approval"
-    elif snapshot.run_phase == "stopping":
-        status = "Stopping"
-    elif snapshot.run_id is not None:
-        status = "Running"
-    elif snapshot.queue_paused and snapshot.queued_count:
-        status = "Queue paused"
-    elif snapshot.queued_count:
-        status = "Queued"
-    else:
-        status = "Ready"
+        return "Waiting approval"
+    if snapshot.run_phase == "stopping":
+        return "Stopping"
+    if snapshot.run_id is not None:
+        return "Running"
+    if snapshot.queue_paused and snapshot.queued_count:
+        return "Queue paused"
+    if snapshot.queued_count:
+        return "Queued"
+    return "Ready"
+
+
+def format_session_status(snapshot: RuntimeSessionSnapshot | None) -> str:
+    status = session_status_label(snapshot)
+    if snapshot is None:
+        return status
 
     details: list[str] = []
     if snapshot.active_follow_up_behavior is not None:

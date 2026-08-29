@@ -39,7 +39,7 @@ from qmt_agent.storage import (
 
 from .approval import ApprovalPanel
 from .queue import QueuePanel
-from .sidebar import SessionSidebar, format_session_status
+from .sidebar import SessionSidebar, session_status_label
 from .timeline import ActivityStep, ChatTimeline
 from .todo import TodoPanel
 
@@ -543,9 +543,11 @@ class QMTAgentTUI(App[None]):
         follow_up_behavior = (
             snapshot.active_follow_up_behavior if snapshot is not None and snapshot.active_follow_up_behavior is not None else self.state.follow_up_behavior
         )
-        status = f"● {format_session_status(snapshot)}"
-        if active_run is None:
-            status += f" · Follow-ups default: {follow_up_behavior.title()}"
+        status = f"● {session_status_label(snapshot)} · Follow-ups: {follow_up_behavior.title()}"
+        if snapshot is not None and snapshot.queued_count:
+            status += f" · {snapshot.queued_count} queued"
+        if snapshot is not None and snapshot.pending_steer_count:
+            status += f" · {snapshot.pending_steer_count} steer pending"
         status += f" · Default effort {self.state.main_reasoning_effort}"
         if active_run is None:
             return status
