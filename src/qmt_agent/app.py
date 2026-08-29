@@ -184,10 +184,10 @@ async def _run_configured_app(ui: ConsoleUI, config: AppConfig, initialized: boo
     renderer = ConsoleRenderer(ui) if plain else None
     tui: QMTAgentTUI | None = None
 
-    async def record_user_message(session_id: str, text: str) -> int | None:
+    async def record_user_message(session_id: str, text: str) -> int:
         return await journal.record_user_message(session_id, text)
 
-    async def record_user_steer(session_id: str, run_id: str, text: str) -> int | None:
+    async def record_user_steer(session_id: str, run_id: str, text: str) -> int:
         return await journal.record_user_steer(session_id, run_id, text)
 
     async def record_activity_label(session_id: str, target_seq: int, text: str) -> None:
@@ -304,9 +304,9 @@ async def _run_configured_app(ui: ConsoleUI, config: AppConfig, initialized: boo
                     handle_output,
                     handle_approval,
                     record_user_message,
+                    record_user_steer,
                     state_handler=handle_runtime_state,
                     run_ended_handler=handle_run_ended,
-                    record_user_steer=record_user_steer,
                     follow_up_handler=handle_follow_up,
                 )
                 try:

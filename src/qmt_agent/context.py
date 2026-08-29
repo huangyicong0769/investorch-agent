@@ -4,11 +4,14 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from typing_extensions import TypedDict
 
 from qmt_agent.config import AppConfig
+
+if TYPE_CHECKING:
+    from qmt_agent.runtime.models import FollowUpBehavior
 
 TodoStatus = Literal["pending", "in_progress", "completed", "failed"]
 
@@ -74,9 +77,9 @@ class AppState:
     permission_mode: str
 
     @property
-    def follow_up_behavior(self) -> str:
+    def follow_up_behavior(self) -> FollowUpBehavior:
         return self.config["interaction.follow_up_behavior"]
 
     @follow_up_behavior.setter
-    def follow_up_behavior(self, value: str) -> None:
+    def follow_up_behavior(self, value: FollowUpBehavior) -> None:
         self.config.update("interaction.follow_up_behavior", value, persist=False)
