@@ -35,10 +35,10 @@ RecordActivityLabel = Callable[[str, int, str], Awaitable[None]]
 @dataclass(frozen=True, slots=True)
 class BufferedOutput:
     session_id: str
-    run_id: str
     journal_seq: int | None
     event: OutputEvent
     activity_reasoning: str
+    activity_user_message: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -585,10 +585,14 @@ class QMTAgentTUI(App[None]):
         journal_seq: int | None,
     ) -> None:
         activity_reasoning = ""
+        activity_user_message = ""
         if isinstance(event, Reasoning):
             self._reasoning_by_run.setdefault(run_id, []).append(event.text)
         elif isinstance(event, ToolCalled):
             activity_reasoning = "".join(self._reasoning_by_run.pop(run_id, []))
+            active_run = self.runtime.get_active_run(session_id) if self.runtime is not None else None
+            if active_run is not None and active_run.run_id == run_id:
+                activity_user_message = active_run.user_input
 
         async with self._timeline_lock:
             if session_id != self.state.selected_session_id:
@@ -596,8 +600,8 @@ class QMTAgentTUI(App[None]):
                     self._start_activity_generation(
                         None,
                         session_id=session_id,
-                        run_id=run_id,
                         target_seq=journal_seq,
+                        user_message=activity_user_message,
                         reasoning=activity_reasoning,
                         tool_name=event.name,
                         arguments=event.arguments,
@@ -607,19 +611,19 @@ class QMTAgentTUI(App[None]):
                 self._buffered_live_events.append(
                     BufferedOutput(
                         session_id=session_id,
-                        run_id=run_id,
                         journal_seq=journal_seq,
                         event=event,
                         activity_reasoning=activity_reasoning,
+                        activity_user_message=activity_user_message,
                     )
                 )
                 return
             await self._render_live_output(
                 event,
                 session_id=session_id,
-                run_id=run_id,
                 journal_seq=journal_seq,
                 activity_reasoning=activity_reasoning,
+                activity_user_message=activity_user_message,
             )
 
     async def _render_live_output(
@@ -627,9 +631,9 @@ class QMTAgentTUI(App[None]):
         event: OutputEvent,
         *,
         session_id: str,
-        run_id: str,
         journal_seq: int | None,
         activity_reasoning: str,
+        activity_user_message: str,
     ) -> None:
         if journal_seq is not None and journal_seq <= self._last_rendered_seq.get(session_id, 0):
             return
@@ -643,8 +647,8 @@ class QMTAgentTUI(App[None]):
             self._start_activity_generation(
                 step,
                 session_id=session_id,
-                run_id=run_id,
                 target_seq=journal_seq,
+                user_message=activity_user_message,
                 reasoning=activity_reasoning or step.label_reasoning,
                 tool_name=event.name,
                 arguments=event.arguments,
@@ -655,14 +659,12 @@ class QMTAgentTUI(App[None]):
         step: ActivityStep | None,
         *,
         session_id: str,
-        run_id: str,
         target_seq: int | None,
+        user_message: str,
         reasoning: str,
         tool_name: str,
         arguments: str | None,
     ) -> None:
-        active_run = self.runtime.get_active_run(session_id) if self.runtime is not None else None
-        user_message = active_run.user_input if active_run is not None and active_run.run_id == run_id else ""
         self.run_worker(
             self._generate_step_activity(
                 step,
@@ -846,9 +848,9 @@ class QMTAgentTUI(App[None]):
                                 await self._render_live_output(
                                     item.event,
                                     session_id=item.session_id,
-                                    run_id=item.run_id,
                                     journal_seq=item.journal_seq,
                                     activity_reasoning=item.activity_reasoning,
+                                    activity_user_message=item.activity_user_message,
                                 )
                             else:
                                 await self._render_live_approval(item)
