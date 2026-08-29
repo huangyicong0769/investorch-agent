@@ -1,7 +1,7 @@
 from .activity import ActivityLabelResult, create_activity_agent, generate_activity_label
 from .bootstrap import create_bootstrap_sync_agent, run_bootstrap_sync
 from .compact import CompactionResult, SessionHistoryRestoreError, compact_session, create_compaction_agent
-from .loop import AgentLoop, AgentRunResult
+from .loop import AgentLoop, AgentRunResult, should_auto_compact
 from .main import create_agent
 from .permission import PermissionDecision, PermissionReview, PermissionReviewResult, create_permission_agent, review_permission
 from .prompts import build_bootstrap_sync_prompt
@@ -29,4 +29,5 @@ __all__ = (
     "compact_session",
     "review_permission",
     "run_bootstrap_sync",
+    "should_auto_compact",
 )

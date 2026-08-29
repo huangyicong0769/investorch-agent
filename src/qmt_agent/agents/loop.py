@@ -1,3 +1,5 @@
+import logging
+import math
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
@@ -7,9 +9,11 @@ from qmt_agent.config import AppConfig
 from qmt_agent.context import AgentContext, ExecutionState
 from qmt_agent.output import AssistantMessage, OutputHandler, consume_run_events
 
+from .compact import CompactionResult, SessionHistoryRestoreError, compact_session
 from .title import ensure_session_title
 from .usage import TokenUsage
-from .compact import CompactionResult, compact_session
+
+logger = logging.getLogger(__name__)
 
 ApprovalHandler = Callable[[str, str, str | None], Awaitable[bool]]
 ReasoningEffortProvider = Callable[[], str]
@@ -20,6 +24,15 @@ class AgentRunResult:
     output: str
     main_usage: TokenUsage
     auxiliary_usage: TokenUsage
+    auto_compaction: CompactionResult | None = None
+    auto_compaction_failed: bool = False
+    auto_compaction_consistency_uncertain: bool = False
+
+
+def should_auto_compact(*, enabled: bool, context_tokens: int | None, context_window_tokens: int, trigger_ratio: float) -> bool:
+    if not enabled or context_tokens is None:
+        return False
+    return context_tokens >= math.floor(context_window_tokens * trigger_ratio)
 
 
 class AgentLoop:
@@ -95,10 +108,62 @@ class AgentLoop:
         main_usage = TokenUsage.from_sdk(result.context_wrapper.usage)
         title_usage = await ensure_session_title(self._title_agent, session, self._config.sessions_db)
         await self._output_handler(AssistantMessage(text=output))
-        return AgentRunResult(output=output, main_usage=main_usage, auxiliary_usage=title_usage)
+        auto_compaction, auto_compaction_failed, consistency_uncertain = await self._auto_compact(session, main_usage)
+        auxiliary_usage = title_usage + (auto_compaction.usage if auto_compaction is not None else TokenUsage())
+        return AgentRunResult(
+            output=output,
+            main_usage=main_usage,
+            auxiliary_usage=auxiliary_usage,
+            auto_compaction=auto_compaction,
+            auto_compaction_failed=auto_compaction_failed,
+            auto_compaction_consistency_uncertain=consistency_uncertain,
+        )
 
     async def compact(self, session: SQLiteSession) -> CompactionResult:
         return await compact_session(self._compaction_agent, session, self._config)
+
+    async def _auto_compact(self, session: SQLiteSession, main_usage: TokenUsage) -> tuple[CompactionResult | None, bool, bool]:
+        context_tokens = main_usage.last_request_total_tokens
+        context_window_tokens = self._config.model("main").context_window_tokens
+        assert context_window_tokens is not None
+        trigger_ratio = self._config["compaction.trigger_ratio"]
+        if not should_auto_compact(
+            enabled=self._config["compaction.auto_enabled"],
+            context_tokens=context_tokens,
+            context_window_tokens=context_window_tokens,
+            trigger_ratio=trigger_ratio,
+        ):
+            return None, False, False
+
+        assert context_tokens is not None
+        threshold = math.floor(context_window_tokens * trigger_ratio)
+        try:
+            result = await self.compact(session)
+        except SessionHistoryRestoreError:
+            logger.exception(
+                "Automatic context compaction failed and session history restoration was unsuccessful: session=%s context_tokens=%d threshold=%d",
+                session.session_id,
+                context_tokens,
+                threshold,
+            )
+            return None, True, True
+        except Exception:
+            logger.exception(
+                "Automatic context compaction failed; existing context was kept: session=%s context_tokens=%d threshold=%d",
+                session.session_id,
+                context_tokens,
+                threshold,
+            )
+            return None, True, False
+
+        if result.changed:
+            logger.info(
+                "Context compaction completed: trigger=auto session=%s context_tokens=%d threshold=%d",
+                session.session_id,
+                context_tokens,
+                threshold,
+            )
+        return result, False, False
 
     @property
     def agent_name(self) -> str:
