@@ -154,6 +154,29 @@ class AgentRuntime:
     def list_active_runs(self) -> list[ActiveRun]:
         return list(self._active_by_session.values())
 
+    def cancel_run(self, session_id: str) -> ActiveRun:
+        if self._closed:
+            raise RuntimeError("Agent runtime is closed")
+        active_run = self._active_by_session.get(session_id)
+        if active_run is None:
+            raise SessionBusyError(f"Session {session_id} does not have an active Agent run")
+
+        control = self._controls_by_run[active_run.run_id]
+        active_run.phase = "stopping"
+        active_run.stopped_pending_steer_count = control.pending_count()
+        if self._queued_by_session.get(session_id):
+            self.pause_queue(session_id)
+        control.close_submissions()
+        self._notify_state(session_id)
+        asyncio.get_running_loop().call_soon(active_run.task.cancel)
+        logger.info(
+            "Run cancelled by user session=%s run=%s pending_steer=%d",
+            session_id,
+            active_run.run_id,
+            active_run.stopped_pending_steer_count,
+        )
+        return active_run
+
     def has_active_runs(self) -> bool:
         return bool(self._active_by_session) or any(self._steer_fallback_by_session.values())
 
@@ -173,6 +196,8 @@ class AgentRuntime:
         active_run = self._active_by_session.get(session_id)
         if active_run is None:
             raise SessionBusyError(f"Session {session_id} does not have an active Agent run")
+        if active_run.phase != "running":
+            raise SessionBusyError(f"Session {session_id} Agent run is stopping")
         if not text.strip():
             raise ValueError("Follow-up text must not be empty")
 
@@ -403,6 +428,7 @@ class AgentRuntime:
         session: SQLiteSession | None = None
         result: AgentRunResult | None = None
         status: Literal["completed", "cancelled", "failed"] = "failed"
+        discarded_steer_count = 0
 
         async def handle_output(event: OutputEvent) -> None:
             await self._output_handler(
@@ -478,14 +504,14 @@ class AgentRuntime:
                             len(fallbacks),
                         )
                 else:
-                    discarded = run_control.discard()
-                    if discarded:
+                    discarded_steer_count = run_control.discard()
+                    if discarded_steer_count:
                         logger.info(
                             "Discarded unconsumed Steer input session=%s run=%s status=%s count=%d",
                             session_id,
                             run_id,
                             status,
-                            discarded,
+                            discarded_steer_count,
                         )
                     self.pause_queue(session_id)
                 if not self._steer_fallback_by_session.get(session_id):
@@ -496,6 +522,7 @@ class AgentRuntime:
                         run_id=run_id,
                         status=status,
                         result=result,
+                        discarded_steer_count=discarded_steer_count,
                     )
                 )
                 await self._try_promote_steer_fallback(session_id)

@@ -34,6 +34,7 @@ class ActiveRun:
     started_at: datetime
     task: asyncio.Task[AgentRunResult]
     phase: RunPhase = "running"
+    stopped_pending_steer_count: int = 0
     todos: list[TodoItem] = field(default_factory=list)
 
 
@@ -111,6 +112,7 @@ class RuntimeRunEnded:
     run_id: str
     status: Literal["completed", "cancelled", "failed"]
     result: AgentRunResult | None
+    discarded_steer_count: int = 0
 
 
 @dataclass(frozen=True, slots=True)
