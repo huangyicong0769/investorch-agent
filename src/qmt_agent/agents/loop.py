@@ -1,9 +1,12 @@
+from __future__ import annotations
+
 import logging
 import math
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
-from agents import Agent, Runner, SQLiteSession
+from agents import Agent, Runner, SQLiteSession, UserError
 
 from qmt_agent.config import AppConfig
 from qmt_agent.context import AgentContext, ExecutionState
@@ -12,6 +15,9 @@ from qmt_agent.output import AssistantMessage, OutputHandler, consume_run_events
 from .compact import CompactionResult, compact_session, session_history_restore_failed
 from .title import ensure_session_title
 from .usage import TokenUsage
+
+if TYPE_CHECKING:
+    from qmt_agent.runtime.control import RunControl
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +70,7 @@ class AgentLoop:
         reasoning_effort: str,
         approval_handler: ApprovalHandler,
         output_handler: OutputHandler,
+        run_control: RunControl,
     ) -> AgentRunResult:
         settings = self._agent.model_settings.resolve(
             {"reasoning": {"effort": reasoning_effort}}
@@ -87,40 +94,73 @@ class AgentLoop:
         approval_usage = TokenUsage()
 
         while True:
-            current_agent_name = await consume_run_events(
-                result,
-                output_handler,
-                current_agent_name,
-            )
-
-            if not result.interruptions:
-                break
-
-            sdk_state = result.to_state()
-
-            for interruption in result.interruptions:
-                outcome = await approval_handler(
-                    user_input,
-                    interruption.name or "unknown_tool",
-                    interruption.arguments,
+            run_control.bind_stream(result)
+            try:
+                current_agent_name = await consume_run_events(
+                    result,
+                    output_handler,
+                    current_agent_name,
                 )
-                approval_usage += outcome.usage
+            finally:
+                run_control.unbind_stream(result)
 
-                if outcome.approved:
-                    sdk_state.approve(interruption, always_approve=False)
+            sdk_state = result.to_state() if result.interruptions else None
+            if sdk_state is not None:
+                for interruption in result.interruptions:
+                    outcome = await approval_handler(
+                        user_input,
+                        interruption.name or "unknown_tool",
+                        interruption.arguments,
+                    )
+                    approval_usage += outcome.usage
+
+                    if outcome.approved:
+                        sdk_state.approve(interruption, always_approve=False)
+                    else:
+                        sdk_state.reject(
+                            interruption,
+                            always_reject=False,
+                            rejection_message="The tool action was rejected.",
+                        )
+
+            pending_steers = await run_control.pending_for_boundary(
+                seal_if_empty=not result.interruptions
+            )
+            staged_ids: list[str] = []
+            if pending_steers:
+                sdk_state = sdk_state or result.to_state()
+                try:
+                    for steer in pending_steers:
+                        sdk_state.add_input(steer.text)
+                        staged_ids.append(steer.steer_id)
+                except UserError:
+                    if staged_ids:
+                        raise RuntimeError("Steer input staging failed after a partial FIFO write")
+                    run_control.move_pending_to_fallback()
+                    logger.info(
+                        "Steer input could not be staged and will continue as a subsequent Run: session=%s run=%s count=%d",
+                        session_id,
+                        run_id,
+                        len(pending_steers),
+                    )
                 else:
-                    sdk_state.reject(
-                        interruption,
-                        always_reject=False,
-                        rejection_message="The tool action was rejected.",
+                    run_control.mark_staged(staged_ids)
+                    logger.info(
+                        "Staged Steer input session=%s run=%s count=%d",
+                        session_id,
+                        run_id,
+                        len(staged_ids),
                     )
 
-            result = Runner.run_streamed(
-                run_agent,
-                sdk_state,
-                session=session,
-                max_turns=self._config["runtime.max_turns"],
-            )
+            if sdk_state is not None and (result.interruptions or staged_ids):
+                result = Runner.run_streamed(
+                    run_agent,
+                    sdk_state,
+                    session=session,
+                    max_turns=self._config["runtime.max_turns"],
+                )
+                continue
+            break
 
         output = str(result.final_output)
         main_usage = TokenUsage.from_sdk(result.context_wrapper.usage)

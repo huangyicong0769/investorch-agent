@@ -228,6 +228,17 @@ async def _run_configured_app(
         except Exception:
             logger.exception("Failed to append user message to session journal for session %s", session_id)
 
+    async def record_user_steer(session_id: str, run_id: str, text: str) -> int | None:
+        try:
+            return await journal.record_user_steer(session_id, run_id, text)
+        except Exception:
+            logger.exception(
+                "Failed to append Steer input to session journal for session %s run %s",
+                session_id,
+                run_id,
+            )
+            return None
+
     async def record_activity_label(session_id: str, target_seq: int, text: str) -> None:
         try:
             await journal.record_activity_label(session_id, target_seq, text)
@@ -373,6 +384,7 @@ async def _run_configured_app(
                     handle_output,
                     handle_approval,
                     record_user_message,
+                    record_user_steer=record_user_steer,
                 )
                 try:
                     if tui is None:

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
+from collections import deque
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -15,10 +16,14 @@ from qmt_agent.agents import AgentLoop, AgentRunResult, ApprovalOutcome, Compact
 from qmt_agent.context import ExecutionState
 from qmt_agent.output import OutputEvent
 
+from .control import RunControl
 from .models import (
     ActiveRun,
     ApprovalRequest,
+    FollowUpSubmission,
+    PendingSteer,
     RunOptions,
+    RuntimeFollowUpEvent,
     RuntimeOutput,
     RuntimeRunEnded,
     RuntimeSessionSnapshot,
@@ -30,8 +35,10 @@ logger = logging.getLogger(__name__)
 RuntimeOutputHandler = Callable[[RuntimeOutput], Awaitable[None]]
 RuntimeApprovalHandler = Callable[[ApprovalRequest], Awaitable[ApprovalOutcome]]
 RecordUserMessage = Callable[[str, str], Awaitable[None]]
+RecordUserSteer = Callable[[str, str, str], Awaitable[int | None]]
 RuntimeStateHandler = Callable[[RuntimeSessionSnapshot], None]
 RunEndedHandler = Callable[[RuntimeRunEnded], Awaitable[None]]
+RuntimeFollowUpHandler = Callable[[RuntimeFollowUpEvent], Awaitable[None]]
 
 
 class AgentRuntime:
@@ -47,6 +54,8 @@ class AgentRuntime:
         record_user_message: RecordUserMessage,
         state_handler: RuntimeStateHandler | None = None,
         run_ended_handler: RunEndedHandler | None = None,
+        record_user_steer: RecordUserSteer | None = None,
+        follow_up_handler: RuntimeFollowUpHandler | None = None,
     ) -> None:
         self._agent_loop = agent_loop
         self._execution = execution
@@ -56,8 +65,12 @@ class AgentRuntime:
         self._record_user_message = record_user_message
         self._state_handler = state_handler
         self._run_ended_handler = run_ended_handler
+        self._record_user_steer = record_user_steer
+        self._follow_up_handler = follow_up_handler
         self._active_by_session: dict[str, ActiveRun] = {}
         self._active_by_run: dict[str, ActiveRun] = {}
+        self._controls_by_run: dict[str, RunControl] = {}
+        self._steer_fallback_by_session: dict[str, deque[PendingSteer]] = {}
         self._maintenance_sessions: set[str] = set()
         self._closed = False
 
@@ -67,14 +80,46 @@ class AgentRuntime:
         user_input: str,
         options: RunOptions,
     ) -> ActiveRun:
+        return self._start_run(session_id, user_input, options)
+
+    def _start_run(
+        self,
+        session_id: str,
+        user_input: str,
+        options: RunOptions,
+        *,
+        record_user_message: bool = True,
+        start_gate: asyncio.Event | None = None,
+        allow_steer_fallback: bool = False,
+    ) -> ActiveRun:
         if self._closed:
             raise RuntimeError("Agent runtime is closed")
-        if session_id in self._active_by_session or session_id in self._maintenance_sessions:
+        if (
+            session_id in self._active_by_session
+            or session_id in self._maintenance_sessions
+            or (
+                not allow_steer_fallback
+                and bool(self._steer_fallback_by_session.get(session_id))
+            )
+        ):
             raise SessionBusyError(f"Session {session_id} already has an active operation")
 
         run_id = uuid.uuid4().hex
+        run_control = RunControl(
+            session_id,
+            run_id,
+            lambda: self._notify_state(session_id),
+        )
         task = asyncio.create_task(
-            self._execute_run(run_id, session_id, user_input, options),
+            self._execute_run(
+                run_id,
+                session_id,
+                user_input,
+                options,
+                run_control,
+                record_user_message=record_user_message,
+                start_gate=start_gate,
+            ),
             name=f"agent-run-{run_id}",
         )
         active_run = ActiveRun(
@@ -87,6 +132,7 @@ class AgentRuntime:
         )
         self._active_by_session[session_id] = active_run
         self._active_by_run[run_id] = active_run
+        self._controls_by_run[run_id] = run_control
         self._notify_state(session_id)
         logger.info("Started Agent run session=%s run=%s", session_id, run_id)
         return active_run
@@ -101,10 +147,72 @@ class AgentRuntime:
         return list(self._active_by_session.values())
 
     def has_active_runs(self) -> bool:
-        return bool(self._active_by_session)
+        return bool(self._active_by_session) or any(self._steer_fallback_by_session.values())
+
+    async def submit_follow_up(
+        self,
+        session_id: str,
+        text: str,
+        next_run_options: RunOptions,
+    ) -> FollowUpSubmission:
+        if self._closed:
+            raise RuntimeError("Agent runtime is closed")
+        active_run = self._active_by_session.get(session_id)
+        if active_run is None:
+            raise SessionBusyError(f"Session {session_id} does not have an active Agent run")
+        if active_run.options.follow_up_behavior != "steer":
+            raise SessionBusyError(f"Session {session_id} active Run does not accept Steer follow-ups")
+        if not text.strip():
+            raise ValueError("Follow-up text must not be empty")
+
+        control = self._controls_by_run[active_run.run_id]
+        steer = control.reserve_steer(text, next_run_options)
+        journal_seq = None
+        try:
+            try:
+                if self._record_user_steer is not None:
+                    journal_seq = await self._record_user_steer(
+                        session_id,
+                        active_run.run_id,
+                        text,
+                    )
+            except Exception:
+                logger.exception(
+                    "Failed to append Steer input to journal session=%s run=%s steer=%s",
+                    session_id,
+                    active_run.run_id,
+                    steer.steer_id,
+                )
+            await self._notify_follow_up(
+                RuntimeFollowUpEvent(
+                    kind="steer_submitted",
+                    session_id=session_id,
+                    run_id=active_run.run_id,
+                    source_run_id=active_run.run_id,
+                    follow_up_id=steer.steer_id,
+                    text=text,
+                    journal_seq=journal_seq,
+                )
+            )
+        finally:
+            control.mark_ready(steer.steer_id, journal_seq)
+
+        logger.info(
+            "Follow-up submitted behavior=steer session=%s run=%s steer=%s",
+            session_id,
+            active_run.run_id,
+            steer.steer_id,
+        )
+        return FollowUpSubmission(
+            session_id=session_id,
+            active_run_id=active_run.run_id,
+            behavior="steer",
+            follow_up_id=steer.steer_id,
+        )
 
     def session_snapshot(self, session_id: str) -> RuntimeSessionSnapshot:
         active_run = self._active_by_session.get(session_id)
+        control = self._controls_by_run.get(active_run.run_id) if active_run is not None else None
         return RuntimeSessionSnapshot(
             session_id=session_id,
             run_id=active_run.run_id if active_run is not None else None,
@@ -115,7 +223,10 @@ class AgentRuntime:
             ),
             queued_count=0,
             queue_paused=False,
-            pending_steer_count=0,
+            pending_steer_count=(
+                (control.pending_count() if control is not None else 0)
+                + len(self._steer_fallback_by_session.get(session_id, ()))
+            ),
             todos=tuple(dict(todo) for todo in active_run.todos) if active_run is not None else (),
         )
 
@@ -124,10 +235,22 @@ class AgentRuntime:
         return self._agent_loop.agent_name
 
     @asynccontextmanager
-    async def reserve_session(self, session_id: str) -> AsyncIterator[None]:
+    async def reserve_session(
+        self,
+        session_id: str,
+        *,
+        allow_pending_work: bool = False,
+    ) -> AsyncIterator[None]:
         if self._closed:
             raise RuntimeError("Agent runtime is closed")
-        if session_id in self._active_by_session or session_id in self._maintenance_sessions:
+        if (
+            session_id in self._active_by_session
+            or session_id in self._maintenance_sessions
+            or (
+                not allow_pending_work
+                and bool(self._steer_fallback_by_session.get(session_id))
+            )
+        ):
             raise SessionBusyError(f"Session {session_id} already has an active operation")
 
         self._maintenance_sessions.add(session_id)
@@ -135,9 +258,10 @@ class AgentRuntime:
             yield
         finally:
             self._maintenance_sessions.discard(session_id)
+            await self._try_promote_steer_fallback(session_id)
 
     async def compact_session(self, session_id: str) -> CompactionResult:
-        async with self.reserve_session(session_id):
+        async with self.reserve_session(session_id, allow_pending_work=True):
             session: SQLiteSession | None = None
             try:
                 session = SQLiteSession(session_id, self._sessions_db)
@@ -155,6 +279,8 @@ class AgentRuntime:
             await asyncio.gather(*tasks, return_exceptions=True)
         self._active_by_session.clear()
         self._active_by_run.clear()
+        self._controls_by_run.clear()
+        self._steer_fallback_by_session.clear()
 
     async def _execute_run(
         self,
@@ -162,6 +288,10 @@ class AgentRuntime:
         session_id: str,
         user_input: str,
         options: RunOptions,
+        run_control: RunControl,
+        *,
+        record_user_message: bool,
+        start_gate: asyncio.Event | None,
     ) -> AgentRunResult:
         session: SQLiteSession | None = None
         result: AgentRunResult | None = None
@@ -193,8 +323,11 @@ class AgentRuntime:
             )
 
         try:
+            if start_gate is not None:
+                await start_gate.wait()
             session = SQLiteSession(session_id, self._sessions_db)
-            await self._record_user_message(session_id, user_input)
+            if record_user_message:
+                await self._record_user_message(session_id, user_input)
             result = await self._agent_loop.run(
                 user_input,
                 session,
@@ -204,6 +337,7 @@ class AgentRuntime:
                 reasoning_effort=options.reasoning_effort,
                 approval_handler=handle_approval,
                 output_handler=handle_output,
+                run_control=run_control,
             )
             status = "completed"
             logger.info("Completed Agent run session=%s run=%s", session_id, run_id)
@@ -220,10 +354,34 @@ class AgentRuntime:
                 if session is not None:
                     session.close()
             finally:
+                run_control.close_submissions()
                 active_run = self._active_by_run.pop(run_id, None)
                 if active_run is not None and self._active_by_session.get(session_id) is active_run:
                     del self._active_by_session[session_id]
-                self._notify_state(session_id)
+                self._controls_by_run.pop(run_id, None)
+                await run_control.wait_until_ready()
+                if status == "completed":
+                    fallbacks = run_control.take_fallbacks()
+                    if fallbacks:
+                        self._steer_fallback_by_session.setdefault(session_id, deque()).extend(fallbacks)
+                        logger.info(
+                            "Steer terminal fallback session=%s run=%s count=%d",
+                            session_id,
+                            run_id,
+                            len(fallbacks),
+                        )
+                else:
+                    discarded = run_control.discard()
+                    if discarded:
+                        logger.info(
+                            "Discarded unconsumed Steer input session=%s run=%s status=%s count=%d",
+                            session_id,
+                            run_id,
+                            status,
+                            discarded,
+                        )
+                if not self._steer_fallback_by_session.get(session_id):
+                    self._notify_state(session_id)
                 await self._notify_run_ended(
                     RuntimeRunEnded(
                         session_id=session_id,
@@ -232,6 +390,7 @@ class AgentRuntime:
                         result=result,
                     )
                 )
+                await self._try_promote_steer_fallback(session_id)
 
     def _notify_state(self, session_id: str) -> None:
         if self._state_handler is None:
@@ -252,3 +411,66 @@ class AgentRuntime:
                 event.session_id,
                 event.run_id,
             )
+
+    async def _notify_follow_up(self, event: RuntimeFollowUpEvent) -> None:
+        if self._follow_up_handler is None:
+            return
+        try:
+            await self._follow_up_handler(event)
+        except Exception:
+            logger.exception(
+                "Runtime follow-up handler failed for session=%s run=%s follow_up=%s kind=%s",
+                event.session_id,
+                event.run_id,
+                event.follow_up_id,
+                event.kind,
+            )
+
+    async def _try_promote_steer_fallback(self, session_id: str) -> None:
+        queue = self._steer_fallback_by_session.get(session_id)
+        if (
+            self._closed
+            or not queue
+            or session_id in self._active_by_session
+            or session_id in self._maintenance_sessions
+        ):
+            return
+
+        steer = queue.popleft()
+        if not queue:
+            self._steer_fallback_by_session.pop(session_id, None)
+        start_gate = asyncio.Event()
+        try:
+            active_run = self._start_run(
+                session_id,
+                steer.text,
+                steer.options,
+                record_user_message=False,
+                start_gate=start_gate,
+                allow_steer_fallback=True,
+            )
+        except Exception:
+            self._steer_fallback_by_session.setdefault(session_id, deque()).appendleft(steer)
+            raise
+
+        try:
+            await self._notify_follow_up(
+                RuntimeFollowUpEvent(
+                    kind="steer_fallback_promoted",
+                    session_id=session_id,
+                    run_id=active_run.run_id,
+                    source_run_id=steer.source_run_id,
+                    follow_up_id=steer.steer_id,
+                    text=steer.text,
+                    journal_seq=steer.journal_seq,
+                )
+            )
+        finally:
+            start_gate.set()
+        logger.info(
+            "Promoted Steer fallback session=%s source_run=%s run=%s steer=%s",
+            session_id,
+            steer.source_run_id,
+            active_run.run_id,
+            steer.steer_id,
+        )

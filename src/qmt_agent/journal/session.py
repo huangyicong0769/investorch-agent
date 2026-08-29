@@ -58,6 +58,16 @@ class SessionJournal:
     async def record_user_message(self, session_id: str, text: str) -> int:
         return await self._record(session_id, {"type": "user_message", "text": text})
 
+    async def record_user_steer(self, session_id: str, run_id: str, text: str) -> int:
+        return await self._record(
+            session_id,
+            {
+                "type": "user_steer",
+                "run_id": run_id,
+                "text": text,
+            },
+        )
+
     async def record_output(self, session_id: str, event: OutputEvent) -> int:
         return await self._record(session_id, _serialize_output_event(event))
 
