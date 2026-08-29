@@ -1,5 +1,17 @@
 import json
+from collections import deque
+from collections.abc import Iterator
+from dataclasses import dataclass
 from pathlib import Path
+from typing import cast
+
+
+@dataclass(frozen=True, slots=True)
+class JournalPage:
+    records: tuple[dict[str, object], ...]
+    has_older: bool
+    oldest_seq: int | None
+    newest_seq: int | None
 
 
 def read_session_journal(
@@ -7,6 +19,40 @@ def read_session_journal(
     session_id: str,
 ) -> list[dict[str, object]]:
     path = _session_path(directory, session_id)
+    return list(_iter_session_journal_records(path))
+
+
+def read_session_journal_page(
+    directory: Path,
+    session_id: str,
+    *,
+    before_seq: int | None = None,
+    limit: int = 200,
+) -> JournalPage:
+    if type(limit) is not int or limit < 1:
+        raise ValueError("limit must be a positive integer")
+    if before_seq is not None and (type(before_seq) is not int or before_seq < 1):
+        raise ValueError("before_seq must be a positive integer or None")
+
+    eligible: deque[dict[str, object]] = deque(maxlen=limit)
+    eligible_count = 0
+    path = _session_path(directory, session_id)
+    for record in _iter_session_journal_records(path):
+        seq = cast(int, record["seq"])
+        if before_seq is None or seq < before_seq:
+            eligible_count += 1
+            eligible.append(record)
+
+    records = tuple(eligible)
+    return JournalPage(
+        records=records,
+        has_older=eligible_count > len(records),
+        oldest_seq=cast(int, records[0]["seq"]) if records else None,
+        newest_seq=cast(int, records[-1]["seq"]) if records else None,
+    )
+
+
+def _iter_session_journal_records(path: Path) -> Iterator[dict[str, object]]:
 
     if path.is_symlink():
         raise RuntimeError(f"Session journal is not a regular file: {path}")
@@ -15,7 +61,6 @@ def read_session_journal(
     if not path.is_file():
         raise RuntimeError(f"Session journal is not a regular file: {path}")
 
-    records: list[dict[str, object]] = []
     previous_seq = 0
 
     with path.open("r", encoding="utf-8") as file:
@@ -41,10 +86,8 @@ def read_session_journal(
             if not isinstance(event_type, str):
                 raise RuntimeError(f"Session journal has an invalid type on line {line_number}: {path}")
 
-            records.append(record)
             previous_seq = seq
-
-    return records
+            yield record
 
 
 def _session_path(directory: Path, session_id: str) -> Path:
