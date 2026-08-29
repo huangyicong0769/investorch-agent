@@ -444,6 +444,11 @@ class QMTAgentTUI(App[None]):
             self._refresh_selected_controls()
             return
 
+        if self.runtime is not None and self.runtime.session_snapshot(session_id).pending_steer_count:
+            await self.query_one(ChatTimeline).add_notice("A Steer follow-up is being promoted. Please send this message again after it starts.")
+            self._refresh_selected_controls()
+            return
+
         if self.runtime is not None and self.runtime.has_queued_inputs(session_id):
             snapshot = self.runtime.session_snapshot(session_id)
             notice = (
