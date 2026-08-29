@@ -10,6 +10,7 @@ from agents import SQLiteSession
 class SessionRecord:
     session_id: str
     title: str | None
+    branch_from_session_id: str | None
     created_at: str
     updated_at: str
 
@@ -35,6 +36,14 @@ def init_session_metadata(db_path: str | Path,) -> None:
             )
             """
         )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS session_lineage (
+                session_id TEXT PRIMARY KEY,
+                branch_from_session_id TEXT NOT NULL
+            )
+            """
+        )
         connection.commit()
 
 
@@ -45,11 +54,14 @@ def list_sessions(db_path: str | Path,) -> list[SessionRecord]:
             SELECT
                 sessions.session_id,
                 metadata.title,
+                lineage.branch_from_session_id,
                 sessions.created_at,
                 sessions.updated_at
             FROM agent_sessions AS sessions
             LEFT JOIN extra_session_metadata AS metadata
                 ON metadata.session_id = sessions.session_id
+            LEFT JOIN session_lineage AS lineage
+                ON lineage.session_id = sessions.session_id
             ORDER BY sessions.updated_at DESC
             """
         ).fetchall()
@@ -58,8 +70,9 @@ def list_sessions(db_path: str | Path,) -> list[SessionRecord]:
         SessionRecord(
             session_id=row[0],
             title=row[1],
-            created_at=row[2],
-            updated_at=row[3],
+            branch_from_session_id=row[2],
+            created_at=row[3],
+            updated_at=row[4],
         )
         for row in rows
     ]
@@ -109,11 +122,46 @@ def set_session_title(db_path: str | Path, session_id: str, title: str,) -> None
         connection.commit()
 
 
+def get_session_branch_from(db_path: str | Path, session_id: str,) -> str | None:
+    with closing(sqlite3.connect(db_path)) as connection:
+        row = connection.execute(
+            """
+            SELECT branch_from_session_id
+            FROM session_lineage
+            WHERE session_id = ?
+            """,
+            (session_id,),
+        ).fetchone()
+
+    return row[0] if row else None
+
+
+def set_session_branch_from(db_path: str | Path, session_id: str, branch_from_session_id: str,) -> None:
+    with closing(sqlite3.connect(db_path)) as connection:
+        connection.execute(
+            """
+            INSERT INTO session_lineage (session_id, branch_from_session_id)
+            VALUES (?, ?)
+            ON CONFLICT(session_id) DO UPDATE
+            SET branch_from_session_id = excluded.branch_from_session_id
+            """,
+            (session_id, branch_from_session_id),
+        )
+        connection.commit()
+
+
 def delete_session_metadata(db_path: str | Path, session_id: str,) -> None:
     with closing(sqlite3.connect(db_path)) as connection:
         connection.execute(
             """
             DELETE FROM extra_session_metadata
+            WHERE session_id = ?
+            """,
+            (session_id,),
+        )
+        connection.execute(
+            """
+            DELETE FROM session_lineage
             WHERE session_id = ?
             """,
             (session_id,),

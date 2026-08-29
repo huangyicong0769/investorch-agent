@@ -38,7 +38,7 @@ class SessionSidebar(ListView):
 
         if current_session_id not in session_ids:
             records = [
-                SessionRecord(current_session_id, None, "", ""),
+                SessionRecord(current_session_id, None, None, "", ""),
                 *records,
             ]
 
