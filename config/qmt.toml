@@ -36,6 +36,18 @@ base_url = "https://api.deepseek.com"
 api_key_secret = "DEEPSEEK_API_KEY"
 reasoning_effort = "high"
 
+[models.compact]
+name = "deepseek-v4-flash"
+base_url = "https://api.deepseek.com"
+api_key_secret = "DEEPSEEK_API_KEY"
+context_window_tokens = 1000000
+reasoning_effort = "high"
+
+[compaction]
+auto_enabled = true
+trigger_ratio = 0.80
+max_output_tokens = 16384
+
 [activity]
 max_user_message_chars = 2000
 max_reasoning_chars = 3000

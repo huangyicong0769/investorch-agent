@@ -13,7 +13,7 @@ import tomlkit
 
 REDACTED = "<redacted>"
 PROJECT_CONFIG_PATH = Path(__file__).resolve().parents[2] / "config" / "qmt.toml"
-REQUIRED_MODEL_AGENTS = ("main", "title", "activity", "bootstrap", "permission")
+REQUIRED_MODEL_AGENTS = ("main", "title", "activity", "bootstrap", "permission", "compact")
 REASONING_EFFORTS = ("none", "minimal", "low", "medium", "high", "xhigh", "max")
 PERMISSION_MODES = ("manual", "review")
 
@@ -521,6 +521,15 @@ def _require_number(data: dict[str, Any], key: str, *, minimum: float = 0) -> in
     return value
 
 
+def _require_ratio(data: dict[str, Any], key: str) -> int | float:
+    value = _required_config_value(data, key)
+
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not 0 < value < 1:
+        raise ConfigError(f"{key} must be a finite number greater than 0 and less than 1")
+
+    return value
+
+
 def _validate_config_data(data: dict[str, Any], root: Path) -> None:
     _require_string(data, "paths.root")
     all_models = data.get("models")
@@ -546,6 +555,10 @@ def _validate_config_data(data: dict[str, Any], root: Path) -> None:
     _require_int(data, "activity.max_reasoning_chars", minimum=1)
     _require_int(data, "activity.max_argument_chars", minimum=1)
     _require_int(data, "activity.max_label_chars", minimum=1)
+
+    _require_bool(data, "compaction.auto_enabled")
+    _require_ratio(data, "compaction.trigger_ratio")
+    _require_int(data, "compaction.max_output_tokens", minimum=1)
 
     permission_mode = _require_string(data, "permission.mode")
     if permission_mode not in PERMISSION_MODES:
