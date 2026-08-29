@@ -25,7 +25,13 @@ class CompactionResult:
 
 
 class SessionHistoryRestoreError(RuntimeError):
-    pass
+    def __init__(self, restore_error: BaseException) -> None:
+        super().__init__("Session history restoration failed after compaction replacement failure.")
+        self.restore_error = restore_error
+
+
+def session_history_restore_failed(error: BaseException) -> bool:
+    return isinstance(error.__cause__, SessionHistoryRestoreError)
 
 
 def create_compaction_agent(model: OpenAIResponsesModel, model_settings: ModelSettings) -> Agent:
@@ -58,7 +64,9 @@ async def _replace_session_history(
                     await session.add_items(previous_items)
         except BaseException as restore_error:
             logger.exception("Failed to restore session history after compaction replacement failure")
-            raise SessionHistoryRestoreError("Session history restoration failed after compaction replacement failure.") from original_error
+            marker = SessionHistoryRestoreError(restore_error)
+            marker.__cause__ = restore_error
+            raise original_error from marker
         raise
 
 

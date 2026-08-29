@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 from agents import SQLiteSession
 
-from qmt_agent.agents import CompactionResult, SessionHistoryRestoreError
+from qmt_agent.agents import CompactionResult, session_history_restore_failed
 from qmt_agent.config import PERMISSION_MODES, REASONING_EFFORTS
 from qmt_agent.context import AppState
 from qmt_agent.storage import (
@@ -164,10 +164,10 @@ async def dispatch_command(command: Command, state: AppState, *, compact_handler
                 return CommandResult("Context compaction is unavailable in this runtime.")
             try:
                 result = await compact_handler(state.session)
-            except SessionHistoryRestoreError:
-                logger.exception("Manual context compaction failed and session history restoration was unsuccessful")
-                return CommandResult("Context compaction failed and context storage may be damaged. Stop this session and see the system log.")
-            except Exception:
+            except Exception as exc:
+                if session_history_restore_failed(exc):
+                    logger.exception("Manual context compaction failed and session history restoration was unsuccessful")
+                    return CommandResult("Context compaction failed and context storage may be damaged. Stop this session and see the system log.")
                 logger.exception("Manual context compaction failed; existing context was kept")
                 return CommandResult("Context compaction failed; existing context was kept. See the system log.")
             if not result.changed:

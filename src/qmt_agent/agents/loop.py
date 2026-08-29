@@ -9,7 +9,7 @@ from qmt_agent.config import AppConfig
 from qmt_agent.context import AgentContext, ExecutionState
 from qmt_agent.output import AssistantMessage, OutputHandler, consume_run_events
 
-from .compact import CompactionResult, SessionHistoryRestoreError, compact_session
+from .compact import CompactionResult, compact_session, session_history_restore_failed
 from .title import ensure_session_title
 from .usage import TokenUsage
 
@@ -139,22 +139,23 @@ class AgentLoop:
         threshold = math.floor(context_window_tokens * trigger_ratio)
         try:
             result = await self.compact(session)
-        except SessionHistoryRestoreError:
-            logger.exception(
-                "Automatic context compaction failed and session history restoration was unsuccessful: session=%s context_tokens=%d threshold=%d",
-                session.session_id,
-                context_tokens,
-                threshold,
-            )
-            return None, True, True
-        except Exception:
-            logger.exception(
-                "Automatic context compaction failed; existing context was kept: session=%s context_tokens=%d threshold=%d",
-                session.session_id,
-                context_tokens,
-                threshold,
-            )
-            return None, True, False
+        except Exception as exc:
+            consistency_uncertain = session_history_restore_failed(exc)
+            if consistency_uncertain:
+                logger.exception(
+                    "Automatic context compaction failed and session history restoration was unsuccessful: session=%s context_tokens=%d threshold=%d",
+                    session.session_id,
+                    context_tokens,
+                    threshold,
+                )
+            else:
+                logger.exception(
+                    "Automatic context compaction failed; existing context was kept: session=%s context_tokens=%d threshold=%d",
+                    session.session_id,
+                    context_tokens,
+                    threshold,
+                )
+            return None, True, consistency_uncertain
 
         if result.changed:
             logger.info(
