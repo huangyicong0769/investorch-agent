@@ -124,6 +124,8 @@ class Composer(Vertical):
         self.query_one("#composer-input", TextArea).focus()
 
     def submit(self) -> None:
+        if self.query_one("#composer-approval").display:
+            return
         text = self.text
         if text.strip():
             self.post_message(self.Submitted(text))
@@ -455,6 +457,8 @@ class QMTAgentTUI(App[None]):
         )
 
     async def on_composer_submitted(self, event: Composer.Submitted) -> None:
+        if self._pending_approvals:
+            return
         composer = self.query_one(Composer)
         try:
             command = parse_command(event.text)
