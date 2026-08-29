@@ -175,8 +175,10 @@ class SessionJournal:
                     "timestamp": datetime.now(self._timezone).isoformat(timespec="milliseconds"),
                     **event,
                 }
-                await asyncio.to_thread(self._append, path, record)
-            except Exception:
+                await _await_filesystem_operation(
+                    asyncio.to_thread(self._append, path, record)
+                )
+            except BaseException:
                 self._next_seq.pop(session_id, None)
                 raise
 
