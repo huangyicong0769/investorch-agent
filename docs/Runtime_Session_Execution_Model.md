@@ -37,6 +37,30 @@ Application
 `interaction.follow_up_behavior`. `AppState.follow_up_behavior` is a view over that
 configuration value rather than a second source of truth.
 
+## Shared application and presentation boundaries
+
+Normal interactive input enters `application.interaction.submit_user_input()` with
+an explicit `session_id`. That use case owns the archive, active-Run, pending-Steer,
+and queued-input routing decision and returns a small acknowledgement identifying the
+Run and optional follow-up. It snapshots the current future defaults into
+`RunOptions`; `AgentRuntime` remains the execution and ownership authority. Selection,
+slash parsing, notices, and widget updates remain client concerns. The sequential
+plain console intentionally continues to start and await one Run at a time.
+
+Cross-layer Session mutations enter `application.sessions.SessionOperations` with an
+explicit Session ID. It coordinates Runtime maintenance reservations, storage,
+journal, and SDK Session mutations for create, unused cleanup, archive, unarchive,
+fork, title, clear, and compact. It never reads or changes
+`AppState.selected_session_id`; command adapters own prefix resolution, selection,
+and user-facing text. Storage-only Session queries remain direct read APIs rather than
+being wrapped in a repository layer.
+
+`presentation.py` is the transport-neutral projection boundary. It converts Runtime
+callbacks, approval lifecycle values, Session records, usage/compaction values, and
+journal pages into explicit JSON-safe dictionaries. `OutputEvent` has one public
+serializer shared by journal history and live projection. The presentation boundary
+does not publish events, manage connections, or introduce a transport framework.
+
 ## Run lifecycle
 
 `AgentRuntime.start_run()` synchronously:
@@ -220,11 +244,25 @@ The Agents SDK SQLite history is model continuation state and may be replaced by
 
 Inactive Session output is not rendered into the selected timeline, but it is still journaled. When the user selects that Session, the TUI reloads its journal. During reload, live output and approval updates are buffered and deduplicated by journal sequence so the final timeline neither loses nor duplicates records.
 
+The existing TUI remains a full-history reference client. A separate
+`read_session_journal_page()` contract supports future bounded responses: records are
+raw append-order records returned in ascending sequence order, `before_seq` is an
+exclusive upper bound, and `has_older` indicates another page. Returned record memory
+is bounded by `limit`, although the first implementation still validates the complete
+file and therefore remains O(file size) in read time. Page boundaries may split a
+tool call from its output or another semantic span. Clients reconcile adjacent pages
+and live events by the original journal sequence; pagination never rewrites,
+duplicates, or synthesizes sequence numbers.
+
 Activity labels are derived annotations. Nearby reasoning is isolated by `run_id`; a Tool call can still receive and persist its label while its Session is not selected.
 
 ## Approval
 
-Every `ApprovalRequest` carries its immutable Run and Session identity plus the captured permission mode.
+Every `ApprovalRequest` carries its immutable Runtime-generated `approval_id`, Run and
+Session identity, plus the captured permission mode. The TUI resolves the exact
+pending Future by `approval_id`, not Python object identity. New approval journal
+records include both `approval_id` and `run_id`; older records without those fields
+remain readable by the existing history projection.
 
 The TUI owns one global FIFO of pending approvals and displays its head in a dedicated
 Approval panel with Session attribution. The panel does not replace or disable the

@@ -923,11 +923,11 @@ storage -> agents
 
 ## 20. Presentation 与执行事实
 
-默认 `qmt-agent` 使用 Textual TUI，`qmt-agent --plain` 保留完整 raw Console fallback。TUI 是 presentation layer，通过 `AgentRuntime` 启动 Run 并消费带 Session/Run 归属的 Runtime output，不进入 `AgentLoop`，也不改变 active Run 的 identity 或 options。
+默认 `qmt-agent` 使用 Textual TUI，`qmt-agent --plain` 保留完整 raw Console fallback。TUI 是 presentation layer：普通输入委托给显式 Session 的 application use case，Session 写操作委托给 `SessionOperations`，并消费带 Session/Run 归属的 Runtime output。`AgentRuntime` 仍拥有 Run 与 follow-up 执行事实；TUI 不进入 `AgentLoop`，也不改变 active Run 的 identity 或 options。
 
 每个 session 的 JSONL Journal 保存 raw user message、reasoning、tool call/output、approval 与 final assistant message。Activity Agent 只为每个 live `ToolCalled` 异步生成一句操作标签，并以 `activity_label target_seq=<tool_called seq>` 追加为 derived annotation。它不使用 Tool 或 SDK Session，不进入 Main Agent context，也不阻塞 stream。
 
-TUI 历史直接全量读取 JSONL；缺少 annotation 时显示真实 tool name，缺少旧 session Journal 时仍可通过 SDK `sessions.db` resume。跨 Session Run 可以并发；inactive output 只写所属 Journal，切回时全量恢复，history load 期间的 live output/approval 通过 journal sequence 暂存去重。当前没有 projection、FTS、EventBus 或第三层 UI 数据库。
+TUI 历史继续全量读取 JSONL；独立分页 API 为后续 transport 提供按原始 record、升序、exclusive `before_seq` 的有限结果集。缺少 annotation 时显示真实 tool name，缺少旧 session Journal 时仍可通过 SDK `sessions.db` resume。跨 Session Run 可以并发；inactive output 只写所属 Journal，切回时全量恢复，history load 期间的 live output/approval 通过 journal sequence 暂存去重。transport-neutral serializer 显式生成 JSON-safe payload；当前没有 Web transport、FTS、EventBus 或第三层 UI 数据库。
 
 ## 21. CNEquity 集成
 
