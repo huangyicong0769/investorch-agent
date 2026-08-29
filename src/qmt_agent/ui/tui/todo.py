@@ -46,24 +46,14 @@ class TodoPanel(Vertical):
     }
     """
 
-    _SYMBOLS = {
-        "pending": "○",
-        "in_progress": "●",
-        "completed": "✓",
-        "failed": "✗",
-    }
+    _SYMBOLS = {"pending": "○", "in_progress": "●", "completed": "✓", "failed": "✗"}
 
     def __init__(self, todos: tuple[TodoItem, ...] = (), **kwargs) -> None:
         super().__init__(**kwargs)
         self._todos = tuple(dict(todo) for todo in todos)
 
     def compose(self) -> ComposeResult:
-        yield Collapsible(
-            Static(markup=False, id="todo-items"),
-            title="Tasks",
-            collapsed=False,
-            id="todo-collapsible",
-        )
+        yield Collapsible(Static(markup=False, id="todo-items"), title="Tasks", collapsed=False, id="todo-collapsible")
 
     def on_mount(self) -> None:
         self._refresh()
@@ -81,8 +71,5 @@ class TodoPanel(Vertical):
         completed = sum(todo["status"] == "completed" for todo in self._todos)
         collapsible = self.query_one("#todo-collapsible", Collapsible)
         collapsible.title = f"Tasks · {completed} / {len(self._todos)}"
-        lines = [
-            f"{self._SYMBOLS[todo['status']]} {todo['content']}"
-            for todo in self._todos
-        ]
+        lines = [f"{self._SYMBOLS[todo['status']]} {todo['content']}" for todo in self._todos]
         self.query_one("#todo-items", Static).update("\n".join(lines))

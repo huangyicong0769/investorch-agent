@@ -30,31 +30,17 @@ def format_json(text: str | None) -> str:
 
 
 class UserMessageWidget(Vertical):
-    def __init__(
-        self,
-        text: str,
-        author_margin_top: int,
-        author_margin_bottom: int,
-        *,
-        author_label: str = "You",
-    ) -> None:
+    def __init__(self, text: str, author_margin_top: int, author_margin_bottom: int, *, author_label: str = "You") -> None:
         author = Label(author_label, classes="message-author")
         author.styles.margin = (author_margin_top, 0, author_margin_bottom, 0)
-        super().__init__(
-            author,
-            Static(text, markup=False, classes="message-content"),
-            classes="user-message",
-        )
+        super().__init__(author, Static(text, markup=False, classes="message-content"), classes="user-message")
 
 
 class AssistantTurnWidget(Vertical):
     def __init__(self, author_margin_top: int, author_margin_bottom: int) -> None:
         author = Label("QMT Agent", classes="message-author")
         author.styles.margin = (author_margin_top, 0, author_margin_bottom, 0)
-        super().__init__(
-            author,
-            classes="assistant-message",
-        )
+        super().__init__(author, classes="assistant-message")
 
     async def add_activity_group(self, group: ActivityGroup) -> None:
         await self.mount(group)
@@ -71,11 +57,7 @@ class SystemNotice(Static):
 class ActivitySection(Vertical):
     def __init__(self, heading: str) -> None:
         self._body = Static(markup=False, classes="activity-section-body")
-        super().__init__(
-            Label(heading, classes="activity-section-heading"),
-            self._body,
-            classes="activity-section",
-        )
+        super().__init__(Label(heading, classes="activity-section-heading"), self._body, classes="activity-section")
         self.display = False
 
     def set_content(self, text: str) -> None:
@@ -97,20 +79,9 @@ class ActivityStep(Collapsible):
         self._tool = ActivitySection("Tool")
         self._approval = ActivitySection("Approval")
         self._observation = ActivitySection("Observation")
-        self._details = VerticalScroll(
-            self._reasoning,
-            self._tool,
-            self._approval,
-            self._observation,
-            classes="activity-details",
-        )
+        self._details = VerticalScroll(self._reasoning, self._tool, self._approval, self._observation, classes="activity-details")
         self._details.styles.max_height = detail_max_height
-        super().__init__(
-            self._details,
-            title=title,
-            collapsed=True,
-            classes="activity-step",
-        )
+        super().__init__(self._details, title=title, collapsed=True, classes="activity-step")
 
     def append_reasoning(self, text: str) -> None:
         self.reasoning_parts.append(text)
@@ -129,14 +100,7 @@ class ActivityStep(Collapsible):
     def set_observation(self, output: str) -> None:
         self._observation.set_content(output)
 
-    def set_approval(
-        self,
-        approved: bool,
-        *,
-        source: str | None = None,
-        review_decision: str | None = None,
-        review_reason: str | None = None,
-    ) -> None:
+    def set_approval(self, approved: bool, *, source: str | None = None, review_decision: str | None = None, review_reason: str | None = None) -> None:
         if source == "permission":
             text = "✓ Auto-approved" if approved else "✗ Auto-rejected"
         elif source == "user":
@@ -162,12 +126,7 @@ class ActivityGroup(Collapsible):
         self._latest_step: ActivityStep | None = None
         self._steps = VerticalScroll(classes="activity-step-list")
         self._steps.styles.max_height = panel_max_height
-        super().__init__(
-            self._steps,
-            title="正在思考…",
-            collapsed=True,
-            classes="activity-group",
-        )
+        super().__init__(self._steps, title="正在思考…", collapsed=True, classes="activity-group")
 
     async def add_step(self, step: ActivityStep) -> None:
         step.group = self
@@ -223,10 +182,7 @@ class ChatTimeline(VerticalScroll):
 
     async def _ensure_assistant_turn(self) -> AssistantTurnWidget:
         if self._current_assistant_turn is None:
-            self._current_assistant_turn = AssistantTurnWidget(
-                self._message_author_margin_top,
-                self._message_author_margin_bottom,
-            )
+            self._current_assistant_turn = AssistantTurnWidget(self._message_author_margin_top, self._message_author_margin_bottom)
             await self.mount(self._current_assistant_turn)
         return self._current_assistant_turn
 
@@ -234,25 +190,12 @@ class ChatTimeline(VerticalScroll):
         self._finish_activity()
         self._current_assistant_turn = None
         self._active_agent_name = self._initial_agent_name
-        await self.mount(
-            UserMessageWidget(
-                text,
-                self._message_author_margin_top,
-                self._message_author_margin_bottom,
-            )
-        )
+        await self.mount(UserMessageWidget(text, self._message_author_margin_top, self._message_author_margin_bottom))
         self.scroll_end(animate=False)
 
     async def add_steer_message(self, text: str) -> None:
         self._finish_assistant_turn()
-        await self.mount(
-            UserMessageWidget(
-                text,
-                self._message_author_margin_top,
-                self._message_author_margin_bottom,
-                author_label="You · Steer",
-            )
-        )
+        await self.mount(UserMessageWidget(text, self._message_author_margin_top, self._message_author_margin_bottom, author_label="You · Steer"))
         self.scroll_end(animate=False)
 
     async def add_assistant_message(self, text: str) -> None:
@@ -314,9 +257,7 @@ class ChatTimeline(VerticalScroll):
             (
                 candidate
                 for candidate in self._tool_steps
-                if not candidate.approval_recorded
-                and candidate.tool_name == tool_name
-                and candidate.tool_arguments == arguments
+                if not candidate.approval_recorded and candidate.tool_name == tool_name and candidate.tool_arguments == arguments
             ),
             None,
         )
@@ -325,12 +266,7 @@ class ChatTimeline(VerticalScroll):
             await self.add_notice("Tool action approved." if approved else "Tool action rejected.")
             return
 
-        step.set_approval(
-            approved,
-            source=source,
-            review_decision=review_decision,
-            review_reason=review_reason,
-        )
+        step.set_approval(approved, source=source, review_decision=review_decision, review_reason=review_reason)
 
     async def add_tool_output(self, output: str) -> ActivityStep:
         follow_output = self.is_vertical_scroll_end
@@ -392,10 +328,7 @@ class ChatTimeline(VerticalScroll):
                 await self.add_reasoning(record["text"])
             elif event_type == "tool_called" and isinstance(record.get("name"), str):
                 arguments = record.get("arguments")
-                step = await self.add_tool_call(
-                    record["name"],
-                    arguments if isinstance(arguments, str) else None,
-                )
+                step = await self.add_tool_call(record["name"], arguments if isinstance(arguments, str) else None)
                 seq = record["seq"]
                 if type(seq) is int:
                     step.target_seq = seq

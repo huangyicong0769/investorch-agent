@@ -54,14 +54,7 @@ class QueuePanel(Vertical):
             super().__init__()
             self.session_id = session_id
 
-    def __init__(
-        self,
-        queued_inputs: list[QueuedInput] | None = None,
-        *,
-        session_id: str = "",
-        paused: bool = False,
-        **kwargs,
-    ) -> None:
+    def __init__(self, queued_inputs: list[QueuedInput] | None = None, *, session_id: str = "", paused: bool = False, **kwargs) -> None:
         super().__init__(**kwargs)
         self._session_id = session_id
         self._queued_inputs = list(queued_inputs or ())
@@ -71,22 +64,12 @@ class QueuePanel(Vertical):
         yield Label(id="queue-heading", classes="queue-heading")
         yield Label(markup=False, id="queue-preview-1", classes="queue-preview")
         yield Label(markup=False, id="queue-preview-2", classes="queue-preview")
-        yield Horizontal(
-            Button("Resume", variant="success", id="queue-resume"),
-            Button("Clear", variant="warning", id="queue-clear"),
-            classes="queue-actions",
-        )
+        yield Horizontal(Button("Resume", variant="success", id="queue-resume"), Button("Clear", variant="warning", id="queue-clear"), classes="queue-actions")
 
     def on_mount(self) -> None:
         self._refresh()
 
-    def replace_queue(
-        self,
-        session_id: str,
-        queued_inputs: list[QueuedInput],
-        *,
-        paused: bool,
-    ) -> None:
+    def replace_queue(self, session_id: str, queued_inputs: list[QueuedInput], *, paused: bool) -> None:
         self._session_id = session_id
         self._queued_inputs = list(queued_inputs)
         self._paused = paused
