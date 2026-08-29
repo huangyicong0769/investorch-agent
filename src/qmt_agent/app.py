@@ -94,7 +94,13 @@ async def _run_console(
         except Exception:
             logger.exception("Failed to append user message to session journal for session %s", session_id)
 
-        await agent_loop.run(user_input, state.session, state.execution)
+        result = await agent_loop.run(user_input, state.session, state.execution)
+        if result.auto_compaction is not None and result.auto_compaction.changed:
+            ui.write("Context compacted automatically.")
+        elif result.auto_compaction_consistency_uncertain:
+            ui.write("Automatic context compaction failed and context storage may be damaged. Stop this session and see the system log.")
+        elif result.auto_compaction_failed:
+            ui.write("Automatic context compaction failed; existing context was kept. Use /compact to retry.")
 
 
 async def run_app(sync: bool = False, sync_force: bool = False, plain: bool = False) -> None:

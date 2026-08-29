@@ -519,10 +519,13 @@ class QMTAgentTUI(App[None]):
             f"| Main context · {context_used} / {capacity}"
         )
 
-    def _add_usage(self, session_id: str, usage: TokenUsage, *, main_context: bool = False) -> None:
+    def _add_usage(self, session_id: str, usage: TokenUsage) -> None:
         self._session_usage[session_id] = self._session_usage.get(session_id, TokenUsage()) + usage
-        if main_context:
-            self._main_context_tokens[session_id] = usage.last_request_total_tokens
+        if session_id == self.state.session.session_id:
+            self.query_one("#usage-status", Static).update(self._format_usage_status())
+
+    def _set_main_context_tokens(self, session_id: str, context_tokens: int | None) -> None:
+        self._main_context_tokens[session_id] = context_tokens
         if session_id == self.state.session.session_id:
             self.query_one("#usage-status", Static).update(self._format_usage_status())
 
@@ -693,6 +696,9 @@ class QMTAgentTUI(App[None]):
                 exit_on_error=False,
             )
         else:
+            if result.compaction is not None:
+                self._add_usage(new_session_id, result.compaction.usage)
+                self._set_main_context_tokens(new_session_id, None)
             if result.output:
                 await timeline.add_notice(result.output)
             if command.name == "effort":
@@ -740,8 +746,19 @@ class QMTAgentTUI(App[None]):
         try:
             assert self.agent_loop is not None
             result = await self.agent_loop.run(user_message, session, self.state.execution)
-            self._add_usage(session_id, result.main_usage, main_context=True)
+            self._add_usage(session_id, result.main_usage)
+            compacted = result.auto_compaction is not None and result.auto_compaction.changed
+            self._set_main_context_tokens(session_id, None if compacted else result.main_usage.last_request_total_tokens)
             self._add_usage(session_id, result.auxiliary_usage)
+            if compacted:
+                context_tokens = result.main_usage.last_request_total_tokens
+                capacity = self.state.config.model("main").context_window_tokens
+                assert context_tokens is not None and capacity is not None
+                await self.query_one(ChatTimeline).add_notice(f"Context compacted automatically after Main context reached {context_tokens / capacity:.1%} of capacity.")
+            elif result.auto_compaction_consistency_uncertain:
+                await self.query_one(ChatTimeline).add_notice("Automatic context compaction failed and context storage may be damaged. Stop this session and see the system log.")
+            elif result.auto_compaction_failed:
+                await self.query_one(ChatTimeline).add_notice("Automatic context compaction failed; existing context was kept. Use /compact to retry.")
         except Exception:
             logger.exception("Agent run failed for session %s", session_id)
             await self.query_one(ChatTimeline).add_notice("Agent run failed. See the system log for details.")
