@@ -28,10 +28,12 @@ from qmt_agent.runtime import (
     RunOptions,
     RuntimeFollowUpEvent,
     RuntimeRunEnded,
+    RuntimeSessionSnapshot,
     SessionBusyError,
 )
 from qmt_agent.storage import get_session_title, list_sessions
 
+from .queue import QueuePanel
 from .sidebar import SessionSidebar
 from .timeline import ActivityStep, ChatTimeline, format_json
 
@@ -465,6 +467,7 @@ class QMTAgentTUI(App[None]):
                     initial_agent_name=self._main_agent_name,
                     id="timeline",
                 ),
+                QueuePanel(id="queue-panel"),
                 Composer(
                     self.state.config["tui.composer_height"],
                     self.state.config["tui.approval_arguments_max_height"],
@@ -530,6 +533,17 @@ class QMTAgentTUI(App[None]):
             self._refresh_selected_controls()
             return
 
+        if self.runtime is not None and self.runtime.has_queued_inputs(session_id):
+            snapshot = self.runtime.session_snapshot(session_id)
+            notice = (
+                "Queued follow-ups are paused. Resume or clear them before sending a new message."
+                if snapshot.queue_paused
+                else "Queued follow-ups are pending. Wait for the next Run or clear them first."
+            )
+            await self.query_one(ChatTimeline).add_notice(notice)
+            self._refresh_selected_controls()
+            return
+
         composer.clear()
         await self._start_agent_run(event.text)
 
@@ -558,10 +572,41 @@ class QMTAgentTUI(App[None]):
         self._show_pending_approval()
 
     def action_quit(self) -> None:
-        if self.runtime is not None and self.runtime.has_active_runs():
-            self.notify("Wait for all active Agent runs to finish before exiting.", severity="warning")
+        if self.runtime is not None and (
+            self.runtime.has_active_runs() or self.runtime.has_queued_inputs()
+        ):
+            self.notify(
+                "Stop or finish active Runs and clear queued follow-ups before exiting.",
+                severity="warning",
+            )
             return
         self.exit()
+
+    async def on_queue_panel_clear_requested(
+        self,
+        event: QueuePanel.ClearRequested,
+    ) -> None:
+        if self.runtime is None:
+            return
+        count = self.runtime.clear_queue(event.session_id)
+        if event.session_id == self.state.selected_session_id:
+            await self.query_one(ChatTimeline).add_notice(
+                f"Cleared {count} queued follow-up{'s' if count != 1 else ''}."
+            )
+        self._refresh_selected_controls()
+
+    async def on_queue_panel_resume_requested(
+        self,
+        event: QueuePanel.ResumeRequested,
+    ) -> None:
+        if self.runtime is None:
+            return
+        try:
+            await self.runtime.resume_queue(event.session_id)
+        except (SessionBusyError, ValueError) as exc:
+            if event.session_id == self.state.selected_session_id:
+                await self.query_one(ChatTimeline).add_notice(str(exc))
+        self._refresh_selected_controls()
 
     def _format_run_status(self) -> str:
         selected_session_id = self.state.selected_session_id
@@ -639,6 +684,10 @@ class QMTAgentTUI(App[None]):
     def bind_runtime(self, runtime: AgentRuntime) -> None:
         self.runtime = runtime
         self._main_agent_name = runtime.agent_name
+
+    def handle_runtime_state(self, snapshot: RuntimeSessionSnapshot) -> None:
+        if self.is_running and snapshot.session_id == self.state.selected_session_id:
+            self.call_later(self._refresh_selected_controls)
 
     async def handle_output(
         self,
@@ -818,12 +867,12 @@ class QMTAgentTUI(App[None]):
             else:
                 await self._render_live_follow_up(event)
 
-        if event.kind == "steer_fallback_promoted" and self.is_running:
+        if event.kind in {"steer_fallback_promoted", "queue_promoted"} and self.is_running:
             try:
                 await self.refresh_sessions()
             except Exception:
                 logger.exception(
-                    "Failed to refresh sessions after Steer fallback promotion"
+                    "Failed to refresh sessions after follow-up promotion"
                 )
 
     async def _render_live_follow_up(self, event: RuntimeFollowUpEvent) -> None:
@@ -841,6 +890,20 @@ class QMTAgentTUI(App[None]):
                     event.journal_seq,
                     self._last_rendered_seq.get(event.session_id, 0),
                 )
+            return
+
+        if event.kind == "queue_submitted":
+            return
+
+        if event.kind == "queue_promoted":
+            if (
+                event.journal_seq is not None
+                and event.journal_seq <= self._last_rendered_seq.get(event.session_id, 0)
+            ):
+                return
+            await self.query_one(ChatTimeline).add_user_message(event.text)
+            if event.journal_seq is not None:
+                self._last_rendered_seq[event.session_id] = event.journal_seq
             return
 
         await self.query_one(ChatTimeline).add_notice(_STEER_FALLBACK_NOTICE)
@@ -1150,6 +1213,13 @@ class QMTAgentTUI(App[None]):
             running=active_run is not None,
             follow_up_behavior=follow_up_behavior,
         )
+        if self.runtime is not None:
+            snapshot = self.runtime.session_snapshot(selected_session_id)
+            self.query_one(QueuePanel).replace_queue(
+                selected_session_id,
+                self.runtime.list_queued_inputs(selected_session_id),
+                paused=snapshot.queue_paused,
+            )
         self._refresh_run_status()
 
     async def _generate_step_activity(

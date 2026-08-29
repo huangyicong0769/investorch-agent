@@ -37,6 +37,7 @@ from qmt_agent.runtime import (
     RuntimeFollowUpEvent,
     RuntimeOutput,
     RuntimeRunEnded,
+    RuntimeSessionSnapshot,
 )
 from qmt_agent.storage import create_session
 from qmt_agent.tools import close_execution, start_execution
@@ -229,11 +230,12 @@ async def _run_configured_app(
     renderer = ConsoleRenderer(ui) if plain else None
     tui: QMTAgentTUI | None = None
 
-    async def record_user_message(session_id: str, text: str) -> None:
+    async def record_user_message(session_id: str, text: str) -> int | None:
         try:
-            await journal.record_user_message(session_id, text)
+            return await journal.record_user_message(session_id, text)
         except Exception:
             logger.exception("Failed to append user message to session journal for session %s", session_id)
+            return None
 
     async def record_user_steer(session_id: str, run_id: str, text: str) -> int | None:
         try:
@@ -293,6 +295,10 @@ async def _run_configured_app(
     async def handle_run_ended(event: RuntimeRunEnded) -> None:
         if tui is not None:
             await tui.handle_run_ended(event)
+
+    def handle_runtime_state(snapshot: RuntimeSessionSnapshot) -> None:
+        if tui is not None:
+            tui.handle_runtime_state(snapshot)
 
     async def request_user_approval(
         request: ApprovalRequest,
@@ -399,6 +405,7 @@ async def _run_configured_app(
                     handle_output,
                     handle_approval,
                     record_user_message,
+                    state_handler=handle_runtime_state,
                     run_ended_handler=handle_run_ended,
                     record_user_steer=record_user_steer,
                     follow_up_handler=handle_follow_up,
