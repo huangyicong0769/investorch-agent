@@ -10,7 +10,7 @@ from pathlib import Path
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.containers import Horizontal, Vertical
 from textual.css.query import NoMatches
 from textual.message import Message
 from textual.widgets import Button, Label, ListView, Static, TextArea
@@ -33,9 +33,10 @@ from qmt_agent.runtime import (
 )
 from qmt_agent.storage import get_session_title, list_sessions
 
+from .approval import ApprovalPanel
 from .queue import QueuePanel
 from .sidebar import SessionSidebar
-from .timeline import ActivityStep, ChatTimeline, format_json
+from .timeline import ActivityStep, ChatTimeline
 from .todo import TodoPanel
 
 logger = logging.getLogger(__name__)
@@ -69,7 +70,9 @@ class BufferedApproval:
 
 @dataclass(slots=True)
 class PendingApproval:
+    approval_key: int
     request: ApprovalRequest
+    session_title: str | None
     review_reason: str | None
     future: asyncio.Future[bool]
 
@@ -80,57 +83,30 @@ class Composer(Vertical):
             super().__init__()
             self.text = text
 
-    class ApprovalResolved(Message):
-        def __init__(self, approved: bool) -> None:
-            super().__init__()
-            self.approved = approved
-
     class StopRequested(Message):
         pass
 
-    def __init__(self, normal_height: int, approval_arguments_max_height: int, **kwargs) -> None:
+    def __init__(self, normal_height: int, **kwargs) -> None:
         super().__init__(**kwargs)
         self._normal_height = normal_height
-        self._approval_arguments_max_height = approval_arguments_max_height
         self._loading = False
 
     def compose(self) -> ComposeResult:
-        yield Vertical(
-            TextArea(
-                placeholder="输入消息……",
-                show_line_numbers=False,
-                soft_wrap=True,
-                id="composer-input",
-            ),
-            Horizontal(
-                Label("Ctrl+Enter / Ctrl+S to send", id="send-hint"),
-                Button("Stop", variant="error", id="stop-button"),
-                Button("Send", variant="primary", id="send-button"),
-                id="composer-actions",
-            ),
-            id="composer-normal",
+        yield TextArea(
+            placeholder="输入消息……",
+            show_line_numbers=False,
+            soft_wrap=True,
+            id="composer-input",
         )
-        yield Vertical(
-            Label("Approval required", id="approval-title"),
-            Static(id="approval-review", markup=False),
-            Static(id="approval-tool", markup=False),
-            VerticalScroll(
-                Static(id="approval-arguments", markup=False),
-                id="approval-arguments-scroll",
-            ),
-            Horizontal(
-                Button("Reject", variant="error", id="reject-button"),
-                Button("Approve", variant="success", id="approve-button"),
-                id="approval-actions",
-            ),
-            id="composer-approval",
+        yield Horizontal(
+            Label("Ctrl+Enter / Ctrl+S to send", id="send-hint"),
+            Button("Stop", variant="error", id="stop-button"),
+            Button("Send", variant="primary", id="send-button"),
+            id="composer-actions",
         )
 
     def on_mount(self) -> None:
         self.styles.height = self._normal_height
-        self.query_one("#approval-arguments-scroll").styles.max_height = self._approval_arguments_max_height
-        self.query_one("#approval-review").display = False
-        self.query_one("#composer-approval").display = False
 
     @property
     def text(self) -> str:
@@ -143,7 +119,7 @@ class Composer(Vertical):
         self.query_one("#composer-input", TextArea).focus()
 
     def submit(self) -> None:
-        if self._loading or self.query_one("#composer-approval").display:
+        if self._loading:
             return
         text = self.text
         if text.strip():
@@ -177,45 +153,11 @@ class Composer(Vertical):
             hint = f"Ctrl+Enter / Ctrl+S to send · Follow-ups: {follow_up_behavior.title()}"
         self.query_one("#send-hint", Label).update(hint)
 
-    def show_approval(
-        self,
-        request: ApprovalRequest,
-        review_reason: str | None = None,
-    ) -> None:
-        formatted = format_json(request.arguments)
-        self.query_one("#approval-title", Label).update(
-            f"Approval required · Session {request.session_id[:8]}"
-        )
-        self.query_one("#approval-review", Static).update(
-            f"AutoReview · ASK\n{review_reason}" if review_reason is not None else ""
-        )
-        self.query_one("#approval-review").display = review_reason is not None
-        self.query_one("#approval-tool", Static).update(f"Tool · {request.tool_name}")
-        self.query_one("#approval-arguments", Static).update(formatted)
-        self.query_one("#approval-arguments-scroll").display = bool(formatted)
-        self.query_one("#composer-normal").display = False
-        self.query_one("#composer-approval").display = True
-        self.styles.height = "auto"
-        self.query_one("#reject-button", Button).focus()
-
-    def hide_approval(self) -> None:
-        self.query_one("#composer-approval").display = False
-        self.query_one("#composer-normal").display = True
-        self.styles.height = self._normal_height
-
-    def resolve_approval(self, approved: bool) -> None:
-        if self.query_one("#composer-approval").display:
-            self.post_message(self.ApprovalResolved(approved))
-
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "send-button":
             self.submit()
         elif event.button.id == "stop-button":
             self.post_message(self.StopRequested())
-        elif event.button.id == "approve-button":
-            self.resolve_approval(True)
-        elif event.button.id == "reject-button":
-            self.resolve_approval(False)
 
 
 class QMTAgentTUI(App[None]):
@@ -397,37 +339,6 @@ class QMTAgentTUI(App[None]):
         margin-left: 1;
     }
 
-    #composer-normal, #composer-approval {
-        height: auto;
-    }
-
-    #approval-title {
-        text-style: bold;
-    }
-
-    #approval-tool {
-        color: $warning;
-    }
-
-    #approval-review {
-        height: auto;
-        color: $text-muted;
-    }
-
-    #approval-arguments-scroll, #approval-arguments {
-        height: auto;
-    }
-
-    #approval-actions {
-        height: 3;
-        align-horizontal: right;
-    }
-
-    #reject-button, #approve-button {
-        min-width: 12;
-        margin-left: 1;
-    }
-
     .sidebar-hidden #session-sidebar {
         display: none;
     }
@@ -450,6 +361,7 @@ class QMTAgentTUI(App[None]):
         self.runtime: AgentRuntime | None = None
         self.session_title: str | None = None
         self._known_session_ids: set[str] = set()
+        self._session_titles: dict[str, str | None] = {}
         self._session_usage: dict[str, TokenUsage] = {}
         self._main_context_tokens: dict[str, int | None] = {}
         self._main_agent_name: str | None = None
@@ -490,9 +402,12 @@ class QMTAgentTUI(App[None]):
                 ),
                 TodoPanel(id="todo-panel"),
                 QueuePanel(id="queue-panel"),
+                ApprovalPanel(
+                    self.state.config["tui.approval_arguments_max_height"],
+                    id="approval-panel",
+                ),
                 Composer(
                     self.state.config["tui.composer_height"],
-                    self.state.config["tui.approval_arguments_max_height"],
                     id="composer",
                 ),
                 id="conversation-pane",
@@ -586,12 +501,19 @@ class QMTAgentTUI(App[None]):
         await self._dispatch_command(Command("stop", ()))
 
     def action_reject_approval(self) -> None:
-        self.query_one(Composer).resolve_approval(False)
+        self.query_one(ApprovalPanel).resolve(False)
 
-    def on_composer_approval_resolved(self, event: Composer.ApprovalResolved) -> None:
+    def on_approval_panel_resolved(self, event: ApprovalPanel.Resolved) -> None:
         if not self._pending_approvals:
             return
-        pending = self._pending_approvals.popleft()
+        pending = self._pending_approvals[0]
+        if (
+            pending.approval_key != event.approval_key
+            or pending.request.run_id != event.run_id
+        ):
+            self._show_pending_approval()
+            return
+        self._pending_approvals.popleft()
         if not pending.future.done():
             pending.future.set_result(event.approved)
         self._show_pending_approval()
@@ -639,13 +561,9 @@ class QMTAgentTUI(App[None]):
     def _format_run_status(self) -> str:
         selected_session_id = self.state.selected_session_id
         active_run = self.runtime.get_active_run(selected_session_id) if self.runtime is not None else None
-        waiting_approval = any(
-            pending.request.session_id == selected_session_id
-            for pending in self._pending_approvals
-        )
         run_status = (
             "Waiting approval"
-            if waiting_approval
+            if active_run is not None and active_run.phase == "waiting_approval"
             else "Stopping"
             if active_run is not None and active_run.phase == "stopping"
             else "Running"
@@ -840,30 +758,38 @@ class QMTAgentTUI(App[None]):
         review_reason: str | None = None,
     ) -> bool:
         future = asyncio.get_running_loop().create_future()
-        pending = PendingApproval(request=request, review_reason=review_reason, future=future)
+        pending = PendingApproval(
+            approval_key=id(future),
+            request=request,
+            session_title=self._session_titles.get(request.session_id),
+            review_reason=review_reason,
+            future=future,
+        )
         self._pending_approvals.append(pending)
-        if len(self._pending_approvals) == 1:
-            self._show_pending_approval()
+        self._show_pending_approval()
         try:
             return await future
         finally:
             if pending in self._pending_approvals:
-                was_head = self._pending_approvals[0] is pending
                 self._pending_approvals.remove(pending)
-                if was_head:
-                    self._show_pending_approval()
+                self._show_pending_approval()
 
     def _show_pending_approval(self) -> None:
         try:
-            composer = self.query_one(Composer)
+            panel = self.query_one(ApprovalPanel)
         except NoMatches:
             return
         if self._pending_approvals:
             pending = self._pending_approvals[0]
-            composer.show_approval(pending.request, pending.review_reason)
+            panel.replace_approval(
+                pending.request,
+                approval_key=pending.approval_key,
+                session_title=pending.session_title,
+                review_reason=pending.review_reason,
+                pending_count=len(self._pending_approvals),
+            )
         else:
-            composer.hide_approval()
-            composer.focus_input()
+            panel.replace_approval(None)
         self._refresh_selected_controls()
 
     async def report_tool_approval(
@@ -1043,6 +969,10 @@ class QMTAgentTUI(App[None]):
     async def refresh_sessions(self) -> None:
         records = await asyncio.to_thread(list_sessions, self.state.config.sessions_db)
         self._known_session_ids = {record.session_id for record in records}
+        self._session_titles = {
+            record.session_id: record.title
+            for record in records
+        }
         current_session_id = self.state.selected_session_id
         active_session_ids = (
             {run.session_id for run in self.runtime.list_active_runs()}
