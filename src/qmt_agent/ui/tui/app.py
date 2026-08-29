@@ -18,6 +18,13 @@ from textual.message import Message
 from textual.widgets import Button, Label, ListView, Static, TextArea
 
 from qmt_agent.agents import TokenUsage, generate_activity_label
+from qmt_agent.application import (
+    ActiveRunChangedError,
+    ArchivedSessionInputError,
+    QueuedFollowUpsPendingError,
+    SteerPromotionPendingError,
+    submit_user_input,
+)
 from qmt_agent.commands import Command, dispatch_command, parse_command
 from qmt_agent.context import AppState, TodoItem
 from qmt_agent.journal import SessionJournal, read_session_journal
@@ -25,7 +32,6 @@ from qmt_agent.output import OutputEvent, Reasoning, ToolCalled
 from qmt_agent.runtime import (
     AgentRuntime,
     ApprovalRequest,
-    RunOptions,
     RuntimeFollowUpEvent,
     RuntimeRunEnded,
     RuntimeSessionSnapshot,
@@ -34,7 +40,6 @@ from qmt_agent.runtime import (
 from qmt_agent.storage import (
     SessionRecord,
     get_session_title,
-    is_session_archived,
     list_sessions,
 )
 
@@ -432,52 +437,43 @@ class QMTAgentTUI(App[None]):
         if self._loading_session_id == session_id:
             return
 
-        if await asyncio.to_thread(is_session_archived, self.state.config.sessions_db, session_id):
+        if self.runtime is None:
+            await self.query_one(ChatTimeline).add_notice("Agent runtime is not ready.")
+            return
+
+        try:
+            submission = await submit_user_input(state=self.state, runtime=self.runtime, session_id=session_id, text=event.text)
+        except ArchivedSessionInputError:
             await self.query_one(ChatTimeline).add_notice("Archived sessions are read-only. Unarchive or switch sessions first.")
             return
-
-        if self.runtime is not None and self.runtime.is_session_active(session_id):
-            try:
-                await self.runtime.submit_follow_up(
-                    session_id,
-                    event.text,
-                    RunOptions(
-                        reasoning_effort=self.state.main_reasoning_effort,
-                        permission_mode=self.state.permission_mode,
-                        follow_up_behavior=self.state.follow_up_behavior,
-                    ),
-                )
-            except SessionBusyError:
-                await self.query_one(ChatTimeline).add_notice("The active Run changed before this follow-up could be submitted. Please send it again.")
-                self._refresh_selected_controls()
-                return
-            except Exception:
-                logger.exception("Failed to save follow-up input session=%s", session_id)
-                await self.query_one(ChatTimeline).add_notice("Follow-up could not be saved and was not sent. Please try again.")
-                self._refresh_selected_controls()
-                return
-            composer.clear()
-            self._refresh_selected_controls()
-            return
-
-        if self.runtime is not None and self.runtime.session_snapshot(session_id).pending_steer_count:
+        except SteerPromotionPendingError:
             await self.query_one(ChatTimeline).add_notice("A Steer follow-up is being promoted. Please send this message again after it starts.")
             self._refresh_selected_controls()
             return
-
-        if self.runtime is not None and self.runtime.has_queued_inputs(session_id):
-            snapshot = self.runtime.session_snapshot(session_id)
+        except QueuedFollowUpsPendingError as exc:
             notice = (
                 "Queued follow-ups are paused. Resume or clear them before sending a new message."
-                if snapshot.queue_paused
+                if exc.paused
                 else "Queued follow-ups are pending. Wait for the next Run or clear them first."
             )
             await self.query_one(ChatTimeline).add_notice(notice)
             self._refresh_selected_controls()
             return
+        except ActiveRunChangedError:
+            await self.query_one(ChatTimeline).add_notice("The active Run changed before this input could be submitted. Please send it again.")
+            self._refresh_selected_controls()
+            return
+        except Exception:
+            logger.exception("Failed to submit user input session=%s", session_id)
+            await self.query_one(ChatTimeline).add_notice("Input could not be saved and was not sent. Please try again.")
+            self._refresh_selected_controls()
+            return
 
         composer.clear()
-        await self._start_agent_run(event.text)
+        if submission.disposition == "run_started":
+            await self.query_one(ChatTimeline).add_user_message(event.text)
+            await self.refresh_sessions()
+        self._refresh_selected_controls()
 
     async def on_list_view_selected(self, event: ListView.Selected) -> None:
         item = event.item
@@ -1029,32 +1025,6 @@ class QMTAgentTUI(App[None]):
         await self._load_session_history(session_id)
         if notice and session_id == self.state.selected_session_id:
             await self.query_one(ChatTimeline).add_notice(notice)
-
-    async def _start_agent_run(self, user_message: str) -> None:
-        timeline = self.query_one(ChatTimeline)
-        if self.runtime is None:
-            await timeline.add_notice("Agent runtime is not ready.")
-            return
-
-        session_id = self.state.selected_session_id
-        await timeline.add_user_message(user_message)
-
-        try:
-            self.runtime.start_run(
-                session_id,
-                user_message,
-                RunOptions(
-                    reasoning_effort=self.state.main_reasoning_effort,
-                    permission_mode=self.state.permission_mode,
-                    follow_up_behavior=self.state.follow_up_behavior,
-                ),
-            )
-        except SessionBusyError:
-            await timeline.add_notice("This session already has an active Agent run.")
-            self._refresh_selected_controls()
-            return
-        self._refresh_selected_controls()
-        await self.refresh_sessions()
 
     def _refresh_selected_controls(self) -> None:
         selected_session_id = self.state.selected_session_id
