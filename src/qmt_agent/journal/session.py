@@ -9,14 +9,7 @@ from pathlib import Path
 from typing import TypeVar
 from zoneinfo import ZoneInfo
 
-from qmt_agent.output.events import (
-    AgentChanged,
-    AssistantMessage,
-    OutputEvent,
-    Reasoning,
-    ToolCalled,
-    ToolOutput,
-)
+from qmt_agent.output import OutputEvent, serialize_output_event
 
 _T = TypeVar("_T")
 
@@ -62,7 +55,7 @@ class SessionJournal:
         return await self._record(session_id, {"type": "user_steer", "run_id": run_id, "text": text})
 
     async def record_output(self, session_id: str, event: OutputEvent) -> int:
-        return await self._record(session_id, _serialize_output_event(event))
+        return await self._record(session_id, serialize_output_event(event))
 
     async def record_approval(
         self,
@@ -260,18 +253,3 @@ class SessionJournal:
         if not path.is_file():
             raise RuntimeError(f"Session journal is not a regular file: {path}")
         path.unlink()
-
-
-def _serialize_output_event(event: OutputEvent) -> dict[str, object]:
-    if isinstance(event, AgentChanged):
-        return {"type": "agent_changed", "name": event.name}
-    if isinstance(event, Reasoning):
-        return {"type": "reasoning", "text": event.text}
-    if isinstance(event, ToolCalled):
-        return {"type": "tool_called", "name": event.name, "arguments": event.arguments}
-    if isinstance(event, ToolOutput):
-        return {"type": "tool_output", "output": event.output}
-    if isinstance(event, AssistantMessage):
-        return {"type": "assistant_message", "text": event.text}
-
-    raise TypeError(f"Unsupported output event: {type(event).__name__}")
