@@ -1,3 +1,4 @@
+from .activity import ActivityCoordinator, ActivityLabelEvent
 from .approval import ApprovalCoordinator, ApprovalResolvedEvent, ManualApprovalHandler
 from .host import ApplicationCallbacks, ApplicationHost, create_model, open_application_host
 from .interaction import (
@@ -20,6 +21,8 @@ from .sessions import (
 
 __all__ = [
     "ActiveRunChangedError",
+    "ActivityCoordinator",
+    "ActivityLabelEvent",
     "ApprovalCoordinator",
     "ApprovalResolvedEvent",
     "ApplicationCallbacks",

@@ -161,6 +161,7 @@ class ChatTimeline(VerticalScroll):
         self._current_activity_group: ActivityGroup | None = None
         self._pending_tool_outputs: deque[ActivityStep] = deque()
         self._tool_steps: list[ActivityStep] = []
+        self._activity_steps_by_target_seq: dict[int, ActivityStep] = {}
         self._recent_reasoning: list[str] = []
 
     def _finish_activity(self) -> None:
@@ -297,8 +298,15 @@ class ChatTimeline(VerticalScroll):
             await self.add_assistant_message(event.text)
         return None
 
+    def register_activity_step(self, step: ActivityStep, target_seq: int) -> None:
+        self._activity_steps_by_target_seq[target_seq] = step
+
+    def activity_step(self, target_seq: int) -> ActivityStep | None:
+        return self._activity_steps_by_target_seq.get(target_seq)
+
     async def reset(self) -> None:
         self._finish_activity()
+        self._activity_steps_by_target_seq.clear()
         self._current_assistant_turn = None
         self._active_agent_name = self._initial_agent_name
         await self.remove_children()
@@ -332,6 +340,7 @@ class ChatTimeline(VerticalScroll):
                 seq = record["seq"]
                 if type(seq) is int:
                     step.target_seq = seq
+                    self.register_activity_step(step, seq)
                     label = activity_labels.get(seq)
                     if label:
                         step.set_activity_label(label)

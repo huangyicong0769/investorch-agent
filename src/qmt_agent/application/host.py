@@ -14,7 +14,7 @@ from agents import ModelSettings, OpenAIResponsesModel
 from agents.mcp import MCPServer, MCPServerManager, MCPServerStdio
 from openai import AsyncOpenAI
 
-from qmt_agent.agents import AgentLoop, create_agent, create_compaction_agent, create_permission_agent, create_title_agent
+from qmt_agent.agents import AgentLoop, create_activity_agent, create_agent, create_compaction_agent, create_permission_agent, create_title_agent
 from qmt_agent.config import AppConfig
 from qmt_agent.context import AppState, ExecutionState
 from qmt_agent.journal import SessionJournal
@@ -29,6 +29,7 @@ from qmt_agent.runtime import (
 from qmt_agent.storage import create_session, delete_unused_session, list_sessions
 from qmt_agent.tools import close_execution, start_execution
 
+from .activity import ActivityCoordinator, ActivityLabelHandler, _ignore_activity_label
 from .approval import ApprovalCoordinator, ApprovalResolvedHandler, ManualApprovalHandler, _ignore_approval_resolved
 from .sessions import SessionOperations
 
@@ -63,6 +64,7 @@ class ApplicationCallbacks:
     handle_run_ended: ApplicationRunEndedHandler = _ignore_run_ended
     handle_runtime_state: ApplicationRuntimeStateHandler = _ignore_runtime_state
     handle_approval_resolved: ApprovalResolvedHandler = _ignore_approval_resolved
+    handle_activity_label: ActivityLabelHandler = _ignore_activity_label
 
 
 @dataclass(slots=True)
@@ -74,6 +76,7 @@ class ApplicationHost:
     runtime: AgentRuntime
     sessions: SessionOperations
     approvals: ApprovalCoordinator
+    activity: ActivityCoordinator | None
     initial_session_id: str
 
 
@@ -122,6 +125,7 @@ async def open_application_host(
     *,
     manual_approval_handler: ManualApprovalHandler,
     callbacks: ApplicationCallbacks | None = None,
+    enable_activity: bool = True,
 ) -> AsyncIterator[ApplicationHost]:
     callbacks = callbacks or ApplicationCallbacks()
     journal = SessionJournal(config.session_journal_dir, ZoneInfo(config["runtime.default_timezone"]))
@@ -151,9 +155,17 @@ async def open_application_host(
             journal_seq = await journal.record_output(output.session_id, output.event)
         except Exception:
             logger.exception("Failed to append output to session journal for session %s", output.session_id)
+        if activity is not None:
+            activity.observe(output, journal_seq=journal_seq)
         await callbacks.handle_output(output, journal_seq)
 
+    async def handle_run_ended(event: RuntimeRunEnded) -> None:
+        if activity is not None:
+            activity.finish_run(event.run_id)
+        await callbacks.handle_run_ended(event)
+
     runtime: AgentRuntime | None = None
+    activity: ActivityCoordinator | None = None
     try:
         await start_execution(execution, config.workspace_dir)
         mcp_servers = _load_agent_mcp_servers(config)
@@ -188,9 +200,18 @@ async def open_application_host(
                     record_user_message,
                     record_user_steer,
                     state_handler=callbacks.handle_runtime_state,
-                    run_ended_handler=callbacks.handle_run_ended,
+                    run_ended_handler=handle_run_ended,
                     follow_up_handler=callbacks.handle_follow_up,
                 )
+                if enable_activity:
+                    activity_model, activity_model_settings = create_model(config, "activity")
+                    activity = ActivityCoordinator(
+                        config=config,
+                        activity_agent=create_activity_agent(activity_model, activity_model_settings),
+                        journal=journal,
+                        runtime=runtime,
+                        label_handler=callbacks.handle_activity_label,
+                    )
                 sessions = SessionOperations(config=config, runtime=runtime, journal=journal)
                 yield ApplicationHost(
                     config=config,
@@ -200,14 +221,22 @@ async def open_application_host(
                     runtime=runtime,
                     sessions=sessions,
                     approvals=approvals,
+                    activity=activity,
                     initial_session_id=initial_session_id,
                 )
             finally:
-                if runtime is not None:
-                    await runtime.aclose()
-                    runtime = None
-                if execution.sandbox is not None:
-                    await close_execution(execution)
+                try:
+                    if activity is not None:
+                        await activity.aclose()
+                finally:
+                    activity = None
+                    try:
+                        if runtime is not None:
+                            await runtime.aclose()
+                    finally:
+                        runtime = None
+                        if execution.sandbox is not None:
+                            await close_execution(execution)
     finally:
         if runtime is not None:
             await runtime.aclose()

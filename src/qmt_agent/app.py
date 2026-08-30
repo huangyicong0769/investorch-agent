@@ -6,11 +6,10 @@ from agents import set_tracing_disabled
 
 from qmt_agent.agents import (
     build_bootstrap_sync_prompt,
-    create_activity_agent,
     create_bootstrap_sync_agent,
     run_bootstrap_sync,
 )
-from qmt_agent.application import ApprovalResolvedEvent, ApplicationCallbacks, SessionOperations, create_model, open_application_host
+from qmt_agent.application import ActivityLabelEvent, ApprovalResolvedEvent, ApplicationCallbacks, SessionOperations, create_model, open_application_host
 from qmt_agent.commands import dispatch_command, parse_command
 from qmt_agent.config import AppConfig, load_config
 from qmt_agent.context import AgentContext, AppState, ExecutionState
@@ -170,31 +169,24 @@ async def _run_configured_app(ui: ConsoleUI, config: AppConfig, initialized: boo
         elif event.source == "permission":
             ui.report_permission_decision(request.tool_name, event.approved, event.review_reason or "")
 
+    async def handle_activity_label(event: ActivityLabelEvent) -> None:
+        if tui is not None:
+            await tui.handle_activity_label(event)
+
     callbacks = ApplicationCallbacks(
         handle_output=handle_output,
         handle_follow_up=handle_follow_up,
         handle_run_ended=handle_run_ended,
         handle_runtime_state=handle_runtime_state,
         handle_approval_resolved=handle_approval_resolved,
+        handle_activity_label=handle_activity_label,
     )
-    activity_agent = None
-    if not plain:
-        activity_model, activity_model_settings = create_model(config, "activity")
-        activity_agent = create_activity_agent(activity_model, activity_model_settings)
 
-    async with open_application_host(config, manual_approval_handler=request_user_approval, callbacks=callbacks) as host:
+    async with open_application_host(config, manual_approval_handler=request_user_approval, callbacks=callbacks, enable_activity=not plain) as host:
         if plain:
             await _run_console(host.state, host.runtime, host.sessions, ui)
             return
 
-        assert activity_agent is not None
-
-        async def record_activity_label(session_id: str, target_seq: int, text: str) -> None:
-            try:
-                await host.journal.record_activity_label(session_id, target_seq, text)
-            except Exception:
-                logger.exception("Failed to append activity label to session journal for session %s target %d", session_id, target_seq)
-
-        tui = QMTAgentTUI(host.state, config.session_journal_dir, host.journal, activity_agent, record_activity_label)
+        tui = QMTAgentTUI(host.state, config.session_journal_dir, host.journal)
         tui.bind_runtime(host.runtime, host.sessions)
         await tui.run_async()

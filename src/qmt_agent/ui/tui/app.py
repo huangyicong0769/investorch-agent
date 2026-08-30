@@ -3,13 +3,11 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections import deque
-from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import ClassVar
 
-from agents import Agent
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
@@ -17,9 +15,10 @@ from textual.css.query import NoMatches
 from textual.message import Message
 from textual.widgets import Button, Label, ListView, Static, TextArea
 
-from qmt_agent.agents import TokenUsage, generate_activity_label
+from qmt_agent.agents import TokenUsage
 from qmt_agent.application import (
     ActiveRunChangedError,
+    ActivityLabelEvent,
     ArchivedSessionInputError,
     FollowUpSubmissionError,
     QueuedFollowUpsPendingError,
@@ -30,7 +29,7 @@ from qmt_agent.application import (
 from qmt_agent.commands import Command, dispatch_command, parse_command
 from qmt_agent.context import AppState, TodoItem
 from qmt_agent.journal import SessionJournal, read_session_journal
-from qmt_agent.output import OutputEvent, Reasoning, ToolCalled
+from qmt_agent.output import OutputEvent, ToolCalled
 from qmt_agent.runtime import (
     AgentRuntime,
     ApprovalRequest,
@@ -52,7 +51,6 @@ from .timeline import ActivityStep, ChatTimeline
 from .todo import TodoPanel
 
 logger = logging.getLogger(__name__)
-RecordActivityLabel = Callable[[str, int, str], Awaitable[None]]
 _STEER_FALLBACK_NOTICE = "The Run finished before the follow-up could be steered; it will continue as the next turn."
 
 
@@ -61,8 +59,6 @@ class BufferedOutput:
     session_id: str
     journal_seq: int | None
     event: OutputEvent
-    activity_reasoning: str
-    activity_user_message: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -351,13 +347,11 @@ class QMTAgentTUI(App[None]):
     }
     """
 
-    def __init__(self, state: AppState, journal_dir: Path, journal: SessionJournal, activity_agent: Agent, record_activity_label: RecordActivityLabel) -> None:
+    def __init__(self, state: AppState, journal_dir: Path, journal: SessionJournal) -> None:
         super().__init__()
         self.state = state
         self.journal_dir = journal_dir
         self.journal = journal
-        self.activity_agent = activity_agent
-        self._record_activity_label = record_activity_label
         self.runtime: AgentRuntime | None = None
         self.sessions: SessionOperations | None = None
         self.session_title: str | None = None
@@ -369,12 +363,14 @@ class QMTAgentTUI(App[None]):
         self._main_context_tokens: dict[str, int | None] = {}
         self._main_agent_name: str | None = None
         self._loading_session_id: str | None = None
-        self._buffered_live_events: list[BufferedOutput | BufferedApproval | RuntimeFollowUpEvent] = []
+        self._buffered_live_events: list[BufferedOutput | BufferedApproval | ActivityLabelEvent | RuntimeFollowUpEvent] = []
         self._last_rendered_seq: dict[str, int] = {}
         self._rendered_steer_seqs: dict[str, set[int]] = {}
+        self._rendered_activity_label_seqs: dict[str, set[int]] = {}
         self._pending_follow_up_notices: dict[str, list[str]] = {}
         self._timeline_lock = asyncio.Lock()
-        self._reasoning_by_run: dict[str, list[str]] = {}
+        self._activity_steps: dict[tuple[str, int], ActivityStep] = {}
+        self._pending_activity_labels: dict[tuple[str, int], str] = {}
         self._pending_approvals: deque[PendingApproval] = deque()
         self._session_todos: dict[str, tuple[TodoItem, ...]] = {}
         self._todo_run_ids: dict[str, str] = {}
@@ -601,7 +597,7 @@ class QMTAgentTUI(App[None]):
 
     def _add_usage(self, session_id: str, usage: TokenUsage) -> None:
         self._session_usage[session_id] = self._session_usage.get(session_id, TokenUsage()) + usage
-        if session_id == self.state.selected_session_id:
+        if self.is_running and session_id == self.state.selected_session_id:
             self.query_one("#usage-status", Static).update(self._format_usage_status())
 
     def _set_main_context_tokens(self, session_id: str, context_tokens: int | None) -> None:
@@ -643,76 +639,53 @@ class QMTAgentTUI(App[None]):
         await self.query_one(SessionSidebar).replace_sessions(self._session_records, self.state.selected_session_id, self._runtime_snapshots)
 
     async def handle_output(self, event: OutputEvent, *, session_id: str, run_id: str, journal_seq: int | None) -> None:
-        activity_reasoning = ""
-        activity_user_message = ""
-        if isinstance(event, Reasoning):
-            self._reasoning_by_run.setdefault(run_id, []).append(event.text)
-        elif isinstance(event, ToolCalled):
-            activity_reasoning = "".join(self._reasoning_by_run.pop(run_id, []))
-            active_run = self.runtime.get_active_run(session_id) if self.runtime is not None else None
-            if active_run is not None and active_run.run_id == run_id:
-                activity_user_message = active_run.user_input
-
         async with self._timeline_lock:
             if session_id != self.state.selected_session_id:
-                if isinstance(event, ToolCalled):
-                    self._start_activity_generation(
-                        None,
-                        session_id=session_id,
-                        target_seq=journal_seq,
-                        user_message=activity_user_message,
-                        reasoning=activity_reasoning,
-                        tool_name=event.name,
-                        arguments=event.arguments,
-                    )
                 return
             if self._loading_session_id == session_id:
-                self._buffered_live_events.append(
-                    BufferedOutput(
-                        session_id=session_id,
-                        journal_seq=journal_seq,
-                        event=event,
-                        activity_reasoning=activity_reasoning,
-                        activity_user_message=activity_user_message,
-                    )
-                )
+                self._buffered_live_events.append(BufferedOutput(session_id=session_id, journal_seq=journal_seq, event=event))
                 return
-            await self._render_live_output(
-                event, session_id=session_id, journal_seq=journal_seq, activity_reasoning=activity_reasoning, activity_user_message=activity_user_message
-            )
+            await self._render_live_output(event, session_id=session_id, journal_seq=journal_seq)
 
-    async def _render_live_output(
-        self, event: OutputEvent, *, session_id: str, journal_seq: int | None, activity_reasoning: str, activity_user_message: str
-    ) -> None:
+    async def _render_live_output(self, event: OutputEvent, *, session_id: str, journal_seq: int | None) -> None:
         if journal_seq is not None and journal_seq <= self._last_rendered_seq.get(session_id, 0):
             return
 
         step = await self.query_one(ChatTimeline).handle_output(event)
         if journal_seq is not None:
             self._last_rendered_seq[session_id] = journal_seq
-        if isinstance(event, ToolCalled) and step is not None:
+        if isinstance(event, ToolCalled) and step is not None and journal_seq is not None:
             step.session_id = session_id
             step.target_seq = journal_seq
-            self._start_activity_generation(
-                step,
-                session_id=session_id,
-                target_seq=journal_seq,
-                user_message=activity_user_message,
-                reasoning=activity_reasoning or step.label_reasoning,
-                tool_name=event.name,
-                arguments=event.arguments,
-            )
+            key = (session_id, journal_seq)
+            self._activity_steps[key] = step
+            self.query_one(ChatTimeline).register_activity_step(step, journal_seq)
+            label = self._pending_activity_labels.pop(key, None)
+            if label is not None:
+                step.set_activity_label(label)
 
-    def _start_activity_generation(
-        self, step: ActivityStep | None, *, session_id: str, target_seq: int | None, user_message: str, reasoning: str, tool_name: str, arguments: str | None
-    ) -> None:
-        self.run_worker(
-            self._generate_step_activity(
-                step, session_id=session_id, target_seq=target_seq, user_message=user_message, reasoning=reasoning, tool_name=tool_name, arguments=arguments
-            ),
-            group=f"activity-{session_id}-{target_seq or id(step)}",
-            exit_on_error=False,
-        )
+    async def handle_activity_label(self, event: ActivityLabelEvent) -> None:
+        self._add_usage(event.session_id, event.usage)
+        async with self._timeline_lock:
+            if event.session_id != self.state.selected_session_id:
+                return
+            if self._loading_session_id == event.session_id:
+                self._buffered_live_events.append(event)
+                return
+            self._render_live_activity_label(event)
+
+    def _render_live_activity_label(self, event: ActivityLabelEvent) -> None:
+        rendered = self._rendered_activity_label_seqs.setdefault(event.session_id, set())
+        if event.journal_seq in rendered:
+            return
+        key = (event.session_id, event.target_seq)
+        step = self._activity_steps.get(key) or self.query_one(ChatTimeline).activity_step(event.target_seq)
+        if step is not None and step.is_mounted:
+            step.set_activity_label(event.text)
+            self._activity_steps.pop(key, None)
+        else:
+            self._pending_activity_labels[key] = event.text
+        rendered.add(event.journal_seq)
 
     async def request_tool_approval(self, request: ApprovalRequest, review_reason: str | None = None) -> bool:
         future = asyncio.get_running_loop().create_future()
@@ -818,7 +791,6 @@ class QMTAgentTUI(App[None]):
         await self.query_one(ChatTimeline).add_notice(_STEER_FALLBACK_NOTICE)
 
     async def handle_run_ended(self, event: RuntimeRunEnded) -> None:
-        self._reasoning_by_run.pop(event.run_id, None)
         if not self.is_running:
             return
 
@@ -916,7 +888,10 @@ class QMTAgentTUI(App[None]):
     async def _load_session_history(self, session_id: str) -> None:
         self._loading_session_id = session_id
         self._buffered_live_events.clear()
+        self._activity_steps.clear()
+        self._pending_activity_labels.clear()
         self._rendered_steer_seqs.pop(session_id, None)
+        self._rendered_activity_label_seqs.pop(session_id, None)
         self._refresh_selected_controls()
         timeline = self.query_one(ChatTimeline)
         async with self._timeline_lock:
@@ -957,9 +932,13 @@ class QMTAgentTUI(App[None]):
                     self._rendered_steer_seqs[session_id] = {
                         record["seq"] for record in records if record.get("type") == "user_steer" and type(record.get("seq")) is int
                     }
+                    self._rendered_activity_label_seqs[session_id] = {
+                        record["seq"] for record in records if record.get("type") == "activity_label" and type(record.get("seq")) is int
+                    }
                 else:
                     self._last_rendered_seq[session_id] = 0
                     self._rendered_steer_seqs[session_id] = set()
+                    self._rendered_activity_label_seqs[session_id] = set()
                     await timeline.reset()
                     await timeline.add_notice("Ask QMT Agent anything.")
         finally:
@@ -980,15 +959,11 @@ class QMTAgentTUI(App[None]):
                         )
                         for item in buffered:
                             if isinstance(item, BufferedOutput):
-                                await self._render_live_output(
-                                    item.event,
-                                    session_id=item.session_id,
-                                    journal_seq=item.journal_seq,
-                                    activity_reasoning=item.activity_reasoning,
-                                    activity_user_message=item.activity_user_message,
-                                )
+                                await self._render_live_output(item.event, session_id=item.session_id, journal_seq=item.journal_seq)
                             elif isinstance(item, BufferedApproval):
                                 await self._render_live_approval(item)
+                            elif isinstance(item, ActivityLabelEvent):
+                                self._render_live_activity_label(item)
                             else:
                                 await self._render_live_follow_up(item)
                         for notice in self._pending_follow_up_notices.pop(session_id, []):
@@ -1049,25 +1024,3 @@ class QMTAgentTUI(App[None]):
             self.query_one(TodoPanel).replace_todos(self._session_todos.get(selected_session_id, ()))
             self.query_one(QueuePanel).replace_queue(selected_session_id, self.runtime.list_queued_inputs(selected_session_id), paused=snapshot.queue_paused)
         self._refresh_run_status()
-
-    async def _generate_step_activity(
-        self, step: ActivityStep | None, *, session_id: str, target_seq: int | None, user_message: str, reasoning: str, tool_name: str, arguments: str | None
-    ) -> None:
-        try:
-            result = await generate_activity_label(self.activity_agent, self.state.config, user_message, reasoning, tool_name, arguments)
-        except Exception as exc:
-            logger.warning("Activity label generation failed for tool %s: %s", tool_name, exc)
-            return
-
-        self._add_usage(session_id, result.usage)
-
-        if step is not None and step.is_mounted:
-            step.set_activity_label(result.label)
-
-        if target_seq is None:
-            return
-
-        try:
-            await self._record_activity_label(session_id, target_seq, result.label)
-        except Exception:
-            logger.exception("Failed to append activity label to session journal for session %s target %d", session_id, target_seq)
