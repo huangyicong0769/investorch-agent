@@ -32,7 +32,7 @@ export function ConversationHeader({ contextWindowTokens, presentation, session 
       </div>
       <div className="flex shrink-0 items-center gap-1">
         <UsagePopover contextWindowTokens={contextWindowTokens} presentation={presentation} />
-        {archived ? null : <SessionMenu session={session} />}
+        <SessionMenu key={session.session_id} session={session} />
       </div>
     </header>
   )

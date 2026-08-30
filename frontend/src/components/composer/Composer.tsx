@@ -148,6 +148,7 @@ export function Composer({
   useEffect(() => {
     setNativeActionNotice(null)
     setRefreshError(null)
+    textareaRef.current?.focus()
     if (stopSessionIdRef.current !== sessionId) {
       stopSessionIdRef.current = sessionId
       stopRunIdRef.current = null

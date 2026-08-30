@@ -2,6 +2,7 @@ import { useInfiniteQuery } from '@tanstack/react-query'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
 import { sessionHistoryInfiniteQueryOptions } from '../../api/queries'
+import { ApiError } from '../../api/client'
 import type {
   TimelineAssistantTurnViewModel,
   TimelineViewModel,
@@ -110,6 +111,10 @@ export function ConversationTimeline({
   } = historyQuery
 
   const liveSession = useLiveSession(sessionId)
+  const historyError =
+    error instanceof ApiError && error.code === 'journal_invalid'
+      ? 'Session history is unavailable because its journal is invalid.'
+      : errorMessage(error, 'The conversation history could not be loaded.')
   const canonicalRecords = useMemo(() => data?.pages.flatMap((page) => page.records) ?? [], [data])
   const canonicalNewestSeq = useMemo(
     () => canonicalRecords.reduce<number | null>((newest, record) => (newest === null ? record.seq : Math.max(newest, record.seq)), null),
@@ -301,7 +306,7 @@ export function ConversationTimeline({
           {isError ? (
             <div className="py-8 text-center" role="alert">
               <p className="text-sm text-muted-foreground">
-                {errorMessage(error, 'The conversation history could not be loaded.')}
+                {historyError}
               </p>
               <button
                 className="mt-3 rounded-lg border border-border px-3 py-2 text-sm hover:bg-muted"
