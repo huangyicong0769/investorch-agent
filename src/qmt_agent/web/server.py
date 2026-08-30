@@ -14,7 +14,9 @@ from qmt_agent.initializer import initialize
 from qmt_agent.log import configure_logging
 from qmt_agent.runtime import ApprovalRequest
 
+from .connections import WebConnectionHub, websocket_router
 from .errors import install_error_handlers
+from .events import WebEventBridge
 from .routes import APPLICATION_VERSION, router
 
 logger = logging.getLogger(__name__)
@@ -31,20 +33,36 @@ def create_web_app(config: AppConfig) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         logger.info("Web application lifespan starting")
+        connections = WebConnectionHub()
+        events = WebEventBridge(connections)
+        app.state.connections = connections
+        app.state.events = events
         try:
-            async with open_application_host(config, manual_approval_handler=_approval_unavailable) as host:
+            async with open_application_host(
+                config,
+                manual_approval_handler=_approval_unavailable,
+                callbacks=events.application_callbacks(),
+            ) as host:
                 app.state.host = host
                 logger.info("Web application host ready")
                 try:
                     yield
                 finally:
                     app.state.host = None
+                    await connections.aclose()
         finally:
+            await connections.aclose()
+            app.state.connections = None
+            app.state.events = None
             logger.info("Web application lifespan stopped")
 
     app = FastAPI(title="QMT Agent", version=APPLICATION_VERSION, lifespan=lifespan)
+    app.state.host = None
+    app.state.connections = None
+    app.state.events = None
     install_error_handlers(app)
     app.include_router(router)
+    app.include_router(websocket_router)
     return app
 
 
