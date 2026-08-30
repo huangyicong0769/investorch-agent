@@ -14,14 +14,13 @@ from agents import ModelSettings, OpenAIResponsesModel
 from agents.mcp import MCPServer, MCPServerManager, MCPServerStdio
 from openai import AsyncOpenAI
 
-from qmt_agent.agents import AgentLoop, ApprovalOutcome, create_agent, create_compaction_agent, create_title_agent
+from qmt_agent.agents import AgentLoop, create_agent, create_compaction_agent, create_permission_agent, create_title_agent
 from qmt_agent.config import AppConfig
 from qmt_agent.context import AppState, ExecutionState
 from qmt_agent.journal import SessionJournal
 from qmt_agent.mcp import load_mcp_servers as load_configured_mcp_servers
 from qmt_agent.runtime import (
     AgentRuntime,
-    ApprovalRequest,
     RuntimeFollowUpEvent,
     RuntimeOutput,
     RuntimeRunEnded,
@@ -30,6 +29,7 @@ from qmt_agent.runtime import (
 from qmt_agent.storage import create_session, delete_unused_session, list_sessions
 from qmt_agent.tools import close_execution, start_execution
 
+from .approval import ApprovalCoordinator, ApprovalResolvedHandler, ManualApprovalHandler, _ignore_approval_resolved
 from .sessions import SessionOperations
 
 logger = logging.getLogger(__name__)
@@ -38,8 +38,6 @@ ApplicationOutputHandler = Callable[[RuntimeOutput, int | None], Awaitable[None]
 ApplicationFollowUpHandler = Callable[[RuntimeFollowUpEvent], Awaitable[None]]
 ApplicationRunEndedHandler = Callable[[RuntimeRunEnded], Awaitable[None]]
 ApplicationRuntimeStateHandler = Callable[[RuntimeSessionSnapshot], None]
-RuntimeApprovalHandler = Callable[[ApprovalRequest], Awaitable[ApprovalOutcome]]
-ApprovalHandlerFactory = Callable[[AppState, SessionJournal], RuntimeApprovalHandler]
 
 
 async def _ignore_output(_output: RuntimeOutput, _journal_seq: int | None) -> None:
@@ -64,6 +62,7 @@ class ApplicationCallbacks:
     handle_follow_up: ApplicationFollowUpHandler = _ignore_follow_up
     handle_run_ended: ApplicationRunEndedHandler = _ignore_run_ended
     handle_runtime_state: ApplicationRuntimeStateHandler = _ignore_runtime_state
+    handle_approval_resolved: ApprovalResolvedHandler = _ignore_approval_resolved
 
 
 @dataclass(slots=True)
@@ -74,6 +73,7 @@ class ApplicationHost:
     journal: SessionJournal
     runtime: AgentRuntime
     sessions: SessionOperations
+    approvals: ApprovalCoordinator
     initial_session_id: str
 
 
@@ -120,7 +120,7 @@ async def _discard_legacy_unused_sessions(config: AppConfig, journal: SessionJou
 async def open_application_host(
     config: AppConfig,
     *,
-    approval_handler_factory: ApprovalHandlerFactory,
+    manual_approval_handler: ManualApprovalHandler,
     callbacks: ApplicationCallbacks | None = None,
 ) -> AsyncIterator[ApplicationHost]:
     callbacks = callbacks or ApplicationCallbacks()
@@ -164,6 +164,7 @@ async def open_application_host(
                 main_model, main_model_settings = create_model(config, "main")
                 title_model, title_model_settings = create_model(config, "title")
                 compact_model, compact_model_settings = create_model(config, "compact")
+                permission_model, permission_model_settings = create_model(config, "permission")
                 agent = create_agent(model=main_model, model_settings=main_model_settings, config=config, mcp_servers=mcp_manager.active_servers)
                 agent_loop = AgentLoop(
                     agent,
@@ -171,12 +172,19 @@ async def open_application_host(
                     create_compaction_agent(compact_model, compact_model_settings),
                     config,
                 )
+                approvals = ApprovalCoordinator(
+                    config=config,
+                    permission_agent=create_permission_agent(permission_model, permission_model_settings),
+                    journal=journal,
+                    manual_handler=manual_approval_handler,
+                    resolved_handler=callbacks.handle_approval_resolved,
+                )
                 runtime = AgentRuntime(
                     agent_loop,
                     execution,
                     config.sessions_db,
                     handle_output,
-                    approval_handler_factory(state, journal),
+                    approvals.handle,
                     record_user_message,
                     record_user_steer,
                     state_handler=callbacks.handle_runtime_state,
@@ -191,6 +199,7 @@ async def open_application_host(
                     journal=journal,
                     runtime=runtime,
                     sessions=sessions,
+                    approvals=approvals,
                     initial_session_id=initial_session_id,
                 )
             finally:

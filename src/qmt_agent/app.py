@@ -5,22 +5,16 @@ from pathlib import Path
 from agents import set_tracing_disabled
 
 from qmt_agent.agents import (
-    ApprovalOutcome,
-    PermissionReview,
-    TokenUsage,
     build_bootstrap_sync_prompt,
     create_activity_agent,
     create_bootstrap_sync_agent,
-    create_permission_agent,
-    review_permission,
     run_bootstrap_sync,
 )
-from qmt_agent.application import ApplicationCallbacks, SessionOperations, create_model, open_application_host
+from qmt_agent.application import ApprovalResolvedEvent, ApplicationCallbacks, SessionOperations, create_model, open_application_host
 from qmt_agent.commands import dispatch_command, parse_command
 from qmt_agent.config import AppConfig, load_config
 from qmt_agent.context import AgentContext, AppState, ExecutionState
 from qmt_agent.initializer import initialize, sync_bootstrap_files
-from qmt_agent.journal import SessionJournal
 from qmt_agent.log import configure_logging
 from qmt_agent.runtime import (
     ApprovalRequest,
@@ -132,8 +126,6 @@ async def _run_configured_app(ui: ConsoleUI, config: AppConfig, initialized: boo
         ui.write(f"Bootstrap files synchronized: created={result.created}, updated={result.updated}, unchanged={result.unchanged}, backup={backup}")
         return
 
-    permission_model, permission_model_settings = create_model(config, "permission")
-    permission_agent = create_permission_agent(permission_model, permission_model_settings)
     renderer = ConsoleRenderer(ui) if plain else None
     tui: QMTAgentTUI | None = None
 
@@ -162,84 +154,35 @@ async def _run_configured_app(ui: ConsoleUI, config: AppConfig, initialized: boo
             return await ui.request_tool_approval(request.tool_name, request.arguments, review_reason)
         return await tui.request_tool_approval(request, review_reason)
 
-    def create_approval_handler(_state: AppState, journal: SessionJournal):
-        async def handle_approval(request: ApprovalRequest) -> ApprovalOutcome:
-            review_usage = TokenUsage()
-            review_decision = None
-            review_reason = None
-            if request.permission_mode == "manual":
-                approved = await request_user_approval(request)
-                source = "user"
-            else:
-                try:
-                    review_result = await review_permission(permission_agent, config, request.user_input, request.tool_name, request.arguments)
-                    review_usage = review_result.usage
-                    review = review_result.review
-                except Exception:
-                    logger.exception("Permission review failed for tool %s; falling back to manual approval", request.tool_name)
-                    review = PermissionReview(decision="ask", reason="AutoReview is unavailable; manual approval is required.")
-
-                review_decision = review.decision
-                review_reason = review.reason
-                if review.decision == "approve":
-                    logger.info("Permission auto-approved tool %s", request.tool_name)
-                    approved = True
-                    source = "permission"
-                elif review.decision == "reject":
-                    logger.info("Permission auto-rejected tool %s", request.tool_name)
-                    approved = False
-                    source = "permission"
-                else:
-                    logger.info("Permission escalated tool %s to user", request.tool_name)
-                    approved = await request_user_approval(request, review.reason)
-                    source = "user"
-
-            journal_seq = None
-            try:
-                journal_seq = await journal.record_approval(
-                    request.session_id,
-                    request.run_id,
-                    request.approval_id,
-                    request.tool_name,
-                    request.arguments,
-                    approved,
-                    source=source,
-                    review_decision=review_decision,
-                    review_reason=review_reason,
-                )
-            except Exception:
-                logger.exception("Failed to append approval to session journal for session %s", request.session_id)
-
-            if tui is not None:
-                await tui.report_tool_approval(
-                    request.session_id,
-                    request.tool_name,
-                    request.arguments,
-                    approved,
-                    source=source,
-                    review_decision=review_decision,
-                    review_reason=review_reason,
-                    journal_seq=journal_seq,
-                )
-            elif source == "permission":
-                ui.report_permission_decision(request.tool_name, approved, review_reason or "")
-
-            return ApprovalOutcome(approved=approved, usage=review_usage)
-
-        return handle_approval
+    async def handle_approval_resolved(event: ApprovalResolvedEvent) -> None:
+        request = event.request
+        if tui is not None:
+            await tui.report_tool_approval(
+                request.session_id,
+                request.tool_name,
+                request.arguments,
+                event.approved,
+                source=event.source,
+                review_decision=event.review_decision,
+                review_reason=event.review_reason,
+                journal_seq=event.journal_seq,
+            )
+        elif event.source == "permission":
+            ui.report_permission_decision(request.tool_name, event.approved, event.review_reason or "")
 
     callbacks = ApplicationCallbacks(
         handle_output=handle_output,
         handle_follow_up=handle_follow_up,
         handle_run_ended=handle_run_ended,
         handle_runtime_state=handle_runtime_state,
+        handle_approval_resolved=handle_approval_resolved,
     )
     activity_agent = None
     if not plain:
         activity_model, activity_model_settings = create_model(config, "activity")
         activity_agent = create_activity_agent(activity_model, activity_model_settings)
 
-    async with open_application_host(config, approval_handler_factory=create_approval_handler, callbacks=callbacks) as host:
+    async with open_application_host(config, manual_approval_handler=request_user_approval, callbacks=callbacks) as host:
         if plain:
             await _run_console(host.state, host.runtime, host.sessions, ui)
             return

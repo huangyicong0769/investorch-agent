@@ -1,3 +1,4 @@
+from .approval import ApprovalCoordinator, ApprovalResolvedEvent, ManualApprovalHandler
 from .host import ApplicationCallbacks, ApplicationHost, create_model, open_application_host
 from .interaction import (
     ActiveRunChangedError,
@@ -19,10 +20,13 @@ from .sessions import (
 
 __all__ = [
     "ActiveRunChangedError",
+    "ApprovalCoordinator",
+    "ApprovalResolvedEvent",
     "ApplicationCallbacks",
     "ApplicationHost",
     "ArchivedSessionInputError",
     "FollowUpSubmissionError",
+    "ManualApprovalHandler",
     "QueuedFollowUpsPendingError",
     "SessionAlreadyArchivedError",
     "SessionArchivedError",
