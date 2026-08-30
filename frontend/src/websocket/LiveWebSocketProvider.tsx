@@ -549,8 +549,13 @@ export function LiveWebSocketProvider({ children }: PropsWithChildren) {
       if (selectedSessionRef.current === event.session_id) {
         requestSelectedResync(event.session_id)
       }
-    } else if (event.kind === 'follow_up' && event.event_kind === 'steer_fallback_promoted') {
-      addNotice(event.session_id, `${event.follow_up_id}:steer-fallback`, 'Steer was promoted to a new run.')
+    } else if (event.kind === 'follow_up') {
+      if (event.event_kind === 'steer_fallback_promoted') {
+        addNotice(event.session_id, `${event.follow_up_id}:steer-fallback`, 'Steer was promoted to a new run.')
+      }
+      if (event.event_kind === 'queue_submitted' || event.event_kind === 'queue_promoted') {
+        requestSelectedResync(event.session_id)
+      }
     }
 
     const record = overlayRecord(event)

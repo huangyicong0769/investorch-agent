@@ -10,12 +10,15 @@ import { projectTimeline } from '../../lib/timeline/project'
 import { errorMessage } from '../../lib/errors'
 import { cn } from '../../lib/utils'
 import { useLiveSession } from '../../websocket/LiveWebSocketProvider'
+import type { PendingDirectMessage } from '../conversation/interaction'
 import { ActivityGroup } from './ActivityGroup'
 import { MarkdownMessage } from './MarkdownMessage'
 
 interface ConversationTimelineProps {
   sessionId: string
   className?: string
+  pendingMessage?: PendingDirectMessage | null
+  onPendingMessageCanonical?: () => void
 }
 
 interface ScrollMeasurement {
@@ -65,7 +68,25 @@ function TimelineItem({ item }: { item: TimelineViewModel }) {
   )
 }
 
-export function ConversationTimeline({ sessionId, className }: ConversationTimelineProps) {
+function PendingDirectBubble({ message }: { message: PendingDirectMessage }) {
+  return (
+    <article className="flex justify-end py-3" data-pending="true">
+      <div className="max-w-[85%]">
+        <div className="mb-1 text-right text-xs font-medium text-muted-foreground">You</div>
+        <p className="whitespace-pre-wrap break-words rounded-2xl bg-muted px-4 py-3 text-sm leading-6">
+          {message.text}
+        </p>
+      </div>
+    </article>
+  )
+}
+
+export function ConversationTimeline({
+  sessionId,
+  className,
+  pendingMessage = null,
+  onPendingMessageCanonical,
+}: ConversationTimelineProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const sentinelRef = useRef<HTMLDivElement>(null)
   const sessionRef = useRef(sessionId)
@@ -103,14 +124,33 @@ export function ConversationTimeline({ sessionId, className }: ConversationTimel
   )
   const records = useMemo(() => [...canonicalRecords, ...liveRecords], [canonicalRecords, liveRecords])
   const timeline = useMemo(() => projectTimeline(records), [records])
+  const pendingCanonical = useMemo(
+    () =>
+      pendingMessage !== null &&
+      pendingMessage.baseSequenceKnown &&
+      canonicalRecords.some(
+        (record) =>
+          record.type === 'user_message' &&
+          record.text === pendingMessage.text &&
+          (pendingMessage.baseNewestSeq === null || record.seq > pendingMessage.baseNewestSeq),
+      ),
+    [canonicalRecords, pendingMessage],
+  )
+  const pendingVisible = pendingMessage !== null && !pendingCanonical
   const activityKey = useMemo(
     () =>
       `${records.reduce<number | null>(
         (newest, record) => (newest === null ? record.seq : Math.max(newest, record.seq)),
         null,
-      ) ?? ''}|${liveSession.notices.at(-1)?.id ?? ''}`,
-    [liveSession.notices, records],
+      ) ?? ''}|${liveSession.notices.at(-1)?.id ?? ''}|${pendingVisible ? pendingMessage?.runId ?? '' : ''}`,
+    [liveSession.notices, pendingMessage, pendingVisible, records],
   )
+
+  useEffect(() => {
+    if (pendingCanonical) {
+      onPendingMessageCanonical?.()
+    }
+  }, [onPendingMessageCanonical, pendingCanonical])
 
   useLayoutEffect(() => {
     if (sessionRef.current === sessionId) {
@@ -292,13 +332,17 @@ export function ConversationTimeline({ sessionId, className }: ConversationTimel
             </div>
           ) : null}
 
-          {!isPending && !isError && timeline.length === 0 && liveSession.notices.length === 0 ? (
+          {!isPending && !isError && timeline.length === 0 && liveSession.notices.length === 0 && !pendingVisible ? (
             <p className="py-24 text-center text-sm text-muted-foreground">Ask QMT Agent anything.</p>
           ) : null}
 
           {!isPending && !isError
             ? timeline.map((item) => <TimelineItem item={item} key={item.id} />)
             : null}
+
+          {!isError && pendingVisible && pendingMessage ? (
+            <PendingDirectBubble message={pendingMessage} />
+          ) : null}
 
           {!isPending && !isError
             ? liveSession.notices.map((notice) => (
