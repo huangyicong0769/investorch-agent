@@ -6,6 +6,7 @@ import { ConversationPage } from '../components/conversation/ConversationPage'
 import { SessionSidebar } from '../components/sidebar/SessionSidebar'
 import { errorMessage } from '../lib/errors'
 import { sessionPath } from '../lib/session'
+import { LiveWebSocketProvider } from '../websocket/LiveWebSocketProvider'
 
 function AppShell() {
   const sessionMatch = useMatch('/c/:sessionId')
@@ -71,13 +72,15 @@ function NotFoundRoute() {
 export function AppRouter() {
   return (
     <BrowserRouter>
-      <Routes>
-        <Route element={<AppShell />}>
-          <Route index element={<RootRoute />} />
-          <Route element={<ConversationPage />} path="c/:sessionId" />
-          <Route element={<NotFoundRoute />} path="*" />
-        </Route>
-      </Routes>
+      <LiveWebSocketProvider>
+        <Routes>
+          <Route element={<AppShell />}>
+            <Route index element={<RootRoute />} />
+            <Route element={<ConversationPage />} path="c/:sessionId" />
+            <Route element={<NotFoundRoute />} path="*" />
+          </Route>
+        </Routes>
+      </LiveWebSocketProvider>
     </BrowserRouter>
   )
 }

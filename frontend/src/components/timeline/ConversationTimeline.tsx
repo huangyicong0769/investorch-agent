@@ -9,6 +9,7 @@ import type {
 import { projectTimeline } from '../../lib/timeline/project'
 import { errorMessage } from '../../lib/errors'
 import { cn } from '../../lib/utils'
+import { useLiveSession } from '../../websocket/LiveWebSocketProvider'
 import { ActivityGroup } from './ActivityGroup'
 import { MarkdownMessage } from './MarkdownMessage'
 
@@ -70,7 +71,10 @@ export function ConversationTimeline({ sessionId, className }: ConversationTimel
   const sessionRef = useRef(sessionId)
   const initialScrollDoneRef = useRef(false)
   const prependRef = useRef<ScrollMeasurement | null>(null)
+  const nearBottomRef = useRef(true)
+  const activityKeyRef = useRef('')
   const [observerAvailable, setObserverAvailable] = useState<boolean | null>(null)
+  const [showNewActivity, setShowNewActivity] = useState(false)
   const historyQuery = useInfiniteQuery(sessionHistoryInfiniteQueryOptions(sessionId))
   const {
     data,
@@ -84,8 +88,29 @@ export function ConversationTimeline({ sessionId, className }: ConversationTimel
     refetch,
   } = historyQuery
 
-  const records = useMemo(() => data?.pages.flatMap((page) => page.records) ?? [], [data])
+  const liveSession = useLiveSession(sessionId)
+  const canonicalRecords = useMemo(() => data?.pages.flatMap((page) => page.records) ?? [], [data])
+  const canonicalNewestSeq = useMemo(
+    () => canonicalRecords.reduce<number | null>((newest, record) => (newest === null ? record.seq : Math.max(newest, record.seq)), null),
+    [canonicalRecords],
+  )
+  const liveRecords = useMemo(
+    () =>
+      liveSession.records.filter(
+        (record) => canonicalNewestSeq === null || record.seq > canonicalNewestSeq,
+      ),
+    [canonicalNewestSeq, liveSession.records],
+  )
+  const records = useMemo(() => [...canonicalRecords, ...liveRecords], [canonicalRecords, liveRecords])
   const timeline = useMemo(() => projectTimeline(records), [records])
+  const activityKey = useMemo(
+    () =>
+      `${records.reduce<number | null>(
+        (newest, record) => (newest === null ? record.seq : Math.max(newest, record.seq)),
+        null,
+      ) ?? ''}|${liveSession.notices.at(-1)?.id ?? ''}`,
+    [liveSession.notices, records],
+  )
 
   useLayoutEffect(() => {
     if (sessionRef.current === sessionId) {
@@ -95,11 +120,27 @@ export function ConversationTimeline({ sessionId, className }: ConversationTimel
     sessionRef.current = sessionId
     initialScrollDoneRef.current = false
     prependRef.current = null
+    nearBottomRef.current = true
+    activityKeyRef.current = ''
+    setShowNewActivity(false)
     setObserverAvailable(null)
     if (scrollRef.current) {
       scrollRef.current.scrollTop = 0
     }
   }, [sessionId])
+
+  const handleScroll = useCallback(() => {
+    const container = scrollRef.current
+    if (!container) {
+      return
+    }
+
+    const nearBottom = container.scrollHeight - container.scrollTop - container.clientHeight <= 120
+    nearBottomRef.current = nearBottom
+    if (nearBottom) {
+      setShowNewActivity(false)
+    }
+  }, [])
 
   const fetchOlder = useCallback(() => {
     const container = scrollRef.current
@@ -158,73 +199,127 @@ export function ConversationTimeline({ sessionId, className }: ConversationTimel
     if (previous) {
       container.scrollTop = previous.top + container.scrollHeight - previous.height
       prependRef.current = null
+      nearBottomRef.current = container.scrollHeight - container.scrollTop - container.clientHeight <= 120
       return
     }
 
     if (isSuccess && !initialScrollDoneRef.current) {
       container.scrollTop = container.scrollHeight
+      nearBottomRef.current = true
+      setShowNewActivity(false)
+      activityKeyRef.current = activityKey
       initialScrollDoneRef.current = true
+      return
     }
-  }, [isPending, isSuccess, records.length, sessionId])
+
+    if (!initialScrollDoneRef.current || activityKeyRef.current === activityKey) {
+      return
+    }
+
+    activityKeyRef.current = activityKey
+    if (nearBottomRef.current) {
+      container.scrollTop = container.scrollHeight
+      setShowNewActivity(false)
+    } else {
+      setShowNewActivity(true)
+    }
+  }, [activityKey, isPending, isSuccess, records.length, sessionId])
+
+  const scrollToBottom = useCallback(() => {
+    const container = scrollRef.current
+    if (!container) {
+      return
+    }
+
+    nearBottomRef.current = true
+    setShowNewActivity(false)
+    if (typeof container.scrollTo === 'function') {
+      container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' })
+    } else {
+      container.scrollTop = container.scrollHeight
+    }
+  }, [])
 
   return (
-    <div
-      aria-label="Conversation"
-      className={cn('min-h-0 flex-1 overflow-y-auto outline-none focus-visible:ring-2 focus-visible:ring-primary', className)}
-      ref={scrollRef}
-      tabIndex={0}
-    >
-      <div className="mx-auto w-full max-w-4xl px-6 py-6">
-        <div aria-hidden="true" className="h-px w-full" ref={sentinelRef} />
+    <div className={cn('relative min-h-0 flex-1', className)}>
+      <div
+        aria-label="Conversation"
+        className="h-full overflow-y-auto outline-none focus-visible:ring-2 focus-visible:ring-primary"
+        onScroll={handleScroll}
+        ref={scrollRef}
+        tabIndex={0}
+      >
+        <div className="mx-auto w-full max-w-4xl px-6 py-6">
+          <div aria-hidden="true" className="h-px w-full" ref={sentinelRef} />
 
-        {isPending ? (
-          <p className="py-8 text-center text-sm text-muted-foreground" role="status">
-            Loading conversation…
-          </p>
-        ) : null}
-
-        {isError ? (
-          <div className="py-8 text-center" role="alert">
-            <p className="text-sm text-muted-foreground">
-              {errorMessage(error, 'The conversation history could not be loaded.')}
+          {isPending ? (
+            <p className="py-8 text-center text-sm text-muted-foreground" role="status">
+              Loading conversation…
             </p>
-            <button
-              className="mt-3 rounded-lg border border-border px-3 py-2 text-sm hover:bg-muted"
-              onClick={() => void refetch()}
-              type="button"
-            >
-              Retry
-            </button>
-          </div>
-        ) : null}
+          ) : null}
 
-        {!isPending && !isError && isFetchingNextPage ? (
-          <p className="py-2 text-center text-xs text-muted-foreground" role="status">
-            Loading older messages…
-          </p>
-        ) : null}
+          {isError ? (
+            <div className="py-8 text-center" role="alert">
+              <p className="text-sm text-muted-foreground">
+                {errorMessage(error, 'The conversation history could not be loaded.')}
+              </p>
+              <button
+                className="mt-3 rounded-lg border border-border px-3 py-2 text-sm hover:bg-muted"
+                onClick={() => void refetch()}
+                type="button"
+              >
+                Retry
+              </button>
+            </div>
+          ) : null}
 
-        {!isPending && !isError && observerAvailable === false && hasNextPage ? (
-          <div className="flex justify-center py-2">
-            <button
-              className="rounded-lg border border-border px-3 py-1.5 text-xs text-muted-foreground hover:bg-muted"
-              disabled={isFetchingNextPage}
-              onClick={fetchOlder}
-              type="button"
-            >
-              Load older messages
-            </button>
-          </div>
-        ) : null}
+          {!isPending && !isError && isFetchingNextPage ? (
+            <p className="py-2 text-center text-xs text-muted-foreground" role="status">
+              Loading older messages…
+            </p>
+          ) : null}
 
-        {!isPending && !isError && timeline.length === 0 ? (
-          <p className="py-24 text-center text-sm text-muted-foreground">Ask QMT Agent anything.</p>
-        ) : null}
+          {!isPending && !isError && observerAvailable === false && hasNextPage ? (
+            <div className="flex justify-center py-2">
+              <button
+                className="rounded-lg border border-border px-3 py-1.5 text-xs text-muted-foreground hover:bg-muted"
+                disabled={isFetchingNextPage}
+                onClick={fetchOlder}
+                type="button"
+              >
+                Load older messages
+              </button>
+            </div>
+          ) : null}
 
-        {!isPending && !isError
-          ? timeline.map((item) => <TimelineItem item={item} key={item.id} />)
-          : null}
+          {!isPending && !isError && timeline.length === 0 && liveSession.notices.length === 0 ? (
+            <p className="py-24 text-center text-sm text-muted-foreground">Ask QMT Agent anything.</p>
+          ) : null}
+
+          {!isPending && !isError
+            ? timeline.map((item) => <TimelineItem item={item} key={item.id} />)
+            : null}
+
+          {!isPending && !isError
+            ? liveSession.notices.map((notice) => (
+                <div className="py-2 text-center text-xs text-muted-foreground" key={notice.id} role="status">
+                  {notice.text}
+                </div>
+              ))
+            : null}
+        </div>
       </div>
+      {showNewActivity ? (
+        <div className="pointer-events-none absolute inset-x-0 bottom-3 z-10 flex justify-center">
+          <button
+            className="pointer-events-auto rounded-full border border-border bg-card px-3 py-1.5 text-xs font-medium shadow-sm hover:bg-muted"
+            onClick={scrollToBottom}
+            type="button"
+          >
+            ↓ New activity
+          </button>
+        </div>
+      ) : null}
     </div>
   )
 }
