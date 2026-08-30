@@ -9,6 +9,7 @@ dependencies = [
     "fastapi>=0.141.1",
     "openai-agents>=0.22.0",
     "rqalpha==6.3.0",
+    "socksio==1.*",
     "textual==8.2.8",
     "tomlkit>=0.15.1",
     "uvicorn[standard]>=0.52.4",

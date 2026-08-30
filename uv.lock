@@ -1763,6 +1763,7 @@ dependencies = [
     { name = "fastapi" },
     { name = "openai-agents" },
     { name = "rqalpha" },
+    { name = "socksio" },
     { name = "textual" },
     { name = "tomlkit" },
     { name = "uvicorn", extra = ["standard"] },
@@ -1774,6 +1775,7 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.141.1" },
     { name = "openai-agents", specifier = ">=0.22.0" },
     { name = "rqalpha", specifier = "==6.3.0" },
+    { name = "socksio", specifier = "==1.*" },
     { name = "textual", specifier = "==8.2.8" },
     { name = "tomlkit", specifier = ">=0.15.1" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.52.4" },
@@ -2101,6 +2103,15 @@ name = "snownlp"
 version = "0.12.3"
 source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/3d/b3/37567686662100d3bce62d3b0f2adec18ab4b9ff2b61abd7a61c39343c1d/snownlp-0.12.3.tar.gz", hash = "sha256:c92accd025b70dd16706a10690f556ac9204bb6189f7dc68ece5c207c9bc27d8", size = 37609458, upload-time = "2015-09-27T16:35:23.07Z" }
+
+[[package]]
+name = "socksio"
+version = "1.0.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/f8/5c/48a7d9495be3d1c651198fd99dbb6ce190e2274d0f28b9051307bdec6b85/socksio-1.0.0.tar.gz", hash = "sha256:f88beb3da5b5c38b9890469de67d0cb0f9d494b78b106ca1845f96c10b91c4ac", size = 19055, upload-time = "2020-04-17T15:50:34.664Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/37/c3/6eeb6034408dac0fa653d126c9204ade96b819c936e136c5e8a6897eee9c/socksio-1.0.0-py3-none-any.whl", hash = "sha256:95dc1f15f9b34e8d7b16f06d74b8ccf48f609af32ab33c608d08761c5dcbb1f3", size = 12763, upload-time = "2020-04-17T15:50:31.878Z" },
+]
 
 [[package]]
 name = "sse-starlette"
