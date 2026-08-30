@@ -6,11 +6,12 @@ from importlib.metadata import version
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Query, Request
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, StrictBool
 
 from qmt_agent.application import ApplicationHost, submit_user_input
 from qmt_agent.journal import JournalPage, read_session_journal_page
 from qmt_agent.presentation import (
+    serialize_approval_request,
     serialize_background_job,
     serialize_compaction_result,
     serialize_journal_page,
@@ -24,6 +25,7 @@ from qmt_agent.runtime import SessionBusyError
 from qmt_agent.storage import SessionRecord, get_session, list_archived_sessions, list_sessions
 from qmt_agent.tools import list_background_jobs
 
+from .approvals import ApprovalNotPendingError, WebApprovalBroker
 from .errors import APIError, raise_application_error
 
 logger = logging.getLogger(__name__)
@@ -51,7 +53,7 @@ class RenameSessionRequest(BaseModel):
 class ConfirmRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    confirm: bool
+    confirm: StrictBool
 
 
 class UpdateDefaultsRequest(BaseModel):
@@ -62,6 +64,12 @@ class UpdateDefaultsRequest(BaseModel):
     follow_up_behavior: FollowUpBehavior | None = None
 
 
+class ResolveApprovalRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    approved: StrictBool
+
+
 def _application_host(request: Request) -> ApplicationHost:
     host = getattr(request.app.state, "host", None)
     if not isinstance(host, ApplicationHost):
@@ -70,6 +78,16 @@ def _application_host(request: Request) -> ApplicationHost:
 
 
 Host = Annotated[ApplicationHost, Depends(_application_host)]
+
+
+def _approval_broker(request: Request) -> WebApprovalBroker:
+    broker = getattr(request.app.state, "approval_broker", None)
+    if not isinstance(broker, WebApprovalBroker):
+        raise APIError(503, "service_unavailable", "Browser approvals are not ready.")
+    return broker
+
+
+Broker = Annotated[WebApprovalBroker, Depends(_approval_broker)]
 
 
 async def _session_record(session_id: str, host: Host) -> SessionRecord:
@@ -95,13 +113,20 @@ def _serialize_defaults(host: ApplicationHost) -> dict[str, str]:
     }
 
 
+def _serialize_pending_approvals(broker: WebApprovalBroker, *, session_id: str | None = None) -> list[dict[str, object]]:
+    return [
+        serialize_approval_request(pending.request, review_reason=pending.review_reason)
+        for pending in broker.list_pending(session_id=session_id)
+    ]
+
+
 @router.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "ok", "version": APPLICATION_VERSION}
 
 
 @router.get("/bootstrap")
-async def bootstrap(host: Host) -> dict[str, object]:
+async def bootstrap(host: Host, broker: Broker) -> dict[str, object]:
     records = await asyncio.to_thread(list_sessions, host.config.sessions_db)
     initial_session_id = host.initial_session_id
     return {
@@ -113,7 +138,7 @@ async def bootstrap(host: Host) -> dict[str, object]:
         "sessions": [serialize_session_record(record) for record in records],
         "runtime": serialize_runtime_snapshot(host.runtime.session_snapshot(initial_session_id)),
         "presentation": serialize_session_presentation_state(host.presentation_state.get(initial_session_id)),
-        "pending_approvals": [],
+        "pending_approvals": _serialize_pending_approvals(broker),
     }
 
 
@@ -143,14 +168,14 @@ async def get_session_by_id(session: Session) -> dict[str, object]:
 
 
 @router.get("/sessions/{session_id}/state")
-async def get_session_state(session: Session, host: Host) -> dict[str, object]:
+async def get_session_state(session: Session, host: Host, broker: Broker) -> dict[str, object]:
     session_id = session.session_id
     return {
         "session": serialize_session_record(session),
         "runtime": serialize_runtime_snapshot(host.runtime.session_snapshot(session_id)),
         "presentation": serialize_session_presentation_state(host.presentation_state.get(session_id)),
         "queue": [serialize_queue_item(item) for item in host.runtime.list_queued_inputs(session_id)],
-        "pending_approvals": [],
+        "pending_approvals": _serialize_pending_approvals(broker, session_id=session_id),
     }
 
 
@@ -311,6 +336,20 @@ async def resume_session_queue(session: Session, host: Host) -> dict[str, object
         "runtime": serialize_runtime_snapshot(host.runtime.session_snapshot(session.session_id)),
         "queue": [serialize_queue_item(item) for item in host.runtime.list_queued_inputs(session.session_id)],
     }
+
+
+@router.post("/approvals/{approval_id}")
+async def resolve_approval(approval_id: str, request: ResolveApprovalRequest, broker: Broker) -> dict[str, object]:
+    try:
+        broker.resolve(approval_id, request.approved)
+    except ApprovalNotPendingError as error:
+        raise APIError(
+            404,
+            "approval_not_pending",
+            "The requested approval is no longer pending.",
+            details={"approval_id": approval_id},
+        ) from error
+    return {"approval_id": approval_id, "approved": request.approved}
 
 
 @router.get("/defaults")

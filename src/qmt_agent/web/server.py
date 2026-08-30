@@ -12,8 +12,8 @@ from qmt_agent.application import open_application_host
 from qmt_agent.config import AppConfig, load_config
 from qmt_agent.initializer import initialize
 from qmt_agent.log import configure_logging
-from qmt_agent.runtime import ApprovalRequest
 
+from .approvals import WebApprovalBroker
 from .connections import WebConnectionHub, websocket_router
 from .errors import install_error_handlers
 from .events import WebEventBridge
@@ -25,22 +25,20 @@ WEB_HOST = "127.0.0.1"
 DEFAULT_WEB_PORT = 1334
 
 
-async def _approval_unavailable(_request: ApprovalRequest, _review_reason: str | None) -> bool:
-    raise RuntimeError("Browser approval handling is not available")
-
-
 def create_web_app(config: AppConfig) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         logger.info("Web application lifespan starting")
         connections = WebConnectionHub()
         events = WebEventBridge(connections)
+        approval_broker = WebApprovalBroker(events)
         app.state.connections = connections
         app.state.events = events
+        app.state.approval_broker = approval_broker
         try:
             async with open_application_host(
                 config,
-                manual_approval_handler=_approval_unavailable,
+                manual_approval_handler=approval_broker.request,
                 callbacks=events.application_callbacks(),
             ) as host:
                 app.state.host = host
@@ -52,14 +50,17 @@ def create_web_app(config: AppConfig) -> FastAPI:
                     await connections.aclose()
         finally:
             await connections.aclose()
+            approval_broker.close()
             app.state.connections = None
             app.state.events = None
+            app.state.approval_broker = None
             logger.info("Web application lifespan stopped")
 
     app = FastAPI(title="QMT Agent", version=APPLICATION_VERSION, lifespan=lifespan)
     app.state.host = None
     app.state.connections = None
     app.state.events = None
+    app.state.approval_broker = None
     install_error_handlers(app)
     app.include_router(router)
     app.include_router(websocket_router)
