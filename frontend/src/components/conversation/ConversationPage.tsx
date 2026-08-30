@@ -86,7 +86,7 @@ export function ConversationPage() {
   }
 
   return (
-    <section className="flex h-screen min-w-0 flex-col bg-background">
+    <section className="flex h-dvh min-w-0 flex-col bg-background">
       <ConversationHeader
         contextWindowTokens={bootstrapQuery.data?.context_window_tokens ?? null}
         presentation={stateQuery.data.presentation}
@@ -101,7 +101,7 @@ export function ConversationPage() {
         pendingMessage={pendingMessage}
         sessionId={sessionId}
       />
-      <div className="mx-auto w-full max-w-4xl space-y-2 px-6 pb-4 pt-2">
+      <div className="mx-auto w-full max-w-4xl space-y-2 px-4 pb-4 pt-2 sm:px-6">
         <PlanCard presentation={stateQuery.data.presentation} runtime={stateQuery.data.runtime} />
         <QueueStrip
           archived={stateQuery.data.session.archived_at !== null}

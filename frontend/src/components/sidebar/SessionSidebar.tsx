@@ -1,6 +1,6 @@
-import { useId, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Archive, Plus, Search } from 'lucide-react'
+import { Archive, Plus, Search, X } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 
 import { createSession } from '../../api/client'
@@ -13,19 +13,29 @@ import type {
 } from '../../api/types'
 import { errorMessage } from '../../lib/errors'
 import { sessionMatches, sessionPath } from '../../lib/session'
+import { cn } from '../../lib/utils'
 import { ProcessesSheet } from '../processes/ProcessesSheet'
 import { RunSettingsPopover } from '../settings/RunSettingsPopover'
 import { ArchivedSessionsDialog } from './ArchivedSessionsDialog'
 import { SessionItem } from './SessionItem'
 
 interface SessionSidebarProps {
+  mobileOpen: boolean
+  onMobileClose: () => void
+  onMobileNavigate: () => void
   selectedSessionId: string | null
 }
 
-export function SessionSidebar({ selectedSessionId }: SessionSidebarProps) {
+export function SessionSidebar({
+  mobileOpen,
+  onMobileClose,
+  onMobileNavigate,
+  selectedSessionId,
+}: SessionSidebarProps) {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const searchId = useId()
+  const mobileCloseButtonRef = useRef<HTMLButtonElement>(null)
   const [search, setSearch] = useState('')
   const [archivedOpen, setArchivedOpen] = useState(false)
   const sessionsQuery = useQuery(sessionsQueryOptions())
@@ -37,6 +47,12 @@ export function SessionSidebar({ selectedSessionId }: SessionSidebarProps) {
     ...sessionStateQueryOptions(selectedSessionId ?? ''),
     enabled: Boolean(selectedSessionId),
   })
+
+  useEffect(() => {
+    if (mobileOpen) {
+      mobileCloseButtonRef.current?.focus()
+    }
+  }, [mobileOpen])
 
   const statesById = new Map<string, SessionStateResponse>()
   stateQueries.forEach((query, index) => {
@@ -68,15 +84,40 @@ export function SessionSidebar({ selectedSessionId }: SessionSidebarProps) {
       queryClient.setQueryData(queryKeys.session(response.session.session_id), response)
       setSearch('')
       navigate(sessionPath(response.session.session_id))
+      onMobileNavigate()
       await queryClient.invalidateQueries({ queryKey: queryKeys.sessions() })
     },
   })
 
-  const selectSession = (session: SessionRecord) => navigate(sessionPath(session.session_id))
+  const selectSession = (session: SessionRecord) => {
+    navigate(sessionPath(session.session_id))
+    if (session.session_id === selectedSessionId) {
+      onMobileClose()
+    } else {
+      onMobileNavigate()
+    }
+  }
 
   return (
-    <aside className="flex h-screen w-72 shrink-0 flex-col border-r border-border bg-card px-3 py-4">
-      <div className="px-2 text-sm font-semibold">QMT Agent</div>
+    <aside
+      className={cn(
+        'fixed inset-y-0 z-40 flex h-dvh w-72 max-w-[calc(100vw-3rem)] shrink-0 flex-col border-r border-border bg-card px-3 py-4 shadow-xl md:static md:z-auto md:h-screen md:max-w-none md:shadow-none',
+        mobileOpen ? 'visible left-0' : 'invisible -left-full md:visible',
+      )}
+      id="session-sidebar"
+    >
+      <div className="flex items-center justify-between px-2">
+        <div className="text-sm font-semibold">QMT Agent</div>
+        <button
+          aria-label="Close session sidebar"
+          className="rounded-lg p-2 text-muted-foreground hover:bg-muted hover:text-foreground md:hidden"
+          onClick={onMobileClose}
+          ref={mobileCloseButtonRef}
+          type="button"
+        >
+          <X aria-hidden="true" size={18} />
+        </button>
+      </div>
       <button
         className="mt-4 flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium hover:bg-muted disabled:opacity-60"
         disabled={createMutation.isPending}

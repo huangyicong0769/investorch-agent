@@ -15,7 +15,7 @@ export function ConversationHeader({ contextWindowTokens, presentation, session 
   const connectionStatus = useWebSocketStatus()
 
   return (
-    <header className="flex min-h-16 items-center justify-between gap-4 border-b border-border px-6">
+    <header className="flex min-h-16 items-center justify-between gap-4 border-b border-border py-2 pl-14 pr-4 sm:pr-6 md:pl-6">
       <div className="min-w-0">
         <h1 className="truncate text-sm font-semibold">{sessionTitle(session)}</h1>
         <div className="mt-0.5 flex items-center gap-2 text-xs text-muted-foreground">

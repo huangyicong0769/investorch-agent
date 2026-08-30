@@ -1,5 +1,6 @@
-import { useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { PanelLeft } from 'lucide-react'
 import { BrowserRouter, Link, Navigate, Outlet, Route, Routes, useMatch } from 'react-router-dom'
 
 import { discardUnusedSession } from '../api/client'
@@ -16,6 +17,32 @@ function AppShell() {
   const sessionMatch = useMatch('/c/:sessionId')
   const selectedSessionId = sessionMatch?.params.sessionId ?? null
   const previousSessionIdRef = useRef<string | null>(null)
+  const sidebarButtonRef = useRef<HTMLButtonElement>(null)
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
+
+  const hideMobileSidebar = useCallback(() => setMobileSidebarOpen(false), [])
+
+  const closeMobileSidebar = useCallback(() => {
+    hideMobileSidebar()
+    window.requestAnimationFrame(() => sidebarButtonRef.current?.focus())
+  }, [hideMobileSidebar])
+
+  useEffect(() => {
+    hideMobileSidebar()
+  }, [hideMobileSidebar, selectedSessionId])
+
+  useEffect(() => {
+    if (!mobileSidebarOpen) {
+      return
+    }
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        closeMobileSidebar()
+      }
+    }
+    document.addEventListener('keydown', closeOnEscape)
+    return () => document.removeEventListener('keydown', closeOnEscape)
+  }, [closeMobileSidebar, mobileSidebarOpen])
 
   useEffect(() => {
     const previousSessionId = previousSessionIdRef.current
@@ -48,9 +75,35 @@ function AppShell() {
   }, [queryClient, selectedSessionId])
 
   return (
-    <div className="flex min-h-screen bg-background text-foreground">
-      <SessionSidebar selectedSessionId={selectedSessionId} />
-      <main className="min-w-0 flex-1">
+    <div className="flex min-h-dvh bg-background text-foreground">
+      <button
+        aria-controls="session-sidebar"
+        aria-expanded={mobileSidebarOpen}
+        aria-label="Open session sidebar"
+        className="fixed left-3 top-3 z-20 rounded-lg p-2 text-muted-foreground hover:bg-muted hover:text-foreground md:hidden"
+        onClick={() => setMobileSidebarOpen(true)}
+        ref={sidebarButtonRef}
+        tabIndex={mobileSidebarOpen ? -1 : 0}
+        type="button"
+      >
+        <PanelLeft aria-hidden="true" size={19} />
+      </button>
+      {mobileSidebarOpen ? (
+        <button
+          aria-hidden="true"
+          className="fixed inset-0 z-30 bg-black/35 md:hidden"
+          onClick={closeMobileSidebar}
+          tabIndex={-1}
+          type="button"
+        />
+      ) : null}
+      <SessionSidebar
+        mobileOpen={mobileSidebarOpen}
+        onMobileClose={closeMobileSidebar}
+        onMobileNavigate={hideMobileSidebar}
+        selectedSessionId={selectedSessionId}
+      />
+      <main className="min-w-0 flex-1" inert={mobileSidebarOpen ? true : undefined}>
         <Outlet />
       </main>
     </div>
