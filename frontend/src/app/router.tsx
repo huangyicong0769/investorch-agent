@@ -1,44 +1,70 @@
-import { BrowserRouter, Outlet, Route, Routes, useParams } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
+import { BrowserRouter, Link, Navigate, Outlet, Route, Routes, useMatch } from 'react-router-dom'
+
+import { bootstrapQueryOptions } from '../api/queries'
+import { ConversationPage } from '../components/conversation/ConversationPage'
+import { SessionSidebar } from '../components/sidebar/SessionSidebar'
+import { errorMessage } from '../lib/errors'
+import { sessionPath } from '../lib/session'
 
 function AppShell() {
+  const sessionMatch = useMatch('/c/:sessionId')
+  const selectedSessionId = sessionMatch?.params.sessionId ?? null
+
   return (
-    <div className="min-h-screen bg-background text-foreground">
-      <main className="mx-auto flex min-h-screen w-full max-w-5xl flex-col px-6 py-8">
+    <div className="flex min-h-screen bg-background text-foreground">
+      <SessionSidebar selectedSessionId={selectedSessionId} />
+      <main className="min-w-0 flex-1">
         <Outlet />
       </main>
     </div>
   )
 }
 
-function HomeRoute() {
-  return (
-    <section className="flex flex-1 items-center justify-center">
-      <div className="text-center">
-        <p className="text-sm font-medium text-muted-foreground">QMT Agent</p>
-        <h1 className="mt-3 text-3xl font-semibold tracking-tight">Ask QMT Agent anything.</h1>
-      </div>
-    </section>
-  )
-}
+function RootRoute() {
+  const bootstrapQuery = useQuery(bootstrapQueryOptions())
 
-function SessionRoute() {
-  const { sessionId } = useParams<'sessionId'>()
-
-  return (
-    <section className="flex flex-1 items-center justify-center">
-      <div className="text-center">
-        <p className="text-sm font-medium text-muted-foreground">QMT Agent session</p>
-        <h1 className="mt-3 text-2xl font-semibold tracking-tight">{sessionId}</h1>
+  if (bootstrapQuery.isPending) {
+    return (
+      <div className="flex min-h-screen items-center justify-center text-sm text-muted-foreground" role="status">
+        Loading QMT Agent…
       </div>
-    </section>
-  )
+    )
+  }
+
+  if (bootstrapQuery.isError) {
+    return (
+      <div className="flex min-h-screen items-center justify-center px-6">
+        <div className="max-w-sm text-center">
+          <h1 className="text-lg font-semibold">QMT Agent is unavailable</h1>
+          <p className="mt-2 text-sm text-muted-foreground" role="alert">
+            {errorMessage(bootstrapQuery.error, 'The application could not be initialized.')}
+          </p>
+          <button
+            className="mt-5 rounded-lg bg-primary px-3 py-2 text-sm text-primary-foreground"
+            onClick={() => void bootstrapQuery.refetch()}
+            type="button"
+          >
+            Retry
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  return <Navigate replace to={sessionPath(bootstrapQuery.data.initial_session_id)} />
 }
 
 function NotFoundRoute() {
   return (
-    <section className="flex flex-1 items-center justify-center">
-      <p className="text-sm text-muted-foreground">This page does not exist.</p>
-    </section>
+    <div className="flex min-h-screen items-center justify-center px-6">
+      <div className="text-center">
+        <h1 className="text-lg font-semibold">Page not found</h1>
+        <Link className="mt-4 inline-block text-sm underline" to="/">
+          Open QMT Agent
+        </Link>
+      </div>
+    </div>
   )
 }
 
@@ -47,9 +73,9 @@ export function AppRouter() {
     <BrowserRouter>
       <Routes>
         <Route element={<AppShell />}>
-          <Route index element={<HomeRoute />} />
-          <Route path="c/:sessionId" element={<SessionRoute />} />
-          <Route path="*" element={<NotFoundRoute />} />
+          <Route index element={<RootRoute />} />
+          <Route element={<ConversationPage />} path="c/:sessionId" />
+          <Route element={<NotFoundRoute />} path="*" />
         </Route>
       </Routes>
     </BrowserRouter>
