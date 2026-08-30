@@ -150,7 +150,15 @@ function activityTitle(group: TimelineActivityGroupViewModel): string {
 
   const latestApproval = [...group.items].reverse().find((item): item is TimelineApprovalViewModel => item.type === 'approval')
   if (latestApproval) {
-    return `Approval · ${latestApproval.toolName}`
+    const automatic = latestApproval.source === 'permission'
+    const outcome = latestApproval.approved
+      ? automatic
+        ? '✓ Auto-approved'
+        : '✓ Approved'
+      : automatic
+        ? '⊘ Auto-rejected'
+        : '⊘ Rejected'
+    return `${outcome} · ${latestApproval.toolName}`
   }
 
   return 'Thinking…'
@@ -251,6 +259,7 @@ function appendUnmatchedOutput(
 }
 
 function appendApproval(activeTurn: MutableAssistantTurn, record: Extract<JournalRecord, { type: 'approval' }>): void {
+  activeTurn.activity = null
   const group = ensureActivityGroup(activeTurn, record)
   group.items.push({
     type: 'approval',
@@ -267,6 +276,7 @@ function appendApproval(activeTurn: MutableAssistantTurn, record: Extract<Journa
     reviewReason: record.review_reason ?? null,
   })
   refreshActivityTitle(group)
+  activeTurn.activity = null
 }
 
 /**

@@ -13,6 +13,7 @@ interface SessionItemProps {
 export function SessionItem({ active, archived = false, onSelect, session, state }: SessionItemProps) {
   const status = state ? getSessionStatus(state) : 'Ready'
   const queuedCount = state?.runtime.queued_count ?? 0
+  const approvalCount = state?.pending_approvals.length ?? 0
 
   return (
     <li className="list-none">
@@ -29,7 +30,9 @@ export function SessionItem({ active, archived = false, onSelect, session, state
         <span className="mt-1 flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
           <span className="truncate">{shortSessionId(session.session_id)}</span>
           <span aria-label={`Status: ${status}`} className="truncate">
-            {status === 'Approval' ? `! ${status}` : status}
+            {status === 'Approval'
+              ? `! ${approvalCount > 1 ? `${approvalCount} approvals` : 'Approval'}`
+              : status}
           </span>
           {queuedCount > 0 ? <span className="shrink-0">{queuedCount} queued</span> : null}
           {archived ? <span className="shrink-0">Archived</span> : null}

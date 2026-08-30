@@ -4,6 +4,7 @@ import { Link, useParams } from 'react-router-dom'
 
 import { bootstrapQueryOptions, sessionStateQueryOptions } from '../../api/queries'
 import { errorMessage } from '../../lib/errors'
+import { ApprovalCard } from '../approval/ApprovalCard'
 import { Composer } from '../composer/Composer'
 import { QueueStrip } from '../queue/QueueStrip'
 import { ConversationTimeline } from '../timeline/ConversationTimeline'
@@ -101,6 +102,7 @@ export function ConversationPage() {
           sessionId={sessionId}
           state={stateQuery.data}
         />
+        <ApprovalCard approvals={stateQuery.data.pending_approvals} sessionId={sessionId} />
         <Composer
           archived={stateQuery.data.session.archived_at !== null}
           draft={draft}

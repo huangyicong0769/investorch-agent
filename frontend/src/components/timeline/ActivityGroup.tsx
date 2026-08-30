@@ -59,18 +59,29 @@ function UnmatchedOutput({ item }: { item: TimelineUnmatchedToolOutputViewModel 
 }
 
 function ApprovalActivity({ item }: { item: TimelineApprovalViewModel }) {
-  const status = item.approved ? 'Approved' : 'Rejected'
-  const source = item.source === 'permission' ? 'permission' : 'user'
+  const automatic = item.source === 'permission'
+  const status = item.approved
+    ? automatic
+      ? '✓ Auto-approved'
+      : '✓ Approved'
+    : automatic
+      ? '⊘ Auto-rejected'
+      : '⊘ Rejected'
+  const source = automatic ? 'AutoReview' : 'User'
 
   return (
     <div className="rounded-md border border-border/70 px-3 py-2 text-xs">
       <div className="font-medium">
-        {status} · {source}
+        {status} · {item.toolName}
       </div>
       <dl className="mt-2 grid gap-1 text-muted-foreground">
         <div className="flex gap-2">
           <dt className="shrink-0">Tool</dt>
           <dd className="min-w-0 break-words text-foreground">{item.toolName}</dd>
+        </div>
+        <div className="flex gap-2">
+          <dt className="shrink-0">Source</dt>
+          <dd className="min-w-0 break-words text-foreground">{source}</dd>
         </div>
         <div className="flex gap-2">
           <dt className="shrink-0">Review decision</dt>
