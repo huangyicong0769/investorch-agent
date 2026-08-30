@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 from qmt_agent.agents import CompactionResult, TokenUsage
+from qmt_agent.application.activity import ActivityLabelEvent
+from qmt_agent.application.presentation_state import SessionPresentationState
 from qmt_agent.journal import JournalPage
 from qmt_agent.output import serialize_output_event
 from qmt_agent.runtime import (
     ApprovalRequest,
+    QueuedInput,
     RuntimeFollowUpEvent,
     RuntimeOutput,
     RuntimeRunEnded,
@@ -124,6 +127,44 @@ def serialize_approval_resolved(
         "review_decision": review_decision,
         "review_reason": review_reason,
         "journal_seq": journal_seq,
+    }
+
+
+def serialize_approval_cancelled(*, approval_id: str, session_id: str, run_id: str) -> dict[str, object]:
+    return {
+        "kind": "approval_cancelled",
+        "approval_id": approval_id,
+        "session_id": session_id,
+        "run_id": run_id,
+    }
+
+
+def serialize_activity_label(event: ActivityLabelEvent) -> dict[str, object]:
+    return {
+        "kind": "activity_label",
+        "session_id": event.session_id,
+        "run_id": event.run_id,
+        "target_seq": event.target_seq,
+        "journal_seq": event.journal_seq,
+        "text": event.text,
+    }
+
+
+def serialize_queue_item(item: QueuedInput) -> dict[str, object]:
+    return {
+        "queue_id": item.queue_id,
+        "session_id": item.session_id,
+        "text": item.text,
+        "created_at": item.created_at.isoformat(),
+    }
+
+
+def serialize_session_presentation_state(state: SessionPresentationState) -> dict[str, object]:
+    return {
+        "usage": serialize_token_usage(state.usage),
+        "main_context_tokens": state.main_context_tokens,
+        "last_todo_run_id": state.last_todo_run_id,
+        "last_todos": [{"content": todo["content"], "status": todo["status"]} for todo in state.last_todos],
     }
 
 

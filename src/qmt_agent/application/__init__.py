@@ -11,6 +11,7 @@ from .interaction import (
     UserInputSubmission,
     submit_user_input,
 )
+from .presentation_state import SessionPresentationState, SessionPresentationStore
 from .sessions import (
     SessionAlreadyArchivedError,
     SessionArchivedError,
@@ -36,6 +37,8 @@ __all__ = [
     "SessionCompactionError",
     "SessionHasQueuedInputsError",
     "SessionOperations",
+    "SessionPresentationState",
+    "SessionPresentationStore",
     "SteerPromotionPendingError",
     "UserInputRejected",
     "UserInputSubmission",

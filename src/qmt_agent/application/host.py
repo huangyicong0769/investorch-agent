@@ -29,8 +29,9 @@ from qmt_agent.runtime import (
 from qmt_agent.storage import create_session, delete_unused_session, list_sessions
 from qmt_agent.tools import close_execution, start_execution
 
-from .activity import ActivityCoordinator, ActivityLabelHandler, _ignore_activity_label
+from .activity import ActivityCoordinator, ActivityLabelEvent, ActivityLabelHandler, _ignore_activity_label
 from .approval import ApprovalCoordinator, ApprovalResolvedHandler, ManualApprovalHandler, _ignore_approval_resolved
+from .presentation_state import SessionPresentationStore
 from .sessions import SessionOperations
 
 logger = logging.getLogger(__name__)
@@ -77,6 +78,7 @@ class ApplicationHost:
     sessions: SessionOperations
     approvals: ApprovalCoordinator
     activity: ActivityCoordinator | None
+    presentation_state: SessionPresentationStore
     initial_session_id: str
 
 
@@ -129,6 +131,7 @@ async def open_application_host(
 ) -> AsyncIterator[ApplicationHost]:
     callbacks = callbacks or ApplicationCallbacks()
     journal = SessionJournal(config.session_journal_dir, ZoneInfo(config["runtime.default_timezone"]))
+    presentation_state = SessionPresentationStore()
     await _discard_legacy_unused_sessions(config, journal)
 
     initial_session_id = uuid.uuid4().hex
@@ -162,7 +165,16 @@ async def open_application_host(
     async def handle_run_ended(event: RuntimeRunEnded) -> None:
         if activity is not None:
             activity.finish_run(event.run_id)
+        presentation_state.observe_run_ended(event)
         await callbacks.handle_run_ended(event)
+
+    def handle_runtime_state(snapshot: RuntimeSessionSnapshot) -> None:
+        presentation_state.observe_runtime(snapshot)
+        callbacks.handle_runtime_state(snapshot)
+
+    async def handle_activity_label(event: ActivityLabelEvent) -> None:
+        presentation_state.add_usage(event.session_id, event.usage)
+        await callbacks.handle_activity_label(event)
 
     runtime: AgentRuntime | None = None
     activity: ActivityCoordinator | None = None
@@ -199,7 +211,7 @@ async def open_application_host(
                     approvals.handle,
                     record_user_message,
                     record_user_steer,
-                    state_handler=callbacks.handle_runtime_state,
+                    state_handler=handle_runtime_state,
                     run_ended_handler=handle_run_ended,
                     follow_up_handler=callbacks.handle_follow_up,
                 )
@@ -210,7 +222,7 @@ async def open_application_host(
                         activity_agent=create_activity_agent(activity_model, activity_model_settings),
                         journal=journal,
                         runtime=runtime,
-                        label_handler=callbacks.handle_activity_label,
+                        label_handler=handle_activity_label,
                     )
                 sessions = SessionOperations(config=config, runtime=runtime, journal=journal)
                 yield ApplicationHost(
@@ -222,6 +234,7 @@ async def open_application_host(
                     sessions=sessions,
                     approvals=approvals,
                     activity=activity,
+                    presentation_state=presentation_state,
                     initial_session_id=initial_session_id,
                 )
             finally:
