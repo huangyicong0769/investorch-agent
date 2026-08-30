@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom'
 
 import { sessionStateQueryOptions } from '../../api/queries'
 import { errorMessage } from '../../lib/errors'
+import { ConversationTimeline } from '../timeline/ConversationTimeline'
 import { ConversationHeader } from './ConversationHeader'
 
 export function ConversationPage() {
@@ -34,17 +35,14 @@ export function ConversationPage() {
   }
 
   return (
-    <section className="flex min-h-screen min-w-0 flex-col bg-background">
+    <section className="flex h-screen min-w-0 flex-col bg-background">
       <ConversationHeader session={stateQuery.data.session} />
-      <div className="mx-auto flex w-full max-w-4xl flex-1 items-center justify-center px-6 py-12">
-        <div className="text-center">
-          <p className="text-sm font-medium text-muted-foreground">QMT Agent</p>
-          <h2 className="mt-3 text-3xl font-semibold tracking-tight">Ask QMT Agent anything.</h2>
-          {stateQuery.data.session.archived_at ? (
-            <p className="mt-3 text-sm text-muted-foreground">This archived session is read-only.</p>
-          ) : null}
-        </div>
-      </div>
+      <ConversationTimeline sessionId={sessionId} />
+      {stateQuery.data.session.archived_at ? (
+        <p className="mx-auto w-full max-w-4xl px-6 pb-5 text-center text-xs text-muted-foreground">
+          This archived session is read-only.
+        </p>
+      ) : null}
     </section>
   )
 }

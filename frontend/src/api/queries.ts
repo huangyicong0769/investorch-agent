@@ -1,4 +1,4 @@
-import { queryOptions } from '@tanstack/react-query'
+import { infiniteQueryOptions, queryOptions } from '@tanstack/react-query'
 
 import {
   getArchivedSessions,
@@ -11,6 +11,8 @@ import {
   getSessions,
 } from './client'
 
+export const HISTORY_PAGE_SIZE = 200
+
 export const queryKeys = {
   all: ['qmt'] as const,
   archivedSessions: () => [...queryKeys.all, 'sessions', 'archived'] as const,
@@ -20,6 +22,8 @@ export const queryKeys = {
   session: (sessionId: string) => [...queryKeys.all, 'session', sessionId] as const,
   sessionHistory: (sessionId: string, beforeSeq?: number, limit?: number) =>
     [...queryKeys.all, 'session', sessionId, 'history', { beforeSeq, limit }] as const,
+  sessionHistoryPages: (sessionId: string) =>
+    [...queryKeys.all, 'session', sessionId, 'history-pages'] as const,
   sessionState: (sessionId: string) => [...queryKeys.all, 'session', sessionId, 'state'] as const,
   sessions: () => [...queryKeys.all, 'sessions'] as const,
 }
@@ -58,6 +62,20 @@ export const sessionHistoryQueryOptions = (sessionId: string, beforeSeq?: number
   queryOptions({
     queryKey: queryKeys.sessionHistory(sessionId, beforeSeq, limit),
     queryFn: ({ signal }) => getSessionHistory(sessionId, { beforeSeq, limit, signal }),
+  })
+
+export const sessionHistoryInfiniteQueryOptions = (sessionId: string) =>
+  infiniteQueryOptions({
+    queryKey: queryKeys.sessionHistoryPages(sessionId),
+    initialPageParam: undefined as number | undefined,
+    queryFn: ({ pageParam, signal }) =>
+      getSessionHistory(sessionId, {
+        beforeSeq: pageParam,
+        limit: HISTORY_PAGE_SIZE,
+        signal,
+      }),
+    getNextPageParam: (lastPage) =>
+      lastPage.has_older && lastPage.oldest_seq !== null ? lastPage.oldest_seq : undefined,
   })
 
 export const defaultsQueryOptions = () =>
