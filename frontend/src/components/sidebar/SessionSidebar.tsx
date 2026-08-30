@@ -1,6 +1,6 @@
 import { useId, useState } from 'react'
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Archive, ListTree, Plus, Search, Settings } from 'lucide-react'
+import { Archive, Plus, Search } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 
 import { createSession } from '../../api/client'
@@ -13,6 +13,8 @@ import type {
 } from '../../api/types'
 import { errorMessage } from '../../lib/errors'
 import { sessionMatches, sessionPath } from '../../lib/session'
+import { ProcessesSheet } from '../processes/ProcessesSheet'
+import { RunSettingsPopover } from '../settings/RunSettingsPopover'
 import { ArchivedSessionsDialog } from './ArchivedSessionsDialog'
 import { SessionItem } from './SessionItem'
 
@@ -163,24 +165,8 @@ export function SessionSidebar({ selectedSessionId }: SessionSidebarProps) {
           <Archive aria-hidden="true" size={16} />
           Archived
         </button>
-        <button
-          className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-muted-foreground"
-          disabled
-          title="Settings will be available in a later interface step."
-          type="button"
-        >
-          <Settings aria-hidden="true" size={16} />
-          Settings
-        </button>
-        <button
-          className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-muted-foreground"
-          disabled
-          title="Processes will be available in a later interface step."
-          type="button"
-        >
-          <ListTree aria-hidden="true" size={16} />
-          Processes
-        </button>
+        <RunSettingsPopover />
+        <ProcessesSheet />
       </div>
 
       <ArchivedSessionsDialog

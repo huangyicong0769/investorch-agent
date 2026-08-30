@@ -538,7 +538,7 @@ export function LiveWebSocketProvider({ children }: PropsWithChildren) {
         addNotice(event.session_id, `${event.run_id}:failed`, 'Run failed.')
       }
       if (event.auto_compaction_changed === true) {
-        addNotice(event.session_id, `${event.run_id}:compacted`, 'Conversation compacted automatically.')
+        addNotice(event.session_id, `${event.run_id}:compacted`, 'Context compacted automatically.')
       }
       if (event.auto_compaction_failed === true) {
         addNotice(event.session_id, `${event.run_id}:compaction-failed`, 'Conversation compaction failed.')

@@ -6,6 +6,7 @@ import { bootstrapQueryOptions, sessionStateQueryOptions } from '../../api/queri
 import { errorMessage } from '../../lib/errors'
 import { ApprovalCard } from '../approval/ApprovalCard'
 import { Composer } from '../composer/Composer'
+import { PlanCard } from '../plan/PlanCard'
 import { QueueStrip } from '../queue/QueueStrip'
 import { ConversationTimeline } from '../timeline/ConversationTimeline'
 import { ConversationHeader } from './ConversationHeader'
@@ -86,7 +87,11 @@ export function ConversationPage() {
 
   return (
     <section className="flex h-screen min-w-0 flex-col bg-background">
-      <ConversationHeader session={stateQuery.data.session} />
+      <ConversationHeader
+        contextWindowTokens={bootstrapQuery.data?.context_window_tokens ?? null}
+        presentation={stateQuery.data.presentation}
+        session={stateQuery.data.session}
+      />
       <ConversationTimeline
         onPendingMessageCanonical={() => {
           if (pendingMessage) {
@@ -97,6 +102,7 @@ export function ConversationPage() {
         sessionId={sessionId}
       />
       <div className="mx-auto w-full max-w-4xl space-y-2 px-6 pb-4 pt-2">
+        <PlanCard presentation={stateQuery.data.presentation} runtime={stateQuery.data.runtime} />
         <QueueStrip
           archived={stateQuery.data.session.archived_at !== null}
           sessionId={sessionId}
