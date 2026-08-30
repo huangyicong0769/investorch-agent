@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from qmt_agent.agents import CompactionResult, TokenUsage
 from qmt_agent.application.activity import ActivityLabelEvent
+from qmt_agent.application.interaction import UserInputSubmission
 from qmt_agent.application.presentation_state import SessionPresentationState
+from qmt_agent.context import BackgroundJob
 from qmt_agent.journal import JournalPage
 from qmt_agent.output import serialize_output_event
 from qmt_agent.runtime import (
@@ -165,6 +167,32 @@ def serialize_session_presentation_state(state: SessionPresentationState) -> dic
         "main_context_tokens": state.main_context_tokens,
         "last_todo_run_id": state.last_todo_run_id,
         "last_todos": [{"content": todo["content"], "status": todo["status"]} for todo in state.last_todos],
+    }
+
+
+def serialize_user_input_submission(submission: UserInputSubmission) -> dict[str, object]:
+    return {
+        "session_id": submission.session_id,
+        "disposition": submission.disposition,
+        "run_id": submission.run_id,
+        "follow_up_id": submission.follow_up_id,
+    }
+
+
+def serialize_background_job(job: BackgroundJob) -> dict[str, object]:
+    return {
+        "job_id": job.job_id,
+        "pid": job.pid,
+        "process_id": job.process_id,
+        "command": job.command,
+        "status": job.status,
+        "owner_session_id": job.owner_session_id,
+        "owner_run_id": job.owner_run_id,
+        "started_at": job.started_at.isoformat(),
+        "finished_at": job.finished_at.isoformat() if job.finished_at is not None else None,
+        "exit_code": job.exit_code,
+        "stdout_log": job.stdout_log,
+        "stderr_log": job.stderr_log,
     }
 
 

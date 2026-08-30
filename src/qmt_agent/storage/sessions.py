@@ -58,6 +58,8 @@ def delete_unused_session(db_path: str | Path, session_id: str) -> bool:
 
 
 def init_session_metadata(db_path: str | Path) -> None:
+    schema_session = SQLiteSession("schema-init", db_path)
+    schema_session.close()
     with closing(sqlite3.connect(db_path)) as connection:
         connection.execute(
             """
@@ -107,6 +109,39 @@ def list_sessions(db_path: str | Path, *, include_archived: bool = False) -> lis
     return [
         SessionRecord(session_id=row[0], title=row[1], branch_from_session_id=row[2], archived_at=row[3], created_at=row[4], updated_at=row[5]) for row in rows
     ]
+
+
+def get_session(db_path: str | Path, session_id: str) -> SessionRecord | None:
+    with closing(sqlite3.connect(db_path)) as connection:
+        row = connection.execute(
+            """
+            SELECT
+                sessions.session_id,
+                metadata.title,
+                lineage.branch_from_session_id,
+                metadata.archived_at,
+                sessions.created_at,
+                sessions.updated_at
+            FROM agent_sessions AS sessions
+            LEFT JOIN extra_session_metadata AS metadata
+                ON metadata.session_id = sessions.session_id
+            LEFT JOIN session_lineage AS lineage
+                ON lineage.session_id = sessions.session_id
+            WHERE sessions.session_id = ?
+            """,
+            (session_id,),
+        ).fetchone()
+
+    if row is None:
+        return None
+    return SessionRecord(
+        session_id=row[0],
+        title=row[1],
+        branch_from_session_id=row[2],
+        archived_at=row[3],
+        created_at=row[4],
+        updated_at=row[5],
+    )
 
 
 def find_session_ids(db_path: str | Path, session_id_prefix: str) -> list[str]:

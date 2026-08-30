@@ -14,6 +14,7 @@ from qmt_agent.initializer import initialize
 from qmt_agent.log import configure_logging
 from qmt_agent.runtime import ApprovalRequest
 
+from .errors import install_error_handlers
 from .routes import APPLICATION_VERSION, router
 
 logger = logging.getLogger(__name__)
@@ -42,6 +43,7 @@ def create_web_app(config: AppConfig) -> FastAPI:
             logger.info("Web application lifespan stopped")
 
     app = FastAPI(title="QMT Agent", version=APPLICATION_VERSION, lifespan=lifespan)
+    install_error_handlers(app)
     app.include_router(router)
     return app
 
