@@ -1,3 +1,4 @@
+from .host import ApplicationCallbacks, ApplicationHost, create_model, open_application_host
 from .interaction import (
     ActiveRunChangedError,
     ArchivedSessionInputError,
@@ -18,6 +19,8 @@ from .sessions import (
 
 __all__ = [
     "ActiveRunChangedError",
+    "ApplicationCallbacks",
+    "ApplicationHost",
     "ArchivedSessionInputError",
     "FollowUpSubmissionError",
     "QueuedFollowUpsPendingError",
@@ -29,5 +32,7 @@ __all__ = [
     "SteerPromotionPendingError",
     "UserInputRejected",
     "UserInputSubmission",
+    "create_model",
+    "open_application_host",
     "submit_user_input",
 ]

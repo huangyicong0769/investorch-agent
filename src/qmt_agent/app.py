@@ -1,95 +1,40 @@
 import asyncio
 import logging
-import sys
-import uuid
 from pathlib import Path
-from zoneinfo import ZoneInfo
 
-from agents import ModelSettings, OpenAIResponsesModel, set_tracing_disabled
-from agents.mcp import MCPServer, MCPServerManager, MCPServerStdio
-from openai import AsyncOpenAI
+from agents import set_tracing_disabled
 
 from qmt_agent.agents import (
-    AgentLoop,
     ApprovalOutcome,
     PermissionReview,
     TokenUsage,
     build_bootstrap_sync_prompt,
     create_activity_agent,
-    create_agent,
     create_bootstrap_sync_agent,
-    create_compaction_agent,
     create_permission_agent,
-    create_title_agent,
     review_permission,
     run_bootstrap_sync,
 )
-from qmt_agent.application import SessionOperations
+from qmt_agent.application import ApplicationCallbacks, SessionOperations, create_model, open_application_host
 from qmt_agent.commands import dispatch_command, parse_command
 from qmt_agent.config import AppConfig, load_config
 from qmt_agent.context import AgentContext, AppState, ExecutionState
 from qmt_agent.initializer import initialize, sync_bootstrap_files
 from qmt_agent.journal import SessionJournal
 from qmt_agent.log import configure_logging
-from qmt_agent.mcp import load_mcp_servers as load_configured_mcp_servers
 from qmt_agent.runtime import (
-    AgentRuntime,
     ApprovalRequest,
+    AgentRuntime,
     RunOptions,
     RuntimeFollowUpEvent,
-    RuntimeOutput,
     RuntimeRunEnded,
+    RuntimeOutput,
     RuntimeSessionSnapshot,
 )
-from qmt_agent.storage import (
-    create_session,
-    delete_unused_session,
-    is_session_archived,
-    list_sessions,
-)
-from qmt_agent.tools import close_execution, start_execution
+from qmt_agent.storage import is_session_archived
 from qmt_agent.ui import ConsoleRenderer, ConsoleUI, QMTAgentTUI
 
 logger = logging.getLogger(__name__)
-
-
-async def _discard_unused_session(config: AppConfig, journal: SessionJournal, session_id: str) -> bool:
-    try:
-        if await journal.session_exists(session_id):
-            return False
-        return await asyncio.to_thread(delete_unused_session, config.sessions_db, session_id)
-    except Exception:
-        logger.exception("Failed to discard unused session %s", session_id)
-        return False
-
-
-async def _discard_legacy_unused_sessions(config: AppConfig, journal: SessionJournal) -> None:
-    records = await asyncio.to_thread(list_sessions, config.sessions_db, include_archived=True)
-    discarded = 0
-    for record in records:
-        discarded += await _discard_unused_session(config, journal, record.session_id)
-    if discarded:
-        logger.info("Discarded %d legacy unused sessions", discarded)
-
-
-def _load_agent_mcp_servers(config: AppConfig) -> list[MCPServer]:
-    servers = load_configured_mcp_servers(config.mcp_config_path, config.secrets, config["mcp.default_timeout_seconds"])
-    if not config["backtest.use_cnequity"]:
-        return servers
-
-    cnequity_server = MCPServerStdio(
-        name="cnequity",
-        params={"command": sys.executable, "args": ["-m", "cnequity", "mcp", "--config", str(config.cnequity_config_path)], "cwd": str(config.root)},
-        cache_tools_list=config["cnequity.mcp_cache_tools_list"],
-        client_session_timeout_seconds=config["mcp.default_timeout_seconds"],
-    )
-    return [cnequity_server, *servers]
-
-
-def _create_model(config: AppConfig, agent: str) -> tuple[OpenAIResponsesModel, ModelSettings]:
-    model = config.model(agent)
-    client = AsyncOpenAI(api_key=config.secret(model.api_key_secret), base_url=model.base_url)
-    return (OpenAIResponsesModel(model=model.name, openai_client=client), ModelSettings(reasoning={"effort": model.reasoning_effort}))
 
 
 async def _run_console(state: AppState, runtime: AgentRuntime, sessions: SessionOperations, ui: ConsoleUI) -> None:
@@ -171,7 +116,7 @@ async def _run_configured_app(ui: ConsoleUI, config: AppConfig, initialized: boo
 
     if sync:
         logger.info("Bootstrap synchronization started")
-        model, model_settings = _create_model(config, "bootstrap")
+        model, model_settings = create_model(config, "bootstrap")
         agent = create_bootstrap_sync_agent(model, model_settings)
 
         async def merge_target(target: Path, template: str, exists: bool) -> None:
@@ -187,53 +132,12 @@ async def _run_configured_app(ui: ConsoleUI, config: AppConfig, initialized: boo
         ui.write(f"Bootstrap files synchronized: created={result.created}, updated={result.updated}, unchanged={result.unchanged}, backup={backup}")
         return
 
-    mcp_servers = _load_agent_mcp_servers(config)
-
-    journal = SessionJournal(config.session_journal_dir, ZoneInfo(config["runtime.default_timezone"]))
-    await _discard_legacy_unused_sessions(config, journal)
-    initial_session_id = uuid.uuid4().hex
-    create_session(config.sessions_db, initial_session_id)
-    state = AppState(
-        config=config,
-        execution=ExecutionState(),
-        selected_session_id=initial_session_id,
-        main_reasoning_effort=config.model("main").reasoning_effort,
-        permission_mode=config["permission.mode"],
-    )
-    logger.info("Started session %s", state.selected_session_id)
-    title_model, title_model_settings = _create_model(config, "title")
-    title_agent = create_title_agent(title_model, title_model_settings)
-    compact_model, compact_model_settings = _create_model(config, "compact")
-    compact_agent = create_compaction_agent(compact_model, compact_model_settings)
-    permission_model, permission_model_settings = _create_model(config, "permission")
+    permission_model, permission_model_settings = create_model(config, "permission")
     permission_agent = create_permission_agent(permission_model, permission_model_settings)
     renderer = ConsoleRenderer(ui) if plain else None
     tui: QMTAgentTUI | None = None
 
-    async def record_user_message(session_id: str, text: str) -> int:
-        return await journal.record_user_message(session_id, text)
-
-    async def record_user_steer(session_id: str, run_id: str, text: str) -> int:
-        return await journal.record_user_steer(session_id, run_id, text)
-
-    async def record_activity_label(session_id: str, target_seq: int, text: str) -> None:
-        try:
-            await journal.record_activity_label(session_id, target_seq, text)
-        except Exception:
-            logger.exception("Failed to append activity label to session journal for session %s target %d", session_id, target_seq)
-
-    if not plain:
-        activity_model, activity_model_settings = _create_model(config, "activity")
-        activity_agent = create_activity_agent(activity_model, activity_model_settings)
-        tui = QMTAgentTUI(state, config.session_journal_dir, journal, activity_agent, record_activity_label)
-
-    async def handle_output(output: RuntimeOutput) -> None:
-        journal_seq = None
-        try:
-            journal_seq = await journal.record_output(output.session_id, output.event)
-        except Exception:
-            logger.exception("Failed to append output to session journal for session %s", output.session_id)
-
+    async def handle_output(output: RuntimeOutput, journal_seq: int | None) -> None:
         if renderer is not None:
             await renderer.handle(output.event)
             return
@@ -258,103 +162,96 @@ async def _run_configured_app(ui: ConsoleUI, config: AppConfig, initialized: boo
             return await ui.request_tool_approval(request.tool_name, request.arguments, review_reason)
         return await tui.request_tool_approval(request, review_reason)
 
-    async def handle_approval(request: ApprovalRequest) -> ApprovalOutcome:
-        review_usage = TokenUsage()
-        review_decision = None
-        review_reason = None
-        if request.permission_mode == "manual":
-            approved = await request_user_approval(request)
-            source = "user"
-        else:
-            try:
-                review_result = await review_permission(permission_agent, config, request.user_input, request.tool_name, request.arguments)
-                review_usage = review_result.usage
-                review = review_result.review
-            except Exception:
-                logger.exception("Permission review failed for tool %s; falling back to manual approval", request.tool_name)
-                review = PermissionReview(decision="ask", reason="AutoReview is unavailable; manual approval is required.")
-
-            review_decision = review.decision
-            review_reason = review.reason
-            if review.decision == "approve":
-                logger.info("Permission auto-approved tool %s", request.tool_name)
-                approved = True
-                source = "permission"
-            elif review.decision == "reject":
-                logger.info("Permission auto-rejected tool %s", request.tool_name)
-                approved = False
-                source = "permission"
-            else:
-                logger.info("Permission escalated tool %s to user", request.tool_name)
-                approved = await request_user_approval(request, review.reason)
+    def create_approval_handler(_state: AppState, journal: SessionJournal):
+        async def handle_approval(request: ApprovalRequest) -> ApprovalOutcome:
+            review_usage = TokenUsage()
+            review_decision = None
+            review_reason = None
+            if request.permission_mode == "manual":
+                approved = await request_user_approval(request)
                 source = "user"
-
-        journal_seq = None
-        try:
-            journal_seq = await journal.record_approval(
-                request.session_id,
-                request.run_id,
-                request.approval_id,
-                request.tool_name,
-                request.arguments,
-                approved,
-                source=source,
-                review_decision=review_decision,
-                review_reason=review_reason,
-            )
-        except Exception:
-            logger.exception("Failed to append approval to session journal for session %s", request.session_id)
-
-        if tui is not None:
-            await tui.report_tool_approval(
-                request.session_id,
-                request.tool_name,
-                request.arguments,
-                approved,
-                source=source,
-                review_decision=review_decision,
-                review_reason=review_reason,
-                journal_seq=journal_seq,
-            )
-        elif source == "permission":
-            ui.report_permission_decision(request.tool_name, approved, review_reason or "")
-
-        return ApprovalOutcome(approved=approved, usage=review_usage)
-
-    try:
-        await start_execution(state.execution, state.config.workspace_dir)
-
-        logger.info("Starting MCP server manager with %d configured servers", len(mcp_servers))
-        async with MCPServerManager(mcp_servers, drop_failed_servers=config["mcp.drop_failed_servers"]) as mcp_manager:
-            try:
-                logger.info("MCP server manager started with %d active servers", len(mcp_manager.active_servers))
-                main_model, main_model_settings = _create_model(config, "main")
-                agent = create_agent(model=main_model, model_settings=main_model_settings, config=config, mcp_servers=mcp_manager.active_servers)
-                agent_loop = AgentLoop(agent, title_agent, compact_agent, config)
-                runtime = AgentRuntime(
-                    agent_loop,
-                    state.execution,
-                    config.sessions_db,
-                    handle_output,
-                    handle_approval,
-                    record_user_message,
-                    record_user_steer,
-                    state_handler=handle_runtime_state,
-                    run_ended_handler=handle_run_ended,
-                    follow_up_handler=handle_follow_up,
-                )
-                sessions = SessionOperations(config=config, runtime=runtime, journal=journal)
+            else:
                 try:
-                    if tui is None:
-                        await _run_console(state, runtime, sessions, ui)
-                    else:
-                        tui.bind_runtime(runtime, sessions)
-                        await tui.run_async()
-                finally:
-                    await runtime.aclose()
-            finally:
-                await close_execution(state.execution)
-    finally:
-        if state.execution.sandbox is not None:
-            await close_execution(state.execution)
-        await _discard_unused_session(config, journal, state.selected_session_id)
+                    review_result = await review_permission(permission_agent, config, request.user_input, request.tool_name, request.arguments)
+                    review_usage = review_result.usage
+                    review = review_result.review
+                except Exception:
+                    logger.exception("Permission review failed for tool %s; falling back to manual approval", request.tool_name)
+                    review = PermissionReview(decision="ask", reason="AutoReview is unavailable; manual approval is required.")
+
+                review_decision = review.decision
+                review_reason = review.reason
+                if review.decision == "approve":
+                    logger.info("Permission auto-approved tool %s", request.tool_name)
+                    approved = True
+                    source = "permission"
+                elif review.decision == "reject":
+                    logger.info("Permission auto-rejected tool %s", request.tool_name)
+                    approved = False
+                    source = "permission"
+                else:
+                    logger.info("Permission escalated tool %s to user", request.tool_name)
+                    approved = await request_user_approval(request, review.reason)
+                    source = "user"
+
+            journal_seq = None
+            try:
+                journal_seq = await journal.record_approval(
+                    request.session_id,
+                    request.run_id,
+                    request.approval_id,
+                    request.tool_name,
+                    request.arguments,
+                    approved,
+                    source=source,
+                    review_decision=review_decision,
+                    review_reason=review_reason,
+                )
+            except Exception:
+                logger.exception("Failed to append approval to session journal for session %s", request.session_id)
+
+            if tui is not None:
+                await tui.report_tool_approval(
+                    request.session_id,
+                    request.tool_name,
+                    request.arguments,
+                    approved,
+                    source=source,
+                    review_decision=review_decision,
+                    review_reason=review_reason,
+                    journal_seq=journal_seq,
+                )
+            elif source == "permission":
+                ui.report_permission_decision(request.tool_name, approved, review_reason or "")
+
+            return ApprovalOutcome(approved=approved, usage=review_usage)
+
+        return handle_approval
+
+    callbacks = ApplicationCallbacks(
+        handle_output=handle_output,
+        handle_follow_up=handle_follow_up,
+        handle_run_ended=handle_run_ended,
+        handle_runtime_state=handle_runtime_state,
+    )
+    activity_agent = None
+    if not plain:
+        activity_model, activity_model_settings = create_model(config, "activity")
+        activity_agent = create_activity_agent(activity_model, activity_model_settings)
+
+    async with open_application_host(config, approval_handler_factory=create_approval_handler, callbacks=callbacks) as host:
+        if plain:
+            await _run_console(host.state, host.runtime, host.sessions, ui)
+            return
+
+        assert activity_agent is not None
+
+        async def record_activity_label(session_id: str, target_seq: int, text: str) -> None:
+            try:
+                await host.journal.record_activity_label(session_id, target_seq, text)
+            except Exception:
+                logger.exception("Failed to append activity label to session journal for session %s target %d", session_id, target_seq)
+
+        tui = QMTAgentTUI(host.state, config.session_journal_dir, host.journal, activity_agent, record_activity_label)
+        tui.bind_runtime(host.runtime, host.sessions)
+        await tui.run_async()
