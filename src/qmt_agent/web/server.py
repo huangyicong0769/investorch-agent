@@ -14,6 +14,7 @@ from qmt_agent.initializer import initialize
 from qmt_agent.log import configure_logging
 
 from .approvals import WebApprovalBroker
+from .assets import install_webui_routes
 from .connections import WebConnectionHub, websocket_router
 from .errors import install_error_handlers
 from .events import WebEventBridge
@@ -64,6 +65,7 @@ def create_web_app(config: AppConfig) -> FastAPI:
     install_error_handlers(app)
     app.include_router(router)
     app.include_router(websocket_router)
+    install_webui_routes(app)
     return app
 
 

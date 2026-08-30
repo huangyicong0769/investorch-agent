@@ -19,6 +19,8 @@ pip-wheel-metadata/
 
 # Virtual environments
 .venv/
+frontend/node_modules/
+frontend/*.tsbuildinfo
 venv/
 env/
 ENV/
