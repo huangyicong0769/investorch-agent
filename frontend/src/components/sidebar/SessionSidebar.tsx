@@ -18,6 +18,7 @@ import { ProcessesSheet } from '../processes/ProcessesSheet'
 import { RunSettingsPopover } from '../settings/RunSettingsPopover'
 import { ArchivedSessionsDialog } from './ArchivedSessionsDialog'
 import { SessionItem } from './SessionItem'
+import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 
 interface SessionSidebarProps {
@@ -110,7 +111,9 @@ export function SessionSidebar({
     >
       <div className="flex items-center justify-between px-2">
         <div className="text-sm font-semibold">QMT Agent</div>
-        <button
+        <Button
+          size={null}
+          variant={null}
           aria-label="Close session sidebar"
           className="rounded-lg p-2 text-muted-foreground hover:bg-muted hover:text-foreground md:hidden"
           onClick={onMobileClose}
@@ -118,17 +121,19 @@ export function SessionSidebar({
           type="button"
         >
           <X aria-hidden="true" size={18} />
-        </button>
+        </Button>
       </div>
-      <button
-        className="mt-4 flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium hover:bg-muted disabled:opacity-60"
+      <Button
+        size={null}
+        variant={null}
+        className="mt-4 flex items-center justify-start gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium hover:bg-muted disabled:opacity-60"
         disabled={createMutation.isPending}
         onClick={() => createMutation.mutate()}
         type="button"
       >
         <Plus aria-hidden="true" size={16} />
         {createMutation.isPending ? 'Creating…' : 'New'}
-      </button>
+      </Button>
       {createMutation.isError ? (
         <p className="mt-2 px-1 text-xs text-red-700" role="alert">
           {errorMessage(createMutation.error, 'A new session could not be created.')}
@@ -179,9 +184,15 @@ export function SessionSidebar({
           {sessionsQuery.isError ? (
             <div className="px-3 py-2 text-sm" role="alert">
               <p className="text-red-700">{errorMessage(sessionsQuery.error, 'Sessions could not be loaded.')}</p>
-              <button className="mt-2 underline" onClick={() => void sessionsQuery.refetch()} type="button">
+              <Button
+                size={null}
+                variant={null}
+                className="mt-2 underline"
+                onClick={() => void sessionsQuery.refetch()}
+                type="button"
+              >
                 Retry
-              </button>
+              </Button>
             </div>
           ) : null}
           {sessionsQuery.isSuccess && filteredSessions.length === 0 ? (
@@ -202,15 +213,17 @@ export function SessionSidebar({
       </ScrollArea>
 
       <div className="mt-3 space-y-1 border-t border-border pt-3">
-        <button
-          className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm hover:bg-muted"
+        <Button
+          size={null}
+          variant={null}
+          className="flex w-full items-center justify-start gap-2 rounded-lg px-3 py-2 text-left text-sm hover:bg-muted"
           onClick={() => setArchivedOpen(true)}
           ref={archivedTriggerRef}
           type="button"
         >
           <Archive aria-hidden="true" size={16} />
           Archived
-        </button>
+        </Button>
         <RunSettingsPopover />
         <ProcessesSheet />
       </div>

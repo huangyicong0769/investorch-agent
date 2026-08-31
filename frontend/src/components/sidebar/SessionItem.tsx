@@ -1,6 +1,7 @@
 import type { SessionRecord, SessionStateResponse } from '../../api/types'
 import { sessionTitle, shortSessionId } from '../../lib/session'
 import { getSessionStatus } from '../../lib/session-status'
+import { Button } from '@/components/ui/button'
 
 interface SessionItemProps {
   active: boolean
@@ -17,9 +18,11 @@ export function SessionItem({ active, archived = false, onSelect, session, state
 
   return (
     <li className="list-none">
-      <button
+      <Button
+        size={null}
+        variant={null}
         aria-current={active ? 'page' : undefined}
-        className={`w-full min-w-0 rounded-lg border px-3 py-2 text-left transition-colors ${
+        className={`block w-full min-w-0 rounded-lg border px-3 py-2 text-left transition-colors ${
           active ? 'border-border bg-muted' : 'border-transparent hover:border-border hover:bg-muted/60'
         }`}
         onClick={() => onSelect(session)}
@@ -37,7 +40,7 @@ export function SessionItem({ active, archived = false, onSelect, session, state
           {queuedCount > 0 ? <span className="shrink-0">{queuedCount} queued</span> : null}
           {archived ? <span className="shrink-0">Archived</span> : null}
         </span>
-      </button>
+      </Button>
     </li>
   )
 }

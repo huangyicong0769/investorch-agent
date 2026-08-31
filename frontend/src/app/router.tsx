@@ -11,6 +11,7 @@ import { SessionSidebar } from '../components/sidebar/SessionSidebar'
 import { errorMessage } from '../lib/errors'
 import { sessionPath } from '../lib/session'
 import { LiveWebSocketProvider } from '../websocket/LiveWebSocketProvider'
+import { Button } from '@/components/ui/button'
 
 function AppShell() {
   const queryClient = useQueryClient()
@@ -76,7 +77,9 @@ function AppShell() {
 
   return (
     <div className="flex min-h-dvh bg-background text-foreground">
-      <button
+      <Button
+        size={null}
+        variant={null}
         aria-controls="session-sidebar"
         aria-expanded={mobileSidebarOpen}
         aria-label="Open session sidebar"
@@ -87,7 +90,7 @@ function AppShell() {
         type="button"
       >
         <PanelLeft aria-hidden="true" size={19} />
-      </button>
+      </Button>
       {mobileSidebarOpen ? (
         <button
           aria-hidden="true"
@@ -129,13 +132,15 @@ function RootRoute() {
           <p className="mt-2 text-sm text-muted-foreground" role="alert">
             {errorMessage(bootstrapQuery.error, 'The application could not be initialized.')}
           </p>
-          <button
+          <Button
+            size={null}
+            variant={null}
             className="mt-5 rounded-lg bg-primary px-3 py-2 text-sm text-primary-foreground"
             onClick={() => void bootstrapQuery.refetch()}
             type="button"
           >
             Retry
-          </button>
+          </Button>
         </div>
       </div>
     )

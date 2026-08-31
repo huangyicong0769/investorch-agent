@@ -8,6 +8,7 @@ import { errorMessage } from '../../lib/errors'
 import { sessionMatches } from '../../lib/session'
 import { Sheet, SheetClose, SheetContent, SheetTitle } from '@/components/ui/sheet'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { Button } from '@/components/ui/button'
 import { SessionItem } from './SessionItem'
 
 interface ArchivedSessionsDialogProps {
@@ -63,13 +64,15 @@ export function ArchivedSessionsDialog({
             Archived sessions
           </SheetTitle>
           <SheetClose asChild>
-            <button
+            <Button
+              size={null}
+              variant={null}
               aria-label="Close archived sessions"
               className="rounded-lg p-2 hover:bg-muted"
               type="button"
             >
               <X aria-hidden="true" size={18} />
-            </button>
+            </Button>
           </SheetClose>
         </div>
 
@@ -96,9 +99,15 @@ export function ArchivedSessionsDialog({
                 <p className="text-red-700">
                   {errorMessage(archivedQuery.error, 'Archived sessions could not be loaded.')}
                 </p>
-                <button className="mt-2 underline" onClick={() => void archivedQuery.refetch()} type="button">
+                <Button
+                  size={null}
+                  variant={null}
+                  className="mt-2 underline"
+                  onClick={() => void archivedQuery.refetch()}
+                  type="button"
+                >
                   Retry
-                </button>
+                </Button>
               </div>
             ) : null}
             {archivedQuery.isSuccess && sessions.length === 0 ? (
