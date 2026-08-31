@@ -21,6 +21,7 @@ import type {
 import { errorMessage } from '../../lib/errors'
 import { historyNewestSeq, type HistoryInfiniteData } from '../../lib/timeline/history'
 import type { PendingDirectMessage } from '../conversation/interaction'
+import { Button } from '@/components/ui/button'
 
 interface ComposerProps {
   sessionId: string
@@ -287,22 +288,26 @@ export function Composer({
         <span className="text-xs text-muted-foreground">Follow-ups: {displayBehavior(followUpBehavior)}</span>
         <div className="flex items-center gap-2">
           {active ? (
-            <button
+            <Button
+              size={null}
+              variant={null}
               className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
               disabled={archived || stopping || stopPendingForSession}
               onClick={() => stopMutation.mutate({ sessionId, runId: runtime.run_id })}
               type="button"
             >
               {stopping || stopPendingForSession ? 'Stopping…' : 'Stop'}
-            </button>
+            </Button>
           ) : null}
-          <button
+          <Button
+            size={null}
+            variant={null}
             className="rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground disabled:cursor-not-allowed disabled:opacity-60"
             disabled={archived || sendPendingForSession || preparingSendForSession || !draft.trim()}
             type="submit"
           >
             {sendPendingForSession || preparingSendForSession ? 'Sending…' : 'Send'}
-          </button>
+          </Button>
         </div>
       </div>
     </form>

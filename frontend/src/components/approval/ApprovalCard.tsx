@@ -5,6 +5,7 @@ import { resolveApproval } from '../../api/client'
 import type { ApprovalRequest, ResolveApprovalResponse } from '../../api/types'
 import { errorMessage } from '../../lib/errors'
 import { formatJsonValue } from '../../lib/timeline/project'
+import { Button } from '@/components/ui/button'
 
 interface ApprovalCardProps {
   approvals: ApprovalRequest[]
@@ -112,7 +113,9 @@ export function ApprovalCard({ approvals, sessionId }: ApprovalCardProps) {
         </h2>
         {selectedApprovals.length > 1 ? (
           <div aria-label="Pending approvals" className="flex shrink-0 items-center gap-1">
-            <button
+            <Button
+              size={null}
+              variant={null}
               aria-label="Previous approval"
               className="rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-muted disabled:opacity-50"
               disabled={activeIndex === 0}
@@ -120,8 +123,10 @@ export function ApprovalCard({ approvals, sessionId }: ApprovalCardProps) {
               type="button"
             >
               Previous
-            </button>
-            <button
+            </Button>
+            <Button
+              size={null}
+              variant={null}
               aria-label="Next approval"
               className="rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-muted disabled:opacity-50"
               disabled={activeIndex === selectedApprovals.length - 1}
@@ -129,7 +134,7 @@ export function ApprovalCard({ approvals, sessionId }: ApprovalCardProps) {
               type="button"
             >
               Next
-            </button>
+            </Button>
           </div>
         ) : null}
       </div>
@@ -156,22 +161,26 @@ export function ApprovalCard({ approvals, sessionId }: ApprovalCardProps) {
             Resolving…
           </span>
         ) : null}
-        <button
+        <Button
+          size={null}
+          variant={null}
           className="rounded-lg border border-border px-3 py-1.5 text-sm hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
           disabled={resolving}
           onClick={() => resolve(false)}
           type="button"
         >
           Reject
-        </button>
-        <button
+        </Button>
+        <Button
+          size={null}
+          variant={null}
           className="rounded-lg bg-primary px-3 py-1.5 text-sm text-primary-foreground disabled:cursor-not-allowed disabled:opacity-60"
           disabled={resolving}
           onClick={() => resolve(true)}
           type="button"
         >
           Approve
-        </button>
+        </Button>
       </div>
 
       {resolution?.error ? (

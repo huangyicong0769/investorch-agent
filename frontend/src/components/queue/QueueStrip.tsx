@@ -13,6 +13,7 @@ import type {
   SessionStateResponse,
 } from '../../api/types'
 import { errorMessage } from '../../lib/errors'
+import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 
 interface QueueStripProps {
@@ -101,24 +102,28 @@ export function QueueStrip({ sessionId, state, archived }: QueueStripProps) {
         </span>
         <div className="flex shrink-0 items-center gap-2">
           {paused ? (
-            <button
+            <Button
+              size={null}
+              variant={null}
               className="rounded-md px-2 py-1 text-xs font-medium hover:bg-muted disabled:opacity-60"
               disabled={archived || mutationPending}
               onClick={() => resumeMutation.mutate({ sessionId })}
               type="button"
             >
               {resumePending ? 'Resuming…' : 'Resume'}
-            </button>
+            </Button>
           ) : null}
           <CollapsibleTrigger asChild>
-            <button
+            <Button
+              size={null}
+              variant={null}
               aria-expanded={expanded}
               className="rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-muted disabled:opacity-60"
               disabled={mutationPending}
               type="button"
             >
               Manage
-            </button>
+            </Button>
           </CollapsibleTrigger>
         </div>
       </div>
@@ -132,14 +137,16 @@ export function QueueStrip({ sessionId, state, archived }: QueueStripProps) {
                 <span className="min-w-0 break-words">
                   {index + 1}. {item.text}
                 </span>
-                <button
+                <Button
+                  size={null}
+                  variant={null}
                   className="shrink-0 rounded px-1.5 py-0.5 text-muted-foreground hover:bg-muted disabled:opacity-60"
                   disabled={archived || mutationPending}
                   onClick={() => removeMutation.mutate({ queueId: item.queue_id, sessionId })}
                   type="button"
                 >
                   Remove
-                </button>
+                </Button>
               </li>
             ))}
           </ol>
@@ -147,14 +154,16 @@ export function QueueStrip({ sessionId, state, archived }: QueueStripProps) {
           <p className="mt-2 text-xs text-muted-foreground">No queued follow-ups.</p>
         )}
         {visibleQueue.length > 0 ? (
-          <button
+          <Button
+            size={null}
+            variant={null}
             className="mt-3 rounded-md border border-border px-2 py-1 text-xs hover:bg-muted disabled:opacity-60"
             disabled={archived || mutationPending}
             onClick={clearQueue}
             type="button"
           >
             {clearPending ? 'Clearing…' : 'Clear all'}
-          </button>
+          </Button>
         ) : null}
       </CollapsibleContent>
 
