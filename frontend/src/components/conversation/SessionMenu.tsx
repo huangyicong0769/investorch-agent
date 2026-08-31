@@ -25,6 +25,7 @@ import type {
 } from '../../api/types'
 import { errorMessage } from '../../lib/errors'
 import { sessionPath, shortSessionId } from '../../lib/session'
+import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import {
   DropdownMenu,
@@ -290,7 +291,9 @@ export function SessionMenu({ session }: SessionMenuProps) {
       <div className="relative">
         <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
           <DropdownMenuTrigger asChild>
-            <button
+            <Button
+              size={null}
+              variant={null}
               aria-expanded={menuOpen}
               aria-haspopup="menu"
               aria-label="Session actions"
@@ -299,7 +302,7 @@ export function SessionMenu({ session }: SessionMenuProps) {
               type="button"
             >
               <MoreHorizontal aria-hidden="true" size={18} />
-            </button>
+            </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent
             align="end"
@@ -441,21 +444,25 @@ export function SessionMenu({ session }: SessionMenuProps) {
               </p>
             ) : null}
             <div className="mt-5 flex justify-end gap-2">
-              <button
+              <Button
+                size={null}
+                variant={null}
                 className="rounded-lg border border-border px-3 py-2 text-sm hover:bg-muted disabled:opacity-60"
                 disabled={renameMutation.isPending}
                 onClick={closeRename}
                 type="button"
               >
                 Cancel
-              </button>
-              <button
+              </Button>
+              <Button
+                size={null}
+                variant={null}
                 className="rounded-lg bg-primary px-3 py-2 text-sm text-primary-foreground disabled:opacity-60"
                 disabled={renameMutation.isPending}
                 type="submit"
               >
                 {renameMutation.isPending ? 'Saving…' : 'Save'}
-              </button>
+              </Button>
             </div>
           </form>
         </DialogContent>

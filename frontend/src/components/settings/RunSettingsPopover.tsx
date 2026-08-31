@@ -12,6 +12,7 @@ import type {
   ReasoningEffort,
 } from '../../api/types'
 import { errorMessage } from '../../lib/errors'
+import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 
 const REASONING_OPTIONS: ReasoningEffort[] = [
@@ -82,16 +83,18 @@ export function RunSettingsPopover() {
     <div className="relative">
       <Popover open={open} onOpenChange={handleOpenChange}>
         <PopoverTrigger asChild>
-          <button
+          <Button
+            size={null}
+            variant={null}
             aria-expanded={open}
             aria-haspopup="dialog"
-            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm hover:bg-muted disabled:opacity-60"
+            className="flex w-full items-center justify-start gap-2 rounded-lg px-3 py-2 text-left text-sm hover:bg-muted disabled:opacity-60"
             disabled={mutation.isPending}
             type="button"
           >
             <Settings aria-hidden="true" size={16} />
             Settings
-          </button>
+          </Button>
         </PopoverTrigger>
         <PopoverContent
           align="end"
@@ -119,9 +122,15 @@ export function RunSettingsPopover() {
               <p className="text-red-700">
                 {errorMessage(defaultsQuery.error, 'Run settings could not be loaded.')}
               </p>
-              <button className="mt-2 underline" onClick={() => void defaultsQuery.refetch()} type="button">
+              <Button
+                size={null}
+                variant={null}
+                className="mt-2 underline"
+                onClick={() => void defaultsQuery.refetch()}
+                type="button"
+              >
                 Retry
-              </button>
+              </Button>
             </div>
           ) : null}
 
@@ -197,21 +206,25 @@ export function RunSettingsPopover() {
               ) : null}
 
               <div className="flex justify-end gap-2 pt-1">
-                <button
+                <Button
+                  size={null}
+                  variant={null}
                   className="rounded-lg border border-border px-3 py-1.5 text-sm hover:bg-muted disabled:opacity-60"
                   disabled={mutation.isPending}
                   onClick={() => setOpen(false)}
                   type="button"
                 >
                   Cancel
-                </button>
-                <button
+                </Button>
+                <Button
+                  size={null}
+                  variant={null}
                   className="rounded-lg bg-primary px-3 py-1.5 text-sm text-primary-foreground disabled:opacity-60"
                   disabled={mutation.isPending}
                   type="submit"
                 >
                   {mutation.isPending ? 'Saving…' : 'Save'}
-                </button>
+                </Button>
               </div>
             </form>
           ) : null}

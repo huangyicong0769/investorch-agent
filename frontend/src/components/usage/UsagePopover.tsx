@@ -1,4 +1,5 @@
 import type { SessionPresentationState } from '../../api/types'
+import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 
 interface UsagePopoverProps {
@@ -46,13 +47,15 @@ export function UsagePopover({ contextWindowTokens, presentation }: UsagePopover
     <div className="relative">
       <Popover>
         <PopoverTrigger asChild>
-          <button
+          <Button
+            size={null}
+            variant={null}
             aria-label={`Token usage: ${summary}`}
             className="rounded-lg px-2 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
             type="button"
           >
             {summary}
-          </button>
+          </Button>
         </PopoverTrigger>
         <PopoverContent
           align="end"

@@ -6,6 +6,7 @@ import { processesQueryOptions } from '../../api/queries'
 import type { BackgroundJob } from '../../api/types'
 import { errorMessage } from '../../lib/errors'
 import { shortSessionId } from '../../lib/session'
+import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import {
   Sheet,
@@ -65,12 +66,17 @@ function ProcessCard({ process }: { process: BackgroundJob }) {
         open={logPathsOpen}
       >
         <CollapsibleTrigger asChild>
-          <button className="flex w-full cursor-pointer items-center text-left" type="button">
+          <Button
+            size={null}
+            variant={null}
+            className="flex w-full cursor-pointer items-center justify-start gap-0 text-left text-xs font-normal"
+            type="button"
+          >
             <span aria-hidden="true" className="mr-2">
               {logPathsOpen ? '▾' : '▸'}
             </span>
             <span>Log paths</span>
-          </button>
+          </Button>
         </CollapsibleTrigger>
         <CollapsibleContent>
           <dl className="mt-2 grid gap-2">
@@ -101,15 +107,17 @@ export function ProcessesSheet() {
   return (
     <Sheet open={open} onOpenChange={setOpen}>
       <SheetTrigger asChild>
-        <button
+        <Button
+          size={null}
+          variant={null}
           aria-expanded={open}
           aria-haspopup="dialog"
-          className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm hover:bg-muted"
+          className="flex w-full items-center justify-start gap-2 rounded-lg px-3 py-2 text-left text-sm hover:bg-muted"
           type="button"
         >
           <ListTree aria-hidden="true" size={16} />
           Processes
-        </button>
+        </Button>
       </SheetTrigger>
 
       <SheetContent
@@ -126,13 +134,15 @@ export function ProcessesSheet() {
             </SheetDescription>
           </div>
           <SheetClose asChild>
-            <button
+            <Button
+              size={null}
+              variant={null}
               aria-label="Close processes"
               className="rounded-lg p-2 text-muted-foreground hover:bg-muted hover:text-foreground"
               type="button"
             >
               <X aria-hidden="true" size={18} />
-            </button>
+            </Button>
           </SheetClose>
         </header>
 
@@ -148,9 +158,15 @@ export function ProcessesSheet() {
                 <p className="text-red-700">
                   {errorMessage(processesQuery.error, 'Processes could not be loaded.')}
                 </p>
-                <button className="mt-2 underline" onClick={() => void processesQuery.refetch()} type="button">
+                <Button
+                  size={null}
+                  variant={null}
+                  className="mt-2 underline"
+                  onClick={() => void processesQuery.refetch()}
+                  type="button"
+                >
                   Retry
-                </button>
+                </Button>
               </div>
             ) : null}
             {processesQuery.isSuccess && processesQuery.data.processes.length === 0 ? (
