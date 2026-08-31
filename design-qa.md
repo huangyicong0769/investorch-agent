@@ -20,6 +20,7 @@ The supplied reference is a 2384 x 4004 Codex desktop capture. The implementatio
 ## Interaction and runtime checks
 
 - Permission and effort change process-memory defaults for future Runs, matching `/permission` and `/effort`; they do not persist per session and do not mutate an active Run.
+- A real defaults-snapshot smoke set the future Run defaults to `manual` and `low`, started a Run, then immediately restored `review` and `max`. The active Run still produced the manual approval captured at start, `load_config()` remained unchanged on disk, and the temporary session was deleted afterward.
 - A temporary session was archived, restored, and deleted through the real UI. A separate confirmed-delete smoke verified the destructive path without changing existing user sessions.
 - A real Agent Run executed one shell tool call. The live row displayed `Working ...` and the completed row displayed `Worked 7s · 17:13–17:13`.
 - A full page reload restored the completed duration from the journal.
