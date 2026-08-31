@@ -1,3 +1,5 @@
+import { Gauge } from 'lucide-react'
+
 import type { SessionPresentationState } from '../../api/types'
 import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
@@ -50,21 +52,24 @@ export function UsagePopover({ contextWindowTokens, presentation }: UsagePopover
           <Button
             size={null}
             variant={null}
-            aria-label={`Token usage: ${summary}`}
-            className="rounded-lg px-2 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
+            aria-label={`Context usage: ${summary}`}
+            className="flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
+            title="Context and token usage"
             type="button"
           >
+            <Gauge aria-hidden="true" size={14} />
             {summary}
           </Button>
         </PopoverTrigger>
         <PopoverContent
-          align="end"
-          aria-label="Token usage"
+          align="start"
+          aria-label="Context and token usage"
           collisionPadding={12}
+          side="top"
           sideOffset={8}
           className="z-30 w-64 max-w-[calc(100vw-1.5rem)] rounded-xl border border-border bg-card p-4 shadow-xl"
         >
-          <h2 className="text-sm font-semibold">Usage</h2>
+          <h2 className="text-sm font-semibold">Context &amp; usage</h2>
           <dl className="mt-3 space-y-2 text-xs">
             {rows.map(([label, value]) => (
               <div className="flex items-center justify-between gap-4" key={label}>

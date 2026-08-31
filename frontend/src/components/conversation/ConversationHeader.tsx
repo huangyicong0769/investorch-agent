@@ -1,16 +1,13 @@
-import type { SessionPresentationState, SessionRecord } from '../../api/types'
+import type { SessionRecord } from '../../api/types'
 import { sessionTitle, shortSessionId } from '../../lib/session'
 import { useWebSocketStatus } from '../../websocket/LiveWebSocketProvider'
-import { UsagePopover } from '../usage/UsagePopover'
 import { SessionMenu } from './SessionMenu'
 
 interface ConversationHeaderProps {
-  contextWindowTokens: number | null
-  presentation: SessionPresentationState
   session: SessionRecord
 }
 
-export function ConversationHeader({ contextWindowTokens, presentation, session }: ConversationHeaderProps) {
+export function ConversationHeader({ session }: ConversationHeaderProps) {
   const archived = session.archived_at !== null
   const connectionStatus = useWebSocketStatus()
 
@@ -31,7 +28,6 @@ export function ConversationHeader({ contextWindowTokens, presentation, session 
         </div>
       </div>
       <div className="flex shrink-0 items-center gap-1">
-        <UsagePopover contextWindowTokens={contextWindowTokens} presentation={presentation} />
         <SessionMenu key={session.session_id} session={session} />
       </div>
     </header>

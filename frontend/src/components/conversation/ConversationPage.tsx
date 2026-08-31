@@ -88,11 +88,7 @@ export function ConversationPage() {
 
   return (
     <section className="flex h-dvh min-w-0 flex-col bg-background">
-      <ConversationHeader
-        contextWindowTokens={bootstrapQuery.data?.context_window_tokens ?? null}
-        presentation={stateQuery.data.presentation}
-        session={stateQuery.data.session}
-      />
+      <ConversationHeader session={stateQuery.data.session} />
       <ConversationTimeline
         onPendingMessageCanonical={() => {
           if (pendingMessage) {
@@ -112,10 +108,12 @@ export function ConversationPage() {
         <ApprovalCard approvals={stateQuery.data.pending_approvals} sessionId={sessionId} />
         <Composer
           archived={stateQuery.data.session.archived_at !== null}
+          contextWindowTokens={bootstrapQuery.data?.context_window_tokens ?? null}
           draft={draft}
           onDraftChange={updateDraft}
           onDraftSubmitted={clearSubmittedDraft}
           onPendingDirectMessage={setPendingMessage}
+          presentation={stateQuery.data.presentation}
           sessionId={sessionId}
           state={stateQuery.data}
         />

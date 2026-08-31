@@ -13,6 +13,7 @@ import { getSessionHistory, getSessionState, sendMessage, stopSession } from '..
 import { HISTORY_PAGE_SIZE, queryKeys } from '../../api/queries'
 import type {
   BootstrapResponse,
+  SessionPresentationState,
   SessionStateResponse,
   StopResponse,
   UserInputSubmission,
@@ -20,6 +21,7 @@ import type {
 import { errorMessage } from '../../lib/errors'
 import { historyNewestSeq, type HistoryInfiniteData } from '../../lib/timeline/history'
 import type { PendingDirectMessage } from '../conversation/interaction'
+import { UsagePopover } from '../usage/UsagePopover'
 import { Button } from '@/components/ui/button'
 import { RunControlsPopover } from './RunControlsPopover'
 
@@ -27,10 +29,12 @@ interface ComposerProps {
   sessionId: string
   state: SessionStateResponse
   archived: boolean
+  contextWindowTokens: number | null
   draft: string
   onDraftChange: (sessionId: string, draft: string) => void
   onDraftSubmitted: (sessionId: string, submittedText: string) => void
   onPendingDirectMessage: (sessionId: string, message: PendingDirectMessage) => void
+  presentation: SessionPresentationState
 }
 
 interface SendVariables {
@@ -64,10 +68,12 @@ export function Composer({
   sessionId,
   state,
   archived,
+  contextWindowTokens,
   draft,
   onDraftChange,
   onDraftSubmitted,
   onPendingDirectMessage,
+  presentation,
 }: ComposerProps) {
   const queryClient = useQueryClient()
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -274,7 +280,10 @@ export function Composer({
         </p>
       ) : null}
       <div className="mt-2 flex flex-wrap items-center justify-between gap-2 border-t border-border pt-2">
-        <RunControlsPopover activeFollowUpBehavior={active ? runtime.active_follow_up_behavior : null} />
+        <div className="flex min-w-0 flex-wrap items-center gap-1">
+          <RunControlsPopover activeFollowUpBehavior={active ? runtime.active_follow_up_behavior : null} />
+          <UsagePopover contextWindowTokens={contextWindowTokens} presentation={presentation} />
+        </div>
         <div className="flex items-center gap-2">
           {active ? (
             <Button
