@@ -13,6 +13,7 @@ import type {
   SessionStateResponse,
 } from '../../api/types'
 import { errorMessage } from '../../lib/errors'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 
 interface QueueStripProps {
   sessionId: string
@@ -89,7 +90,11 @@ export function QueueStrip({ sessionId, state, archived }: QueueStripProps) {
   }
 
   return (
-    <div className="rounded-xl border border-border bg-card/80 px-3 py-2 text-sm">
+    <Collapsible
+      className="rounded-xl border border-border bg-card/80 px-3 py-2 text-sm"
+      onOpenChange={setExpanded}
+      open={expanded}
+    >
       <div className="flex items-center justify-between gap-3">
         <span className="min-w-0 truncate text-muted-foreground">
           {paused ? `Queue paused · ${queueCount}` : `${queueCount} queued`}
@@ -105,60 +110,59 @@ export function QueueStrip({ sessionId, state, archived }: QueueStripProps) {
               {resumePending ? 'Resuming…' : 'Resume'}
             </button>
           ) : null}
-          <button
-            aria-expanded={expanded}
-            className="rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-muted disabled:opacity-60"
-            disabled={mutationPending}
-            onClick={() => setExpanded((open) => !open)}
-            type="button"
-          >
-            Manage
-          </button>
+          <CollapsibleTrigger asChild>
+            <button
+              aria-expanded={expanded}
+              className="rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-muted disabled:opacity-60"
+              disabled={mutationPending}
+              type="button"
+            >
+              Manage
+            </button>
+          </CollapsibleTrigger>
         </div>
       </div>
 
-      {expanded ? (
-        <div className="mt-2 border-t border-border pt-2" role="region">
-          <p className="text-xs font-medium text-muted-foreground">Queued follow-ups</p>
-          {visibleQueue.length > 0 ? (
-            <ol className="mt-2 space-y-1.5">
-              {visibleQueue.map((item, index) => (
-                <li className="flex items-start justify-between gap-2 text-xs" key={item.queue_id}>
-                  <span className="min-w-0 break-words">
-                    {index + 1}. {item.text}
-                  </span>
-                  <button
-                    className="shrink-0 rounded px-1.5 py-0.5 text-muted-foreground hover:bg-muted disabled:opacity-60"
-                    disabled={archived || mutationPending}
-                    onClick={() => removeMutation.mutate({ queueId: item.queue_id, sessionId })}
-                    type="button"
-                  >
-                    Remove
-                  </button>
-                </li>
-              ))}
-            </ol>
-          ) : (
-            <p className="mt-2 text-xs text-muted-foreground">No queued follow-ups.</p>
-          )}
-          {visibleQueue.length > 0 ? (
-            <button
-              className="mt-3 rounded-md border border-border px-2 py-1 text-xs hover:bg-muted disabled:opacity-60"
-              disabled={archived || mutationPending}
-              onClick={clearQueue}
-              type="button"
-            >
-              {clearPending ? 'Clearing…' : 'Clear all'}
-            </button>
-          ) : null}
-        </div>
-      ) : null}
+      <CollapsibleContent className="mt-2 border-t border-border pt-2" role="region">
+        <p className="text-xs font-medium text-muted-foreground">Queued follow-ups</p>
+        {visibleQueue.length > 0 ? (
+          <ol className="mt-2 space-y-1.5">
+            {visibleQueue.map((item, index) => (
+              <li className="flex items-start justify-between gap-2 text-xs" key={item.queue_id}>
+                <span className="min-w-0 break-words">
+                  {index + 1}. {item.text}
+                </span>
+                <button
+                  className="shrink-0 rounded px-1.5 py-0.5 text-muted-foreground hover:bg-muted disabled:opacity-60"
+                  disabled={archived || mutationPending}
+                  onClick={() => removeMutation.mutate({ queueId: item.queue_id, sessionId })}
+                  type="button"
+                >
+                  Remove
+                </button>
+              </li>
+            ))}
+          </ol>
+        ) : (
+          <p className="mt-2 text-xs text-muted-foreground">No queued follow-ups.</p>
+        )}
+        {visibleQueue.length > 0 ? (
+          <button
+            className="mt-3 rounded-md border border-border px-2 py-1 text-xs hover:bg-muted disabled:opacity-60"
+            disabled={archived || mutationPending}
+            onClick={clearQueue}
+            type="button"
+          >
+            {clearPending ? 'Clearing…' : 'Clear all'}
+          </button>
+        ) : null}
+      </CollapsibleContent>
 
       {mutationError ? (
         <p className="mt-2 text-xs text-red-700" role="alert">
           {errorMessage(mutationError, 'The queue could not be updated. Try again.')}
         </p>
       ) : null}
-    </div>
+    </Collapsible>
   )
 }
