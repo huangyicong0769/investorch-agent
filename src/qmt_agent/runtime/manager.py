@@ -143,18 +143,27 @@ class AgentRuntime:
             raise SessionBusyError(f"Session {session_id} already has an active operation")
 
         run_id = uuid.uuid4().hex
+        started_at = datetime.now(UTC)
         run_control = RunControl(session_id, run_id, lambda: self._notify_state(session_id))
         input_journal = _InputJournalBarrier()
         self._input_journal_by_run[run_id] = input_journal
         task = asyncio.create_task(
             self._execute_run(
-                run_id, session_id, user_input, options, run_control, input_journal, record_user_message=record_user_message, start_gate=start_gate
+                run_id,
+                session_id,
+                user_input,
+                options,
+                run_control,
+                input_journal,
+                started_at,
+                record_user_message=record_user_message,
+                start_gate=start_gate,
             ),
             name=f"agent-run-{run_id}",
         )
         self._run_tasks.add(task)
         task.add_done_callback(self._run_tasks.discard)
-        active_run = ActiveRun(run_id=run_id, session_id=session_id, user_input=user_input, options=options, started_at=datetime.now(UTC), task=task)
+        active_run = ActiveRun(run_id=run_id, session_id=session_id, user_input=user_input, options=options, started_at=started_at, task=task)
         self._active_by_session[session_id] = active_run
         self._active_by_run[run_id] = active_run
         self._controls_by_run[run_id] = run_control
@@ -397,6 +406,7 @@ class AgentRuntime:
         options: RunOptions,
         run_control: RunControl,
         input_journal: _InputJournalBarrier,
+        started_at: datetime,
         *,
         record_user_message: bool,
         start_gate: asyncio.Event | None,
@@ -499,8 +509,17 @@ class AgentRuntime:
                     self.pause_queue(session_id)
                 if not self._steer_fallback_by_session.get(session_id):
                     self._notify_state(session_id)
+                ended_at = datetime.now(UTC)
                 await self._notify_run_ended(
-                    RuntimeRunEnded(session_id=session_id, run_id=run_id, status=status, result=result, discarded_steer_count=discarded_steer_count)
+                    RuntimeRunEnded(
+                        session_id=session_id,
+                        run_id=run_id,
+                        status=status,
+                        started_at=started_at,
+                        ended_at=ended_at,
+                        result=result,
+                        discarded_steer_count=discarded_steer_count,
+                    )
                 )
                 await self._try_promote_steer_fallback(session_id)
                 await self._try_promote_queue(session_id)

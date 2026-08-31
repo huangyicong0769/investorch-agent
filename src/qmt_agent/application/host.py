@@ -166,6 +166,10 @@ async def open_application_host(
     async def handle_run_ended(event: RuntimeRunEnded) -> None:
         if activity is not None:
             activity.finish_run(event.run_id)
+        try:
+            await journal.record_run_ended(event.session_id, event.run_id, event.status, event.started_at, event.ended_at)
+        except Exception:
+            logger.exception("Failed to append run-ended event to session journal for session %s run %s", event.session_id, event.run_id)
         presentation_state.observe_run_ended(event)
         await callbacks.handle_run_ended(event)
 

@@ -106,6 +106,8 @@ class RuntimeRunEnded:
     session_id: str
     run_id: str
     status: Literal["completed", "cancelled", "failed"]
+    started_at: datetime
+    ended_at: datetime
     result: AgentRunResult | None
     discarded_steer_count: int = 0
 

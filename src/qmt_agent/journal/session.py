@@ -6,7 +6,7 @@ import tempfile
 from collections.abc import Awaitable
 from datetime import datetime
 from pathlib import Path
-from typing import TypeVar
+from typing import Literal, TypeVar
 from zoneinfo import ZoneInfo
 
 from qmt_agent.output import OutputEvent, serialize_output_event
@@ -54,6 +54,36 @@ class SessionJournal:
 
     async def record_user_steer(self, session_id: str, run_id: str, text: str) -> int:
         return await self._record(session_id, {"type": "user_steer", "run_id": run_id, "text": text})
+
+    async def record_run_ended(
+        self,
+        session_id: str,
+        run_id: str,
+        status: Literal["completed", "cancelled", "failed"],
+        started_at: datetime,
+        ended_at: datetime,
+    ) -> int:
+        if status not in {"completed", "cancelled", "failed"}:
+            raise ValueError("run-ended status must be completed, cancelled, or failed")
+        if not isinstance(started_at, datetime) or started_at.tzinfo is None or started_at.utcoffset() is None:
+            raise ValueError("started_at must be timezone-aware")
+        if not isinstance(ended_at, datetime) or ended_at.tzinfo is None or ended_at.utcoffset() is None:
+            raise ValueError("ended_at must be timezone-aware")
+        if ended_at < started_at:
+            raise ValueError("ended_at must not be earlier than started_at")
+
+        duration_ms = max(0, round((ended_at - started_at).total_seconds() * 1000))
+        return await self._record(
+            session_id,
+            {
+                "type": "run_ended",
+                "run_id": run_id,
+                "status": status,
+                "started_at": started_at.isoformat(),
+                "ended_at": ended_at.isoformat(),
+                "duration_ms": duration_ms,
+            },
+        )
 
     async def record_output(self, session_id: str, event: OutputEvent) -> int:
         return await self._record(session_id, serialize_output_event(event))
