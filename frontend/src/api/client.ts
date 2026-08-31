@@ -8,6 +8,7 @@ import type {
   CompactionResult,
   ConfirmBody,
   Defaults,
+  DeleteSessionResponse,
   DiscardUnusedResponse,
   HealthResponse,
   HistoryResponse,
@@ -232,6 +233,18 @@ export function clearSession(
   })
 }
 
+export function deleteSession(
+  sessionId: string,
+  body: ConfirmBody,
+  options: RequestOverrides = {},
+): Promise<DeleteSessionResponse> {
+  return request<DeleteSessionResponse>(`/api/sessions/${encodePathPart(sessionId)}`, {
+    ...options,
+    body,
+    method: 'DELETE',
+  })
+}
+
 export function compactSession(sessionId: string, options: RequestOverrides = {}): Promise<CompactionResult> {
   return request<CompactionResult>(`/api/sessions/${encodePathPart(sessionId)}/compact`, { ...options, method: 'POST' })
 }
@@ -306,6 +319,7 @@ export const api = {
   clearSessionQueue,
   compactSession,
   createSession,
+  deleteSession,
   discardUnusedSession,
   forkSession,
   getArchivedSessions,

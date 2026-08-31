@@ -285,6 +285,12 @@ export interface ClearSessionResponse {
   replacement_session_id: string
 }
 
+export interface DeleteSessionResponse {
+  deleted: true
+  session_id: string
+  replacement_session_id: string | null
+}
+
 export interface DiscardUnusedResponse {
   discarded: boolean
 }
