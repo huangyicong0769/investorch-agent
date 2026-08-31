@@ -129,14 +129,10 @@ function canonicalRecords(records: readonly JournalRecord[]): JournalRecord[] {
 }
 
 function activityTitle(group: TimelineActivityGroupViewModel): string {
-  const labeledTool = [...group.items].reverse().find(
-    (item): item is TimelineToolViewModel => item.type === 'tool' && item.label !== null,
-  )
-  if (labeledTool?.label) {
-    return labeledTool.label
-  }
-
   const latestTool = [...group.items].reverse().find((item): item is TimelineToolViewModel => item.type === 'tool')
+  if (latestTool?.label) {
+    return latestTool.label
+  }
   if (latestTool) {
     return `Calling ${latestTool.name}…`
   }
