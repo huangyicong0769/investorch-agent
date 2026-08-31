@@ -18,6 +18,7 @@ from qmt_agent.application import (
     SessionCompactionError,
     SessionHasChildrenError,
     SessionHasQueuedInputsError,
+    SessionNotFoundError,
     SteerPromotionPendingError,
 )
 from qmt_agent.runtime import SessionBusyError
@@ -36,6 +37,13 @@ class APIError(Exception):
 
 
 def raise_application_error(error: Exception) -> NoReturn:
+    if isinstance(error, SessionNotFoundError):
+        raise APIError(
+            404,
+            "session_not_found",
+            "The requested session does not exist.",
+            details={"session_id": error.session_id},
+        ) from error
     if isinstance(error, ArchivedSessionInputError | SessionArchivedError):
         raise APIError(409, "session_archived", "This session is archived and read-only.") from error
     if isinstance(error, SessionHasQueuedInputsError):

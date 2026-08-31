@@ -8,6 +8,7 @@ from qmt_agent.application import (
     SessionArchivedError,
     SessionCompactionError,
     SessionHasQueuedInputsError,
+    SessionNotFoundError,
     SessionOperations,
 )
 from qmt_agent.config import FOLLOW_UP_BEHAVIORS, PERMISSION_MODES, REASONING_EFFORTS
@@ -192,6 +193,10 @@ async def dispatch_command(command: Command, state: AppState, *, runtime: AgentR
                 await sessions.set_title(state.selected_session_id, title)
             except SessionArchivedError:
                 return CommandResult("Archived sessions are read-only. Unarchive or switch sessions first.")
+            except SessionNotFoundError:
+                return CommandResult("Session not found.")
+            except SessionBusyError:
+                return CommandResult("Cannot update this session while it has an active operation.")
             return CommandResult(f"Set session title to: {title}")
 
         case "effort":

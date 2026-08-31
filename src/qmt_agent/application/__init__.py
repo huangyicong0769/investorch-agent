@@ -18,6 +18,7 @@ from .sessions import (
     SessionCompactionError,
     SessionHasChildrenError,
     SessionHasQueuedInputsError,
+    SessionNotFoundError,
     SessionOperations,
 )
 
@@ -38,6 +39,7 @@ __all__ = [
     "SessionCompactionError",
     "SessionHasChildrenError",
     "SessionHasQueuedInputsError",
+    "SessionNotFoundError",
     "SessionOperations",
     "SessionPresentationState",
     "SessionPresentationStore",

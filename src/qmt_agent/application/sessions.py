@@ -13,12 +13,14 @@ from qmt_agent.config import AppConfig
 from qmt_agent.journal import SessionJournal
 from qmt_agent.runtime import AgentRuntime, SessionBusyError
 from qmt_agent.storage import (
+    SessionRecord,
     archive_session,
     create_session,
     delete_session_metadata,
     delete_session_transaction,
     delete_unused_session,
     fork_session,
+    get_session,
     is_session_archived,
     session_has_children,
     set_session_title,
@@ -62,6 +64,12 @@ def _cancel_delete_transaction(cancel_event: threading.Event, commit_lock: threa
 
 class SessionArchivedError(RuntimeError):
     pass
+
+
+class SessionNotFoundError(RuntimeError):
+    def __init__(self, session_id: str) -> None:
+        self.session_id = session_id
+        super().__init__(f"Session {session_id} does not exist")
 
 
 class SessionHasQueuedInputsError(RuntimeError):
@@ -147,11 +155,19 @@ class SessionOperations:
                 )
         return target_session_id
 
-    async def set_title(self, session_id: str, title: str) -> None:
-        if await asyncio.to_thread(is_session_archived, self._config.sessions_db, session_id):
-            raise SessionArchivedError
-        await asyncio.to_thread(set_session_title, self._config.sessions_db, session_id, title)
+    async def set_title(self, session_id: str, title: str) -> SessionRecord:
+        async with self._runtime.reserve_session(session_id):
+            session = await asyncio.to_thread(get_session, self._config.sessions_db, session_id)
+            if session is None:
+                raise SessionNotFoundError(session_id)
+            if session.archived_at is not None:
+                raise SessionArchivedError
+            await asyncio.to_thread(set_session_title, self._config.sessions_db, session_id, title)
+            updated = await asyncio.to_thread(get_session, self._config.sessions_db, session_id)
+            if updated is None:
+                raise SessionNotFoundError(session_id)
         logger.info("Updated title for session %s", session_id)
+        return updated
 
     async def clear(self, session_id: str) -> str:
         if await asyncio.to_thread(is_session_archived, self._config.sessions_db, session_id):

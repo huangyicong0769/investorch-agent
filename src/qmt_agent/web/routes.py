@@ -216,11 +216,9 @@ async def rename_session(request: RenameSessionRequest, session: Session, host: 
     if not title:
         raise APIError(400, "invalid_title", "Session title must not be empty.")
     try:
-        await host.sessions.set_title(session.session_id, title)
+        updated = await host.sessions.set_title(session.session_id, title)
     except Exception as error:
         raise_application_error(error)
-    updated = await asyncio.to_thread(get_session, host.config.sessions_db, session.session_id)
-    assert updated is not None
     return {"session": serialize_session_record(updated)}
 
 
