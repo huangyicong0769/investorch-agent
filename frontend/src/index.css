@@ -11,6 +11,15 @@
   --card-foreground: #252525;
   --primary: #252525;
   --primary-foreground: #ffffff;
+  --popover: var(--card);
+  --popover-foreground: var(--card-foreground);
+  --secondary: var(--muted);
+  --secondary-foreground: var(--foreground);
+  --accent: var(--muted);
+  --accent-foreground: var(--foreground);
+  --destructive: #b91c1c;
+  --input: var(--border);
+  --ring: var(--muted-foreground);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -25,6 +34,7 @@
     --card-foreground: #ececec;
     --primary: #ececec;
     --primary-foreground: #171717;
+    --destructive: #f87171;
   }
 
   .text-red-700 {
@@ -42,6 +52,15 @@
   --color-card-foreground: var(--card-foreground);
   --color-primary: var(--primary);
   --color-primary-foreground: var(--primary-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
 }
 
 * {
