@@ -16,6 +16,7 @@ from qmt_agent.application import (
     SessionAlreadyArchivedError,
     SessionArchivedError,
     SessionCompactionError,
+    SessionHasChildrenError,
     SessionHasQueuedInputsError,
     SteerPromotionPendingError,
 )
@@ -39,6 +40,8 @@ def raise_application_error(error: Exception) -> NoReturn:
         raise APIError(409, "session_archived", "This session is archived and read-only.") from error
     if isinstance(error, SessionHasQueuedInputsError):
         raise APIError(409, "session_has_queued_inputs", "This session has queued follow-ups.") from error
+    if isinstance(error, SessionHasChildrenError):
+        raise APIError(409, "session_has_children", "Delete this session's branches first.") from error
     if isinstance(error, SessionAlreadyArchivedError):
         raise APIError(409, "session_already_archived", "This session is already archived.") from error
     if isinstance(error, QueuedFollowUpsPendingError):

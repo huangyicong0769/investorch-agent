@@ -277,6 +277,30 @@ async def unarchive_session(session: Session, host: Host) -> dict[str, object]:
     return {"session": serialize_session_record(unarchived)}
 
 
+@router.delete("/sessions/{session_id}")
+async def delete_session(request: ConfirmRequest, session_id: str, host: Host) -> dict[str, object]:
+    _require_confirmation(request, "delete this session")
+    async with host.session_lifecycle_lock:
+        session = await asyncio.to_thread(get_session, host.config.sessions_db, session_id)
+        if session is None:
+            raise APIError(404, "session_not_found", "The requested session does not exist.", details={"session_id": session_id})
+
+        replacement_session_id = await host.sessions.create() if session_id == host.initial_session_id else None
+        try:
+            await host.sessions.delete(session_id)
+        except Exception as error:
+            if replacement_session_id is not None:
+                await host.sessions.discard_if_unused(replacement_session_id)
+            raise_application_error(error)
+        if replacement_session_id is not None:
+            host.initial_session_id = replacement_session_id
+    return {
+        "deleted": True,
+        "session_id": session_id,
+        "replacement_session_id": replacement_session_id,
+    }
+
+
 @router.post("/sessions/{session_id}/clear")
 async def clear_session(request: ConfirmRequest, session: Session, host: Host) -> dict[str, object]:
     _require_confirmation(request, "clear this session")
