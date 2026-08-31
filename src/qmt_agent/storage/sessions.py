@@ -248,6 +248,20 @@ def get_session_branch_from(db_path: str | Path, session_id: str) -> str | None:
     return row[0] if row else None
 
 
+def session_has_children(db_path: str | Path, session_id: str) -> bool:
+    with closing(sqlite3.connect(db_path)) as connection:
+        row = connection.execute(
+            """
+            SELECT 1
+            FROM session_lineage
+            WHERE branch_from_session_id = ?
+            LIMIT 1
+            """,
+            (session_id,),
+        ).fetchone()
+    return row is not None
+
+
 def set_session_branch_from(db_path: str | Path, session_id: str, branch_from_session_id: str) -> None:
     with closing(sqlite3.connect(db_path)) as connection:
         connection.execute(

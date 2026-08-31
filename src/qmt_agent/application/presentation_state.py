@@ -30,6 +30,9 @@ class SessionPresentationStore:
             last_todos=tuple(dict(todo) for todo in state.last_todos),
         )
 
+    def delete(self, session_id: str) -> None:
+        self._states.pop(session_id, None)
+
     def observe_runtime(self, snapshot: RuntimeSessionSnapshot) -> None:
         if snapshot.run_id is None:
             return

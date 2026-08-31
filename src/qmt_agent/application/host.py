@@ -225,7 +225,12 @@ async def open_application_host(
                         runtime=runtime,
                         label_handler=handle_activity_label,
                     )
-                sessions = SessionOperations(config=config, runtime=runtime, journal=journal)
+                sessions = SessionOperations(
+                    config=config,
+                    runtime=runtime,
+                    journal=journal,
+                    presentation_state=presentation_state,
+                )
                 yield ApplicationHost(
                     config=config,
                     state=state,

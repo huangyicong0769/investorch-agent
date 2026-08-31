@@ -17,9 +17,12 @@ from qmt_agent.storage import (
     delete_unused_session,
     fork_session,
     is_session_archived,
+    session_has_children,
     set_session_title,
     unarchive_session,
 )
+
+from .presentation_state import SessionPresentationStore
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +32,10 @@ class SessionArchivedError(RuntimeError):
 
 
 class SessionHasQueuedInputsError(RuntimeError):
+    pass
+
+
+class SessionHasChildrenError(RuntimeError):
     pass
 
 
@@ -42,10 +49,18 @@ class SessionCompactionError(RuntimeError):
 
 
 class SessionOperations:
-    def __init__(self, *, config: AppConfig, runtime: AgentRuntime, journal: SessionJournal) -> None:
+    def __init__(
+        self,
+        *,
+        config: AppConfig,
+        runtime: AgentRuntime,
+        journal: SessionJournal,
+        presentation_state: SessionPresentationStore,
+    ) -> None:
         self._config = config
         self._runtime = runtime
         self._journal = journal
+        self._presentation_state = presentation_state
 
     async def create(self) -> str:
         session_id = uuid.uuid4().hex
@@ -117,6 +132,23 @@ class SessionOperations:
             replacement_session_id = await self.create()
         logger.info("Cleared session %s and started session %s", session_id, replacement_session_id)
         return replacement_session_id
+
+    async def delete(self, session_id: str) -> None:
+        if self._runtime.has_queued_inputs(session_id):
+            raise SessionHasQueuedInputsError
+        async with self._runtime.reserve_session(session_id):
+            if await asyncio.to_thread(session_has_children, self._config.sessions_db, session_id):
+                raise SessionHasChildrenError
+            await self._journal.prepare_session_delete(session_id)
+            session = SQLiteSession(session_id, self._config.sessions_db)
+            try:
+                await session.clear_session()
+            finally:
+                session.close()
+            await asyncio.to_thread(delete_session_metadata, self._config.sessions_db, session_id)
+            await self._journal.delete_session(session_id)
+            self._presentation_state.delete(session_id)
+        logger.info("Deleted session %s", session_id)
 
     async def compact(self, session_id: str) -> CompactionResult:
         if await asyncio.to_thread(is_session_archived, self._config.sessions_db, session_id):

@@ -41,6 +41,7 @@ class SessionJournal:
         self._timezone = timezone
         self._lock = asyncio.Lock()
         self._next_seq: dict[str, int] = {}
+        self._deleted_sessions: set[str] = set()
 
         self._directory.mkdir(parents=True, exist_ok=True)
         if not self._directory.is_dir():
@@ -109,6 +110,8 @@ class SessionJournal:
 
     async def clone_session(self, source_session_id: str, target_session_id: str) -> bool:
         async with self._lock:
+            if source_session_id in self._deleted_sessions or target_session_id in self._deleted_sessions:
+                raise RuntimeError("Deleted session journals cannot be cloned")
             source = self._session_path(source_session_id)
             target = self._session_path(target_session_id)
             if source == target:
@@ -119,9 +122,18 @@ class SessionJournal:
             self._next_seq.pop(target_session_id, None)
             return cloned
 
+    async def prepare_session_delete(self, session_id: str) -> None:
+        async with self._lock:
+            path = self._session_path(session_id)
+            if path.is_symlink() or (path.exists() and not path.is_file()):
+                raise RuntimeError(f"Session journal is not a regular file: {path}")
+            self._deleted_sessions.add(session_id)
+            self._next_seq.pop(session_id, None)
+
     async def delete_session(self, session_id: str) -> None:
         async with self._lock:
             path = self._session_path(session_id)
+            self._deleted_sessions.add(session_id)
             try:
                 await _await_filesystem_operation(asyncio.to_thread(self._delete_session_file, path))
             finally:
@@ -140,6 +152,8 @@ class SessionJournal:
 
     async def _record(self, session_id: str, event: dict[str, object]) -> int:
         async with self._lock:
+            if session_id in self._deleted_sessions:
+                raise RuntimeError(f"Session journal has been deleted: {session_id}")
             path = self._session_path(session_id)
 
             try:
