@@ -134,7 +134,6 @@ async def bootstrap(host: Host, broker: Broker) -> dict[str, object]:
             if initial_session is None:
                 initial_session_id = None
                 host.initial_session_id = None
-        snapshot_session_id = initial_session_id or host.state.selected_session_id
         records = await asyncio.to_thread(list_sessions, host.config.sessions_db)
         return {
             "version": APPLICATION_VERSION,
@@ -143,8 +142,16 @@ async def bootstrap(host: Host, broker: Broker) -> dict[str, object]:
             "context_window_tokens": host.config.model("main").context_window_tokens,
             "defaults": _serialize_defaults(host),
             "sessions": [serialize_session_record(record) for record in records],
-            "runtime": serialize_runtime_snapshot(host.runtime.session_snapshot(snapshot_session_id)),
-            "presentation": serialize_session_presentation_state(host.presentation_state.get(snapshot_session_id)),
+            "runtime": (
+                serialize_runtime_snapshot(host.runtime.session_snapshot(initial_session_id))
+                if initial_session_id is not None
+                else None
+            ),
+            "presentation": (
+                serialize_session_presentation_state(host.presentation_state.get(initial_session_id))
+                if initial_session_id is not None
+                else None
+            ),
             "pending_approvals": _serialize_pending_approvals(broker),
         }
 

@@ -202,7 +202,7 @@ SDK handoffs and agents-as-tools remain inside one top-level Run and share its `
 - `/exit` and Ctrl+Q reject normal exit while any Run or queued follow-up remains.
 - `/ps` remains global across Sessions.
 
-Application startup removes legacy unused Session identities before creating the initial Session. Shutdown also removes the selected Session if it remained unused; Sessions with user-visible or continuation state are preserved.
+Application startup removes legacy unused Session identities. Plain and TUI modes then create an initial Session and remove the selected Session at shutdown if it remained unused. Web mode starts without creating or selecting a Session; `/` remains sessionless until the user explicitly creates or selects one. Sessions with user-visible or continuation state are preserved.
 
 Manual compaction, clear, fork, archive, and a top-level Run are mutually exclusive for
 the same Session through one Runtime maintenance reservation. Operations on different

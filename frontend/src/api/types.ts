@@ -83,8 +83,8 @@ export interface BootstrapResponse {
   context_window_tokens: number
   defaults: Defaults
   sessions: SessionRecord[]
-  runtime: RuntimeSnapshot
-  presentation: SessionPresentationState
+  runtime: RuntimeSnapshot | null
+  presentation: SessionPresentationState | null
   pending_approvals: ApprovalRequest[]
 }
 
