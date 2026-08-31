@@ -102,6 +102,7 @@ export function Composer({
         onPendingDirectMessage(variables.sessionId, {
           text: variables.text,
           runId: response.run_id,
+          submittedAt: new Date().toISOString(),
           baseNewestSeq: variables.baseNewestSeq,
           baseSequenceKnown: variables.baseSequenceKnown,
         })

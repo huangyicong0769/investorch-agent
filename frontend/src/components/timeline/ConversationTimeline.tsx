@@ -3,7 +3,7 @@ import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, use
 
 import { sessionHistoryInfiniteQueryOptions } from '../../api/queries'
 import { ApiError } from '../../api/client'
-import type { RuntimeSnapshot } from '../../api/types'
+import type { JournalRecord, RuntimeSnapshot } from '../../api/types'
 import type {
   TimelineAssistantTurnViewModel,
   TimelineRunTimingViewModel,
@@ -195,11 +195,6 @@ export function ConversationTimeline({
     [canonicalNewestSeq, liveSession.records],
   )
   const records = useMemo(() => [...canonicalRecords, ...liveRecords], [canonicalRecords, liveRecords])
-  const timeline = useMemo(() => projectTimeline(records), [records])
-  const visibleTimeline = useMemo(
-    () => (isPending || isError ? timeline.filter((item) => item.type === 'run_timing') : timeline),
-    [isError, isPending, timeline],
-  )
   const pendingCanonical = useMemo(
     () =>
       pendingMessage !== null &&
@@ -215,6 +210,33 @@ export function ConversationTimeline({
   const pendingResynced =
     pendingMessage !== null && liveSession.resyncedRunId === pendingMessage.runId
   const pendingVisible = pendingMessage !== null && !pendingCanonical && !pendingResynced
+  const pendingSequence =
+    !isPending &&
+    !isError &&
+    pendingVisible &&
+    pendingMessage?.baseSequenceKnown
+      ? (pendingMessage.baseNewestSeq ?? 0) + 1
+      : null
+  const projectionRecords = useMemo<JournalRecord[]>(
+    () =>
+      pendingSequence !== null && pendingMessage
+        ? [
+            ...records,
+            {
+              seq: pendingSequence,
+              timestamp: pendingMessage.submittedAt,
+              type: 'user_message',
+              text: pendingMessage.text,
+            },
+          ]
+        : records,
+    [pendingMessage, pendingSequence, records],
+  )
+  const timeline = useMemo(() => projectTimeline(projectionRecords), [projectionRecords])
+  const visibleTimeline = useMemo(
+    () => (isPending || isError ? timeline.filter((item) => item.type === 'run_timing') : timeline),
+    [isError, isPending, timeline],
+  )
   const activityKey = useMemo(
     () =>
       `${records.reduce<number | null>(
@@ -431,12 +453,16 @@ export function ConversationTimeline({
                     <time dateTime={item.timestamp}>{formatTimelineDay(item.timestamp)}</time>
                   </div>
                 ) : null}
-                <TimelineItem item={item} />
+                {pendingSequence !== null && item.type === 'user' && item.seq === pendingSequence && pendingMessage ? (
+                  <PendingDirectBubble message={pendingMessage} />
+                ) : (
+                  <TimelineItem item={item} />
+                )}
               </Fragment>
             )
           })}
 
-          {!isError && pendingVisible && pendingMessage ? (
+          {!isError && pendingVisible && pendingMessage && pendingSequence === null ? (
             <PendingDirectBubble message={pendingMessage} />
           ) : null}
 
