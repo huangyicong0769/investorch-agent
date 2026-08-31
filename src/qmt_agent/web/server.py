@@ -41,6 +41,7 @@ def create_web_app(config: AppConfig) -> FastAPI:
                 config,
                 manual_approval_handler=approval_broker.request,
                 callbacks=events.application_callbacks(),
+                create_initial_session=False,
             ) as host:
                 app.state.host = host
                 logger.info("Web application host ready")

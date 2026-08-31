@@ -5,7 +5,6 @@ import { useNavigate } from 'react-router-dom'
 
 import { archiveSession, createSession, deleteSession } from '../../api/client'
 import {
-  bootstrapQueryOptions,
   queryKeys,
   sessionsQueryOptions,
   sessionStateQueryOptions,
@@ -152,7 +151,7 @@ export function SessionSidebar({
 
   const deleteMutation = useMutation({
     mutationFn: (session: SessionRecord) => deleteSession(session.session_id, { confirm: true }),
-    onSuccess: async (response: DeleteSessionResponse, deletedSession: SessionRecord) => {
+    onSuccess: async (_response: DeleteSessionResponse, deletedSession: SessionRecord) => {
       const deletedSessionId = deletedSession.session_id
       queryClient.setQueryData<SessionListResponse>(queryKeys.sessions(), (current) =>
         current
@@ -168,10 +167,6 @@ export function SessionSidebar({
         current
           ? {
               ...current,
-              initial_session_id:
-                current.initial_session_id === deletedSessionId && response.replacement_session_id
-                  ? response.replacement_session_id
-                  : current.initial_session_id,
               sessions: current.sessions.filter((session) => session.session_id !== deletedSessionId),
             }
           : current,
@@ -187,8 +182,7 @@ export function SessionSidebar({
         queryClient.invalidateQueries({ queryKey: queryKeys.bootstrap() }),
       ])
       if (deletedSessionId === selectedSessionId) {
-        const bootstrap = await queryClient.fetchQuery(bootstrapQueryOptions())
-        navigate(sessionPath(response.replacement_session_id ?? bootstrap.initial_session_id))
+        navigate('/')
         onMobileNavigate()
       }
     },

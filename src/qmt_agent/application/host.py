@@ -80,7 +80,7 @@ class ApplicationHost:
     activity: ActivityCoordinator | None
     presentation_state: SessionPresentationStore
     session_lifecycle_lock: asyncio.Lock
-    initial_session_id: str
+    initial_session_id: str | None
 
 
 def create_model(config: AppConfig, agent: str) -> tuple[OpenAIResponsesModel, ModelSettings]:
@@ -128,6 +128,7 @@ async def open_application_host(
     *,
     manual_approval_handler: ManualApprovalHandler,
     callbacks: ApplicationCallbacks | None = None,
+    create_initial_session: bool = True,
     enable_activity: bool = True,
 ) -> AsyncIterator[ApplicationHost]:
     callbacks = callbacks or ApplicationCallbacks()
@@ -135,17 +136,19 @@ async def open_application_host(
     presentation_state = SessionPresentationStore()
     await _discard_legacy_unused_sessions(config, journal)
 
-    initial_session_id = uuid.uuid4().hex
-    await asyncio.to_thread(create_session, config.sessions_db, initial_session_id)
+    selected_session_id = uuid.uuid4().hex
+    initial_session_id = selected_session_id if create_initial_session else None
+    if initial_session_id is not None:
+        await asyncio.to_thread(create_session, config.sessions_db, initial_session_id)
+        logger.info("Started session %s", initial_session_id)
     execution = ExecutionState()
     state = AppState(
         config=config,
         execution=execution,
-        selected_session_id=initial_session_id,
+        selected_session_id=selected_session_id,
         main_reasoning_effort=config.model("main").reasoning_effort,
         permission_mode=config["permission.mode"],
     )
-    logger.info("Started session %s", initial_session_id)
 
     async def record_user_message(session_id: str, text: str) -> int:
         return await journal.record_user_message(session_id, text)
@@ -266,4 +269,5 @@ async def open_application_host(
             await runtime.aclose()
         if execution.sandbox is not None:
             await close_execution(execution)
-        await _discard_unused_session(config, journal, state.selected_session_id)
+        if create_initial_session:
+            await _discard_unused_session(config, journal, state.selected_session_id)
