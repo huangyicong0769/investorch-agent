@@ -7,6 +7,7 @@ import type { SessionRecord } from '../../api/types'
 import { errorMessage } from '../../lib/errors'
 import { sessionMatches } from '../../lib/session'
 import { Sheet, SheetClose, SheetContent, SheetTitle } from '@/components/ui/sheet'
+import { ScrollArea } from '@/components/ui/scroll-area'
 import { SessionItem } from './SessionItem'
 
 interface ArchivedSessionsDialogProps {
@@ -85,38 +86,40 @@ export function ArchivedSessionsDialog({
           value={search}
         />
 
-        <div className="mt-4 min-h-0 flex-1 overflow-y-auto">
-          {archivedQuery.isPending ? (
-            <p className="px-3 py-2 text-sm text-muted-foreground">Loading archived sessions…</p>
-          ) : null}
-          {archivedQuery.isError ? (
-            <div className="px-3 py-2 text-sm" role="alert">
-              <p className="text-red-700">
-                {errorMessage(archivedQuery.error, 'Archived sessions could not be loaded.')}
-              </p>
-              <button className="mt-2 underline" onClick={() => void archivedQuery.refetch()} type="button">
-                Retry
-              </button>
-            </div>
-          ) : null}
-          {archivedQuery.isSuccess && sessions.length === 0 ? (
-            <p className="px-3 py-2 text-sm text-muted-foreground">No archived sessions found.</p>
-          ) : null}
-          <ul className="space-y-1">
-            {sessions.map((session) => (
-              <SessionItem
-                active={session.session_id === selectedSessionId}
-                archived
-                key={session.session_id}
-                onSelect={(selected) => {
-                  onSelect(selected)
-                  onClose()
-                }}
-                session={session}
-              />
-            ))}
-          </ul>
-        </div>
+        <ScrollArea className="mt-4 min-h-0 flex-1">
+          <div>
+            {archivedQuery.isPending ? (
+              <p className="px-3 py-2 text-sm text-muted-foreground">Loading archived sessions…</p>
+            ) : null}
+            {archivedQuery.isError ? (
+              <div className="px-3 py-2 text-sm" role="alert">
+                <p className="text-red-700">
+                  {errorMessage(archivedQuery.error, 'Archived sessions could not be loaded.')}
+                </p>
+                <button className="mt-2 underline" onClick={() => void archivedQuery.refetch()} type="button">
+                  Retry
+                </button>
+              </div>
+            ) : null}
+            {archivedQuery.isSuccess && sessions.length === 0 ? (
+              <p className="px-3 py-2 text-sm text-muted-foreground">No archived sessions found.</p>
+            ) : null}
+            <ul className="space-y-1">
+              {sessions.map((session) => (
+                <SessionItem
+                  active={session.session_id === selectedSessionId}
+                  archived
+                  key={session.session_id}
+                  onSelect={(selected) => {
+                    onSelect(selected)
+                    onClose()
+                  }}
+                  session={session}
+                />
+              ))}
+            </ul>
+          </div>
+        </ScrollArea>
       </SheetContent>
     </Sheet>
   )

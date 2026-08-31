@@ -18,6 +18,7 @@ import { ProcessesSheet } from '../processes/ProcessesSheet'
 import { RunSettingsPopover } from '../settings/RunSettingsPopover'
 import { ArchivedSessionsDialog } from './ArchivedSessionsDialog'
 import { SessionItem } from './SessionItem'
+import { ScrollArea } from '@/components/ui/scroll-area'
 
 interface SessionSidebarProps {
   mobileOpen: boolean
@@ -153,50 +154,52 @@ export function SessionSidebar({
         />
       </div>
 
-      <nav aria-label="Sessions" className="mt-3 min-h-0 flex-1 overflow-y-auto">
-        {selectedArchived ? (
-          <div className="mb-3">
-            <p className="mb-1 px-3 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-              Selected archived
-            </p>
-            <ul>
-              <SessionItem
-                active
-                archived
-                onSelect={selectSession}
-                session={selectedArchived}
-                state={statesById.get(selectedArchived.session_id)}
-              />
-            </ul>
-          </div>
-        ) : null}
+      <ScrollArea className="mt-3 min-h-0 flex-1">
+        <nav aria-label="Sessions">
+          {selectedArchived ? (
+            <div className="mb-3">
+              <p className="mb-1 px-3 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                Selected archived
+              </p>
+              <ul>
+                <SessionItem
+                  active
+                  archived
+                  onSelect={selectSession}
+                  session={selectedArchived}
+                  state={statesById.get(selectedArchived.session_id)}
+                />
+              </ul>
+            </div>
+          ) : null}
 
-        {sessionsQuery.isPending ? (
-          <p className="px-3 py-2 text-sm text-muted-foreground">Loading sessions…</p>
-        ) : null}
-        {sessionsQuery.isError ? (
-          <div className="px-3 py-2 text-sm" role="alert">
-            <p className="text-red-700">{errorMessage(sessionsQuery.error, 'Sessions could not be loaded.')}</p>
-            <button className="mt-2 underline" onClick={() => void sessionsQuery.refetch()} type="button">
-              Retry
-            </button>
-          </div>
-        ) : null}
-        {sessionsQuery.isSuccess && filteredSessions.length === 0 ? (
-          <p className="px-3 py-2 text-sm text-muted-foreground">No sessions found.</p>
-        ) : null}
-        <ul className="space-y-1">
-          {filteredSessions.map((session) => (
-            <SessionItem
-              active={session.session_id === selectedSessionId}
-              key={session.session_id}
-              onSelect={selectSession}
-              session={session}
-              state={statesById.get(session.session_id)}
-            />
-          ))}
-        </ul>
-      </nav>
+          {sessionsQuery.isPending ? (
+            <p className="px-3 py-2 text-sm text-muted-foreground">Loading sessions…</p>
+          ) : null}
+          {sessionsQuery.isError ? (
+            <div className="px-3 py-2 text-sm" role="alert">
+              <p className="text-red-700">{errorMessage(sessionsQuery.error, 'Sessions could not be loaded.')}</p>
+              <button className="mt-2 underline" onClick={() => void sessionsQuery.refetch()} type="button">
+                Retry
+              </button>
+            </div>
+          ) : null}
+          {sessionsQuery.isSuccess && filteredSessions.length === 0 ? (
+            <p className="px-3 py-2 text-sm text-muted-foreground">No sessions found.</p>
+          ) : null}
+          <ul className="space-y-1">
+            {filteredSessions.map((session) => (
+              <SessionItem
+                active={session.session_id === selectedSessionId}
+                key={session.session_id}
+                onSelect={selectSession}
+                session={session}
+                state={statesById.get(session.session_id)}
+              />
+            ))}
+          </ul>
+        </nav>
+      </ScrollArea>
 
       <div className="mt-3 space-y-1 border-t border-border pt-3">
         <button

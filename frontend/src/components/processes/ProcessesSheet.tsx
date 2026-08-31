@@ -14,6 +14,7 @@ import {
   SheetTitle,
   SheetTrigger,
 } from '@/components/ui/sheet'
+import { ScrollArea } from '@/components/ui/scroll-area'
 
 function formatTimestamp(value: string | null): string {
   if (value === null) {
@@ -119,33 +120,35 @@ export function ProcessesSheet() {
           </SheetClose>
         </header>
 
-        <div className="min-h-0 flex-1 overflow-y-auto p-5">
-          {processesQuery.isPending ? (
-            <p className="text-sm text-muted-foreground" role="status">
-              Loading processes…
-            </p>
-          ) : null}
-          {processesQuery.isError ? (
-            <div className="text-sm" role="alert">
-              <p className="text-red-700">
-                {errorMessage(processesQuery.error, 'Processes could not be loaded.')}
+        <ScrollArea className="min-h-0 flex-1">
+          <div className="p-5">
+            {processesQuery.isPending ? (
+              <p className="text-sm text-muted-foreground" role="status">
+                Loading processes…
               </p>
-              <button className="mt-2 underline" onClick={() => void processesQuery.refetch()} type="button">
-                Retry
-              </button>
-            </div>
-          ) : null}
-          {processesQuery.isSuccess && processesQuery.data.processes.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No background processes.</p>
-          ) : null}
-          {processesQuery.data?.processes.length ? (
-            <ul className="space-y-3">
-              {processesQuery.data.processes.map((process) => (
-                <ProcessCard key={process.job_id} process={process} />
-              ))}
-            </ul>
-          ) : null}
-        </div>
+            ) : null}
+            {processesQuery.isError ? (
+              <div className="text-sm" role="alert">
+                <p className="text-red-700">
+                  {errorMessage(processesQuery.error, 'Processes could not be loaded.')}
+                </p>
+                <button className="mt-2 underline" onClick={() => void processesQuery.refetch()} type="button">
+                  Retry
+                </button>
+              </div>
+            ) : null}
+            {processesQuery.isSuccess && processesQuery.data.processes.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No background processes.</p>
+            ) : null}
+            {processesQuery.data?.processes.length ? (
+              <ul className="space-y-3">
+                {processesQuery.data.processes.map((process) => (
+                  <ProcessCard key={process.job_id} process={process} />
+                ))}
+              </ul>
+            ) : null}
+          </div>
+        </ScrollArea>
       </SheetContent>
     </Sheet>
   )
