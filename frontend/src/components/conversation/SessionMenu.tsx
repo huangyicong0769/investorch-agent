@@ -166,7 +166,14 @@ export function SessionMenu({ session }: SessionMenuProps) {
         )
         queryClient.setQueryData<BootstrapResponse>(queryKeys.bootstrap(), (current) =>
           current
-            ? { ...current, sessions: withoutSession(current.sessions, session.session_id) }
+            ? {
+                ...current,
+                initial_session_id:
+                  current.initial_session_id === session.session_id
+                    ? replacementSessionId
+                    : current.initial_session_id,
+                sessions: withoutSession(current.sessions, session.session_id),
+              }
             : current,
         )
         queryClient.removeQueries({ exact: true, queryKey: queryKeys.session(session.session_id) })
