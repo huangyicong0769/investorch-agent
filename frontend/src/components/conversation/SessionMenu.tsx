@@ -1,7 +1,8 @@
-import { useEffect, useId, useRef, useState, type FormEvent } from 'react'
+import { useId, useRef, useState, type FormEvent } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { MoreHorizontal } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
+import { toast } from 'sonner'
 
 import {
   ApiError,
@@ -85,7 +86,6 @@ export function SessionMenu({ session }: SessionMenuProps) {
   const [renameOpen, setRenameOpen] = useState(false)
   const [title, setTitle] = useState(session.title ?? '')
   const [validationError, setValidationError] = useState<string | null>(null)
-  const [notice, setNotice] = useState<string | null>(null)
   const dialogTitleId = useId()
   const titleInputId = useId()
   const archived = session.archived_at !== null
@@ -146,11 +146,11 @@ export function SessionMenu({ session }: SessionMenuProps) {
               }
             : current,
         )
-        setNotice(
-          result.response.changed
-            ? 'Session context compacted.'
-            : 'Session context is already empty or compacted.',
-        )
+        if (result.response.changed) {
+          toast.success('Session context compacted.')
+        } else {
+          toast.info('Session context is already empty or compacted.')
+        }
         await queryClient.invalidateQueries({
           exact: true,
           queryKey: queryKeys.sessionState(session.session_id),
@@ -236,14 +236,6 @@ export function SessionMenu({ session }: SessionMenuProps) {
       ])
     },
   })
-
-  useEffect(() => {
-    if (!notice) {
-      return
-    }
-    const timeout = window.setTimeout(() => setNotice(null), 4_000)
-    return () => window.clearTimeout(timeout)
-  }, [notice])
 
   const openRename = () => {
     setTitle(session.title ?? '')
@@ -467,15 +459,6 @@ export function SessionMenu({ session }: SessionMenuProps) {
           </form>
         </DialogContent>
       </Dialog>
-
-      {notice ? (
-        <div
-          className="fixed bottom-4 right-4 z-50 max-w-sm rounded-xl border border-border bg-card px-4 py-3 text-sm shadow-xl"
-          role="status"
-        >
-          {notice}
-        </div>
-      ) : null}
     </>
   )
 }
