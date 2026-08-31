@@ -36,6 +36,7 @@ export function SessionSidebar({
   const queryClient = useQueryClient()
   const searchId = useId()
   const mobileCloseButtonRef = useRef<HTMLButtonElement>(null)
+  const archivedTriggerRef = useRef<HTMLButtonElement>(null)
   const [search, setSearch] = useState('')
   const [archivedOpen, setArchivedOpen] = useState(false)
   const sessionsQuery = useQuery(sessionsQueryOptions())
@@ -201,6 +202,7 @@ export function SessionSidebar({
         <button
           className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm hover:bg-muted"
           onClick={() => setArchivedOpen(true)}
+          ref={archivedTriggerRef}
           type="button"
         >
           <Archive aria-hidden="true" size={16} />
@@ -212,6 +214,7 @@ export function SessionSidebar({
 
       <ArchivedSessionsDialog
         onClose={() => setArchivedOpen(false)}
+        onRestoreFocus={() => archivedTriggerRef.current?.focus()}
         onSelect={selectSession}
         open={archivedOpen}
         selectedSessionId={selectedSessionId}

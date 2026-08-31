@@ -1,4 +1,4 @@
-import { useId, useState } from 'react'
+import { useId, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { X } from 'lucide-react'
 
@@ -6,10 +6,12 @@ import { archivedSessionsQueryOptions } from '../../api/queries'
 import type { SessionRecord } from '../../api/types'
 import { errorMessage } from '../../lib/errors'
 import { sessionMatches } from '../../lib/session'
+import { Sheet, SheetClose, SheetContent, SheetTitle } from '@/components/ui/sheet'
 import { SessionItem } from './SessionItem'
 
 interface ArchivedSessionsDialogProps {
   onClose: () => void
+  onRestoreFocus: () => void
   onSelect: (session: SessionRecord) => void
   open: boolean
   selectedSessionId: string | null
@@ -17,65 +19,68 @@ interface ArchivedSessionsDialogProps {
 
 export function ArchivedSessionsDialog({
   onClose,
+  onRestoreFocus,
   onSelect,
   open,
   selectedSessionId,
 }: ArchivedSessionsDialogProps) {
   const [search, setSearch] = useState('')
-  const titleId = useId()
   const searchId = useId()
+  const searchInputRef = useRef<HTMLInputElement>(null)
   const archivedQuery = useQuery({
     ...archivedSessionsQueryOptions(),
     enabled: open,
   })
 
-  if (!open) {
-    return null
-  }
-
   const sessions = archivedQuery.data?.sessions.filter((session) => sessionMatches(session, search)) ?? []
 
   return (
-    <div
-      aria-labelledby={titleId}
-      aria-modal="true"
-      className="fixed inset-0 z-30 flex bg-black/25"
-      onClick={(event) => {
-        if (event.target === event.currentTarget) {
+    <Sheet
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen) {
           onClose()
         }
       }}
-      onKeyDown={(event) => {
-        if (event.key === 'Escape') {
-          onClose()
-        }
-      }}
-      role="dialog"
     >
-      <section className="ml-auto flex h-full w-full max-w-sm flex-col border-l border-border bg-card p-4 shadow-xl">
+      <SheetContent
+        side="right"
+        overlayClassName="bg-black/25"
+        showCloseButton={false}
+        onCloseAutoFocus={(event) => {
+          event.preventDefault()
+          onRestoreFocus()
+        }}
+        onOpenAutoFocus={(event) => {
+          event.preventDefault()
+          searchInputRef.current?.focus()
+        }}
+        className="h-full w-full max-w-sm gap-0 bg-card p-4 shadow-xl"
+      >
         <div className="flex items-center justify-between">
-          <h2 className="text-base font-semibold" id={titleId}>
+          <SheetTitle className="text-base font-semibold">
             Archived sessions
-          </h2>
-          <button
-            aria-label="Close archived sessions"
-            className="rounded-lg p-2 hover:bg-muted"
-            onClick={onClose}
-            type="button"
-          >
-            <X aria-hidden="true" size={18} />
-          </button>
+          </SheetTitle>
+          <SheetClose asChild>
+            <button
+              aria-label="Close archived sessions"
+              className="rounded-lg p-2 hover:bg-muted"
+              type="button"
+            >
+              <X aria-hidden="true" size={18} />
+            </button>
+          </SheetClose>
         </div>
 
         <label className="sr-only" htmlFor={searchId}>
           Search archived sessions
         </label>
         <input
-          autoFocus
           className="mt-4 rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary"
           id={searchId}
           onChange={(event) => setSearch(event.target.value)}
           placeholder="Search archived"
+          ref={searchInputRef}
           type="search"
           value={search}
         />
@@ -112,7 +117,7 @@ export function ArchivedSessionsDialog({
             ))}
           </ul>
         </div>
-      </section>
-    </div>
+      </SheetContent>
+    </Sheet>
   )
 }
