@@ -13,7 +13,6 @@ import { getSessionHistory, getSessionState, sendMessage, stopSession } from '..
 import { HISTORY_PAGE_SIZE, queryKeys } from '../../api/queries'
 import type {
   BootstrapResponse,
-  FollowUpBehavior,
   SessionStateResponse,
   StopResponse,
   UserInputSubmission,
@@ -22,11 +21,11 @@ import { errorMessage } from '../../lib/errors'
 import { historyNewestSeq, type HistoryInfiniteData } from '../../lib/timeline/history'
 import type { PendingDirectMessage } from '../conversation/interaction'
 import { Button } from '@/components/ui/button'
+import { RunControlsPopover } from './RunControlsPopover'
 
 interface ComposerProps {
   sessionId: string
   state: SessionStateResponse
-  futureFollowUpBehavior: FollowUpBehavior | null
   archived: boolean
   draft: string
   onDraftChange: (sessionId: string, draft: string) => void
@@ -49,13 +48,6 @@ interface StopVariables {
 const MAX_TEXTAREA_HEIGHT = 160
 const NATIVE_ACTIONS = new Set(['/new', '/fork', '/stop', '/archive', '/unarchive', '/clear', '/compact'])
 
-function displayBehavior(behavior: FollowUpBehavior | null): string {
-  if (behavior === null) {
-    return '—'
-  }
-  return behavior === 'steer' ? 'Steer' : 'Queue'
-}
-
 async function refreshSessionState(
   queryClient: ReturnType<typeof useQueryClient>,
   sessionId: string,
@@ -71,7 +63,6 @@ async function refreshSessionState(
 export function Composer({
   sessionId,
   state,
-  futureFollowUpBehavior,
   archived,
   draft,
   onDraftChange,
@@ -249,8 +240,6 @@ export function Composer({
     }
   }
 
-  const followUpBehavior = active ? runtime.active_follow_up_behavior : futureFollowUpBehavior
-
   return (
     <form className="rounded-2xl border border-border bg-card p-3 shadow-sm" onSubmit={handleSubmit}>
       <textarea
@@ -284,8 +273,8 @@ export function Composer({
           {errorMessage(refreshError, 'Session state could not be refreshed. Live updates will retry.')}
         </p>
       ) : null}
-      <div className="mt-2 flex items-center justify-between gap-3 border-t border-border pt-2">
-        <span className="text-xs text-muted-foreground">Follow-ups: {displayBehavior(followUpBehavior)}</span>
+      <div className="mt-2 flex flex-wrap items-center justify-between gap-2 border-t border-border pt-2">
+        <RunControlsPopover activeFollowUpBehavior={active ? runtime.active_follow_up_behavior : null} />
         <div className="flex items-center gap-2">
           {active ? (
             <Button

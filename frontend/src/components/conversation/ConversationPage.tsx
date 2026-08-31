@@ -113,7 +113,6 @@ export function ConversationPage() {
         <Composer
           archived={stateQuery.data.session.archived_at !== null}
           draft={draft}
-          futureFollowUpBehavior={bootstrapQuery.data?.defaults.follow_up_behavior ?? null}
           onDraftChange={updateDraft}
           onDraftSubmitted={clearSubmittedDraft}
           onPendingDirectMessage={setPendingMessage}
