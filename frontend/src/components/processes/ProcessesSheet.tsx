@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from 'react'
+import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { ListTree, X } from 'lucide-react'
 
@@ -6,6 +6,14 @@ import { processesQueryOptions } from '../../api/queries'
 import type { BackgroundJob } from '../../api/types'
 import { errorMessage } from '../../lib/errors'
 import { shortSessionId } from '../../lib/session'
+import {
+  Sheet,
+  SheetClose,
+  SheetContent,
+  SheetDescription,
+  SheetTitle,
+  SheetTrigger,
+} from '@/components/ui/sheet'
 
 function formatTimestamp(value: string | null): string {
   if (value === null) {
@@ -65,7 +73,6 @@ function ProcessCard({ process }: { process: BackgroundJob }) {
 }
 
 export function ProcessesSheet() {
-  const titleId = useId()
   const [open, setOpen] = useState(false)
   const processesQuery = useQuery({
     ...processesQueryOptions(),
@@ -74,92 +81,72 @@ export function ProcessesSheet() {
     staleTime: 0,
   })
 
-  useEffect(() => {
-    if (!open) {
-      return
-    }
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        setOpen(false)
-      }
-    }
-    document.addEventListener('keydown', closeOnEscape)
-    return () => document.removeEventListener('keydown', closeOnEscape)
-  }, [open])
-
   return (
-    <>
-      <button
-        aria-expanded={open}
-        aria-haspopup="dialog"
-        className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm hover:bg-muted"
-        onClick={() => setOpen(true)}
-        type="button"
-      >
-        <ListTree aria-hidden="true" size={16} />
-        Processes
-      </button>
-
-      {open ? (
-        <div
-          aria-labelledby={titleId}
-          aria-modal="true"
-          className="fixed inset-0 z-40 flex justify-end bg-black/25"
-          onClick={(event) => {
-            if (event.target === event.currentTarget) {
-              setOpen(false)
-            }
-          }}
-          role="dialog"
+    <Sheet open={open} onOpenChange={setOpen}>
+      <SheetTrigger asChild>
+        <button
+          aria-expanded={open}
+          aria-haspopup="dialog"
+          className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm hover:bg-muted"
+          type="button"
         >
-          <section className="flex h-full w-full max-w-md flex-col border-l border-border bg-card shadow-xl">
-            <header className="flex items-center justify-between border-b border-border px-5 py-4">
-              <div>
-                <h2 className="text-base font-semibold" id={titleId}>
-                  Processes
-                </h2>
-                <p className="mt-1 text-xs text-muted-foreground">Background jobs are read-only in WebUI 0.1.</p>
-              </div>
-              <button
-                aria-label="Close processes"
-                className="rounded-lg p-2 text-muted-foreground hover:bg-muted hover:text-foreground"
-                onClick={() => setOpen(false)}
-                type="button"
-              >
-                <X aria-hidden="true" size={18} />
-              </button>
-            </header>
+          <ListTree aria-hidden="true" size={16} />
+          Processes
+        </button>
+      </SheetTrigger>
 
-            <div className="min-h-0 flex-1 overflow-y-auto p-5">
-              {processesQuery.isPending ? (
-                <p className="text-sm text-muted-foreground" role="status">
-                  Loading processes…
-                </p>
-              ) : null}
-              {processesQuery.isError ? (
-                <div className="text-sm" role="alert">
-                  <p className="text-red-700">
-                    {errorMessage(processesQuery.error, 'Processes could not be loaded.')}
-                  </p>
-                  <button className="mt-2 underline" onClick={() => void processesQuery.refetch()} type="button">
-                    Retry
-                  </button>
-                </div>
-              ) : null}
-              {processesQuery.isSuccess && processesQuery.data.processes.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No background processes.</p>
-              ) : null}
-              {processesQuery.data?.processes.length ? (
-                <ul className="space-y-3">
-                  {processesQuery.data.processes.map((process) => (
-                    <ProcessCard key={process.job_id} process={process} />
-                  ))}
-                </ul>
-              ) : null}
+      <SheetContent
+        side="right"
+        overlayClassName="bg-black/25"
+        showCloseButton={false}
+        className="h-full w-full max-w-md gap-0 bg-card p-0 shadow-xl sm:max-w-md"
+      >
+        <header className="flex items-center justify-between border-b border-border px-5 py-4">
+          <div>
+            <SheetTitle className="text-base font-semibold">Processes</SheetTitle>
+            <SheetDescription className="mt-1 text-xs text-muted-foreground">
+              Background jobs are read-only in WebUI 0.1.
+            </SheetDescription>
+          </div>
+          <SheetClose asChild>
+            <button
+              aria-label="Close processes"
+              className="rounded-lg p-2 text-muted-foreground hover:bg-muted hover:text-foreground"
+              type="button"
+            >
+              <X aria-hidden="true" size={18} />
+            </button>
+          </SheetClose>
+        </header>
+
+        <div className="min-h-0 flex-1 overflow-y-auto p-5">
+          {processesQuery.isPending ? (
+            <p className="text-sm text-muted-foreground" role="status">
+              Loading processes…
+            </p>
+          ) : null}
+          {processesQuery.isError ? (
+            <div className="text-sm" role="alert">
+              <p className="text-red-700">
+                {errorMessage(processesQuery.error, 'Processes could not be loaded.')}
+              </p>
+              <button className="mt-2 underline" onClick={() => void processesQuery.refetch()} type="button">
+                Retry
+              </button>
             </div>
-          </section>
+          ) : null}
+          {processesQuery.isSuccess && processesQuery.data.processes.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No background processes.</p>
+          ) : null}
+          {processesQuery.data?.processes.length ? (
+            <ul className="space-y-3">
+              {processesQuery.data.processes.map((process) => (
+                <ProcessCard key={process.job_id} process={process} />
+              ))}
+            </ul>
+          ) : null}
         </div>
-      ) : null}
-    </>
+      </SheetContent>
+    </Sheet>
   )
 }
