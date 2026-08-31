@@ -96,6 +96,7 @@ export function ConversationPage() {
           }
         }}
         pendingMessage={pendingMessage}
+        runtime={stateQuery.data.runtime}
         sessionId={sessionId}
       />
       <div className="mx-auto w-full max-w-4xl space-y-2 px-4 pb-4 pt-2 sm:px-6">

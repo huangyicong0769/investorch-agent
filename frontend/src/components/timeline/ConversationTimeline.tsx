@@ -1,13 +1,21 @@
 import { useInfiniteQuery } from '@tanstack/react-query'
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
 import { sessionHistoryInfiniteQueryOptions } from '../../api/queries'
 import { ApiError } from '../../api/client'
+import type { RuntimeSnapshot } from '../../api/types'
 import type {
   TimelineAssistantTurnViewModel,
+  TimelineRunTimingViewModel,
   TimelineViewModel,
 } from '../../lib/timeline/project'
 import { projectTimeline } from '../../lib/timeline/project'
+import {
+  formatDuration,
+  formatTimelineDay,
+  formatTimelineTime,
+  timelineDayKey,
+} from '../../lib/timeline/time'
 import { errorMessage } from '../../lib/errors'
 import { cn } from '../../lib/utils'
 import { useLiveSession } from '../../websocket/LiveWebSocketProvider'
@@ -22,6 +30,7 @@ interface ConversationTimelineProps {
   className?: string
   pendingMessage?: PendingDirectMessage | null
   onPendingMessageCanonical?: () => void
+  runtime: RuntimeSnapshot
 }
 
 interface ScrollMeasurement {
@@ -32,7 +41,10 @@ interface ScrollMeasurement {
 function AssistantTurn({ turn }: { turn: TimelineAssistantTurnViewModel }) {
   return (
     <article className="py-4" data-seq={turn.seq}>
-      <div className="mb-2 text-xs font-medium text-muted-foreground">QMT Agent</div>
+      <div className="mb-2 flex items-center gap-2 text-xs font-medium text-muted-foreground">
+        <span>QMT Agent</span>
+        <time dateTime={turn.timestamp}>{formatTimelineTime(turn.timestamp)}</time>
+      </div>
       <div className="min-w-0">
         {turn.content.map((content) =>
           content.type === 'activity' ? (
@@ -52,7 +64,8 @@ function TimelineItem({ item }: { item: TimelineViewModel }) {
       <article className="flex justify-end py-3" data-seq={item.seq}>
         <div className="max-w-[85%]">
           <div className="mb-1 text-right text-xs font-medium text-muted-foreground">
-            {item.type === 'steer' ? 'You · Steer' : 'You'}
+            {item.type === 'steer' ? 'You · Steer' : 'You'} ·{' '}
+            <time dateTime={item.timestamp}>{formatTimelineTime(item.timestamp)}</time>
           </div>
           <p className="whitespace-pre-wrap break-words rounded-2xl bg-muted px-4 py-3 text-sm leading-6">{item.text}</p>
         </div>
@@ -64,9 +77,60 @@ function TimelineItem({ item }: { item: TimelineViewModel }) {
     return <AssistantTurn turn={item} />
   }
 
+  if (item.type === 'run_timing') {
+    return <RunTiming timing={item} />
+  }
+
   return (
     <div className="py-2 text-center text-xs text-muted-foreground" data-seq={item.seq}>
-      {item.text}
+      {item.text} · <time dateTime={item.timestamp}>{formatTimelineTime(item.timestamp)}</time>
+    </div>
+  )
+}
+
+function RunTiming({ timing }: { timing: TimelineRunTimingViewModel }) {
+  const lead = timing.status === 'completed' ? 'Worked' : timing.status === 'cancelled' ? 'Stopped after' : 'Failed after'
+
+  return (
+    <div className="py-2 text-center text-xs text-muted-foreground" data-seq={timing.seq}>
+      {lead} {formatDuration(timing.durationMs)} ·{' '}
+      <time dateTime={timing.startedAt}>{formatTimelineTime(timing.startedAt)}</time>
+      {'–'}
+      <time dateTime={timing.endedAt}>{formatTimelineTime(timing.endedAt)}</time>
+    </div>
+  )
+}
+
+function ActiveRunTiming({ runtime }: { runtime: RuntimeSnapshot }) {
+  const [now, setNow] = useState(() => Date.now())
+  const startedAt = runtime.run_started_at
+
+  useEffect(() => {
+    if (!startedAt || !runtime.run_phase) {
+      return
+    }
+    setNow(Date.now())
+    const timer = window.setInterval(() => setNow(Date.now()), 1000)
+    return () => window.clearInterval(timer)
+  }, [runtime.run_phase, startedAt])
+
+  if (!startedAt || !runtime.run_phase) {
+    return null
+  }
+
+  const startedAtMs = Date.parse(startedAt)
+  const durationMs = Number.isNaN(startedAtMs) ? 0 : now - startedAtMs
+  const state =
+    runtime.run_phase === 'waiting_approval'
+      ? 'Waiting for approval'
+      : runtime.run_phase === 'stopping'
+        ? 'Stopping'
+        : 'Working'
+
+  return (
+    <div className="py-2 text-center text-xs text-muted-foreground" role="status">
+      {state} {formatDuration(durationMs)} · Started{' '}
+      <time dateTime={startedAt}>{formatTimelineTime(startedAt)}</time>
     </div>
   )
 }
@@ -75,7 +139,7 @@ function PendingDirectBubble({ message }: { message: PendingDirectMessage }) {
   return (
     <article className="flex justify-end py-3" data-pending="true">
       <div className="max-w-[85%]">
-        <div className="mb-1 text-right text-xs font-medium text-muted-foreground">You</div>
+        <div className="mb-1 text-right text-xs font-medium text-muted-foreground">You · Sending…</div>
         <p className="whitespace-pre-wrap break-words rounded-2xl bg-muted px-4 py-3 text-sm leading-6">
           {message.text}
         </p>
@@ -89,6 +153,7 @@ export function ConversationTimeline({
   className,
   pendingMessage = null,
   onPendingMessageCanonical,
+  runtime,
 }: ConversationTimelineProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const sentinelRef = useRef<HTMLDivElement>(null)
@@ -353,12 +418,27 @@ export function ConversationTimeline({
           ) : null}
 
           {!isPending && !isError
-            ? timeline.map((item) => <TimelineItem item={item} key={item.id} />)
+            ? timeline.map((item, index) => {
+                const previous = timeline[index - 1]
+                const showDay = !previous || timelineDayKey(previous.timestamp) !== timelineDayKey(item.timestamp)
+                return (
+                  <Fragment key={item.id}>
+                    {showDay ? (
+                      <div className="py-2 text-center text-xs text-muted-foreground">
+                        <time dateTime={item.timestamp}>{formatTimelineDay(item.timestamp)}</time>
+                      </div>
+                    ) : null}
+                    <TimelineItem item={item} />
+                  </Fragment>
+                )
+              })
             : null}
 
           {!isError && pendingVisible && pendingMessage ? (
             <PendingDirectBubble message={pendingMessage} />
           ) : null}
+
+          {!isPending && !isError ? <ActiveRunTiming runtime={runtime} /> : null}
 
           {!isPending && !isError
             ? liveSession.notices.map((notice) => (

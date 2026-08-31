@@ -167,6 +167,9 @@ export interface RunEndedLiveEvent {
   session_id: string
   run_id: string
   status: 'completed' | 'cancelled' | 'failed'
+  started_at: string
+  ended_at: string
+  duration_ms: number
   discarded_steer_count: number
   main_usage: TokenUsage | null
   auxiliary_usage: TokenUsage | null
@@ -252,9 +255,24 @@ export interface ApprovalRecord extends JournalRecordBase {
   review_reason?: string
 }
 
+export interface RunEndedRecord extends JournalRecordBase {
+  type: 'run_ended'
+  run_id: string
+  status: 'completed' | 'cancelled' | 'failed'
+  started_at: string
+  ended_at: string
+  duration_ms: number
+}
+
 export type JournalOutputRecord = JournalRecordBase & OutputEvent
 
-export type JournalRecord = UserMessageRecord | UserSteerRecord | ActivityLabelRecord | ApprovalRecord | JournalOutputRecord
+export type JournalRecord =
+  | UserMessageRecord
+  | UserSteerRecord
+  | ActivityLabelRecord
+  | ApprovalRecord
+  | RunEndedRecord
+  | JournalOutputRecord
 
 export interface HistoryResponse {
   records: JournalRecord[]

@@ -105,10 +105,23 @@ export interface TimelineAssistantTurnViewModel {
   content: TimelineAssistantContentViewModel[]
 }
 
+export interface TimelineRunTimingViewModel {
+  type: 'run_timing'
+  id: string
+  seq: number
+  timestamp: string
+  runId: string
+  status: 'completed' | 'cancelled' | 'failed'
+  startedAt: string
+  endedAt: string
+  durationMs: number
+}
+
 export type TimelineViewModel =
   | TimelineUserMessageViewModel
   | TimelineSteerViewModel
   | TimelineAssistantTurnViewModel
+  | TimelineRunTimingViewModel
   | TimelineSystemViewModel
 
 interface MutableAssistantTurn {
@@ -330,6 +343,24 @@ export function projectTimeline(records: readonly JournalRecord[]): TimelineView
         timestamp: record.timestamp,
         runId: record.run_id,
         text: record.text,
+      })
+      lastAgentChangedName = null
+      continue
+    }
+
+    if (record.type === 'run_ended') {
+      finishAssistantTurn()
+      pendingTools.length = 0
+      timeline.push({
+        type: 'run_timing',
+        id: `run-timing-${record.seq}`,
+        seq: record.seq,
+        timestamp: record.timestamp,
+        runId: record.run_id,
+        status: record.status,
+        startedAt: record.started_at,
+        endedAt: record.ended_at,
+        durationMs: record.duration_ms,
       })
       lastAgentChangedName = null
       continue
