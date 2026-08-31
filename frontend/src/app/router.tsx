@@ -57,30 +57,33 @@ function AppShell() {
     const controller = new AbortController()
     let cancelled = false
 
-    void discardUnusedSession(previousSessionId, { signal: controller.signal })
-      .then((response) => {
-        if (cancelled || selectedSessionIdRef.current === previousSessionId || !response.discarded) {
-          return
-        }
-        queryClient.setQueryData<SessionListResponse>(queryKeys.sessions(), (current) =>
-          current
-            ? { sessions: current.sessions.filter((session) => session.session_id !== previousSessionId) }
-            : current,
-        )
-        queryClient.setQueryData<BootstrapResponse>(queryKeys.bootstrap(), (current) =>
-          current
-            ? { ...current, sessions: current.sessions.filter((session) => session.session_id !== previousSessionId) }
-            : current,
-        )
-        queryClient.removeQueries({ exact: true, queryKey: queryKeys.session(previousSessionId) })
-        queryClient.removeQueries({ exact: true, queryKey: queryKeys.sessionState(previousSessionId) })
-        queryClient.removeQueries({ exact: true, queryKey: queryKeys.sessionHistoryPages(previousSessionId) })
-        void queryClient.invalidateQueries({ queryKey: queryKeys.sessions() })
-      })
-      .catch(() => undefined)
+    const discardTimer = window.setTimeout(() => {
+      void discardUnusedSession(previousSessionId, { signal: controller.signal })
+        .then((response) => {
+          if (cancelled || selectedSessionIdRef.current === previousSessionId || !response.discarded) {
+            return
+          }
+          queryClient.setQueryData<SessionListResponse>(queryKeys.sessions(), (current) =>
+            current
+              ? { sessions: current.sessions.filter((session) => session.session_id !== previousSessionId) }
+              : current,
+          )
+          queryClient.setQueryData<BootstrapResponse>(queryKeys.bootstrap(), (current) =>
+            current
+              ? { ...current, sessions: current.sessions.filter((session) => session.session_id !== previousSessionId) }
+              : current,
+          )
+          queryClient.removeQueries({ exact: true, queryKey: queryKeys.session(previousSessionId) })
+          queryClient.removeQueries({ exact: true, queryKey: queryKeys.sessionState(previousSessionId) })
+          queryClient.removeQueries({ exact: true, queryKey: queryKeys.sessionHistoryPages(previousSessionId) })
+          void queryClient.invalidateQueries({ queryKey: queryKeys.sessions() })
+        })
+        .catch(() => undefined)
+    }, 1000)
 
     return () => {
       cancelled = true
+      window.clearTimeout(discardTimer)
       controller.abort()
     }
   }, [queryClient, selectedSessionId])
