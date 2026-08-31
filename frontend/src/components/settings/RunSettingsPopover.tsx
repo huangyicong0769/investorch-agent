@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type FormEvent } from 'react'
+import { useEffect, useId, useState, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Settings } from 'lucide-react'
 
@@ -12,6 +12,7 @@ import type {
   ReasoningEffort,
 } from '../../api/types'
 import { errorMessage } from '../../lib/errors'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 
 const REASONING_OPTIONS: ReasoningEffort[] = [
   'none',
@@ -27,10 +28,10 @@ const FOLLOW_UP_OPTIONS: FollowUpBehavior[] = ['steer', 'queue']
 
 export function RunSettingsPopover() {
   const queryClient = useQueryClient()
-  const containerRef = useRef<HTMLDivElement>(null)
   const reasoningId = useId()
   const permissionId = useId()
   const followUpId = useId()
+  const [narrowViewport, setNarrowViewport] = useState(() => window.matchMedia('(max-width: 767px)').matches)
   const [open, setOpen] = useState(false)
   const [draft, setDraft] = useState<Defaults | null>(null)
   const defaultsQuery = useQuery(defaultsQueryOptions())
@@ -46,6 +47,17 @@ export function RunSettingsPopover() {
     },
   })
 
+  const handleOpenChange = (nextOpen: boolean) => {
+    if (!nextOpen) {
+      setOpen(false)
+      return
+    }
+
+    mutation.reset()
+    setDraft(defaultsQuery.data ?? null)
+    setOpen(true)
+  }
+
   useEffect(() => {
     if (defaultsQuery.data) {
       setDraft(defaultsQuery.data)
@@ -53,33 +65,11 @@ export function RunSettingsPopover() {
   }, [defaultsQuery.data])
 
   useEffect(() => {
-    if (!open) {
-      return
-    }
-
-    const closeOnOutsideClick = (event: PointerEvent) => {
-      if (event.target instanceof Node && !containerRef.current?.contains(event.target)) {
-        setOpen(false)
-      }
-    }
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && !mutation.isPending) {
-        setOpen(false)
-      }
-    }
-    document.addEventListener('pointerdown', closeOnOutsideClick)
-    document.addEventListener('keydown', closeOnEscape)
-    return () => {
-      document.removeEventListener('pointerdown', closeOnOutsideClick)
-      document.removeEventListener('keydown', closeOnEscape)
-    }
-  }, [mutation.isPending, open])
-
-  const toggle = () => {
-    mutation.reset()
-    setDraft(defaultsQuery.data ?? null)
-    setOpen((current) => !current)
-  }
+    const mediaQuery = window.matchMedia('(max-width: 767px)')
+    const updateViewport = () => setNarrowViewport(mediaQuery.matches)
+    mediaQuery.addEventListener('change', updateViewport)
+    return () => mediaQuery.removeEventListener('change', updateViewport)
+  }, [])
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -89,24 +79,32 @@ export function RunSettingsPopover() {
   }
 
   return (
-    <div className="relative" ref={containerRef}>
-      <button
-        aria-expanded={open}
-        aria-haspopup="dialog"
-        className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm hover:bg-muted disabled:opacity-60"
-        disabled={mutation.isPending}
-        onClick={toggle}
-        type="button"
-      >
-        <Settings aria-hidden="true" size={16} />
-        Settings
-      </button>
-
-      {open ? (
-        <div
+    <div className="relative">
+      <Popover open={open} onOpenChange={handleOpenChange}>
+        <PopoverTrigger asChild>
+          <button
+            aria-expanded={open}
+            aria-haspopup="dialog"
+            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm hover:bg-muted disabled:opacity-60"
+            disabled={mutation.isPending}
+            type="button"
+          >
+            <Settings aria-hidden="true" size={16} />
+            Settings
+          </button>
+        </PopoverTrigger>
+        <PopoverContent
+          align="end"
           aria-label="Run settings"
-          className="fixed inset-x-3 bottom-3 z-50 max-h-[calc(100dvh-1.5rem)] overflow-y-auto rounded-xl border border-border bg-card p-4 shadow-xl md:absolute md:inset-x-auto md:bottom-0 md:left-full md:z-30 md:ml-2 md:w-72"
-          role="dialog"
+          collisionPadding={12}
+          onEscapeKeyDown={(event) => {
+            if (mutation.isPending) {
+              event.preventDefault()
+            }
+          }}
+          side={narrowViewport ? 'top' : 'right'}
+          sideOffset={8}
+          className="z-50 max-h-[calc(100dvh-1.5rem)] w-72 max-w-[calc(100vw-1.5rem)] overflow-y-auto rounded-xl border border-border bg-card p-4 shadow-xl md:z-30"
         >
           <h2 className="text-sm font-semibold">Run settings</h2>
           <p className="mt-1 text-xs text-muted-foreground">Changes apply to future runs.</p>
@@ -217,8 +215,8 @@ export function RunSettingsPopover() {
               </div>
             </form>
           ) : null}
-        </div>
-      ) : null}
+        </PopoverContent>
+      </Popover>
     </div>
   )
 }
