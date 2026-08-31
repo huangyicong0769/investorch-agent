@@ -1,6 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
-
 import type { SessionPresentationState } from '../../api/types'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 
 interface UsagePopoverProps {
   contextWindowTokens: number | null
@@ -22,34 +21,10 @@ function exactTokens(value: number): string {
 }
 
 export function UsagePopover({ contextWindowTokens, presentation }: UsagePopoverProps) {
-  const containerRef = useRef<HTMLDivElement>(null)
-  const [open, setOpen] = useState(false)
   const capacity = compactTokens(contextWindowTokens)
   const mainContext = compactTokens(presentation.main_context_tokens)
   const summary = `${mainContext} / ${capacity}`
   const usage = presentation.usage
-
-  useEffect(() => {
-    if (!open) {
-      return
-    }
-    const closeOnOutsideClick = (event: PointerEvent) => {
-      if (event.target instanceof Node && !containerRef.current?.contains(event.target)) {
-        setOpen(false)
-      }
-    }
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        setOpen(false)
-      }
-    }
-    document.addEventListener('pointerdown', closeOnOutsideClick)
-    document.addEventListener('keydown', closeOnEscape)
-    return () => {
-      document.removeEventListener('pointerdown', closeOnOutsideClick)
-      document.removeEventListener('keydown', closeOnEscape)
-    }
-  }, [open])
 
   const rows = [
     ['Requests', exactTokens(usage.requests)],
@@ -68,22 +43,23 @@ export function UsagePopover({ contextWindowTokens, presentation }: UsagePopover
   ]
 
   return (
-    <div className="relative" ref={containerRef}>
-      <button
-        aria-expanded={open}
-        aria-haspopup="dialog"
-        aria-label={`Token usage: ${summary}`}
-        className="rounded-lg px-2 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
-        onClick={() => setOpen((current) => !current)}
-        type="button"
-      >
-        {summary}
-      </button>
-      {open ? (
-        <div
+    <div className="relative">
+      <Popover>
+        <PopoverTrigger asChild>
+          <button
+            aria-label={`Token usage: ${summary}`}
+            className="rounded-lg px-2 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
+            type="button"
+          >
+            {summary}
+          </button>
+        </PopoverTrigger>
+        <PopoverContent
+          align="end"
           aria-label="Token usage"
-          className="absolute right-0 top-full z-30 mt-2 w-64 rounded-xl border border-border bg-card p-4 shadow-xl"
-          role="dialog"
+          collisionPadding={12}
+          sideOffset={8}
+          className="z-30 w-64 max-w-[calc(100vw-1.5rem)] rounded-xl border border-border bg-card p-4 shadow-xl"
         >
           <h2 className="text-sm font-semibold">Usage</h2>
           <dl className="mt-3 space-y-2 text-xs">
@@ -94,8 +70,8 @@ export function UsagePopover({ contextWindowTokens, presentation }: UsagePopover
               </div>
             ))}
           </dl>
-        </div>
-      ) : null}
+        </PopoverContent>
+      </Popover>
     </div>
   )
 }
