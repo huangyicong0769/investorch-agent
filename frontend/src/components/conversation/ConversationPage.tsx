@@ -11,6 +11,7 @@ import { QueueStrip } from '../queue/QueueStrip'
 import { ConversationTimeline } from '../timeline/ConversationTimeline'
 import { ConversationHeader } from './ConversationHeader'
 import type { PendingDirectMessage } from './interaction'
+import { Button } from '@/components/ui/button'
 
 export function ConversationPage() {
   const { sessionId = '' } = useParams<'sessionId'>()
@@ -139,13 +140,15 @@ function ConversationError({ message, onRetry }: ConversationErrorProps) {
         </p>
         <div className="mt-5 flex justify-center gap-2">
           {onRetry ? (
-            <button
+            <Button
               className="rounded-lg border border-border px-3 py-2 text-sm hover:bg-muted"
               onClick={onRetry}
+              size={null}
               type="button"
+              variant={null}
             >
               Retry
-            </button>
+            </Button>
           ) : null}
           <Link className="rounded-lg bg-primary px-3 py-2 text-sm text-primary-foreground" to="/">
             Open initial session

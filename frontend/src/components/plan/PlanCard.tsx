@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 
 import type { RuntimeSnapshot, SessionPresentationState, TodoStatus } from '../../api/types'
+import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 
 interface PlanCardProps {
@@ -44,12 +45,17 @@ export function PlanCard({ presentation, runtime }: PlanCardProps) {
       open={open}
     >
       <CollapsibleTrigger asChild>
-        <button className="flex w-full cursor-pointer items-center gap-2 text-left font-medium" type="button">
+        <Button
+          className="flex w-full cursor-pointer items-center justify-start gap-2 text-left font-medium"
+          size={null}
+          type="button"
+          variant={null}
+        >
           <span aria-hidden="true" className="w-3 shrink-0 text-muted-foreground">
             {open ? '▾' : '▸'}
           </span>
           <span>{title}</span>
-        </button>
+        </Button>
       </CollapsibleTrigger>
       <CollapsibleContent>
         <ol className="mt-2 space-y-1.5 border-t border-border pt-2">

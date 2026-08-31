@@ -12,6 +12,7 @@ import { errorMessage } from '../../lib/errors'
 import { cn } from '../../lib/utils'
 import { useLiveSession } from '../../websocket/LiveWebSocketProvider'
 import type { PendingDirectMessage } from '../conversation/interaction'
+import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { ActivityGroup } from './ActivityGroup'
 import { MarkdownMessage } from './MarkdownMessage'
@@ -314,13 +315,15 @@ export function ConversationTimeline({
               <p className="text-sm text-muted-foreground">
                 {historyError}
               </p>
-              <button
+              <Button
                 className="mt-3 rounded-lg border border-border px-3 py-2 text-sm hover:bg-muted"
                 onClick={() => void refetch()}
+                size={null}
                 type="button"
+                variant={null}
               >
                 Retry
-              </button>
+              </Button>
             </div>
           ) : null}
 
@@ -332,14 +335,16 @@ export function ConversationTimeline({
 
           {!isPending && !isError && observerAvailable === false && hasNextPage ? (
             <div className="flex justify-center py-2">
-              <button
+              <Button
                 className="rounded-lg border border-border px-3 py-1.5 text-xs text-muted-foreground hover:bg-muted"
                 disabled={isFetchingNextPage}
                 onClick={fetchOlder}
+                size={null}
                 type="button"
+                variant={null}
               >
                 Load older messages
-              </button>
+              </Button>
             </div>
           ) : null}
 
@@ -366,13 +371,15 @@ export function ConversationTimeline({
       </ScrollArea>
       {showNewActivity ? (
         <div className="pointer-events-none absolute inset-x-0 bottom-3 z-10 flex justify-center">
-          <button
+          <Button
             className="pointer-events-auto rounded-full border border-border bg-card px-3 py-1.5 text-xs font-medium shadow-sm hover:bg-muted"
             onClick={scrollToBottom}
+            size={null}
             type="button"
+            variant={null}
           >
             ↓ New activity
-          </button>
+          </Button>
         </div>
       ) : null}
     </div>

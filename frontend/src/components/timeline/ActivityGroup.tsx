@@ -8,6 +8,7 @@ import type {
   TimelineUnmatchedToolOutputViewModel,
 } from '../../lib/timeline/project'
 import { formatJsonValue } from '../../lib/timeline/project'
+import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { CopyButton } from './CopyButton'
 
@@ -32,12 +33,17 @@ function Detail({ label, value, formatJson = false }: DetailProps) {
       open={open}
     >
       <CollapsibleTrigger asChild>
-        <button className="flex w-full cursor-pointer items-center px-2 py-1 text-left text-xs text-muted-foreground" type="button">
+        <Button
+          className="flex w-full cursor-pointer items-center justify-start gap-0 px-2 py-1 text-left text-xs font-normal text-muted-foreground"
+          size={null}
+          type="button"
+          variant={null}
+        >
           <span aria-hidden="true" className="mr-2">
             {open ? '▾' : '▸'}
           </span>
           <span>{label}</span>
-        </button>
+        </Button>
       </CollapsibleTrigger>
       <CollapsibleContent className="relative border-t border-border/80">
         <div className="flex justify-end px-2 pt-2">
@@ -141,12 +147,17 @@ export function ActivityGroup({ group }: ActivityGroupProps) {
       open={open}
     >
       <CollapsibleTrigger asChild>
-        <button className="flex w-full cursor-pointer items-center px-3 py-2 text-left text-sm text-muted-foreground" type="button">
+        <Button
+          className="flex w-full cursor-pointer items-center justify-start gap-0 px-3 py-2 text-left text-sm font-normal text-muted-foreground"
+          size={null}
+          type="button"
+          variant={null}
+        >
           <span aria-hidden="true" className="mr-2">
             {open ? '▾' : '▸'}
           </span>
           <span>{group.title}</span>
-        </button>
+        </Button>
       </CollapsibleTrigger>
       <CollapsibleContent className="space-y-2 border-t border-border/80 p-3">
         {group.items.map((item) => (
