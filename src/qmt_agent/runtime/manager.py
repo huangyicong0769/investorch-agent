@@ -490,12 +490,10 @@ class AgentRuntime:
                 if session is not None:
                     session.close()
             finally:
-                run_control.close_submissions()
-                active_run = self._active_by_run.pop(run_id, None)
+                active_run = self._active_by_run.get(run_id)
                 if active_run is not None and self._active_by_session.get(session_id) is active_run:
-                    del self._active_by_session[session_id]
-                self._controls_by_run.pop(run_id, None)
-                self._input_journal_by_run.pop(run_id, None)
+                    active_run.phase = "stopping"
+                run_control.close_submissions()
                 await run_control.wait_until_ready()
                 if status == "completed":
                     fallbacks = run_control.take_fallbacks()
@@ -507,6 +505,11 @@ class AgentRuntime:
                     if discarded_steer_count:
                         logger.info("Discarded unconsumed Steer input session=%s run=%s status=%s count=%d", session_id, run_id, status, discarded_steer_count)
                     self.pause_queue(session_id)
+                self._active_by_run.pop(run_id, None)
+                if active_run is not None and self._active_by_session.get(session_id) is active_run:
+                    del self._active_by_session[session_id]
+                self._controls_by_run.pop(run_id, None)
+                self._input_journal_by_run.pop(run_id, None)
                 if not self._steer_fallback_by_session.get(session_id):
                     self._notify_state(session_id)
                 ended_at = datetime.now(UTC)
