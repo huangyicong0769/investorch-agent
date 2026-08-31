@@ -6,6 +6,7 @@ import { processesQueryOptions } from '../../api/queries'
 import type { BackgroundJob } from '../../api/types'
 import { errorMessage } from '../../lib/errors'
 import { shortSessionId } from '../../lib/session'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import {
   Sheet,
   SheetClose,
@@ -25,6 +26,8 @@ function formatTimestamp(value: string | null): string {
 }
 
 function ProcessCard({ process }: { process: BackgroundJob }) {
+  const [logPathsOpen, setLogPathsOpen] = useState(false)
+
   return (
     <li className="rounded-xl border border-border p-3">
       <div className="flex items-center justify-between gap-3">
@@ -56,19 +59,32 @@ function ProcessCard({ process }: { process: BackgroundJob }) {
           </>
         ) : null}
       </dl>
-      <details className="mt-3 text-xs text-muted-foreground">
-        <summary className="cursor-pointer">Log paths</summary>
-        <dl className="mt-2 grid gap-2">
-          <div>
-            <dt>stdout</dt>
-            <dd className="break-all text-foreground">{process.stdout_log}</dd>
-          </div>
-          <div>
-            <dt>stderr</dt>
-            <dd className="break-all text-foreground">{process.stderr_log}</dd>
-          </div>
-        </dl>
-      </details>
+      <Collapsible
+        className="mt-3 text-xs text-muted-foreground"
+        onOpenChange={setLogPathsOpen}
+        open={logPathsOpen}
+      >
+        <CollapsibleTrigger asChild>
+          <button className="flex w-full cursor-pointer items-center text-left" type="button">
+            <span aria-hidden="true" className="mr-2">
+              {logPathsOpen ? '▾' : '▸'}
+            </span>
+            <span>Log paths</span>
+          </button>
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          <dl className="mt-2 grid gap-2">
+            <div>
+              <dt>stdout</dt>
+              <dd className="break-all text-foreground">{process.stdout_log}</dd>
+            </div>
+            <div>
+              <dt>stderr</dt>
+              <dd className="break-all text-foreground">{process.stderr_log}</dd>
+            </div>
+          </dl>
+        </CollapsibleContent>
+      </Collapsible>
     </li>
   )
 }
