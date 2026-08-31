@@ -1,3 +1,5 @@
+import { useState } from 'react'
+
 import type {
   TimelineActivityGroupViewModel,
   TimelineActivityViewModel,
@@ -6,6 +8,7 @@ import type {
   TimelineUnmatchedToolOutputViewModel,
 } from '../../lib/timeline/project'
 import { formatJsonValue } from '../../lib/timeline/project'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { CopyButton } from './CopyButton'
 
 interface ActivityGroupProps {
@@ -20,19 +23,31 @@ interface DetailProps {
 
 function Detail({ label, value, formatJson = false }: DetailProps) {
   const text = formatJson ? formatJsonValue(value) : value
+  const [open, setOpen] = useState(false)
 
   return (
-    <details className="mt-2 rounded border border-border/80 bg-background/70">
-      <summary className="cursor-pointer px-2 py-1 text-xs text-muted-foreground">{label}</summary>
-      <div className="relative border-t border-border/80">
+    <Collapsible
+      className="mt-2 rounded border border-border/80 bg-background/70"
+      onOpenChange={setOpen}
+      open={open}
+    >
+      <CollapsibleTrigger asChild>
+        <button className="flex w-full cursor-pointer items-center px-2 py-1 text-left text-xs text-muted-foreground" type="button">
+          <span aria-hidden="true" className="mr-2">
+            {open ? '▾' : '▸'}
+          </span>
+          <span>{label}</span>
+        </button>
+      </CollapsibleTrigger>
+      <CollapsibleContent className="relative border-t border-border/80">
         <div className="flex justify-end px-2 pt-2">
           <CopyButton value={text} />
         </div>
         <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words px-2 pb-2 font-mono text-xs leading-5">
           {text}
         </pre>
-      </div>
-    </details>
+      </CollapsibleContent>
+    </Collapsible>
   )
 }
 
@@ -116,19 +131,28 @@ function ActivityItem({ item }: { item: TimelineActivityViewModel }) {
 }
 
 export function ActivityGroup({ group }: ActivityGroupProps) {
+  const [open, setOpen] = useState(false)
+
   return (
-    <details className="my-2 max-w-full rounded-lg border border-border/80 bg-card" data-seq={group.seq}>
-      <summary className="cursor-pointer list-none px-3 py-2 text-sm text-muted-foreground marker:hidden">
-        <span aria-hidden="true" className="mr-2">
-          ▸
-        </span>
-        {group.title}
-      </summary>
-      <div className="space-y-2 border-t border-border/80 p-3">
+    <Collapsible
+      className="my-2 max-w-full rounded-lg border border-border/80 bg-card"
+      data-seq={group.seq}
+      onOpenChange={setOpen}
+      open={open}
+    >
+      <CollapsibleTrigger asChild>
+        <button className="flex w-full cursor-pointer items-center px-3 py-2 text-left text-sm text-muted-foreground" type="button">
+          <span aria-hidden="true" className="mr-2">
+            {open ? '▾' : '▸'}
+          </span>
+          <span>{group.title}</span>
+        </button>
+      </CollapsibleTrigger>
+      <CollapsibleContent className="space-y-2 border-t border-border/80 p-3">
         {group.items.map((item) => (
           <ActivityItem item={item} key={item.id} />
         ))}
-      </div>
-    </details>
+      </CollapsibleContent>
+    </Collapsible>
   )
 }
