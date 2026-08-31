@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { ChevronDown, ChevronRight } from 'lucide-react'
 
 import type {
   TimelineActivityGroupViewModel,
@@ -39,9 +40,11 @@ function Detail({ label, value, formatJson = false }: DetailProps) {
           type="button"
           variant={null}
         >
-          <span aria-hidden="true" className="mr-2">
-            {open ? '▾' : '▸'}
-          </span>
+          {open ? (
+            <ChevronDown aria-hidden="true" className="mr-2 shrink-0" size={14} />
+          ) : (
+            <ChevronRight aria-hidden="true" className="mr-2 shrink-0" size={14} />
+          )}
           <span>{label}</span>
         </Button>
       </CollapsibleTrigger>
@@ -59,7 +62,7 @@ function Detail({ label, value, formatJson = false }: DetailProps) {
 
 function ToolActivity({ item }: { item: TimelineToolViewModel }) {
   return (
-    <div className="rounded-md border border-border/70 px-3 py-2 text-xs">
+    <div className="text-xs">
       <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
         <span className="font-medium">Tool · {item.name}</span>
         {item.label ? <span className="text-muted-foreground">{item.label}</span> : null}
@@ -72,7 +75,7 @@ function ToolActivity({ item }: { item: TimelineToolViewModel }) {
 
 function UnmatchedOutput({ item }: { item: TimelineUnmatchedToolOutputViewModel }) {
   return (
-    <div className="rounded-md border border-border/70 px-3 py-2 text-xs">
+    <div className="text-xs">
       <span className="font-medium">Unmatched tool output</span>
       <Detail label="Observation" value={item.output} />
     </div>
@@ -91,7 +94,7 @@ function ApprovalActivity({ item }: { item: TimelineApprovalViewModel }) {
   const source = automatic ? 'AutoReview' : 'User'
 
   return (
-    <div className="rounded-md border border-border/70 px-3 py-2 text-xs">
+    <div className="text-xs">
       <div className="font-medium">
         {status} · {item.toolName}
       </div>
@@ -118,10 +121,32 @@ function ApprovalActivity({ item }: { item: TimelineApprovalViewModel }) {
   )
 }
 
-function ActivityItem({ item }: { item: TimelineActivityViewModel }) {
+function activityTitle(item: TimelineActivityViewModel): string {
+  if (item.type === 'reasoning') {
+    return 'Thinking…'
+  }
+  if (item.type === 'tool') {
+    return item.label ?? `Calling ${item.name}…`
+  }
+  if (item.type === 'unmatched_tool_output') {
+    return 'Unmatched tool output'
+  }
+
+  const automatic = item.source === 'permission'
+  const status = item.approved
+    ? automatic
+      ? '✓ Auto-approved'
+      : '✓ Approved'
+    : automatic
+      ? '⊘ Auto-rejected'
+      : '⊘ Rejected'
+  return `${status} · ${item.toolName}`
+}
+
+function ActivityDetails({ item }: { item: TimelineActivityViewModel }) {
   if (item.type === 'reasoning') {
     return (
-      <div className="rounded-md border border-border/70 px-3 py-2 text-xs">
+      <div className="text-xs">
         <div className="font-medium">Reasoning</div>
         <p className="mt-1 max-h-64 overflow-auto whitespace-pre-wrap break-words text-muted-foreground">{item.text}</p>
       </div>
@@ -136,8 +161,39 @@ function ActivityItem({ item }: { item: TimelineActivityViewModel }) {
   return <ApprovalActivity item={item} />
 }
 
-export function ActivityGroup({ group }: ActivityGroupProps) {
+function ActivityStep({ item }: { item: TimelineActivityViewModel }) {
   const [open, setOpen] = useState(false)
+
+  return (
+    <Collapsible
+      className="rounded-md border border-border/70 bg-background/70"
+      onOpenChange={setOpen}
+      open={open}
+    >
+      <CollapsibleTrigger asChild>
+        <Button
+          className="flex w-full cursor-pointer items-center justify-start gap-0 px-3 py-2 text-left text-xs font-normal text-muted-foreground"
+          size={null}
+          type="button"
+          variant={null}
+        >
+          {open ? (
+            <ChevronDown aria-hidden="true" className="mr-2 shrink-0" size={14} />
+          ) : (
+            <ChevronRight aria-hidden="true" className="mr-2 shrink-0" size={14} />
+          )}
+          <span className="min-w-0 truncate">{activityTitle(item)}</span>
+        </Button>
+      </CollapsibleTrigger>
+      <CollapsibleContent className="border-t border-border/70 p-3">
+        <ActivityDetails item={item} />
+      </CollapsibleContent>
+    </Collapsible>
+  )
+}
+
+export function ActivityGroup({ group }: ActivityGroupProps) {
+  const [open, setOpen] = useState(!group.collapsed)
 
   return (
     <Collapsible
@@ -153,15 +209,17 @@ export function ActivityGroup({ group }: ActivityGroupProps) {
           type="button"
           variant={null}
         >
-          <span aria-hidden="true" className="mr-2">
-            {open ? '▾' : '▸'}
-          </span>
+          {open ? (
+            <ChevronDown aria-hidden="true" className="mr-2 shrink-0" size={16} />
+          ) : (
+            <ChevronRight aria-hidden="true" className="mr-2 shrink-0" size={16} />
+          )}
           <span>{group.title}</span>
         </Button>
       </CollapsibleTrigger>
       <CollapsibleContent className="space-y-2 border-t border-border/80 p-3">
         {group.items.map((item) => (
-          <ActivityItem item={item} key={item.id} />
+          <ActivityStep item={item} key={item.id} />
         ))}
       </CollapsibleContent>
     </Collapsible>
