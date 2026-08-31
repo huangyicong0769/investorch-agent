@@ -127,19 +127,24 @@ async def health() -> dict[str, str]:
 
 @router.get("/bootstrap")
 async def bootstrap(host: Host, broker: Broker) -> dict[str, object]:
-    records = await asyncio.to_thread(list_sessions, host.config.sessions_db)
-    initial_session_id = host.initial_session_id
-    return {
-        "version": APPLICATION_VERSION,
-        "initial_session_id": initial_session_id,
-        "agent_name": host.runtime.agent_name,
-        "context_window_tokens": host.config.model("main").context_window_tokens,
-        "defaults": _serialize_defaults(host),
-        "sessions": [serialize_session_record(record) for record in records],
-        "runtime": serialize_runtime_snapshot(host.runtime.session_snapshot(initial_session_id)),
-        "presentation": serialize_session_presentation_state(host.presentation_state.get(initial_session_id)),
-        "pending_approvals": _serialize_pending_approvals(broker),
-    }
+    async with host.session_lifecycle_lock:
+        initial_session_id = host.initial_session_id
+        initial_session = await asyncio.to_thread(get_session, host.config.sessions_db, initial_session_id)
+        if initial_session is None:
+            initial_session_id = await host.sessions.create()
+            host.initial_session_id = initial_session_id
+        records = await asyncio.to_thread(list_sessions, host.config.sessions_db)
+        return {
+            "version": APPLICATION_VERSION,
+            "initial_session_id": initial_session_id,
+            "agent_name": host.runtime.agent_name,
+            "context_window_tokens": host.config.model("main").context_window_tokens,
+            "defaults": _serialize_defaults(host),
+            "sessions": [serialize_session_record(record) for record in records],
+            "runtime": serialize_runtime_snapshot(host.runtime.session_snapshot(initial_session_id)),
+            "presentation": serialize_session_presentation_state(host.presentation_state.get(initial_session_id)),
+            "pending_approvals": _serialize_pending_approvals(broker),
+        }
 
 
 @router.get("/sessions")
@@ -275,10 +280,13 @@ async def unarchive_session(session: Session, host: Host) -> dict[str, object]:
 @router.post("/sessions/{session_id}/clear")
 async def clear_session(request: ConfirmRequest, session: Session, host: Host) -> dict[str, object]:
     _require_confirmation(request, "clear this session")
-    try:
-        replacement_session_id = await host.sessions.clear(session.session_id)
-    except Exception as error:
-        raise_application_error(error)
+    async with host.session_lifecycle_lock:
+        try:
+            replacement_session_id = await host.sessions.clear(session.session_id)
+        except Exception as error:
+            raise_application_error(error)
+        if session.session_id == host.initial_session_id:
+            host.initial_session_id = replacement_session_id
     return {"replacement_session_id": replacement_session_id}
 
 
