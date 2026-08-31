@@ -12,6 +12,7 @@ import { errorMessage } from '../../lib/errors'
 import { cn } from '../../lib/utils'
 import { useLiveSession } from '../../websocket/LiveWebSocketProvider'
 import type { PendingDirectMessage } from '../conversation/interaction'
+import { ScrollArea } from '@/components/ui/scroll-area'
 import { ActivityGroup } from './ActivityGroup'
 import { MarkdownMessage } from './MarkdownMessage'
 
@@ -289,12 +290,15 @@ export function ConversationTimeline({
 
   return (
     <div className={cn('relative min-h-0 flex-1', className)}>
-      <div
-        aria-label="Conversation"
-        className="h-full overflow-y-auto outline-none focus-visible:ring-2 focus-visible:ring-primary"
-        onScroll={handleScroll}
-        ref={scrollRef}
-        tabIndex={0}
+      <ScrollArea
+        className="h-full"
+        viewportProps={{
+          'aria-label': 'Conversation',
+          className: 'outline-none focus-visible:ring-2 focus-visible:ring-primary',
+          onScroll: handleScroll,
+          tabIndex: 0,
+        }}
+        viewportRef={scrollRef}
       >
         <div className="mx-auto w-full max-w-4xl px-4 py-6 sm:px-6">
           <div aria-hidden="true" className="h-px w-full" ref={sentinelRef} />
@@ -359,7 +363,7 @@ export function ConversationTimeline({
               ))
             : null}
         </div>
-      </div>
+      </ScrollArea>
       {showNewActivity ? (
         <div className="pointer-events-none absolute inset-x-0 bottom-3 z-10 flex justify-center">
           <button
