@@ -65,11 +65,7 @@ def initialize(config: AppConfig, *, copy_bootstrap: bool = True) -> bool:
     _ensure_directory(config.session_journal_dir, name="session journals", private=True)
 
     # Session schema initialization is idempotent.
-    init_session_metadata(
-        config.sessions_db,
-        initial_permission_mode=config["permission.mode"],
-        initial_reasoning_effort=config.model("main").reasoning_effort,
-    )
+    init_session_metadata(config.sessions_db)
 
     if copy_bootstrap:
         _copy_bootstrap_files(config)

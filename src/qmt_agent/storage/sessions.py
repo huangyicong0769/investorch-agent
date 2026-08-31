@@ -17,13 +17,6 @@ class SessionRecord:
     updated_at: str
 
 
-@dataclass(frozen=True)
-class SessionRunSettings:
-    permission_mode: str
-    reasoning_effort: str
-    updated_at: str
-
-
 def create_session(db_path: str | Path, session_id: str) -> None:
     session = SQLiteSession(session_id, db_path)
     session.close()
@@ -64,13 +57,7 @@ def delete_unused_session(db_path: str | Path, session_id: str) -> bool:
     return cursor.rowcount == 1
 
 
-def init_session_metadata(
-    db_path: str | Path,
-    *,
-    initial_permission_mode: str,
-    initial_reasoning_effort: str,
-) -> None:
-    _validate_session_run_settings(initial_permission_mode, initial_reasoning_effort)
+def init_session_metadata(db_path: str | Path) -> None:
     schema_session = SQLiteSession("schema-init", db_path)
     schema_session.close()
     with closing(sqlite3.connect(db_path)) as connection:
@@ -94,135 +81,7 @@ def init_session_metadata(
             )
             """
         )
-        connection.execute(
-            """
-            CREATE TABLE IF NOT EXISTS session_run_settings (
-                session_id TEXT PRIMARY KEY,
-                permission_mode TEXT NOT NULL
-                    CHECK (permission_mode IN ('manual', 'review')),
-                reasoning_effort TEXT NOT NULL
-                    CHECK (reasoning_effort IN ('none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max')),
-                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-            )
-            """
-        )
-        connection.execute(
-            """
-            CREATE TRIGGER IF NOT EXISTS delete_session_run_settings
-            AFTER DELETE ON agent_sessions
-            BEGIN
-                DELETE FROM session_run_settings
-                WHERE session_id = OLD.session_id;
-            END
-            """
-        )
-        connection.execute(
-            """
-            DELETE FROM session_run_settings
-            WHERE NOT EXISTS (
-                SELECT 1 FROM agent_sessions
-                WHERE agent_sessions.session_id = session_run_settings.session_id
-            )
-            """
-        )
-        connection.execute(
-            """
-            INSERT INTO session_run_settings (session_id, permission_mode, reasoning_effort)
-            SELECT sessions.session_id, ?, ?
-            FROM agent_sessions AS sessions
-            WHERE NOT EXISTS (
-                SELECT 1 FROM session_run_settings
-                WHERE session_run_settings.session_id = sessions.session_id
-            )
-            """,
-            (initial_permission_mode, initial_reasoning_effort),
-        )
-        invalid = connection.execute(
-            """
-            SELECT session_id
-            FROM session_run_settings
-            WHERE permission_mode NOT IN ('manual', 'review')
-                OR reasoning_effort NOT IN ('none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max')
-            LIMIT 1
-            """
-        ).fetchone()
-        if invalid is not None:
-            raise RuntimeError(f"Session run settings are invalid for session {invalid[0]}")
         connection.commit()
-
-
-def get_session_run_settings(db_path: str | Path, session_id: str) -> SessionRunSettings | None:
-    with closing(sqlite3.connect(db_path)) as connection:
-        row = connection.execute(
-            """
-            SELECT
-                settings.permission_mode,
-                settings.reasoning_effort,
-                settings.updated_at
-            FROM agent_sessions AS sessions
-            LEFT JOIN session_run_settings AS settings
-                ON settings.session_id = sessions.session_id
-            WHERE sessions.session_id = ?
-            """,
-            (session_id,),
-        ).fetchone()
-
-    if row is None:
-        return None
-    if row[0] is None or row[1] is None or row[2] is None:
-        raise RuntimeError(f"Session run settings are missing for session {session_id}")
-    return SessionRunSettings(
-        permission_mode=row[0],
-        reasoning_effort=row[1],
-        updated_at=row[2],
-    )
-
-
-def set_session_run_settings(
-    db_path: str | Path,
-    session_id: str,
-    *,
-    permission_mode: str | None = None,
-    reasoning_effort: str | None = None,
-) -> SessionRunSettings:
-    if permission_mode is None and reasoning_effort is None:
-        raise ValueError("At least one session run setting must be provided")
-    if permission_mode is not None and permission_mode not in {"manual", "review"}:
-        raise ValueError(f"Unsupported permission mode: {permission_mode}")
-    if reasoning_effort is not None and reasoning_effort not in {"none", "minimal", "low", "medium", "high", "xhigh", "max"}:
-        raise ValueError(f"Unsupported reasoning effort: {reasoning_effort}")
-
-    with closing(sqlite3.connect(db_path)) as connection:
-        cursor = connection.execute(
-            """
-            UPDATE session_run_settings
-            SET
-                permission_mode = COALESCE(?, permission_mode),
-                reasoning_effort = COALESCE(?, reasoning_effort),
-                updated_at = CURRENT_TIMESTAMP
-            WHERE session_id = ?
-                AND EXISTS (
-                    SELECT 1 FROM agent_sessions
-                    WHERE agent_sessions.session_id = session_run_settings.session_id
-                )
-            """,
-            (permission_mode, reasoning_effort, session_id),
-        )
-        connection.commit()
-    if cursor.rowcount != 1:
-        raise KeyError(session_id)
-
-    settings = get_session_run_settings(db_path, session_id)
-    if settings is None:
-        raise KeyError(session_id)
-    return settings
-
-
-def _validate_session_run_settings(permission_mode: str, reasoning_effort: str) -> None:
-    if permission_mode not in {"manual", "review"}:
-        raise ValueError(f"Unsupported permission mode: {permission_mode}")
-    if reasoning_effort not in {"none", "minimal", "low", "medium", "high", "xhigh", "max"}:
-        raise ValueError(f"Unsupported reasoning effort: {reasoning_effort}")
 
 
 def list_sessions(db_path: str | Path, *, include_archived: bool = False) -> list[SessionRecord]:
@@ -415,13 +274,6 @@ def delete_session_metadata(db_path: str | Path, session_id: str) -> None:
         connection.execute(
             """
             DELETE FROM session_lineage
-            WHERE session_id = ?
-            """,
-            (session_id,),
-        )
-        connection.execute(
-            """
-            DELETE FROM session_run_settings
             WHERE session_id = ?
             """,
             (session_id,),
