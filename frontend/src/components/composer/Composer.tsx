@@ -281,7 +281,7 @@ export function Composer({
       ) : null}
       <div className="mt-2 flex flex-wrap items-center justify-between gap-2 border-t border-border pt-2">
         <div className="flex min-w-0 flex-wrap items-center gap-1">
-          <RunControlsPopover activeFollowUpBehavior={active ? runtime.active_follow_up_behavior : null} />
+          <RunControlsPopover />
           <UsagePopover contextWindowTokens={contextWindowTokens} presentation={presentation} />
         </div>
         <div className="flex items-center gap-2">

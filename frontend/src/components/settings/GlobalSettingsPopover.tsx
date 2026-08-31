@@ -1,61 +1,35 @@
 import { useEffect, useId, useState, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { SlidersHorizontal } from 'lucide-react'
+import { Settings } from 'lucide-react'
 
 import { updateDefaults } from '../../api/client'
 import { defaultsQueryOptions, queryKeys } from '../../api/queries'
-import type {
-  BootstrapResponse,
-  Defaults,
-  PermissionMode,
-  ReasoningEffort,
-} from '../../api/types'
+import type { BootstrapResponse, Defaults, FollowUpBehavior } from '../../api/types'
 import { errorMessage } from '../../lib/errors'
 import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 
-const REASONING_OPTIONS: ReasoningEffort[] = [
-  'none',
-  'minimal',
-  'low',
-  'medium',
-  'high',
-  'xhigh',
-  'max',
-]
-const PERMISSION_OPTIONS: PermissionMode[] = ['manual', 'review']
+const FOLLOW_UP_OPTIONS: FollowUpBehavior[] = ['steer', 'queue']
 
 function titleCase(value: string): string {
   return `${value.slice(0, 1).toUpperCase()}${value.slice(1)}`
 }
 
-function defaultsSummary(defaults: Defaults | null | undefined): string {
-  if (!defaults) {
-    return 'Run controls'
-  }
-  return [defaults.permission_mode, defaults.reasoning_effort]
-    .map(titleCase)
-    .join(' · ')
-}
-
-export function RunControlsPopover() {
+export function GlobalSettingsPopover() {
   const queryClient = useQueryClient()
-  const reasoningId = useId()
-  const permissionId = useId()
+  const followUpId = useId()
+  const [narrowViewport, setNarrowViewport] = useState(() => window.matchMedia('(max-width: 767px)').matches)
   const [open, setOpen] = useState(false)
-  const [draft, setDraft] = useState<Pick<Defaults, 'permission_mode' | 'reasoning_effort'> | null>(null)
+  const [followUpBehavior, setFollowUpBehavior] = useState<FollowUpBehavior | null>(null)
   const defaultsQuery = useQuery(defaultsQueryOptions())
   const mutation = useMutation({
-    mutationFn: (defaults: Pick<Defaults, 'permission_mode' | 'reasoning_effort'>) => updateDefaults(defaults),
-    onSuccess: (defaults) => {
+    mutationFn: (value: FollowUpBehavior) => updateDefaults({ follow_up_behavior: value }),
+    onSuccess: (defaults: Defaults) => {
       queryClient.setQueryData(queryKeys.defaults(), defaults)
       queryClient.setQueryData<BootstrapResponse>(queryKeys.bootstrap(), (current) =>
         current ? { ...current, defaults } : current,
       )
-      setDraft({
-        permission_mode: defaults.permission_mode,
-        reasoning_effort: defaults.reasoning_effort,
-      })
+      setFollowUpBehavior(defaults.follow_up_behavior)
       setOpen(false)
     },
   })
@@ -67,34 +41,29 @@ export function RunControlsPopover() {
     }
 
     mutation.reset()
-    setDraft(
-      defaultsQuery.data
-        ? {
-            permission_mode: defaultsQuery.data.permission_mode,
-            reasoning_effort: defaultsQuery.data.reasoning_effort,
-          }
-        : null,
-    )
+    setFollowUpBehavior(defaultsQuery.data?.follow_up_behavior ?? null)
     setOpen(true)
   }
 
   useEffect(() => {
     if (defaultsQuery.data) {
-      setDraft({
-        permission_mode: defaultsQuery.data.permission_mode,
-        reasoning_effort: defaultsQuery.data.reasoning_effort,
-      })
+      setFollowUpBehavior(defaultsQuery.data.follow_up_behavior)
     }
   }, [defaultsQuery.data])
 
+  useEffect(() => {
+    const mediaQuery = window.matchMedia('(max-width: 767px)')
+    const updateViewport = () => setNarrowViewport(mediaQuery.matches)
+    mediaQuery.addEventListener('change', updateViewport)
+    return () => mediaQuery.removeEventListener('change', updateViewport)
+  }, [])
+
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    if (draft) {
-      mutation.mutate(draft)
+    if (followUpBehavior) {
+      mutation.mutate(followUpBehavior)
     }
   }
-
-  const summary = defaultsSummary(defaultsQuery.data)
 
   return (
     <Popover open={open} onOpenChange={handleOpenChange}>
@@ -102,45 +71,43 @@ export function RunControlsPopover() {
         <Button
           aria-expanded={open}
           aria-haspopup="dialog"
-          aria-label={`Next run controls: ${summary}`}
-          className="flex max-w-full items-center gap-1.5 rounded-lg px-2 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-60"
+          className="flex w-full items-center justify-start gap-2 rounded-lg px-3 py-2 text-left text-sm hover:bg-muted disabled:opacity-60"
           disabled={mutation.isPending}
           size={null}
-          title="Permission mode and reasoning effort for the next run"
           type="button"
           variant={null}
         >
-          <SlidersHorizontal aria-hidden="true" size={14} />
-          <span className="truncate">{summary}</span>
+          <Settings aria-hidden="true" size={16} />
+          Settings
         </Button>
       </PopoverTrigger>
       <PopoverContent
-        align="start"
-        aria-label="Next run controls"
-        className="z-30 max-h-[calc(100dvh-1.5rem)] w-72 max-w-[calc(100vw-1.5rem)] overflow-y-auto rounded-xl border border-border bg-card p-4 shadow-xl"
+        align="end"
+        aria-label="Global settings"
+        className="z-50 max-h-[calc(100dvh-1.5rem)] w-72 max-w-[calc(100vw-1.5rem)] overflow-y-auto rounded-xl border border-border bg-card p-4 shadow-xl md:z-30"
         collisionPadding={12}
         onEscapeKeyDown={(event) => {
           if (mutation.isPending) {
             event.preventDefault()
           }
         }}
-        side="top"
+        side={narrowViewport ? 'top' : 'right'}
         sideOffset={8}
       >
-        <h2 className="text-sm font-semibold">Next run</h2>
+        <h2 className="text-sm font-semibold">Settings</h2>
         <p className="mt-1 text-xs text-muted-foreground">
-          Matches /permission and /effort. The current run is unchanged.
+          Global future-run behavior until QMT Agent restarts.
         </p>
 
         {defaultsQuery.isPending ? (
           <p className="mt-4 text-sm text-muted-foreground" role="status">
-            Loading controls…
+            Loading settings…
           </p>
         ) : null}
         {defaultsQuery.isError ? (
           <div className="mt-4 text-sm" role="alert">
             <p className="text-red-700">
-              {errorMessage(defaultsQuery.error, 'Run controls could not be loaded.')}
+              {errorMessage(defaultsQuery.error, 'Settings could not be loaded.')}
             </p>
             <Button
               className="mt-2 underline"
@@ -154,44 +121,19 @@ export function RunControlsPopover() {
           </div>
         ) : null}
 
-        {draft ? (
+        {followUpBehavior ? (
           <form className="mt-4 space-y-3" onSubmit={submit}>
-            <label className="block text-xs font-medium" htmlFor={permissionId}>
-              Permission mode
+            <label className="block text-xs font-medium" htmlFor={followUpId}>
+              Follow-ups
             </label>
             <select
               className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
               disabled={mutation.isPending}
-              id={permissionId}
-              onChange={(event) =>
-                setDraft((current) =>
-                  current ? { ...current, permission_mode: event.target.value as PermissionMode } : current,
-                )
-              }
-              value={draft.permission_mode}
+              id={followUpId}
+              onChange={(event) => setFollowUpBehavior(event.target.value as FollowUpBehavior)}
+              value={followUpBehavior}
             >
-              {PERMISSION_OPTIONS.map((option) => (
-                <option key={option} value={option}>
-                  {titleCase(option)}
-                </option>
-              ))}
-            </select>
-
-            <label className="block text-xs font-medium" htmlFor={reasoningId}>
-              Reasoning effort
-            </label>
-            <select
-              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
-              disabled={mutation.isPending}
-              id={reasoningId}
-              onChange={(event) =>
-                setDraft((current) =>
-                  current ? { ...current, reasoning_effort: event.target.value as ReasoningEffort } : current,
-                )
-              }
-              value={draft.reasoning_effort}
-            >
-              {REASONING_OPTIONS.map((option) => (
+              {FOLLOW_UP_OPTIONS.map((option) => (
                 <option key={option} value={option}>
                   {titleCase(option)}
                 </option>
@@ -200,7 +142,7 @@ export function RunControlsPopover() {
 
             {mutation.error ? (
               <p className="text-xs text-red-700" role="alert">
-                {errorMessage(mutation.error, 'Run controls could not be saved. Try again.')}
+                {errorMessage(mutation.error, 'Settings could not be saved. Try again.')}
               </p>
             ) : null}
 

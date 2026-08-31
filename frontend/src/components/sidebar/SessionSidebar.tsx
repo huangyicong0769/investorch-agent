@@ -15,6 +15,7 @@ import { errorMessage } from '../../lib/errors'
 import { sessionMatches, sessionPath } from '../../lib/session'
 import { cn } from '../../lib/utils'
 import { ProcessesSheet } from '../processes/ProcessesSheet'
+import { GlobalSettingsPopover } from '../settings/GlobalSettingsPopover'
 import { ArchivedSessionsDialog } from './ArchivedSessionsDialog'
 import { SessionItem } from './SessionItem'
 import { Button } from '@/components/ui/button'
@@ -223,6 +224,7 @@ export function SessionSidebar({
           <Archive aria-hidden="true" size={16} />
           Archived
         </Button>
+        <GlobalSettingsPopover />
         <ProcessesSheet />
       </div>
 
