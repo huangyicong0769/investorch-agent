@@ -105,7 +105,7 @@ export function RunSettingsPopover() {
       {open ? (
         <div
           aria-label="Run settings"
-          className="absolute bottom-0 left-full z-30 ml-2 w-72 rounded-xl border border-border bg-card p-4 shadow-xl"
+          className="fixed inset-x-3 bottom-3 z-50 max-h-[calc(100dvh-1.5rem)] overflow-y-auto rounded-xl border border-border bg-card p-4 shadow-xl md:absolute md:inset-x-auto md:bottom-0 md:left-full md:z-30 md:ml-2 md:w-72"
           role="dialog"
         >
           <h2 className="text-sm font-semibold">Run settings</h2>
