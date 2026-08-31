@@ -25,6 +25,13 @@ import type {
 } from '../../api/types'
 import { errorMessage } from '../../lib/errors'
 import { sessionPath, shortSessionId } from '../../lib/session'
+import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 
 interface SessionMenuProps {
   session: SessionRecord
@@ -72,7 +79,7 @@ function lifecycleError(error: unknown): string {
 export function SessionMenu({ session }: SessionMenuProps) {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
-  const menuRef = useRef<HTMLDivElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
   const [menuOpen, setMenuOpen] = useState(false)
   const [renameOpen, setRenameOpen] = useState(false)
   const [title, setTitle] = useState(session.title ?? '')
@@ -230,29 +237,6 @@ export function SessionMenu({ session }: SessionMenuProps) {
   })
 
   useEffect(() => {
-    if (!menuOpen) {
-      return
-    }
-
-    const closeOnOutsideClick = (event: PointerEvent) => {
-      if (event.target instanceof Node && !menuRef.current?.contains(event.target)) {
-        setMenuOpen(false)
-      }
-    }
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        setMenuOpen(false)
-      }
-    }
-    document.addEventListener('pointerdown', closeOnOutsideClick)
-    document.addEventListener('keydown', closeOnEscape)
-    return () => {
-      document.removeEventListener('pointerdown', closeOnOutsideClick)
-      document.removeEventListener('keydown', closeOnEscape)
-    }
-  }, [menuOpen])
-
-  useEffect(() => {
     if (!notice) {
       return
     }
@@ -303,80 +287,92 @@ export function SessionMenu({ session }: SessionMenuProps) {
 
   return (
     <>
-      <div className="relative" ref={menuRef}>
-        <button
-          aria-expanded={menuOpen}
-          aria-haspopup="menu"
-          aria-label="Session actions"
-          className="rounded-lg p-2 text-muted-foreground hover:bg-muted hover:text-foreground"
-          onClick={() => setMenuOpen((open) => !open)}
-          type="button"
-        >
-          <MoreHorizontal aria-hidden="true" size={18} />
-        </button>
-        {menuOpen ? (
-          <div
+      <div className="relative">
+        <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
+          <DropdownMenuTrigger asChild>
+            <button
+              aria-expanded={menuOpen}
+              aria-haspopup="menu"
+              aria-label="Session actions"
+              className="rounded-lg p-2 text-muted-foreground hover:bg-muted hover:text-foreground"
+              ref={triggerRef}
+              type="button"
+            >
+              <MoreHorizontal aria-hidden="true" size={18} />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent
+            align="end"
             aria-label="Session actions"
-            className="absolute right-0 top-10 z-20 min-w-48 rounded-lg border border-border bg-card p-1 shadow-lg"
-            role="menu"
+            collisionPadding={12}
+            onCloseAutoFocus={(event) => {
+              if (renameOpen) {
+                event.preventDefault()
+              }
+            }}
+            sideOffset={6}
+            className="z-20 min-w-48 rounded-lg border border-border bg-card p-1 shadow-lg"
           >
             {archived ? (
-              <button
-                className="w-full rounded-md px-3 py-2 text-left text-sm hover:bg-muted disabled:opacity-60"
+              <DropdownMenuItem
+                className="w-full rounded-md px-3 py-2 text-left text-sm hover:bg-muted data-[disabled]:opacity-60"
                 disabled={lifecycleMutation.isPending}
-                onClick={() => runAction('unarchive')}
-                role="menuitem"
-                type="button"
+                onSelect={(event) => {
+                  event.preventDefault()
+                  runAction('unarchive')
+                }}
               >
                 {pendingAction === 'unarchive' ? 'Unarchiving…' : 'Unarchive'}
-              </button>
+              </DropdownMenuItem>
             ) : (
               <>
-                <button
-                  className="w-full rounded-md px-3 py-2 text-left text-sm hover:bg-muted disabled:opacity-60"
+                <DropdownMenuItem
+                  className="w-full rounded-md px-3 py-2 text-left text-sm hover:bg-muted data-[disabled]:opacity-60"
                   disabled={lifecycleMutation.isPending}
-                  onClick={openRename}
-                  role="menuitem"
-                  type="button"
+                  onSelect={openRename}
                 >
                   Rename
-                </button>
-                <button
-                  className="w-full rounded-md px-3 py-2 text-left text-sm hover:bg-muted disabled:opacity-60"
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  className="w-full rounded-md px-3 py-2 text-left text-sm hover:bg-muted data-[disabled]:opacity-60"
                   disabled={lifecycleMutation.isPending}
-                  onClick={() => runAction('fork')}
-                  role="menuitem"
-                  type="button"
+                  onSelect={(event) => {
+                    event.preventDefault()
+                    runAction('fork')
+                  }}
                 >
                   {pendingAction === 'fork' ? 'Forking…' : 'Fork'}
-                </button>
-                <button
-                  className="w-full rounded-md px-3 py-2 text-left text-sm hover:bg-muted disabled:opacity-60"
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  className="w-full rounded-md px-3 py-2 text-left text-sm hover:bg-muted data-[disabled]:opacity-60"
                   disabled={lifecycleMutation.isPending}
-                  onClick={() => runAction('compact')}
-                  role="menuitem"
-                  type="button"
+                  onSelect={(event) => {
+                    event.preventDefault()
+                    runAction('compact')
+                  }}
                 >
                   {pendingAction === 'compact' ? 'Compacting…' : 'Compact context'}
-                </button>
-                <button
-                  className="w-full rounded-md px-3 py-2 text-left text-sm hover:bg-muted disabled:opacity-60"
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  className="w-full rounded-md px-3 py-2 text-left text-sm hover:bg-muted data-[disabled]:opacity-60"
                   disabled={lifecycleMutation.isPending}
-                  onClick={() => runAction('archive')}
-                  role="menuitem"
-                  type="button"
+                  onSelect={(event) => {
+                    event.preventDefault()
+                    runAction('archive')
+                  }}
                 >
                   {pendingAction === 'archive' ? 'Archiving…' : 'Archive'}
-                </button>
-                <button
-                  className="w-full rounded-md px-3 py-2 text-left text-sm text-red-700 hover:bg-muted disabled:opacity-60"
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  className="w-full rounded-md px-3 py-2 text-left text-sm text-red-700 hover:bg-muted data-[disabled]:opacity-60"
                   disabled={lifecycleMutation.isPending}
-                  onClick={() => runAction('clear')}
-                  role="menuitem"
-                  type="button"
+                  onSelect={(event) => {
+                    event.preventDefault()
+                    runAction('clear')
+                  }}
                 >
                   {pendingAction === 'clear' ? 'Clearing…' : 'Clear session'}
-                </button>
+                </DropdownMenuItem>
               </>
             )}
 
@@ -385,34 +381,47 @@ export function SessionMenu({ session }: SessionMenuProps) {
                 {lifecycleError(lifecycleMutation.error)}
               </p>
             ) : null}
-          </div>
-        ) : null}
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
 
-      {renameOpen ? (
-        <div
+      <Dialog
+        open={renameOpen}
+        onOpenChange={(nextOpen) => {
+          if (!nextOpen) {
+            closeRename()
+            return
+          }
+          setRenameOpen(true)
+        }}
+      >
+        <DialogContent
           aria-labelledby={dialogTitleId}
-          aria-modal="true"
-          className="fixed inset-0 z-40 flex items-center justify-center bg-black/25 p-4"
-          onClick={(event) => {
-            if (event.target === event.currentTarget) {
-              closeRename()
+          onEscapeKeyDown={(event) => {
+            if (renameMutation.isPending) {
+              event.preventDefault()
             }
           }}
-          onKeyDown={(event) => {
-            if (event.key === 'Escape') {
-              closeRename()
+          onCloseAutoFocus={(event) => {
+            event.preventDefault()
+            triggerRef.current?.focus()
+          }}
+          onPointerDownOutside={(event) => {
+            if (renameMutation.isPending) {
+              event.preventDefault()
             }
           }}
-          role="dialog"
+          overlayClassName="bg-black/25"
+          showCloseButton={false}
+          className="w-full max-w-[calc(100%-2rem)] gap-0 border-0 bg-transparent p-0 shadow-none sm:max-w-sm"
         >
           <form
             className="w-full max-w-sm rounded-xl border border-border bg-card p-5 shadow-xl"
             onSubmit={submitRename}
           >
-            <h2 className="text-base font-semibold" id={dialogTitleId}>
+            <DialogTitle className="text-base font-semibold" id={dialogTitleId}>
               Rename session
-            </h2>
+            </DialogTitle>
             <p className="mt-1 text-xs text-muted-foreground">{shortSessionId(session.session_id)}</p>
             <label className="mt-4 block text-sm font-medium" htmlFor={titleInputId}>
               Session title
@@ -449,8 +458,8 @@ export function SessionMenu({ session }: SessionMenuProps) {
               </button>
             </div>
           </form>
-        </div>
-      ) : null}
+        </DialogContent>
+      </Dialog>
 
       {notice ? (
         <div
