@@ -255,7 +255,6 @@ function appendUnmatchedOutput(
 }
 
 function appendApproval(activeTurn: MutableAssistantTurn, record: Extract<JournalRecord, { type: 'approval' }>): void {
-  activeTurn.activity = null
   const group = ensureActivityGroup(activeTurn, record)
   group.items.push({
     type: 'approval',
@@ -272,7 +271,6 @@ function appendApproval(activeTurn: MutableAssistantTurn, record: Extract<Journa
     reviewReason: record.review_reason ?? null,
   })
   refreshActivityTitle(group)
-  activeTurn.activity = null
 }
 
 /**
