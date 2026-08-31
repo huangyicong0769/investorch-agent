@@ -196,6 +196,10 @@ export function ConversationTimeline({
   )
   const records = useMemo(() => [...canonicalRecords, ...liveRecords], [canonicalRecords, liveRecords])
   const timeline = useMemo(() => projectTimeline(records), [records])
+  const visibleTimeline = useMemo(
+    () => (isPending || isError ? timeline.filter((item) => item.type === 'run_timing') : timeline),
+    [isError, isPending, timeline],
+  )
   const pendingCanonical = useMemo(
     () =>
       pendingMessage !== null &&
@@ -417,22 +421,20 @@ export function ConversationTimeline({
             <p className="py-24 text-center text-sm text-muted-foreground">Ask QMT Agent anything.</p>
           ) : null}
 
-          {!isPending && !isError
-            ? timeline.map((item, index) => {
-                const previous = timeline[index - 1]
-                const showDay = !previous || timelineDayKey(previous.timestamp) !== timelineDayKey(item.timestamp)
-                return (
-                  <Fragment key={item.id}>
-                    {showDay ? (
-                      <div className="py-2 text-center text-xs text-muted-foreground">
-                        <time dateTime={item.timestamp}>{formatTimelineDay(item.timestamp)}</time>
-                      </div>
-                    ) : null}
-                    <TimelineItem item={item} />
-                  </Fragment>
-                )
-              })
-            : null}
+          {visibleTimeline.map((item, index) => {
+            const previous = visibleTimeline[index - 1]
+            const showDay = !previous || timelineDayKey(previous.timestamp) !== timelineDayKey(item.timestamp)
+            return (
+              <Fragment key={item.id}>
+                {showDay ? (
+                  <div className="py-2 text-center text-xs text-muted-foreground">
+                    <time dateTime={item.timestamp}>{formatTimelineDay(item.timestamp)}</time>
+                  </div>
+                ) : null}
+                <TimelineItem item={item} />
+              </Fragment>
+            )
+          })}
 
           {!isError && pendingVisible && pendingMessage ? (
             <PendingDirectBubble message={pendingMessage} />

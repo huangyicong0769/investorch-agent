@@ -167,9 +167,9 @@ export interface RunEndedLiveEvent {
   session_id: string
   run_id: string
   status: 'completed' | 'cancelled' | 'failed'
-  started_at: string
-  ended_at: string
-  duration_ms: number
+  started_at?: string
+  ended_at?: string
+  duration_ms?: number
   discarded_steer_count: number
   main_usage: TokenUsage | null
   auxiliary_usage: TokenUsage | null
@@ -259,9 +259,9 @@ export interface RunEndedRecord extends JournalRecordBase {
   type: 'run_ended'
   run_id: string
   status: 'completed' | 'cancelled' | 'failed'
-  started_at: string
-  ended_at: string
-  duration_ms: number
+  started_at?: string
+  ended_at?: string
+  duration_ms?: number
 }
 
 export type JournalOutputRecord = JournalRecordBase & OutputEvent

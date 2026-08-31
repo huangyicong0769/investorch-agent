@@ -37,6 +37,7 @@ import {
   mergeHistoryPages,
   type HistoryInfiniteData,
 } from '../lib/timeline/history'
+import { isCompleteRunEndedRecord } from '../lib/timeline/project'
 import {
   createWebSocketConnection,
   type WebSocketConnectionStatus,
@@ -81,6 +82,9 @@ type ParsedRunEndedEvent = {
   session_id: string
   run_id: string
   status: 'completed' | 'cancelled' | 'failed'
+  started_at: string | null
+  ended_at: string | null
+  duration_ms: number | null
   auto_compaction_changed: boolean | null
   auto_compaction_failed: boolean | null
   auto_compaction_consistency_uncertain: boolean | null
@@ -116,6 +120,26 @@ function nullablePositiveIntegerField(value: Record<string, unknown>, key: strin
     return null
   }
   return positiveIntegerField(value, key)
+}
+
+const ISO_TIMESTAMP_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/
+
+function isoTimestampField(value: Record<string, unknown>, key: string): string | null | undefined {
+  if (!(key in value)) {
+    return undefined
+  }
+  const candidate = value[key]
+  return typeof candidate === 'string' && ISO_TIMESTAMP_PATTERN.test(candidate) && Number.isFinite(Date.parse(candidate))
+    ? candidate
+    : null
+}
+
+function nonNegativeNumberField(value: Record<string, unknown>, key: string): number | null | undefined {
+  if (!(key in value)) {
+    return undefined
+  }
+  const candidate = value[key]
+  return typeof candidate === 'number' && Number.isFinite(candidate) && candidate >= 0 ? candidate : null
 }
 
 function outputEvent(value: unknown): OutputEvent | null {
@@ -279,25 +303,36 @@ function parseLiveEvent(value: unknown): ParsedLiveEvent | null {
       const runId = stringField(value, 'run_id')
       const status = value.status
       const autoCompaction = value.auto_compaction
+      const startedAt = isoTimestampField(value, 'started_at')
+      const endedAt = isoTimestampField(value, 'ended_at')
+      const durationMs = nonNegativeNumberField(value, 'duration_ms')
+      const timingPresent = startedAt !== undefined || endedAt !== undefined || durationMs !== undefined
+      const timing =
+        startedAt !== undefined && startedAt !== null && endedAt !== undefined && endedAt !== null && durationMs !== undefined && durationMs !== null
+          ? { started_at: startedAt, ended_at: endedAt, duration_ms: durationMs }
+          : null
       const autoCompactionFailed = value.auto_compaction_failed
       const autoCompactionConsistencyUncertain = value.auto_compaction_consistency_uncertain
       let autoCompactionChanged: boolean | null = null
-      if (autoCompaction !== null) {
+      if (autoCompaction !== null && autoCompaction !== undefined) {
         if (!isRecord(autoCompaction) || typeof autoCompaction.changed !== 'boolean') {
           return null
         }
         autoCompactionChanged = autoCompaction.changed
       }
-      return sessionId === null || runId === null || (status !== 'completed' && status !== 'cancelled' && status !== 'failed') || (autoCompactionFailed !== null && typeof autoCompactionFailed !== 'boolean') || (autoCompactionConsistencyUncertain !== null && typeof autoCompactionConsistencyUncertain !== 'boolean')
+      return sessionId === null || runId === null || (status !== 'completed' && status !== 'cancelled' && status !== 'failed') || (timingPresent && timing === null) || (autoCompactionFailed !== null && autoCompactionFailed !== undefined && typeof autoCompactionFailed !== 'boolean') || (autoCompactionConsistencyUncertain !== null && autoCompactionConsistencyUncertain !== undefined && typeof autoCompactionConsistencyUncertain !== 'boolean')
         ? null
         : {
             kind: 'run_ended',
             session_id: sessionId,
             run_id: runId,
             status,
+            started_at: timing?.started_at ?? null,
+            ended_at: timing?.ended_at ?? null,
+            duration_ms: timing?.duration_ms ?? null,
             auto_compaction_changed: autoCompactionChanged,
-            auto_compaction_failed: autoCompactionFailed,
-            auto_compaction_consistency_uncertain: autoCompactionConsistencyUncertain,
+            auto_compaction_failed: autoCompactionFailed ?? null,
+            auto_compaction_consistency_uncertain: autoCompactionConsistencyUncertain ?? null,
           }
     }
     case 'approval_required': {
@@ -359,7 +394,23 @@ function receivedAt(): string {
   return new Date().toISOString()
 }
 
-function overlayRecord(event: ParsedLiveEvent): JournalRecord | null {
+function overlayRecord(event: ParsedLiveEvent, runEndedSequence: number | null = null): JournalRecord | null {
+  if (event.kind === 'run_ended') {
+    if (runEndedSequence === null || event.started_at === null || event.ended_at === null || event.duration_ms === null) {
+      return null
+    }
+    return {
+      seq: runEndedSequence,
+      timestamp: event.ended_at,
+      type: 'run_ended',
+      run_id: event.run_id,
+      status: event.status,
+      started_at: event.started_at,
+      ended_at: event.ended_at,
+      duration_ms: event.duration_ms,
+    }
+  }
+
   const timestamp = receivedAt()
 
   if (event.kind === 'output' && event.journal_seq !== null) {
@@ -439,6 +490,22 @@ function latestCanonicalSequence(queryClient: ReturnType<typeof useQueryClient>,
   return historyNewestSeq(queryClient.getQueryData<HistoryInfiniteData>(queryKeys.sessionHistoryPages(sessionId)))
 }
 
+function canonicalRunEndedIds(
+  queryClient: ReturnType<typeof useQueryClient>,
+  sessionId: string,
+): Set<string> {
+  const data = queryClient.getQueryData<HistoryInfiniteData>(queryKeys.sessionHistoryPages(sessionId))
+  const runIds = new Set<string>()
+  for (const page of data?.pages ?? []) {
+    for (const record of page.records) {
+      if (isCompleteRunEndedRecord(record)) {
+        runIds.add(record.run_id)
+      }
+    }
+  }
+  return runIds
+}
+
 export function LiveWebSocketProvider({ children }: PropsWithChildren) {
   const queryClient = useQueryClient()
   const selectedMatch = useMatch('/c/:sessionId')
@@ -507,6 +574,41 @@ export function LiveWebSocketProvider({ children }: PropsWithChildren) {
     void queryClient.invalidateQueries({ queryKey: queryKeys.bootstrap() })
   }
 
+  const nextLiveRunEndedSequence = (sessionId: string, runId: string): number | null => {
+    if (canonicalRunEndedIds(queryClient, sessionId).has(runId)) {
+      return null
+    }
+
+    for (const record of overlayRef.current.values()) {
+      if (isCompleteRunEndedRecord(record) && record.run_id === runId) {
+        return record.seq
+      }
+    }
+
+    let newestSequence = latestCanonicalSequence(queryClient, sessionId) ?? 0
+    for (const record of overlayRef.current.values()) {
+      newestSequence = Math.max(newestSequence, record.seq)
+    }
+    return newestSequence + 1
+  }
+
+  const removeCanonicalRunEndedOverlay = (sessionId: string) => {
+    const runIds = canonicalRunEndedIds(queryClient, sessionId)
+    if (runIds.size === 0) {
+      return
+    }
+
+    const next = new Map(overlayRef.current)
+    for (const [sequence, record] of next) {
+      if (isCompleteRunEndedRecord(record) && runIds.has(record.run_id)) {
+        next.delete(sequence)
+      }
+    }
+    if (next.size !== overlayRef.current.size) {
+      replaceOverlay(next)
+    }
+  }
+
   const requestSelectedResync = (sessionId: string) => {
     if (selectedSessionRef.current !== sessionId) {
       return
@@ -568,7 +670,8 @@ export function LiveWebSocketProvider({ children }: PropsWithChildren) {
       }
     }
 
-    const record = overlayRecord(event)
+    const runEndedSequence = event.kind === 'run_ended' ? nextLiveRunEndedSequence(event.session_id, event.run_id) : null
+    const record = overlayRecord(event, runEndedSequence)
     if (record !== null && event.session_id === selectedSessionRef.current) {
       const resetOverlay = liveSessionRef.current !== event.session_id
       if (liveSessionRef.current !== event.session_id) {
@@ -653,11 +756,14 @@ export function LiveWebSocketProvider({ children }: PropsWithChildren) {
       }
     }
 
+    const canonicalRunIds = canonicalRunEndedIds(queryClient, sessionId)
+    removeCanonicalRunEndedOverlay(sessionId)
     const newestSeq = latest?.newest_seq ?? latestCanonicalSequence(queryClient, sessionId)
     if (newestSeq !== null) {
       const next = new Map(overlayRef.current)
-      for (const sequence of next.keys()) {
-        if (sequence <= newestSeq) {
+      for (const [sequence, record] of next) {
+        const isUnreconciledRunEnded = isCompleteRunEndedRecord(record) && !canonicalRunIds.has(record.run_id)
+        if (sequence <= newestSeq && !isUnreconciledRunEnded) {
           next.delete(sequence)
         }
       }

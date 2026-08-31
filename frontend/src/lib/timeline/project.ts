@@ -117,6 +117,25 @@ export interface TimelineRunTimingViewModel {
   durationMs: number
 }
 
+export type CompleteRunEndedRecord = Extract<JournalRecord, { type: 'run_ended' }> & {
+  started_at: string
+  ended_at: string
+  duration_ms: number
+}
+
+export function isCompleteRunEndedRecord(record: JournalRecord): record is CompleteRunEndedRecord {
+  return (
+    record.type === 'run_ended' &&
+    typeof record.started_at === 'string' &&
+    Number.isFinite(Date.parse(record.started_at)) &&
+    typeof record.ended_at === 'string' &&
+    Number.isFinite(Date.parse(record.ended_at)) &&
+    typeof record.duration_ms === 'number' &&
+    Number.isFinite(record.duration_ms) &&
+    record.duration_ms >= 0
+  )
+}
+
 export type TimelineViewModel =
   | TimelineUserMessageViewModel
   | TimelineSteerViewModel
@@ -131,9 +150,20 @@ interface MutableAssistantTurn {
 
 function canonicalRecords(records: readonly JournalRecord[]): JournalRecord[] {
   const bySequence = new Map<number, JournalRecord>()
+  const runEndedById = new Map<string, Extract<JournalRecord, { type: 'run_ended' }>>()
 
   for (const record of records) {
     if (Number.isInteger(record.seq) && record.seq > 0) {
+      if (record.type === 'run_ended') {
+        const previous = runEndedById.get(record.run_id)
+        if (previous) {
+          if (isCompleteRunEndedRecord(previous) || !isCompleteRunEndedRecord(record)) {
+            continue
+          }
+          bySequence.delete(previous.seq)
+        }
+        runEndedById.set(record.run_id, record)
+      }
       bySequence.set(record.seq, record)
     }
   }
@@ -349,6 +379,9 @@ export function projectTimeline(records: readonly JournalRecord[]): TimelineView
     }
 
     if (record.type === 'run_ended') {
+      if (!isCompleteRunEndedRecord(record)) {
+        continue
+      }
       finishAssistantTurn()
       pendingTools.length = 0
       timeline.push({
