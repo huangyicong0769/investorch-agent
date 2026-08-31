@@ -141,7 +141,9 @@ export function ConversationTimeline({
       ),
     [canonicalRecords, pendingMessage],
   )
-  const pendingVisible = pendingMessage !== null && !pendingCanonical
+  const pendingResynced =
+    pendingMessage !== null && liveSession.resyncedRunId === pendingMessage.runId
+  const pendingVisible = pendingMessage !== null && !pendingCanonical && !pendingResynced
   const activityKey = useMemo(
     () =>
       `${records.reduce<number | null>(
@@ -152,10 +154,10 @@ export function ConversationTimeline({
   )
 
   useEffect(() => {
-    if (pendingCanonical) {
+    if (pendingCanonical || pendingResynced) {
       onPendingMessageCanonical?.()
     }
-  }, [onPendingMessageCanonical, pendingCanonical])
+  }, [onPendingMessageCanonical, pendingCanonical, pendingResynced])
 
   useLayoutEffect(() => {
     if (sessionRef.current === sessionId) {

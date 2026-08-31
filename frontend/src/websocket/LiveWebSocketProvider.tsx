@@ -53,6 +53,7 @@ export interface LiveNotice {
 interface LiveSessionValue {
   records: JournalRecord[]
   notices: LiveNotice[]
+  resyncedRunId: string | null
 }
 
 interface LiveWebSocketContextValue {
@@ -60,6 +61,7 @@ interface LiveWebSocketContextValue {
   status: WebSocketConnectionStatus
   records: JournalRecord[]
   notices: LiveNotice[]
+  resyncedRunId: string | null
 }
 
 const EMPTY_RECORDS: JournalRecord[] = []
@@ -71,6 +73,7 @@ const LiveWebSocketContext = createContext<LiveWebSocketContextValue>({
   status: 'disconnected',
   records: EMPTY_RECORDS,
   notices: EMPTY_NOTICES,
+  resyncedRunId: null,
 })
 
 type ParsedRunEndedEvent = {
@@ -446,6 +449,7 @@ export function LiveWebSocketProvider({ children }: PropsWithChildren) {
   const [status, setStatus] = useState<WebSocketConnectionStatus>('reconnecting')
   const [overlayState, setOverlayState] = useState<Map<number, JournalRecord>>(() => new Map())
   const [noticeState, setNoticeState] = useState<LiveNotice[]>([])
+  const [resyncedRun, setResyncedRun] = useState<{ sessionId: string; runId: string } | null>(null)
   const overlayRef = useRef(overlayState)
   const liveSessionRef = useRef<string | null>(selectedSessionId)
   const mountedRef = useRef(false)
@@ -456,6 +460,7 @@ export function LiveWebSocketProvider({ children }: PropsWithChildren) {
   const bufferedEventsRef = useRef<ParsedLiveEvent[]>([])
   const drainingRef = useRef(false)
   const deferredResyncRef = useRef<string | null>(null)
+  const endedRunBySessionRef = useRef<Map<string, string>>(new Map())
   const processEventRef = useRef<(event: ParsedLiveEvent) => void>(() => undefined)
   const startResyncRef = useRef<(sessionId: string) => void>(() => undefined)
 
@@ -468,6 +473,7 @@ export function LiveWebSocketProvider({ children }: PropsWithChildren) {
     liveSessionRef.current = sessionId
     replaceOverlay(new Map())
     setNoticeState([])
+    setResyncedRun(null)
   }
 
   const addNotice = (sessionId: string, key: string, text: string) => {
@@ -531,6 +537,7 @@ export function LiveWebSocketProvider({ children }: PropsWithChildren) {
         current?.initial_session_id === event.session_id ? { ...current, runtime: event } : current,
       )
     } else if (event.kind === 'run_ended') {
+      endedRunBySessionRef.current.set(event.session_id, event.run_id)
       invalidateSessionQueries(event.session_id)
       if (event.status === 'cancelled') {
         addNotice(event.session_id, `${event.run_id}:cancelled`, 'Run stopped.')
@@ -589,7 +596,6 @@ export function LiveWebSocketProvider({ children }: PropsWithChildren) {
     bufferedEventsRef.current = pendingEvents
 
     const historyKey = queryKeys.sessionHistoryPages(sessionId)
-    const currentHistory = queryClient.getQueryData<HistoryInfiniteData>(historyKey)
     const requests = await Promise.allSettled([
       getBootstrap({ signal: controller.signal }),
       getSessions({ signal: controller.signal }),
@@ -618,10 +624,13 @@ export function LiveWebSocketProvider({ children }: PropsWithChildren) {
       queryClient.setQueryData(queryKeys.session(sessionId), { session: state.session })
     }
     if (latest) {
-      if (currentHistory) {
-        queryClient.setQueryData<HistoryInfiniteData>(historyKey, (current) =>
-          current ? mergeHistoryPages(current, latest, HISTORY_PAGE_SIZE) : current,
-        )
+      queryClient.setQueryData<HistoryInfiniteData>(historyKey, (current) =>
+        mergeHistoryPages(current, latest, HISTORY_PAGE_SIZE),
+      )
+      const endedRunId = endedRunBySessionRef.current.get(sessionId)
+      if (endedRunId) {
+        endedRunBySessionRef.current.delete(sessionId)
+        setResyncedRun({ sessionId, runId: endedRunId })
       }
     }
 
@@ -712,6 +721,7 @@ export function LiveWebSocketProvider({ children }: PropsWithChildren) {
       resyncAbortRef.current = null
       resyncSessionRef.current = null
       bufferedEventsRef.current = []
+      endedRunBySessionRef.current.clear()
       connection.close()
     }
   }, [])
@@ -721,9 +731,10 @@ export function LiveWebSocketProvider({ children }: PropsWithChildren) {
     [overlayState, selectedSessionId],
   )
   const notices = liveSessionRef.current === selectedSessionId ? noticeState : EMPTY_NOTICES
+  const resyncedRunId = resyncedRun?.sessionId === selectedSessionId ? resyncedRun.runId : null
   const value = useMemo<LiveWebSocketContextValue>(
-    () => ({ selectedSessionId, status, records, notices }),
-    [notices, records, selectedSessionId, status],
+    () => ({ selectedSessionId, status, records, notices, resyncedRunId }),
+    [notices, records, resyncedRunId, selectedSessionId, status],
   )
 
   return <LiveWebSocketContext.Provider value={value}>{children}</LiveWebSocketContext.Provider>
@@ -738,8 +749,8 @@ export function useLiveSession(sessionId: string): LiveSessionValue {
   return useMemo(
     () =>
       context.selectedSessionId === sessionId
-        ? { records: context.records, notices: context.notices }
-        : { records: EMPTY_RECORDS, notices: EMPTY_NOTICES },
-    [context.notices, context.records, context.selectedSessionId, sessionId],
+        ? { records: context.records, notices: context.notices, resyncedRunId: context.resyncedRunId }
+        : { records: EMPTY_RECORDS, notices: EMPTY_NOTICES, resyncedRunId: null },
+    [context.notices, context.records, context.resyncedRunId, context.selectedSessionId, sessionId],
   )
 }
