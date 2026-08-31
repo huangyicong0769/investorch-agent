@@ -329,7 +329,6 @@ export function projectTimeline(records: readonly JournalRecord[]): TimelineView
 
     if (record.type === 'user_steer') {
       finishAssistantTurn()
-      pendingTools.length = 0
       timeline.push({
         type: 'steer',
         id: `steer-${record.seq}`,
