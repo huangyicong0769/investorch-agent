@@ -515,6 +515,9 @@ export function LiveWebSocketProvider({ children }: PropsWithChildren) {
       deferredResyncRef.current = sessionId
       return
     }
+    if (resyncSessionRef.current === sessionId) {
+      return
+    }
     startResyncRef.current(sessionId)
   }
 
@@ -596,6 +599,12 @@ export function LiveWebSocketProvider({ children }: PropsWithChildren) {
     bufferedEventsRef.current = pendingEvents
 
     const historyKey = queryKeys.sessionHistoryPages(sessionId)
+    await queryClient.cancelQueries({ exact: true, queryKey: historyKey })
+
+    if (!mountedRef.current || token !== resyncTokenRef.current || selectedSessionRef.current !== sessionId) {
+      return
+    }
+
     const requests = await Promise.allSettled([
       getBootstrap({ signal: controller.signal }),
       getSessions({ signal: controller.signal }),
@@ -631,6 +640,16 @@ export function LiveWebSocketProvider({ children }: PropsWithChildren) {
       if (endedRunId) {
         endedRunBySessionRef.current.delete(sessionId)
         setResyncedRun({ sessionId, runId: endedRunId })
+      }
+    } else {
+      await queryClient.invalidateQueries({
+        exact: true,
+        queryKey: historyKey,
+        refetchType: 'active',
+      })
+
+      if (!mountedRef.current || token !== resyncTokenRef.current || selectedSessionRef.current !== sessionId) {
+        return
       }
     }
 
