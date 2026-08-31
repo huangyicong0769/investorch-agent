@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 import uuid
+from collections.abc import Awaitable, Callable
 
 from agents import SQLiteSession
 
@@ -14,6 +16,7 @@ from qmt_agent.storage import (
     archive_session,
     create_session,
     delete_session_metadata,
+    delete_session_transaction,
     delete_unused_session,
     fork_session,
     is_session_archived,
@@ -25,6 +28,36 @@ from qmt_agent.storage import (
 from .presentation_state import SessionPresentationStore
 
 logger = logging.getLogger(__name__)
+
+
+async def _await_delete_transaction(
+    awaitable: Awaitable[None],
+    *,
+    on_cancel: Callable[[], None],
+) -> tuple[bool, BaseException | None]:
+    task = asyncio.ensure_future(awaitable)
+    cancellation: asyncio.CancelledError | None = None
+    worker_error: BaseException | None = None
+    while not task.done():
+        try:
+            await asyncio.shield(task)
+        except asyncio.CancelledError as error:
+            if cancellation is None:
+                on_cancel()
+                cancellation = error
+        except BaseException as error:
+            worker_error = error
+            break
+    try:
+        task.result()
+    except BaseException as error:
+        return False, cancellation or worker_error or error
+    return True, cancellation
+
+
+def _cancel_delete_transaction(cancel_event: threading.Event, commit_lock: threading.Lock) -> None:
+    with commit_lock:
+        cancel_event.set()
 
 
 class SessionArchivedError(RuntimeError):
@@ -143,14 +176,38 @@ class SessionOperations:
             if await asyncio.to_thread(session_has_children, self._config.sessions_db, session_id):
                 raise SessionHasChildrenError
             await self._journal.prepare_session_delete(session_id)
-            session = SQLiteSession(session_id, self._config.sessions_db)
+            committed = False
+            cancel_event = threading.Event()
+            commit_lock = threading.Lock()
             try:
-                await session.clear_session()
-            finally:
-                session.close()
-            await asyncio.to_thread(delete_session_metadata, self._config.sessions_db, session_id)
-            await self._journal.delete_session(session_id)
-            self._presentation_state.delete(session_id)
+                committed, error = await _await_delete_transaction(
+                    asyncio.to_thread(
+                        delete_session_transaction,
+                        self._config.sessions_db,
+                        session_id,
+                        cancel_event=cancel_event,
+                        commit_lock=commit_lock,
+                    ),
+                    on_cancel=lambda: _cancel_delete_transaction(cancel_event, commit_lock),
+                )
+                if not committed:
+                    assert error is not None
+                    raise error
+            except BaseException:
+                if not committed:
+                    try:
+                        await self._journal.cancel_session_delete(session_id)
+                    except BaseException:
+                        logger.exception("Failed to release session delete fence %s", session_id)
+                raise
+            try:
+                await self._journal.delete_session(session_id)
+            except BaseException:
+                logger.exception("Session delete committed but journal cleanup failed session=%s", session_id)
+            try:
+                self._presentation_state.delete(session_id)
+            except BaseException:
+                logger.exception("Session delete committed but presentation cleanup failed session=%s", session_id)
         logger.info("Deleted session %s", session_id)
 
     async def compact(self, session_id: str) -> CompactionResult:

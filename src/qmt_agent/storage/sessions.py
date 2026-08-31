@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 import sqlite3
+import threading
 from contextlib import closing
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -55,6 +58,36 @@ def delete_unused_session(db_path: str | Path, session_id: str) -> bool:
         )
         connection.commit()
     return cursor.rowcount == 1
+
+
+def delete_session_transaction(
+    db_path: str | Path,
+    session_id: str,
+    *,
+    cancel_event: threading.Event | None = None,
+    commit_lock: threading.Lock | None = None,
+) -> None:
+    def check_cancelled() -> None:
+        if cancel_event is not None and cancel_event.is_set():
+            raise RuntimeError("Session deletion cancelled before commit")
+
+    with closing(sqlite3.connect(db_path)) as connection:
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            check_cancelled()
+            connection.execute("DELETE FROM agent_messages WHERE session_id = ?", (session_id,))
+            connection.execute("DELETE FROM agent_sessions WHERE session_id = ?", (session_id,))
+            connection.execute("DELETE FROM extra_session_metadata WHERE session_id = ?", (session_id,))
+            connection.execute("DELETE FROM session_lineage WHERE session_id = ?", (session_id,))
+            if commit_lock is None:
+                connection.commit()
+            else:
+                with commit_lock:
+                    check_cancelled()
+                    connection.commit()
+        except BaseException:
+            connection.rollback()
+            raise
 
 
 def init_session_metadata(db_path: str | Path) -> None:

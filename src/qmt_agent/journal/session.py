@@ -160,6 +160,10 @@ class SessionJournal:
             self._deleted_sessions.add(session_id)
             self._next_seq.pop(session_id, None)
 
+    async def cancel_session_delete(self, session_id: str) -> None:
+        async with self._lock:
+            self._deleted_sessions.discard(session_id)
+
     async def delete_session(self, session_id: str) -> None:
         async with self._lock:
             path = self._session_path(session_id)
