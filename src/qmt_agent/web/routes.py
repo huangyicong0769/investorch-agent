@@ -293,8 +293,11 @@ async def compact_session(session: Session, host: Host) -> dict[str, object]:
 
 
 @router.post("/sessions/{session_id}/discard-unused")
-async def discard_unused_session(session: Session, host: Host) -> dict[str, bool]:
-    return {"discarded": await host.sessions.discard_if_unused(session.session_id)}
+async def discard_unused_session(session_id: str, host: Host) -> dict[str, bool]:
+    async with host.session_lifecycle_lock:
+        if session_id == host.initial_session_id:
+            return {"discarded": False}
+        return {"discarded": await host.sessions.discard_if_unused(session_id)}
 
 
 @router.delete("/sessions/{session_id}/queue/{queue_id}")
