@@ -18,8 +18,10 @@ function AppShell() {
   const sessionMatch = useMatch('/c/:sessionId')
   const selectedSessionId = sessionMatch?.params.sessionId ?? null
   const previousSessionIdRef = useRef<string | null>(null)
+  const selectedSessionIdRef = useRef(selectedSessionId)
   const sidebarButtonRef = useRef<HTMLButtonElement>(null)
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
+  selectedSessionIdRef.current = selectedSessionId
 
   const hideMobileSidebar = useCallback(() => setMobileSidebarOpen(false), [])
 
@@ -52,9 +54,12 @@ function AppShell() {
       return
     }
 
-    void discardUnusedSession(previousSessionId)
+    const controller = new AbortController()
+    let cancelled = false
+
+    void discardUnusedSession(previousSessionId, { signal: controller.signal })
       .then((response) => {
-        if (!response.discarded) {
+        if (cancelled || selectedSessionIdRef.current === previousSessionId || !response.discarded) {
           return
         }
         queryClient.setQueryData<SessionListResponse>(queryKeys.sessions(), (current) =>
@@ -73,6 +78,11 @@ function AppShell() {
         void queryClient.invalidateQueries({ queryKey: queryKeys.sessions() })
       })
       .catch(() => undefined)
+
+    return () => {
+      cancelled = true
+      controller.abort()
+    }
   }, [queryClient, selectedSessionId])
 
   return (
