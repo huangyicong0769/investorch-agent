@@ -193,7 +193,7 @@ uv run --locked pytest
 uv build --no-sources
 ```
 
-## Open-source foundations
+## Third-party foundations
 
 InvestOrch Agent is built on these projects:
 
@@ -203,6 +203,8 @@ InvestOrch Agent is built on these projects:
 - [FastAPI](https://github.com/fastapi/fastapi), [React](https://github.com/facebook/react), and [Vite](https://github.com/vitejs/vite) for the Web client.
 - [Textual](https://github.com/Textualize/textual) for the TUI.
 - [uv](https://github.com/astral-sh/uv) for Python environment, lockfile, and package workflows.
+
+InvestOrch Agent's own code and documentation are licensed under [Apache-2.0](LICENSE). Third-party components retain their own licenses. In particular, RQAlpha's repository license limits its defined non-commercial and commercial uses; InvestOrch Agent's license does not override those terms. See [Third-party notices](THIRD_PARTY_NOTICES.md) for details and the bundled Web client license inventory.
 
 ## Human-AI development collaboration
 
