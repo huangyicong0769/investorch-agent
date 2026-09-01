@@ -4,6 +4,7 @@ import asyncio
 from dataclasses import dataclass, field
 
 from qmt_agent.agents import AgentRunResult, CompactionResult, TokenUsage
+from qmt_agent.output import AssistantMessage
 
 
 @dataclass(slots=True)
@@ -32,6 +33,8 @@ class ControlledAgentLoop:
             self._runs.append(run)
             self._condition.notify_all()
 
+        output_handler = kwargs["output_handler"]
+        await output_handler(AssistantMessage(text=f"started: {user_input}"))
         await run.release.wait()
         if user_input in self._failing_inputs:
             raise RuntimeError("controlled Agent failure")
@@ -54,9 +57,6 @@ class ControlledAgentLoop:
         if not runs:
             raise AssertionError(f"No controlled run has started for {session_id}")
         runs[occurrence].release.set()
-
-    def started_inputs(self, session_id: str) -> list[str]:
-        return [run.user_input for run in self._matching_runs(session_id)]
 
     def _matching_runs(self, session_id: str) -> list[_ControlledRun]:
         return [run for run in self._runs if run.session_id == session_id]

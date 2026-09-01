@@ -96,6 +96,7 @@ async def test_queue_item_captures_follow_up_default_at_submission(tmp_path: Pat
 async def test_failed_queue_promotion_keeps_head_and_pauses_queue(tmp_path: Path) -> None:
     harness = make_runtime_harness(tmp_path)
     sink = FailingTextUserMessageSink(harness.journal, "Q1")
+    journal_dir = harness.config.session_journal_dir
     await harness.runtime.aclose()
     harness = make_runtime_harness(tmp_path / "runtime", record_user_message=sink.record)
     harness.runtime.start_run("session-a", "current", run_options("queue"))
@@ -110,7 +111,8 @@ async def test_failed_queue_promotion_keeps_head_and_pauses_queue(tmp_path: Path
     )
     assert snapshot.queued_count == 1
     assert [item.text for item in harness.runtime.list_queued_inputs("session-a")] == ["Q1"]
-    assert harness.agent_loop.started_inputs("session-a") == ["current"]
+    assert [record["text"] for record in read_session_journal(journal_dir, "session-a")] == ["current"]
+    assert [event for event in harness.follow_ups if event.kind == "queue_promoted"] == []
     await harness.runtime.aclose()
 
 
@@ -132,7 +134,8 @@ async def test_stop_preserves_and_pauses_queued_intent(tmp_path: Path) -> None:
     assert snapshot.queue_paused is True
     assert snapshot.queued_count == 2
     assert [item.text for item in harness.runtime.list_queued_inputs("session-a")] == ["Q1", "Q2"]
-    assert harness.agent_loop.started_inputs("session-a") == ["current"]
+    assert [record["text"] for record in read_session_journal(harness.config.session_journal_dir, "session-a")] == ["current"]
+    assert [event for event in harness.follow_ups if event.kind == "queue_promoted"] == []
     await harness.runtime.aclose()
 
 
@@ -151,7 +154,7 @@ async def test_resume_promotes_the_paused_queue_head(tmp_path: Path) -> None:
     await harness.runtime.resume_queue("session-a")
     await harness.agent_loop.wait_until_started("session-a", occurrence=2)
 
-    assert harness.agent_loop.started_inputs("session-a") == ["current", "Q1"]
+    assert [record["text"] for record in read_session_journal(harness.config.session_journal_dir, "session-a")] == ["current", "Q1"]
     assert [item.text for item in harness.runtime.list_queued_inputs("session-a")] == ["Q2"]
     harness.runtime.clear_queue("session-a")
     harness.agent_loop.complete("session-a")

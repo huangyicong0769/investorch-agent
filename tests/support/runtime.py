@@ -35,6 +35,7 @@ class RuntimeHarness:
     agent_loop: ControlledAgentLoop
     execution: ExecutionState
     runtime: AgentRuntime
+    outputs: list[RuntimeOutput] = field(default_factory=list)
     run_ended: list[RuntimeRunEnded] = field(default_factory=list)
     follow_ups: list[RuntimeFollowUpEvent] = field(default_factory=list)
     _condition: asyncio.Condition = field(default_factory=asyncio.Condition)
@@ -45,6 +46,12 @@ class RuntimeHarness:
             async with self._condition:
                 await self._condition.wait_for(lambda: len(self._ended_for(session_id)) >= occurrence)
                 return self._ended_for(session_id)[occurrence - 1]
+
+    async def wait_for_output(self, session_id: str, occurrence: int = 1) -> RuntimeOutput:
+        async with asyncio.timeout(2):
+            async with self._condition:
+                await self._condition.wait_for(lambda: len(self._outputs_for(session_id)) >= occurrence)
+                return self._outputs_for(session_id)[occurrence - 1]
 
     async def wait_for_follow_up(self, kind: str, occurrence: int = 1) -> RuntimeFollowUpEvent:
         async with asyncio.timeout(2):
@@ -70,6 +77,9 @@ class RuntimeHarness:
 
     def _ended_for(self, session_id: str) -> list[RuntimeRunEnded]:
         return [event for event in self.run_ended if event.session_id == session_id]
+
+    def _outputs_for(self, session_id: str) -> list[RuntimeOutput]:
+        return [output for output in self.outputs if output.session_id == session_id]
 
     def _follow_ups_of_kind(self, kind: str) -> list[RuntimeFollowUpEvent]:
         return [event for event in self.follow_ups if event.kind == kind]
@@ -141,8 +151,10 @@ def make_runtime_harness(
     agent_loop = ControlledAgentLoop()
     harness: RuntimeHarness
 
-    async def handle_output(_output: RuntimeOutput) -> None:
-        return None
+    async def handle_output(output: RuntimeOutput) -> None:
+        async with harness._condition:
+            harness.outputs.append(output)
+            harness._condition.notify_all()
 
     async def handle_approval(_request: ApprovalRequest) -> ApprovalOutcome:
         return ApprovalOutcome(approved=True, usage=TokenUsage())

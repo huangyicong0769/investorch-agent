@@ -100,12 +100,13 @@ async def test_agent_execution_waits_for_initial_user_message_durability(tmp_pat
     harness.runtime.start_run("session-a", "durable first", run_options())
     await sink.wait_until_write_started()
 
-    assert harness.agent_loop.started_inputs("session-a") == []
+    assert harness.outputs == []
     assert harness.runtime.session_snapshot("session-a").run_id is not None
 
     sink.release()
-    await harness.agent_loop.wait_until_started("session-a")
+    output = await harness.wait_for_output("session-a")
     records = read_session_journal(journal_config.session_journal_dir, "session-a")
+    assert output.session_id == "session-a"
     assert [record["text"] for record in records] == ["durable first"]
 
     harness.agent_loop.complete("session-a")
@@ -129,7 +130,7 @@ async def test_initial_journal_failure_prevents_agent_execution(tmp_path: Path) 
     ended = await harness.wait_for_run_ended("session-a")
     assert ended.status == "failed"
     assert harness.runtime.session_snapshot("session-a").run_id is None
-    assert harness.agent_loop.started_inputs("session-a") == []
+    assert harness.outputs == []
     await harness.runtime.aclose()
 
 
