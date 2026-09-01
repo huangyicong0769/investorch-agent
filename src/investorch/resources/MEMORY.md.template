@@ -1,0 +1,20 @@
+# InvestOrch Agent Memory
+
+This file is the entry point for durable cross-session memory.
+
+## System
+
+- [Configuration system](memory/configuration.md)
+
+## Quant
+
+- [RQAlpha strategy-writing guide](memory/rqalpha.md) — use only when writing, reviewing, debugging, or running an RQAlpha strategy.
+
+## Memory
+
+- Keep this file concise and use it primarily as an index.
+- Classify new durable knowledge by topic before writing it. Update the matching topic file, or create one focused file under the appropriate category and index it here.
+- Do not place unrelated project, configuration, data-source, or general quantitative knowledge in `memory/rqalpha.md`; that file only guides compliant RQAlpha strategy work.
+- Read only the memory relevant to the current task.
+- Never store secrets or credentials in memory.
+- Runtime state, raw tool output, todo state, and full session transcripts are not long-term memory.

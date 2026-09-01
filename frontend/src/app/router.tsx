@@ -134,7 +134,7 @@ function NotFoundRoute() {
       <div className="text-center">
         <h1 className="text-lg font-semibold">Page not found</h1>
         <Link className="mt-4 inline-block text-sm underline" to="/">
-          Open QMT Agent
+          Open InvestOrch Agent
         </Link>
       </div>
     </div>

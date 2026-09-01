@@ -140,7 +140,7 @@ export function ApprovalCard({ approvals, sessionId }: ApprovalCardProps) {
       </div>
 
       <p className="mt-2 text-sm">
-        QMT Agent wants to run <span className="font-medium">{approval.tool_name}</span>
+        InvestOrch Agent wants to run <span className="font-medium">{approval.tool_name}</span>
       </p>
       <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-muted px-3 py-2 font-mono text-xs leading-5">
         {approval.arguments === null ? 'No arguments provided.' : formatJsonValue(approval.arguments)}

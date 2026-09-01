@@ -4,10 +4,10 @@ from pathlib import Path
 
 import pytest
 
-from qmt_agent.application.interaction import ArchivedSessionInputError, InputDisposition, submit_user_input
-from qmt_agent.context import AppState, ExecutionState
-from qmt_agent.runtime import FollowUpBehavior
-from qmt_agent.storage import archive_session, create_session
+from investorch.application.interaction import ArchivedSessionInputError, InputDisposition, submit_user_input
+from investorch.context import AppState, ExecutionState
+from investorch.runtime import FollowUpBehavior
+from investorch.storage import archive_session, create_session
 from tests.support.runtime import RuntimeHarness, make_runtime_harness
 
 

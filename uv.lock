@@ -1802,7 +1802,7 @@ wheels = [
 ]
 
 [[package]]
-name = "qmt-agent-trader"
+name = "investorch"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [

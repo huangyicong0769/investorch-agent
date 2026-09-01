@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from qmt_agent.mcp import (
+from investorch.mcp import (
     configure_mcp_server_config,
     load_mcp_servers,
     read_mcp_server_configs,

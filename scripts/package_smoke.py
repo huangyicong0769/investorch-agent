@@ -7,9 +7,9 @@ import tempfile
 from importlib.metadata import PackageNotFoundError, distribution
 from pathlib import Path
 
-import qmt_agent
-from qmt_agent.config import PROJECT_CONFIG_PATH
-from qmt_agent.web.assets import STATIC_DIR
+import investorch
+from investorch.config import PROJECT_CONFIG_PATH
+from investorch.web.assets import STATIC_DIR
 
 BOOTSTRAP_FILES = {
     "MEMORY.md.template": Path("MEMORY.md"),
@@ -23,10 +23,14 @@ def _run(command: list[str], *, env: dict[str, str] | None = None) -> subprocess
 
 
 def main() -> None:
-    package_file = Path(qmt_agent.__file__ or "").resolve()
-    package_distribution = distribution("qmt-agent-trader")
-    installed_package = Path(package_distribution.locate_file("qmt_agent")).resolve()
+    package_file = Path(investorch.__file__ or "").resolve()
+    package_distribution = distribution("investorch")
+    installed_package = Path(package_distribution.locate_file("investorch")).resolve()
     assert package_file.parent == installed_package
+    assert package_distribution.metadata["Name"] == "investorch"
+    assert {entry.name for entry in package_distribution.entry_points if entry.group == "console_scripts"} == {
+        "investorch"
+    }
     cnequity_requirements = [
         requirement for requirement in package_distribution.requires or [] if requirement.lower().startswith("cnequity")
     ]
@@ -51,12 +55,12 @@ def main() -> None:
     assert (STATIC_DIR / "index.html").is_file()
     assert any(path.is_file() for path in (STATIC_DIR / "assets").iterdir())
 
-    executable = shutil.which("qmt-agent")
+    executable = shutil.which("investorch")
     assert executable is not None
     _run([executable, "--help"])
     _run([executable, "web", "--help"])
 
-    with tempfile.TemporaryDirectory(prefix="qmt-agent-package-smoke-") as temp_dir:
+    with tempfile.TemporaryDirectory(prefix="investorch-package-smoke-") as temp_dir:
         temp = Path(temp_dir)
         home = temp / "home"
         home.mkdir()
@@ -64,11 +68,12 @@ def main() -> None:
         env["HOME"] = str(home)
 
         initialized = _run([executable, "web"], env=env)
-        root = home / ".qmt-agent-trader"
+        root = home / ".investorch"
         assert initialized.returncode == 0
-        assert "QMT Agent initialized" in initialized.stdout
-        assert (root / "qmt.toml").is_file()
+        assert "InvestOrch Agent initialized" in initialized.stdout
+        assert (root / "investorch.toml").is_file()
         assert (root / "mcp.toml").is_file()
+        assert (root / "state").is_dir()
 
         workspace = root / "workspace"
         for template_name, target in BOOTSTRAP_FILES.items():

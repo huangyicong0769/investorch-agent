@@ -5,8 +5,8 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from qmt_agent.journal import SessionJournal, read_session_journal
-from qmt_agent.runtime import SessionBusyError
+from investorch.journal import SessionJournal, read_session_journal
+from investorch.runtime import SessionBusyError
 from tests.support.config import make_test_config
 from tests.support.runtime import ControllableUserMessageSink, make_runtime_harness, run_options
 

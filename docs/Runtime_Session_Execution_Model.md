@@ -2,7 +2,7 @@
 
 ## Purpose
 
-QMT Agent Trader separates three identities that were previously represented by one mutable session handle:
+InvestOrch Agent separates three identities that were previously represented by one mutable session handle:
 
 - **Session** is the persistent conversation identity.
 - **Run** is one transient top-level Agent turn.

@@ -5,16 +5,16 @@ from pathlib import Path
 import pytest
 from agents import SQLiteSession
 
-from qmt_agent.application.interaction import ArchivedSessionInputError, submit_user_input
-from qmt_agent.application.sessions import (
+from investorch.application.interaction import ArchivedSessionInputError, submit_user_input
+from investorch.application.sessions import (
     SessionArchivedError,
     SessionHasChildrenError,
     SessionHasQueuedInputsError,
 )
-from qmt_agent.context import AppState
-from qmt_agent.journal import read_session_journal
-from qmt_agent.runtime import SessionBusyError
-from qmt_agent.storage import get_session, list_archived_sessions, list_sessions
+from investorch.context import AppState
+from investorch.journal import read_session_journal
+from investorch.runtime import SessionBusyError
+from investorch.storage import get_session, list_archived_sessions, list_sessions
 from tests.support.runtime import run_options
 from tests.support.sessions import SessionHarness, make_session_harness
 

@@ -30,6 +30,6 @@ export default defineConfig({
   },
   build: {
     emptyOutDir: true,
-    outDir: '../src/qmt_agent/web/static',
+    outDir: '../src/investorch/web/static',
   },
 })

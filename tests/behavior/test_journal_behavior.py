@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from qmt_agent.journal import SessionJournal, read_session_journal, read_session_journal_page
+from investorch.journal import SessionJournal, read_session_journal, read_session_journal_page
 
 
 def make_journal(directory: Path) -> SessionJournal:

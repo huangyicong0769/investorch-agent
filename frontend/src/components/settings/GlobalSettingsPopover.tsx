@@ -96,7 +96,7 @@ export function GlobalSettingsPopover() {
       >
         <h2 className="text-sm font-semibold">Settings</h2>
         <p className="mt-1 text-xs text-muted-foreground">
-          Global future-run behavior until QMT Agent restarts.
+          Global future-run behavior until InvestOrch Agent restarts.
         </p>
 
         {defaultsQuery.isPending ? (

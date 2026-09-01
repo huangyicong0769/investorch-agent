@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from qmt_agent.journal import read_session_journal
+from investorch.journal import read_session_journal
 from tests.support.runtime import FailingTextUserMessageSink, make_runtime_harness, run_options
 
 

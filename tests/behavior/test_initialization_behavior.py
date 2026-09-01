@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from qmt_agent.config import ConfigError
-from qmt_agent.initializer import initialize, sync_bootstrap_files
+from investorch.config import ConfigError
+from investorch.initializer import initialize, sync_bootstrap_files
 from tests.support.config import make_test_config
 
 
