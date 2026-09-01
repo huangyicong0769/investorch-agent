@@ -1,969 +1,172 @@
-# InvestOrch Agent 项目架构 v0.2
+# InvestOrch Agent Architecture
 
-> 本文档是 InvestOrch Agent 当前架构的权威说明，取代此前已由 Git 历史保存的旧版架构文档。
->
-> v0.2 的核心变化：
->
-> - 不再自研 Agent Runtime / AgentRunner。
-> - 使用 OpenAI Agents SDK 提供通用 Agent Runtime 能力。
-> - 使用 DeepSeek Responses API 作为模型服务。
-> - Tool 仍然是 Agent 与投资工作流之间的能力边界。
-> - 不设置独立 Risk Engine。
-> - 普通执行错误直接由 Tool 抛出异常并反馈给 LLM。
-> - 需求驱动抽象，不为“以后可能需要”提前增加架构层。
+[简体中文](InvestOrch_Agent_Architecture.zh-CN.md)
 
----
+## Scope
 
-## 1. 项目定位
+This document describes the architecture implemented in 0.1.0. Future product directions are recorded in the [Product Roadmap](InvestOrch_Agent_Product_Roadmap.md).
 
-InvestOrch Agent 是一个本地 human-in-the-loop 投资编排 Agent，覆盖研究、策略开发、回测、投资组合工作流与执行。
-
-目标不是开发通用 Agent Framework，而是构建一个：
-
-- 可真实运行
-- 可研究
-- 可学习
-- 可持续演进
-- 人类开发者能够理解并亲自编写
-
-的投资编排 Agent。
-
-项目的重点是：
-
-- Agent 行为
-- Tool 设计
-- 量化研究能力
-- 交易业务逻辑
-- QMT / XtQuant 集成
-
-而不是：
-
-- 自研 Agent Runtime
-- 自研 LLM SDK
-- 自研通用 Workflow Framework
-- 为未来兼容性提前建立大量抽象层
-
----
-
-## 2. 核心架构原则
-
-### 2.1 Agent 是用户入口
-
-用户只与 Agent 交互。
-
-用户不直接操作：
-
-- 行情接口
-- QMT API
-- 数据库
-- 回测代码
-- 量化分析模块
-
-Agent 负责：
-
-- 理解用户意图
-- 选择合适的 Tool
-- 组织分析过程
-- 调用交易或研究能力
-- 向用户解释结果
-
-### 2.2 Tool 是能力边界
-
-系统能力通过 Tool 暴露给 Agent。
-
-例如：
-
-- 获取行情
-- 获取历史价格
-- 查询持仓
-- 查询订单
-- 技术分析
-- 基本面分析
-- 回测
-- 下单
-- 撤单
-
-Tool 表达的是：
-
-> Agent 可以理解和调用的业务能力。
-
-不是所有 Python 函数都应该成为 Tool。
-
-推荐：
+## System context
 
 ```text
-get_market_snapshot()
-get_price_history()
-get_portfolio()
-run_backtest()
-place_order()
+                   User
+              /             \
+          Web client       Textual TUI
+              \             /
+               Application Host
+                      |
+              Application services
+                      |
+                 AgentRuntime
+                      |
+              OpenAI Agents SDK
+                      |
+             Main and support agents
+                /             \
+          built-in Tools       MCP servers
+                |
+       workspace / RQAlpha / local state
 ```
 
-不推荐：
+The plain console reaches the same application host as a sequential diagnostic interface.
+
+## Composition and ownership
+
+`application.host.open_application_host()` is the composition boundary shared by Web, TUI, and plain modes. It creates and closes:
+
+- validated `AppConfig`;
+- `AppState` future-run defaults and selected-session state;
+- application-global `ExecutionState`;
+- `SessionJournal` and session operations;
+- OpenAI Responses models and Agent definitions;
+- MCP server manager;
+- approval, activity-label, presentation, and runtime coordinators.
+
+The host owns process-lifetime resources. A Run never owns the workspace, MCP manager, or managed background processes.
+
+## Presentation layer
+
+### Web
+
+`investorch web` runs a FastAPI application on `127.0.0.1`. The server provides REST operations for session and interaction state, paged journal history, defaults, queue, compaction, and approvals. A WebSocket transports live application events. The React frontend consumes these application contracts and uses the Web configuration returned by bootstrap as its source of UI defaults.
+
+### TUI
+
+`investorch` starts the Textual client. It uses the same application services and Runtime callbacks as Web. Session selection, timeline projection, composer behavior, Queue, Todo, approval, processes, and usage are presentation concerns; they do not own execution state.
+
+### Plain console
+
+`investorch --plain` runs a sequential diagnostic client. It renders raw output and uses inline approval. It does not offer the concurrent interaction surface of Web or TUI and does not run the Activity Agent.
+
+`presentation.py` provides the transport-neutral JSON-safe projections shared by live Web events and persisted journal history.
+
+## Session, Run, and interaction model
+
+The application separates three identities:
+
+- **Session**: persistent conversation identity.
+- **Run**: one transient top-level Agent turn.
+- **Selection**: the Session currently displayed by a client.
+
+`AgentRuntime` owns active Runs and follow-up queues. It permits at most one top-level Run per Session and permits Runs in different Sessions to execute concurrently. Each Run captures immutable reasoning-effort, permission-mode, and follow-up settings.
+
+Steer continues the current top-level Run at a safe turn boundary. Queue records future intent and promotes it to a new Run after successful completion. Stop cancels the selected Session's active Run and pauses retained Queue intent.
+
+Detailed invariants are defined in the [Runtime / Session Execution Model](Runtime_Session_Execution_Model.md).
+
+## Agent integration
+
+InvestOrch uses OpenAI Agents SDK rather than implementing an Agent loop or Tool-call protocol. `AgentLoop` adds application behavior around SDK runs: streaming output, approval continuation, title generation, usage, compaction, and Steer continuation.
+
+The Main Agent is cloned with captured model settings for each Run. Support agents have narrow responsibilities:
+
+- Title Agent generates a Session title.
+- Activity Agent creates presentation-only labels for Tool calls.
+- Permission Agent may return approve, reject, or ask in review mode.
+- Compact Agent replaces SDK continuation history with a marked summary.
+- Bootstrap Agent merges project templates during `investorch --sync`.
+
+The runtime uses the OpenAI Responses model adapter. Bundled configuration currently points all roles to DeepSeek. Model name, base URL, secret name, and reasoning effort come from `AppConfig`.
+
+## Current Tool surface
+
+The Main Agent currently receives:
+
+- workspace and execution: `explore`, `edit`, `delete`, `exec_command`;
+- utility and state: `calculate`, `get_current_time`, `write_todos`;
+- configuration: `get_config`, `update_config`;
+- MCP registry: `list_mcp_servers`, `configure_mcp_server`, `remove_mcp_server`;
+- backtesting: `run_backtest`, and `inspect_rqalpha_data` when the native bundle is selected.
+
+Tool implementation uses Agents SDK Tool definitions directly. There is no local Tool framework, registry abstraction, Market Tool, Portfolio Tool, Trading Tool, or QMT module in 0.1.0.
+
+Workspace-changing and execution capabilities enforce workspace boundaries and approval policy. Tool failures surface as explicit exceptions.
+
+## Approval boundary
+
+Approval is coordinated at the application boundary. Every request has an immutable approval ID plus Session and Run ownership. Permission modes are:
+
+- `manual`: always ask the user;
+- `review`: use the Permission Agent when it can decide safely, otherwise ask.
+
+Current approval protects configured consequential Tools, including arbitrary workspace command execution and backtesting of ordinary Python strategy files. Approval authorizes execution; it is not a Python sandbox.
+
+## Workspace and background execution
+
+`ExecutionState` is application-global. It contains the shared workspace sandbox and managed background jobs. A job may outlive the Run that created it and retains owner Session/Run attribution. Session selection and Run completion do not stop jobs.
+
+All Sessions share the same workspace. Concurrent Runs can therefore target the same file; 0.1.0 has no per-Session workspace or filesystem lock.
+
+## Backtesting
+
+`run_backtest` validates a Workspace-relative RQAlpha strategy, captures one immutable configuration snapshot, executes a daily stock backtest, and writes reproducibility metadata plus analyser artifacts under the configured Workspace directory.
+
+The default data path is a native RQAlpha bundle. When `backtest.use_cnequity=true` and the optional dependency is installed, RQAlpha loads `investorch.backtest.rqalpha_mod` by configuration string and overlays CNEquity daily bars and adjustment factors while retaining RQAlpha market semantics.
+
+CNEquity is optional and user-operated. `investorch data` passes arguments to its CLI, and the application may compose its read-only stdio MCP server. CNEquity itself owns ingestion, repair, retry, locking, and recovery.
+
+## Persistence
+
+Persistent state under the configured root is intentionally split by responsibility:
+
+- `<root>/investorch.toml`: local overrides and secrets;
+- `<root>/mcp.toml`: MCP registry;
+- `<root>/workspace/`: user-owned workspace and generated artifacts;
+- `<state>/sessions.db`: Agents SDK continuation plus application session metadata;
+- `<state>/sessions/<session-id>.jsonl`: append-only user-visible journal;
+- `<state>/logs/investorch.log`: rotating diagnostic log.
+
+The SQLite continuation is model state and may be compacted. The JSONL journal is replay state and is not compacted. Activity labels are derived annotations, not execution truth.
+
+Bootstrap templates are copied only when their target is absent. `--sync` uses the configured Bootstrap Agent to merge current project rules into existing user-owned files while preserving durable content. `--sync-force` skips the model and atomically replaces targets with the bundled templates. Both modes validate every changed target, restore the current target if its operation fails, and retain backups for replaced content under `<state>/bootstrap-backups/<timestamp>/`.
+
+## Configuration
+
+`AppConfig` validates bundled TOML defaults plus local overrides. Some settings are hot for future Runs; composition-changing settings report that restart is required. Agent-facing reads redact secrets, and Agent-facing writes cannot modify secrets.
+
+The configured model and MCP endpoints are external trust boundaries. Local-first means state and workspace ownership are local by default; it does not mean model or MCP traffic stays on the machine.
+
+## Dependency direction
 
 ```text
-xt_get_market_data_ex()
-numpy_mean()
-calculate_internal_helper()
+Web / TUI / plain
+        -> application services
+        -> Runtime and presentation contracts
+        -> Agent integration and Tools
+        -> workspace, storage, RQAlpha, MCP, model endpoints
 ```
 
-Tool 内部可以自由调用普通 Python 函数、第三方库、QMT API 和数据存储。
-
-### 2.3 通用 Agent Runtime 不自研
-
-项目使用 OpenAI Agents SDK 作为 Agent Runtime。
-
-因此不自行实现：
-
-- Agent loop
-- Runner
-- Tool dispatch runtime
-- function_call / function_call_output loop
-- Session runtime
-- Human-in-the-loop runtime
-- Handoff runtime
-- Agent-as-tool runtime
-- Guardrails runtime
-- Tracing runtime
-- MCP runtime
-
-这些属于通用 Agent 基础设施。
-
-InvestOrch Agent 只在需要时使用这些能力，而不是重新实现一遍。
-
-### 2.4 不重复包装第三方能力
-
-如果第三方库已经提供合适的抽象，则直接使用。
-
-例如：
-
-```text
-OpenAI Agents SDK
-OpenAI Python SDK
-DeepSeek Responses API
-XtQuant
-Polars / Pandas
-NumPy / SciPy
-DuckDB / Parquet
-```
-
-不增加以下无意义包装：
-
-```text
-InvestOrchAgentRunner -> Agents SDK Runner
-DeepSeekClient -> AsyncOpenAI
-InvestOrchTool -> Agents SDK FunctionTool
-ModelProvider abstraction
-Broker compatibility layer
-```
-
-判断标准：
-
-> 如果一个抽象只是给第三方库换名字，则删除。
-
-只有当一个抽象确实表达 InvestOrch Agent 的业务语义时，才保留。
-
-### 2.5 依赖通过组合隔离，不通过包装隔离
-
-第三方依赖由应用入口统一创建和组装。
-
-例如：
-
-```text
-Application Entry
-    |
-    +-- AsyncOpenAI client
-    +-- Agents SDK model/runtime config
-    +-- Agent definitions
-    +-- Tools
-    +-- QMT services
-    +-- Session
-```
-
-不同模块通过正常的 Python 依赖注入和对象组合保持边界。
-
-不为“隔离”本身额外创建 Adapter / Provider / Wrapper 层。
-
----
-
-## 3. 总体架构
-
-```text
-                         User
-                           |
-                           v
-                 InvestOrch Main Agent
-                           |
-                 OpenAI Agents SDK
-                           |
-            +--------------+--------------+
-            |              |              |
-         Session          HITL          Tracing
-            |              |              |
-            +--------------+--------------+
-                           |
-                         Tools
-                           |
-          +----------------+----------------+
-          |                |                |
-       Market           Research          Trading
-          |                |                |
-          v                v                v
-      XtQuant /        Quant libs /        QMT
-      Storage          Data / Storage
-```
-
-未来需要时，Agents SDK 还可以提供：
-
-```text
-Handoffs
-Agent-as-tool
-Guardrails
-MCP
-Multi-agent orchestration
-```
-
-这些能力按需求逐步启用。
-
----
-
-## 4. 模型调用架构
-
-模型调用链路：
-
-```text
-OpenAI Agents SDK
-        |
-        v
-   AsyncOpenAI
-        |
-        | OpenAI-compatible
-        | Responses API
-        v
-     DeepSeek
-```
-
-OpenAI Python SDK 负责：
-
-- HTTP / API 通信
-- API Key
-- Base URL
-- Responses API 请求
-
-OpenAI Agents SDK 负责：
-
-- Agent Runtime
-- Tool 调度
-- Agent Loop
-- Session
-- HITL
-- Handoff
-- Tracing
-- 其他 Agent 通用能力
-
-DeepSeek 负责：
-
-- LLM 推理
-- Responses API
-- Function Calling
-
----
-
-## 5. Agent 模块
-
-Agent 模块不再实现 Runner。
-
-其职责是：
-
-> 定义 InvestOrch Agent 是什么。
-
-包括：
-
-- Agent 名称
-- Instructions / Prompt
-- 可使用的 Tools
-- 必要的 Agents SDK 配置
-- 未来的 Handoff / Agent-as-tool 关系
-
-建议初始结构：
-
-```text
-src/investorch/
-
-├── agents/
-│   ├── main.py
-│   └── prompts.py
-```
-
-### 5.1 `agents/main.py`
-
-负责定义主 Agent。
-
-概念上：
-
-```python
-Agent(
-    name=...,
-    instructions=...,
-    tools=[...],
-)
-```
-
-不负责：
-
-- 自己执行 Agent loop
-- 自己调用 `responses.create()`
-- 自己处理 function_call
-- 自己管理 Session
-- 自己实现 HITL
-
-这些由 Agents SDK Runtime 负责。
-
-### 5.2 `agents/prompts.py`
-
-负责保存 Agent Instructions / Prompt。
-
-第一版保持简单。
-
-例如：
-
-```text
-MAIN_AGENT_INSTRUCTIONS
-```
-
-不提前创建：
-
-```text
-PromptManager
-PromptRegistry
-PromptBuilder
-```
-
-除非后续真的出现需要动态组合的大量 Prompt。
-
----
-
-## 6. Tool 模块
-
-Tool 仍然是项目最重要的业务接口。
-
-建议结构：
-
-```text
-tools/
-
-├── market.py
-├── portfolio.py
-├── quant.py
-├── research.py
-└── trading.py
-```
-
-Tool 可以直接使用 Agents SDK 提供的 Function Tool 能力。
-
-概念上：
-
-```python
-@function_tool
-def get_market_snapshot(symbol: str): ...
-```
-
-而不是自己定义一套：
-
-```text
-InvestOrchTool
-ToolRegistry
-ToolAdapter
-ToolDispatcher
-```
-
-Tool 内部实现仍然可以拆分成普通 Python 函数和服务。
-
----
-
-## 7. 交易授权
-
-部分 Tool 需要用户确认。
-
-例如：
-
-无需确认：
-
-```text
-get_market_snapshot
-get_price_history
-get_portfolio
-analyze_technicals
-```
-
-需要确认：
-
-```text
-run_backtest
-place_order
-cancel_order
-```
-
-`run_backtest` 会执行 Workspace 中的普通 RQAlpha Python 策略，因此审批是代码执行的授权边界，不是 Python sandbox。
-
-交易授权使用 Agents SDK 的 Human-in-the-loop 能力。
-
-执行流程：
-
-```text
-Agent
-  |
-  v
-Tool Call
-  |
-  v
-HITL Approval
-  |
-  +-- No  -> Cancel
-  |
-  +-- Yes
-        |
-        v
-      Tool
-        |
-        v
-       QMT
-```
-
-授权针对一次具体 Tool Call。
-
-例如：
-
-```text
-买入 600519.SH 100 股
-```
-
-而不是：
-
-```text
-永久允许 place_order
-```
-
-当前回测链路保持直接组合：
-
-```text
-InvestOrch Main Agent
-      |
-      v
-run_backtest
-      |
-      v
-investorch.backtest.run_backtest
-      |
-      v
-RQAlpha 6.3.0 -> CNEquityOverlayDataSource -> CNEquity 股票日线/复权因子
-                                  + RQAlpha 原生市场语义
-```
-
-策略知识由现有 bootstrap / `--sync` 写入 `memory/rqalpha.md`。模型默认只接收
-compact summary 和 Workspace 相对 artifact 路径，完整 analyser 表格保存在
-`backtests/<run_id>/`。
-
----
-
-## 8. 不设置独立 Risk Engine
-
-第一版不设置：
-
-```text
-Risk Engine
-Business Validation Layer
-Execution Policy Layer
-Safety Audit Layer
-```
-
-用户已经明确批准某次具体交易后，不再增加第二套隐藏的业务否决逻辑。
-
-交易链路保持：
-
-```text
-Agent
-  |
-  v
-Tool Call
-  |
-  v
-HITL
-  |
-  v
-Tool
-  |
-  v
-QMT
-```
-
----
-
-## 9. Tool 错误处理
-
-普通软件错误直接由 Tool 抛出异常。
-
-例如：
-
-```text
-资金不足
-证券代码错误
-QMT 未连接
-订单失败
-非交易时间
-接口超时
-数据不可用
-```
-
-这些情况不需要单独设计：
-
-```text
-Risk Engine
-Validation Service
-Error Policy Layer
-```
-
-最简单的模型：
-
-```text
-Tool
-  |
-  +-- success -> result -> LLM
-  |
-  +-- exception -> error -> LLM
-```
-
-Agent / LLM 根据 Tool 执行结果决定如何向用户解释或继续处理。
-
-原则：
-
-> 普通软件错误用异常表达，不为错误处理创造新的业务架构层。
-
----
-
-## 10. QMT / XtQuant 集成
-
-QMT 模块只负责与 XtQuant / QMT 交互。
-
-建议：
-
-```text
-qmt/
-
-├── data.py
-└── trader.py
-```
-
-例如：
-
-```text
-data.py
-- 行情读取
-- 历史数据读取
-
-trader.py
-- 持仓读取
-- 订单读取
-- 下单
-- 撤单
-```
-
-Tool 可以调用这些模块。
-
-QMT 模块不知道：
-
-- Agent
-- Prompt
-- LLM
-- Responses API
-- Handoff
-- HITL
-
-依赖方向保持单向。
-
----
-
-## 11. Storage
-
-Storage 负责持久化项目实际需要的数据。
-
-可能包括：
-
-- 历史行情缓存
-- 研究数据
-- Agent Session
-- 回测结果
-- 用户配置
-- 交易记录
-
-存储技术优先使用成熟方案，例如：
-
-```text
-Parquet
-DuckDB
-SQLite
-SQLAlchemy
-```
-
-不提前开发通用 Storage Framework。
-
----
-
-## 12. Session
-
-DeepSeek Responses API 不作为项目的长期对话状态存储。
-
-会话 continuation 状态由 Agents SDK Session 机制在客户端管理；应用层把持久化 Session identity、一次瞬时顶层 Run 与 UI selection 明确分离。具体所有权、并发不变量与 shutdown 见 [Runtime / Session Execution Model](Runtime_Session_Execution_Model.md)。
-
-概念：
-
-```text
-User Input
-    |
-    v
-Agents SDK Session
-    |
-    +-- previous history
-    |
-    v
-Runner
-    |
-    v
-DeepSeek Responses API
-```
-
-Session 后端按实际需求选择。
-
-第一版可以从最简单方案开始。
-
----
-
-## 13. Composition Root
-
-应用入口负责组装所有组件。
-
-建议：
-
-```text
-src/investorch/main.py
-```
-
-职责：
-
-```text
-读取配置
-    |
-创建 AsyncOpenAI
-    |
-配置 DeepSeek model
-    |
-创建 QMT services
-    |
-加载 Tools
-    |
-创建 Agent
-    |
-创建 / 获取 Session
-    |
-调用 Agents SDK Runner
-```
-
-`main.py` 是项目的 Composition Root。
-
-其他模块不需要知道整个应用是如何组装的。
-
----
-
-## 14. 推荐目录结构
-
-当前建议的最小目录：
-
-```text
-src/investorch/
-
-├── agents/
-│   ├── main.py
-│   └── prompts.py
-│
-├── tools/
-│   ├── market.py
-│   ├── portfolio.py
-│   ├── quant.py
-│   ├── research.py
-│   └── trading.py
-│
-├── qmt/
-│   ├── data.py
-│   └── trader.py
-│
-├── storage/
-│
-├── config.py
-│
-└── main.py
-```
-
-这不是必须一次性全部创建的目录。
-
-原则：
-
-> 只有开始出现实际代码时才创建模块。
-
-例如第一版只有：
-
-```text
-agents/
-tools/
-qmt/
-main.py
-config.py
-```
-
-也是完全合理的。
-
----
-
-## 15. 当前明确不需要的模块
-
-第一版不建立：
-
-```text
-agent/runner.py
-agent/tools.py
-
-runtime/
-providers/
-adapters/
-interfaces/
-registries/
-
-risk/
-risk_engine.py
-
-validation/
-business_validation.py
-
-workflow/
-memory_framework/
-broker_abstraction/
-model_provider/
-```
-
-如果未来真实需求证明其中某个抽象有独立职责，再增加。
-
----
-
-## 16. 代码分类
-
-整个项目可以简单分成三类代码。
-
-### 16.1 第三方基础设施
-
-直接复用：
-
-```text
-OpenAI Agents SDK
-OpenAI Python SDK
-DeepSeek Responses API
-XtQuant
-Polars / Pandas
-NumPy / SciPy
-DuckDB / Parquet
-```
-
-### 16.2 Agent Integration
-
-项目自己写，但应保持薄：
-
-```text
-Agent definitions
-Prompts
-Tool definitions
-SDK configuration
-HITL configuration
-Session configuration
-```
-
-### 16.3 QMT Trader Core
-
-真正值得长期维护的业务代码：
-
-```text
-行情业务逻辑
-量化研究逻辑
-投资组合逻辑
-回测逻辑
-交易逻辑
-QMT 集成
-数据存储
-```
-
-原则：
-
-> 我们研究 Agent，但不开发通用 Agent Framework。
-> 我们真正开发的是从研究到执行的 human-in-the-loop 投资编排 Agent。
-
----
-
-## 17. Feature Roadmap
-
-Roadmap 分为两条线。
-
-### 17.1 业务能力
-
-```text
-1. Market Tools
-2. Portfolio Tools
-3. Research Tools
-4. Backtest
-5. Trading
-6. Automated Trading
-```
-
-### 17.2 Agent Runtime 能力
-
-```text
-1. Single Agent
-2. Session
-3. Human-in-the-loop
-4. Tracing
-5. Guardrails
-6. Agent-as-tool
-7. Handoff
-8. MCP
-9. Multi-agent
-```
-
-Agent Runtime 能力优先复用 Agents SDK。
-
-不将 roadmap 理解为：
-
-> 将来我们要自己实现这些框架能力。
-
----
-
-## 18. 软件工程原则
-
-保持：
-
-- 类型提示
-- 清晰模块边界
-- 单元测试
-- 明确异常
-- 配置管理
-- 日志记录
-- 简单依赖关系
-
-避免：
-
-- 为未来兼容而抽象
-- 无意义 Wrapper
-- Provider 层
-- Broker 兼容层
-- Interface 泛滥
-- Registry 泛滥
-- Factory 泛滥
-- 自研 Agent Framework
-- 自研 Tool Framework
-- 自研 Validation Framework
-- 自研 Risk Framework
-
-核心判断标准：
-
-> 能直接调用就直接调用。
-> 能用普通 Python 函数解决就不要创建类。
-> 能用异常表达就不要创建新的业务层。
-> 需求驱动抽象，而不是为了未来提前设计。
-
----
-
-## 19. 依赖方向
-
-总体依赖方向：
-
-```text
-Application Entry
-        |
-        v
-      Agents
-        |
-        v
-       Tools
-        |
-        +----------+
-        |          |
-        v          v
-       QMT       Storage
-        |
-        v
-     XtQuant
-```
-
-允许：
-
-```text
-agents -> tools
-tools -> qmt
-tools -> storage
-qmt -> XtQuant
-```
-
-避免：
-
-```text
-qmt -> tools
-tools -> agents
-storage -> agents
-```
-
-底层业务代码不依赖 Agent Runtime。
-
----
-
-## 20. Presentation 与执行事实
-
-默认 `investorch` 使用 Textual TUI，`investorch --plain` 保留完整 raw Console fallback。TUI 是 presentation layer：普通输入委托给显式 Session 的 application use case，Session 写操作委托给 `SessionOperations`，并消费带 Session/Run 归属的 Runtime output。`AgentRuntime` 仍拥有 Run 与 follow-up 执行事实；TUI 不进入 `AgentLoop`，也不改变 active Run 的 identity 或 options。
-
-每个 session 的 JSONL Journal 保存 raw user message、reasoning、tool call/output、approval 与 final assistant message。Activity Agent 只为每个 live `ToolCalled` 异步生成一句操作标签，并以 `activity_label target_seq=<tool_called seq>` 追加为 derived annotation。它不使用 Tool 或 SDK Session，不进入 Main Agent context，也不阻塞 stream。
-
-TUI 历史继续全量读取 JSONL；独立分页 API 为后续 transport 提供按原始 record、升序、exclusive `before_seq` 的有限结果集。缺少 annotation 时显示真实 tool name，缺少旧 session Journal 时仍可通过 SDK `sessions.db` resume。跨 Session Run 可以并发；inactive output 只写所属 Journal，切回时全量恢复，history load 期间的 live output/approval 通过 journal sequence 暂存去重。transport-neutral serializer 显式生成 JSON-safe payload；当前没有 Web transport、FTS、EventBus 或第三层 UI 数据库。
-
-## 21. CNEquity 集成
-
-CNEquity 作为 InvestOrch Agent 的可选扩展提供，不随默认依赖安装。需要 CNEquity 数据 CLI、只读 MCP server 或 RQAlpha overlay 时，通过 `cnequity` extra 安装；其运维仍由用户自行管理。
-
-人类通过以下透明 CLI passthrough 管理数据湖：
-
-```text
-investorch data <CNEquity CLI arguments>
-```
-
-该命令从 InvestOrch root 直接执行已安装的 CNEquity CLI。Main Agent 不拥有 CNEquity lifecycle tools；InvestOrch 启动时只通过 `<InvestOrch root>/configs/cnequity.toml` 附加一个只读 CNEquity stdio MCP server，Agent 仅通过该 MCP 查询 curated data。
-
-InvestOrch 不管理 CNEquity 配置、ingestion、retry、repair、status、locking 或 recovery。
-
----
-
-## 22. 总结
-
-InvestOrch Agent v0.2 的核心思想：
-
-> Agent 是用户入口。
-> Tool 是业务能力边界。
-> OpenAI Agents SDK 负责通用 Agent Runtime。
-> DeepSeek Responses API 负责模型推理。
-> QMT / XtQuant 负责交易基础设施。
-> 普通执行失败使用异常表达。
-> 不增加不必要的 Risk / Validation / Adapter 层。
-> 项目真正需要长期维护的是量化交易业务能力，而不是 Agent Framework。
-
-最终追求：
-
-- 简单
-- 清晰
-- 可学习
-- 可测试
-- 低耦合
-- 高内聚
-- 能持续演进
-- 人类开发者能够理解并亲自编写
+Run and persistence ownership stays in the application and Runtime layers. Client command parsing stays in presentation. Backtest code remains independent of UI and Session selection.
+
+## Current limits
+
+0.1.0 does not implement:
+
+- portfolio, account, order, position-monitoring, or live-trading capabilities;
+- a QMT gateway or direct XtQuant integration;
+- a unified investment data layer;
+- Multi-Agent orchestration;
+- persistence of active Runs, pending approvals, Steer entries, Queue state, or Todo state across restarts;
+- historical-turn conversation branching;
+- per-Session workspaces or cross-Run filesystem locking;
+- authenticated LAN or remote Web serving.
