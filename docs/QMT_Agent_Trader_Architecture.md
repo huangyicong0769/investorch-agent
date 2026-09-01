@@ -930,7 +930,7 @@ TUI 历史继续全量读取 JSONL；独立分页 API 为后续 transport 提供
 
 ## 21. CNEquity 集成
 
-CNEquity 作为 QMT Agent Trader 的运行时依赖安装，但其运维由用户自行管理。
+CNEquity 作为 QMT Agent Trader 的可选扩展提供，不随默认依赖安装。需要 CNEquity 数据 CLI、只读 MCP server 或 RQAlpha overlay 时，通过 `cnequity` extra 安装；其运维仍由用户自行管理。
 
 人类通过以下透明 CLI passthrough 管理数据湖：
 

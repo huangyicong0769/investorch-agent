@@ -11,6 +11,12 @@ uv sync
 uv run qmt-agent web
 ```
 
+CNEquity is optional. Install its extension only when using the CNEquity data CLI, read-only MCP server, or RQAlpha overlay:
+
+```bash
+uv sync --extra cnequity
+```
+
 The first run initializes local state in `~/.qmt-agent-trader` and exits. Add the required local secrets to `~/.qmt-agent-trader/qmt.toml` (the bundled defaults currently reference `DEEPSEEK_API_KEY`), then run the Web command again.
 
 Open <http://127.0.0.1:1334>. To use another loopback port:

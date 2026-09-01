@@ -1806,7 +1806,6 @@ name = "qmt-agent-trader"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
-    { name = "cnequity" },
     { name = "fastapi" },
     { name = "openai-agents" },
     { name = "rqalpha" },
@@ -1814,6 +1813,11 @@ dependencies = [
     { name = "textual" },
     { name = "tomlkit" },
     { name = "uvicorn", extra = ["standard"] },
+]
+
+[package.optional-dependencies]
+cnequity = [
+    { name = "cnequity" },
 ]
 
 [package.dev-dependencies]
@@ -1826,7 +1830,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "cnequity", specifier = "==0.7.3" },
+    { name = "cnequity", marker = "extra == 'cnequity'", specifier = "==0.7.3" },
     { name = "fastapi", specifier = ">=0.141.1" },
     { name = "openai-agents", specifier = ">=0.22.0" },
     { name = "rqalpha", specifier = "==6.3.0" },
@@ -1835,6 +1839,7 @@ requires-dist = [
     { name = "tomlkit", specifier = ">=0.15.1" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.52.4" },
 ]
+provides-extras = ["cnequity"]
 
 [package.metadata.requires-dev]
 dev = [

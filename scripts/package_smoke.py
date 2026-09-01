@@ -4,7 +4,7 @@ import os
 import shutil
 import subprocess
 import tempfile
-from importlib.metadata import distribution
+from importlib.metadata import PackageNotFoundError, distribution
 from pathlib import Path
 
 import qmt_agent
@@ -24,8 +24,21 @@ def _run(command: list[str], *, env: dict[str, str] | None = None) -> subprocess
 
 def main() -> None:
     package_file = Path(qmt_agent.__file__ or "").resolve()
-    installed_package = Path(distribution("qmt-agent-trader").locate_file("qmt_agent")).resolve()
+    package_distribution = distribution("qmt-agent-trader")
+    installed_package = Path(package_distribution.locate_file("qmt_agent")).resolve()
     assert package_file.parent == installed_package
+    cnequity_requirements = [
+        requirement for requirement in package_distribution.requires or [] if requirement.lower().startswith("cnequity")
+    ]
+    assert len(cnequity_requirements) == 1
+    assert "cnequity==0.7.3" in cnequity_requirements[0]
+    assert "extra ==" in cnequity_requirements[0]
+    try:
+        distribution("cnequity")
+    except PackageNotFoundError:
+        pass
+    else:
+        raise AssertionError("CNEquity must not be installed by default")
     assert not (Path.cwd() / "pyproject.toml").exists()
     assert not (Path.cwd() / "src").exists()
 
