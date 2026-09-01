@@ -6,15 +6,13 @@ import tempfile
 from collections.abc import Awaitable
 from datetime import datetime
 from pathlib import Path
-from typing import Literal, TypeVar
+from typing import Literal
 from zoneinfo import ZoneInfo
 
 from qmt_agent.output import OutputEvent, serialize_output_event
 
-_T = TypeVar("_T")
 
-
-async def _await_filesystem_operation(awaitable: Awaitable[_T]) -> _T:
+async def _await_filesystem_operation[T](awaitable: Awaitable[T]) -> T:
     task = asyncio.ensure_future(awaitable)
     cancellation: asyncio.CancelledError | None = None
     while not task.done():
@@ -195,7 +193,11 @@ class SessionJournal:
                 if next_seq is None:
                     next_seq = await asyncio.to_thread(self._recover_next_seq, path)
 
-                record = {"seq": next_seq, "timestamp": datetime.now(self._timezone).isoformat(timespec="milliseconds"), **event}
+                record = {
+                    "seq": next_seq,
+                    "timestamp": datetime.now(self._timezone).isoformat(timespec="milliseconds"),
+                    **event,
+                }
                 await _await_filesystem_operation(asyncio.to_thread(self._append, path, record))
             except BaseException:
                 self._next_seq.pop(session_id, None)
@@ -205,7 +207,13 @@ class SessionJournal:
             return next_seq
 
     def _session_path(self, session_id: str) -> Path:
-        if not session_id or session_id in {".", ".."} or "/" in session_id or "\\" in session_id or Path(session_id).name != session_id:
+        if (
+            not session_id
+            or session_id in {".", ".."}
+            or "/" in session_id
+            or "\\" in session_id
+            or Path(session_id).name != session_id
+        ):
             raise ValueError("session_id must be a non-empty filename-safe value")
 
         return self._directory / f"{session_id}.jsonl"

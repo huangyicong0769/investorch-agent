@@ -11,7 +11,13 @@ from qmt_agent.presentation import (
     serialize_runtime_output,
     serialize_runtime_snapshot,
 )
-from qmt_agent.runtime import ApprovalRequest, RuntimeFollowUpEvent, RuntimeOutput, RuntimeRunEnded, RuntimeSessionSnapshot
+from qmt_agent.runtime import (
+    ApprovalRequest,
+    RuntimeFollowUpEvent,
+    RuntimeOutput,
+    RuntimeRunEnded,
+    RuntimeSessionSnapshot,
+)
 
 from .connections import WebConnectionHub
 

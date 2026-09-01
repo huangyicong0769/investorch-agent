@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from contextlib import suppress
 from dataclasses import dataclass, field
 from urllib.parse import urlsplit
 
@@ -95,20 +96,14 @@ class WebConnectionHub:
             self._connections.discard(connection)
             if connection.writer_task is not None:
                 connection.writer_task.cancel()
-                try:
+                with suppress(asyncio.CancelledError):
                     await asyncio.gather(connection.writer_task, return_exceptions=True)
-                except asyncio.CancelledError:
-                    pass
             if connection.close_task is not None:
-                try:
+                with suppress(asyncio.CancelledError):
                     await asyncio.gather(connection.close_task, return_exceptions=True)
-                except asyncio.CancelledError:
-                    pass
             if not disconnected and not connection.close_sent:
-                try:
+                with suppress(asyncio.CancelledError):
                     await self._safe_close(websocket, connection.close_code)
-                except asyncio.CancelledError:
-                    pass
             connection.done.set()
 
     async def aclose(self) -> None:
@@ -153,10 +148,8 @@ class WebConnectionHub:
 
     @staticmethod
     async def _safe_close(websocket: WebSocket, code: int) -> None:
-        try:
+        with suppress(WebSocketDisconnect, RuntimeError, OSError):
             await websocket.close(code=code)
-        except (WebSocketDisconnect, RuntimeError, OSError):
-            pass
 
 
 def websocket_origin_allowed(origin: str | None) -> bool:

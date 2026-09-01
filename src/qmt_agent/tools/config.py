@@ -33,7 +33,9 @@ def get_config(context: RunContextWrapper[AgentContext], key: str | None = None)
 
 
 @tool(needs_approval=True)
-def update_config(context: RunContextWrapper[AgentContext], key: str, value: str | bool | int | float, persist: bool = True) -> dict[str, Any]:
+def update_config(
+    context: RunContextWrapper[AgentContext], key: str, value: str | bool | int | float, persist: bool = True
+) -> dict[str, Any]:
     """
     Update an application configuration value.
 

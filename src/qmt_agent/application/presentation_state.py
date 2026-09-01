@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from qmt_agent.agents import CompactionResult, TokenUsage
 from qmt_agent.context import TodoItem
@@ -9,7 +9,7 @@ from qmt_agent.runtime import RuntimeRunEnded, RuntimeSessionSnapshot
 
 @dataclass(frozen=True, slots=True)
 class SessionPresentationState:
-    usage: TokenUsage = TokenUsage()
+    usage: TokenUsage = field(default_factory=TokenUsage)
     main_context_tokens: int | None = None
     last_todo_run_id: str | None = None
     last_todos: tuple[TodoItem, ...] = ()

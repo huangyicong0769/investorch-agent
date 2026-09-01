@@ -140,7 +140,15 @@ def list_sessions(db_path: str | Path, *, include_archived: bool = False) -> lis
         ).fetchall()
 
     return [
-        SessionRecord(session_id=row[0], title=row[1], branch_from_session_id=row[2], archived_at=row[3], created_at=row[4], updated_at=row[5]) for row in rows
+        SessionRecord(
+            session_id=row[0],
+            title=row[1],
+            branch_from_session_id=row[2],
+            archived_at=row[3],
+            created_at=row[4],
+            updated_at=row[5],
+        )
+        for row in rows
     ]
 
 

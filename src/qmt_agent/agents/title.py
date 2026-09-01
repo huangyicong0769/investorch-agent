@@ -36,7 +36,7 @@ async def generate_session_title(title_agent: Agent, history: list[TResponseInpu
             {
                 "role": "user",
                 "content": "Generate a concise title for the conversation above. **Output only the title.**",
-            }
+            },
         ],
     )
 

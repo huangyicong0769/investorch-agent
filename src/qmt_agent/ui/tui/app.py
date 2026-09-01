@@ -22,8 +22,8 @@ from qmt_agent.application import (
     ArchivedSessionInputError,
     FollowUpSubmissionError,
     QueuedFollowUpsPendingError,
-    SteerPromotionPendingError,
     SessionOperations,
+    SteerPromotionPendingError,
     submit_user_input,
 )
 from qmt_agent.commands import Command, dispatch_command, parse_command
@@ -363,7 +363,9 @@ class QMTAgentTUI(App[None]):
         self._main_context_tokens: dict[str, int | None] = {}
         self._main_agent_name: str | None = None
         self._loading_session_id: str | None = None
-        self._buffered_live_events: list[BufferedOutput | BufferedApproval | ActivityLabelEvent | RuntimeFollowUpEvent] = []
+        self._buffered_live_events: list[
+            BufferedOutput | BufferedApproval | ActivityLabelEvent | RuntimeFollowUpEvent
+        ] = []
         self._last_rendered_seq: dict[str, int] = {}
         self._rendered_steer_seqs: dict[str, set[int]] = {}
         self._rendered_activity_label_seqs: dict[str, set[int]] = {}
@@ -440,12 +442,18 @@ class QMTAgentTUI(App[None]):
             return
 
         try:
-            submission = await submit_user_input(state=self.state, runtime=self.runtime, session_id=session_id, text=event.text)
+            submission = await submit_user_input(
+                state=self.state, runtime=self.runtime, session_id=session_id, text=event.text
+            )
         except ArchivedSessionInputError:
-            await self.query_one(ChatTimeline).add_notice("Archived sessions are read-only. Unarchive or switch sessions first.")
+            await self.query_one(ChatTimeline).add_notice(
+                "Archived sessions are read-only. Unarchive or switch sessions first."
+            )
             return
         except SteerPromotionPendingError:
-            await self.query_one(ChatTimeline).add_notice("A Steer follow-up is being promoted. Please send this message again after it starts.")
+            await self.query_one(ChatTimeline).add_notice(
+                "A Steer follow-up is being promoted. Please send this message again after it starts."
+            )
             self._refresh_selected_controls()
             return
         except QueuedFollowUpsPendingError as exc:
@@ -468,7 +476,9 @@ class QMTAgentTUI(App[None]):
             return
         except FollowUpSubmissionError:
             logger.exception("Failed to save follow-up input session=%s", session_id)
-            await self.query_one(ChatTimeline).add_notice("Follow-up could not be saved and was not sent. Please try again.")
+            await self.query_one(ChatTimeline).add_notice(
+                "Follow-up could not be saved and was not sent. Please try again."
+            )
             self._refresh_selected_controls()
             return
 
@@ -523,7 +533,9 @@ class QMTAgentTUI(App[None]):
             return
         count = self.runtime.clear_queue(event.session_id)
         if event.session_id == self.state.selected_session_id:
-            await self.query_one(ChatTimeline).add_notice(f"Cleared {count} queued follow-up{'s' if count != 1 else ''}.")
+            await self.query_one(ChatTimeline).add_notice(
+                f"Cleared {count} queued follow-up{'s' if count != 1 else ''}."
+            )
         self._refresh_selected_controls()
 
     async def on_queue_panel_resume_requested(self, event: QueuePanel.ResumeRequested) -> None:
@@ -541,7 +553,9 @@ class QMTAgentTUI(App[None]):
         snapshot = self.runtime.session_snapshot(selected_session_id) if self.runtime is not None else None
         active_run = self.runtime.get_active_run(selected_session_id) if self.runtime is not None else None
         follow_up_behavior = (
-            snapshot.active_follow_up_behavior if snapshot is not None and snapshot.active_follow_up_behavior is not None else self.state.follow_up_behavior
+            snapshot.active_follow_up_behavior
+            if snapshot is not None and snapshot.active_follow_up_behavior is not None
+            else self.state.follow_up_behavior
         )
         status = f"● {session_status_label(snapshot)} · Follow-ups: {follow_up_behavior.title()}"
         if snapshot is not None and snapshot.queued_count:
@@ -636,14 +650,18 @@ class QMTAgentTUI(App[None]):
         )
 
     async def _refresh_sidebar_from_cache(self) -> None:
-        await self.query_one(SessionSidebar).replace_sessions(self._session_records, self.state.selected_session_id, self._runtime_snapshots)
+        await self.query_one(SessionSidebar).replace_sessions(
+            self._session_records, self.state.selected_session_id, self._runtime_snapshots
+        )
 
     async def handle_output(self, event: OutputEvent, *, session_id: str, run_id: str, journal_seq: int | None) -> None:
         async with self._timeline_lock:
             if session_id != self.state.selected_session_id:
                 return
             if self._loading_session_id == session_id:
-                self._buffered_live_events.append(BufferedOutput(session_id=session_id, journal_seq=journal_seq, event=event))
+                self._buffered_live_events.append(
+                    BufferedOutput(session_id=session_id, journal_seq=journal_seq, event=event)
+                )
                 return
             await self._render_live_output(event, session_id=session_id, journal_seq=journal_seq)
 
@@ -690,7 +708,10 @@ class QMTAgentTUI(App[None]):
     async def request_tool_approval(self, request: ApprovalRequest, review_reason: str | None = None) -> bool:
         future = asyncio.get_running_loop().create_future()
         pending = PendingApproval(
-            request=request, session_title=self._session_titles.get(request.session_id), review_reason=review_reason, future=future
+            request=request,
+            session_title=self._session_titles.get(request.session_id),
+            review_reason=review_reason,
+            future=future,
         )
         self._pending_approvals.append(pending)
         self._show_pending_approval()
@@ -769,12 +790,16 @@ class QMTAgentTUI(App[None]):
 
     async def _render_live_follow_up(self, event: RuntimeFollowUpEvent) -> None:
         if event.kind == "steer_submitted":
-            if event.journal_seq is not None and event.journal_seq in self._rendered_steer_seqs.setdefault(event.session_id, set()):
+            if event.journal_seq is not None and event.journal_seq in self._rendered_steer_seqs.setdefault(
+                event.session_id, set()
+            ):
                 return
             await self.query_one(ChatTimeline).add_steer_message(event.text)
             if event.journal_seq is not None:
                 self._rendered_steer_seqs[event.session_id].add(event.journal_seq)
-                self._last_rendered_seq[event.session_id] = max(event.journal_seq, self._last_rendered_seq.get(event.session_id, 0))
+                self._last_rendered_seq[event.session_id] = max(
+                    event.journal_seq, self._last_rendered_seq.get(event.session_id, 0)
+                )
             return
 
         if event.kind == "queue_submitted":
@@ -797,14 +822,20 @@ class QMTAgentTUI(App[None]):
         try:
             if event.status == "completed":
                 if event.result is None:
-                    logger.error("Completed Agent run has no result for session %s run %s", event.session_id, event.run_id)
+                    logger.error(
+                        "Completed Agent run has no result for session %s run %s", event.session_id, event.run_id
+                    )
                     if event.session_id == self.state.selected_session_id:
-                        await self.query_one(ChatTimeline).add_notice("Agent run failed. See the system log for details.")
+                        await self.query_one(ChatTimeline).add_notice(
+                            "Agent run failed. See the system log for details."
+                        )
                 else:
                     result = event.result
                     self._add_usage(event.session_id, result.main_usage)
                     compacted = result.auto_compaction is not None and result.auto_compaction.changed
-                    self._set_main_context_tokens(event.session_id, None if compacted else result.main_usage.last_request_total_tokens)
+                    self._set_main_context_tokens(
+                        event.session_id, None if compacted else result.main_usage.last_request_total_tokens
+                    )
                     self._add_usage(event.session_id, result.auxiliary_usage)
                     if compacted:
                         context_tokens = result.main_usage.last_request_total_tokens
@@ -828,7 +859,9 @@ class QMTAgentTUI(App[None]):
                 if event.session_id == self.state.selected_session_id:
                     await self.query_one(ChatTimeline).add_notice("Run stopped.")
                     if event.discarded_steer_count:
-                        await self.query_one(ChatTimeline).add_notice("Run stopped; pending Steer messages were not applied.")
+                        await self.query_one(ChatTimeline).add_notice(
+                            "Run stopped; pending Steer messages were not applied."
+                        )
             else:
                 if event.session_id == self.state.selected_session_id:
                     await self.query_one(ChatTimeline).add_notice("Agent run failed. See the system log for details.")
@@ -841,7 +874,9 @@ class QMTAgentTUI(App[None]):
             self.query_one(Composer).focus_input()
 
     async def _render_live_approval(self, approval: BufferedApproval) -> None:
-        if approval.journal_seq is not None and approval.journal_seq <= self._last_rendered_seq.get(approval.session_id, 0):
+        if approval.journal_seq is not None and approval.journal_seq <= self._last_rendered_seq.get(
+            approval.session_id, 0
+        ):
             return
         await self.query_one(ChatTimeline).add_approval(
             approval.tool_name,
@@ -857,7 +892,9 @@ class QMTAgentTUI(App[None]):
     async def refresh_sessions(self) -> None:
         current_session_id = self.state.selected_session_id
         all_records = await asyncio.to_thread(list_sessions, self.state.config.sessions_db, include_archived=True)
-        records = [record for record in all_records if record.archived_at is None or record.session_id == current_session_id]
+        records = [
+            record for record in all_records if record.archived_at is None or record.session_id == current_session_id
+        ]
         self._session_records = records
         self._known_session_ids = {record.session_id for record in records}
         self._session_titles = {record.session_id: record.title for record in records}
@@ -878,7 +915,9 @@ class QMTAgentTUI(App[None]):
         except Exception:
             logger.exception("Failed to initialize TUI session history")
             await self.query_one(ChatTimeline).reset()
-            await self.query_one(ChatTimeline).add_notice("Unable to load session history. See the system log for details.")
+            await self.query_one(ChatTimeline).add_notice(
+                "Unable to load session history. See the system log for details."
+            )
         finally:
             if self._loading_session_id == session_id:
                 self._loading_session_id = None
@@ -920,7 +959,9 @@ class QMTAgentTUI(App[None]):
                     if session_id != self.state.selected_session_id:
                         return
                     await timeline.reset()
-                    await timeline.add_notice("Session history is unavailable because its journal is invalid. See the system log for details.")
+                    await timeline.add_notice(
+                        "Session history is unavailable because its journal is invalid. See the system log for details."
+                    )
                 return
 
             async with self._timeline_lock:
@@ -928,12 +969,18 @@ class QMTAgentTUI(App[None]):
                     return
                 if records:
                     await timeline.render_history(records)
-                    self._last_rendered_seq[session_id] = max(record["seq"] for record in records if type(record.get("seq")) is int)
+                    self._last_rendered_seq[session_id] = max(
+                        record["seq"] for record in records if type(record.get("seq")) is int
+                    )
                     self._rendered_steer_seqs[session_id] = {
-                        record["seq"] for record in records if record.get("type") == "user_steer" and type(record.get("seq")) is int
+                        record["seq"]
+                        for record in records
+                        if record.get("type") == "user_steer" and type(record.get("seq")) is int
                     }
                     self._rendered_activity_label_seqs[session_id] = {
-                        record["seq"] for record in records if record.get("type") == "activity_label" and type(record.get("seq")) is int
+                        record["seq"]
+                        for record in records
+                        if record.get("type") == "activity_label" and type(record.get("seq")) is int
                     }
                 else:
                     self._last_rendered_seq[session_id] = 0
@@ -959,7 +1006,9 @@ class QMTAgentTUI(App[None]):
                         )
                         for item in buffered:
                             if isinstance(item, BufferedOutput):
-                                await self._render_live_output(item.event, session_id=item.session_id, journal_seq=item.journal_seq)
+                                await self._render_live_output(
+                                    item.event, session_id=item.session_id, journal_seq=item.journal_seq
+                                )
                             elif isinstance(item, BufferedApproval):
                                 await self._render_live_approval(item)
                             elif isinstance(item, ActivityLabelEvent):
@@ -989,7 +1038,12 @@ class QMTAgentTUI(App[None]):
             self._buffered_live_events.clear()
             self._refresh_selected_controls()
             await self.refresh_sessions()
-            self.run_worker(self._load_session_history_with_notice(new_session_id, result.output), group="history", exclusive=True, exit_on_error=False)
+            self.run_worker(
+                self._load_session_history_with_notice(new_session_id, result.output),
+                group="history",
+                exclusive=True,
+                exit_on_error=False,
+            )
         else:
             if result.compaction is not None:
                 self._add_usage(new_session_id, result.compaction.usage)
@@ -1012,7 +1066,9 @@ class QMTAgentTUI(App[None]):
         selected_session_id = self.state.selected_session_id
         active_run = self.runtime.get_active_run(selected_session_id) if self.runtime is not None else None
         loading = self._loading_session_id == selected_session_id
-        follow_up_behavior = active_run.options.follow_up_behavior if active_run is not None else self.state.follow_up_behavior
+        follow_up_behavior = (
+            active_run.options.follow_up_behavior if active_run is not None else self.state.follow_up_behavior
+        )
         self.query_one(Composer).set_input_state(
             loading=loading,
             running=active_run is not None,
@@ -1022,5 +1078,7 @@ class QMTAgentTUI(App[None]):
         if self.runtime is not None:
             snapshot = self.runtime.session_snapshot(selected_session_id)
             self.query_one(TodoPanel).replace_todos(self._session_todos.get(selected_session_id, ()))
-            self.query_one(QueuePanel).replace_queue(selected_session_id, self.runtime.list_queued_inputs(selected_session_id), paused=snapshot.queue_paused)
+            self.query_one(QueuePanel).replace_queue(
+                selected_session_id, self.runtime.list_queued_inputs(selected_session_id), paused=snapshot.queue_paused
+            )
         self._refresh_run_status()

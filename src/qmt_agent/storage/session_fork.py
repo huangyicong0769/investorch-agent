@@ -5,7 +5,6 @@ import logging
 from collections.abc import Awaitable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TypeVar
 
 from agents import SQLiteSession
 
@@ -22,7 +21,6 @@ from .sessions import (
 )
 
 logger = logging.getLogger(__name__)
-_T = TypeVar("_T")
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,9 +41,7 @@ class SessionForkRollbackError(SessionForkError):
         original_error: BaseException,
         rollback_errors: list[BaseException],
     ) -> None:
-        super().__init__(
-            f"Session fork failed and rollback was incomplete for target {target_session_id}"
-        )
+        super().__init__(f"Session fork failed and rollback was incomplete for target {target_session_id}")
         self.target_session_id = target_session_id
         self.original_error = original_error
         self.rollback_errors = tuple(rollback_errors)
@@ -78,9 +74,7 @@ async def fork_session(
         )
 
         target_cleanup_required = True
-        await _await_mutation(
-            asyncio.to_thread(create_session, sessions_db, target_session_id)
-        )
+        await _await_mutation(asyncio.to_thread(create_session, sessions_db, target_session_id))
         target = SQLiteSession(target_session_id, sessions_db)
         await target.add_items(source_items)
         await journal.clone_session(source_session_id, target_session_id)
@@ -113,9 +107,7 @@ async def fork_session(
         if not handles_closed:
             cleanup_errors.extend(_close_session_handles(target, source))
         if target_cleanup_required:
-            cleanup_errors.extend(
-                await _rollback_target(target_session_id, sessions_db, journal)
-            )
+            cleanup_errors.extend(await _rollback_target(target_session_id, sessions_db, journal))
 
         if isinstance(original_error, asyncio.CancelledError):
             logger.info(
@@ -154,9 +146,7 @@ async def fork_session(
 
         if isinstance(original_error, asyncio.CancelledError):
             raise
-        raise SessionForkError(
-            f"Failed to fork session {source_session_id} to {target_session_id}"
-        ) from original_error
+        raise SessionForkError(f"Failed to fork session {source_session_id} to {target_session_id}") from original_error
 
     logger.info(
         "Forked session source=%s target=%s",
@@ -176,7 +166,7 @@ def _fork_title(source_title: str | None) -> str | None:
     return f"{source_title} (fork)"
 
 
-async def _await_mutation(awaitable: Awaitable[_T]) -> _T:
+async def _await_mutation[T](awaitable: Awaitable[T]) -> T:
     task = asyncio.ensure_future(awaitable)
     cancellation: asyncio.CancelledError | None = None
     while not task.done():
@@ -231,9 +221,7 @@ async def _rollback_target(
     sessions_db: Path,
     journal: SessionJournal,
 ) -> list[BaseException]:
-    task = asyncio.create_task(
-        _rollback_target_unshielded(target_session_id, sessions_db, journal)
-    )
+    task = asyncio.create_task(_rollback_target_unshielded(target_session_id, sessions_db, journal))
     try:
         return await asyncio.shield(task)
     except asyncio.CancelledError:

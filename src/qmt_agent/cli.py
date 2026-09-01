@@ -21,11 +21,17 @@ class WebOptions:
 
 
 def parse_startup_args(argv: list[str] | None = None) -> StartupOptions:
-    parser = argparse.ArgumentParser(description="Run QMT Agent.", epilog="Other commands: qmt-agent web, qmt-agent data")
+    parser = argparse.ArgumentParser(
+        description="Run QMT Agent.", epilog="Other commands: qmt-agent web, qmt-agent data"
+    )
     sync_group = parser.add_mutually_exclusive_group()
     sync_group.add_argument("--sync", action="store_true", help="Merge bootstrap templates with the model and exit.")
-    sync_group.add_argument("--sync-force", action="store_true", help="Replace bootstrap targets with project templates and exit.")
-    parser.add_argument("--plain", action="store_true", help="Use the verbose plain console instead of the Textual workspace.")
+    sync_group.add_argument(
+        "--sync-force", action="store_true", help="Replace bootstrap targets with project templates and exit."
+    )
+    parser.add_argument(
+        "--plain", action="store_true", help="Use the verbose plain console instead of the Textual workspace."
+    )
     args = parser.parse_args(argv)
     return StartupOptions(sync=args.sync, sync_force=args.sync_force, plain=args.plain)
 
@@ -44,7 +50,9 @@ def parse_web_args(argv: list[str] | None = None) -> WebOptions:
     from qmt_agent.web import DEFAULT_WEB_PORT
 
     parser = argparse.ArgumentParser(prog="qmt-agent web", description="Run the local QMT Agent Web interface.")
-    parser.add_argument("--port", type=_web_port, default=DEFAULT_WEB_PORT, help=f"Loopback port (default: {DEFAULT_WEB_PORT}).")
+    parser.add_argument(
+        "--port", type=_web_port, default=DEFAULT_WEB_PORT, help=f"Loopback port (default: {DEFAULT_WEB_PORT})."
+    )
     args = parser.parse_args(argv)
     return WebOptions(port=args.port)
 

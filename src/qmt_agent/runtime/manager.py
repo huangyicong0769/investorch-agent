@@ -163,7 +163,14 @@ class AgentRuntime:
         )
         self._run_tasks.add(task)
         task.add_done_callback(self._run_tasks.discard)
-        active_run = ActiveRun(run_id=run_id, session_id=session_id, user_input=user_input, options=options, started_at=started_at, task=task)
+        active_run = ActiveRun(
+            run_id=run_id,
+            session_id=session_id,
+            user_input=user_input,
+            options=options,
+            started_at=started_at,
+            task=task,
+        )
         self._active_by_session[session_id] = active_run
         self._active_by_run[run_id] = active_run
         self._controls_by_run[run_id] = run_control
@@ -195,7 +202,12 @@ class AgentRuntime:
         control.close_submissions()
         self._notify_state(session_id)
         asyncio.get_running_loop().call_soon(active_run.task.cancel)
-        logger.info("Run cancelled by user session=%s run=%s pending_steer=%d", session_id, active_run.run_id, active_run.stopped_pending_steer_count)
+        logger.info(
+            "Run cancelled by user session=%s run=%s pending_steer=%d",
+            session_id,
+            active_run.run_id,
+            active_run.stopped_pending_steer_count,
+        )
         return active_run
 
     def has_active_runs(self) -> bool:
@@ -233,7 +245,11 @@ class AgentRuntime:
 
         if active_run.options.follow_up_behavior == "queue":
             queued_input = QueuedInput(
-                queue_id=uuid.uuid4().hex, session_id=session_id, text=text, options=next_run_options, created_at=datetime.now(UTC)
+                queue_id=uuid.uuid4().hex,
+                session_id=session_id,
+                text=text,
+                options=next_run_options,
+                created_at=datetime.now(UTC),
             )
             self._queued_by_session.setdefault(session_id, deque()).append(queued_input)
             self._notify_state(session_id)
@@ -248,16 +264,33 @@ class AgentRuntime:
                     journal_seq=None,
                 )
             )
-            logger.info("Follow-up submitted behavior=queue session=%s run=%s queue=%s", session_id, active_run.run_id, queued_input.queue_id)
-            return FollowUpSubmission(session_id=session_id, active_run_id=active_run.run_id, behavior="queue", follow_up_id=queued_input.queue_id)
+            logger.info(
+                "Follow-up submitted behavior=queue session=%s run=%s queue=%s",
+                session_id,
+                active_run.run_id,
+                queued_input.queue_id,
+            )
+            return FollowUpSubmission(
+                session_id=session_id,
+                active_run_id=active_run.run_id,
+                behavior="queue",
+                follow_up_id=queued_input.queue_id,
+            )
 
         control = self._controls_by_run[active_run.run_id]
         steer = control.reserve_steer(text, next_run_options)
         try:
-            journal_seq, cancellation = await _await_journal_write(self._record_user_steer(session_id, active_run.run_id, text))
+            journal_seq, cancellation = await _await_journal_write(
+                self._record_user_steer(session_id, active_run.run_id, text)
+            )
         except BaseException:
             control.discard_submission(steer.steer_id)
-            logger.exception("Failed to append Steer input to journal session=%s run=%s steer=%s", session_id, active_run.run_id, steer.steer_id)
+            logger.exception(
+                "Failed to append Steer input to journal session=%s run=%s steer=%s",
+                session_id,
+                active_run.run_id,
+                steer.steer_id,
+            )
             raise
         if cancellation is not None:
             control.mark_ready(steer.steer_id, journal_seq)
@@ -278,8 +311,15 @@ class AgentRuntime:
         finally:
             control.mark_ready(steer.steer_id, journal_seq)
 
-        logger.info("Follow-up submitted behavior=steer session=%s run=%s steer=%s", session_id, active_run.run_id, steer.steer_id)
-        return FollowUpSubmission(session_id=session_id, active_run_id=active_run.run_id, behavior="steer", follow_up_id=steer.steer_id)
+        logger.info(
+            "Follow-up submitted behavior=steer session=%s run=%s steer=%s",
+            session_id,
+            active_run.run_id,
+            steer.steer_id,
+        )
+        return FollowUpSubmission(
+            session_id=session_id, active_run_id=active_run.run_id, behavior="steer", follow_up_id=steer.steer_id
+        )
 
     def session_snapshot(self, session_id: str) -> RuntimeSessionSnapshot:
         active_run = self._active_by_session.get(session_id)
@@ -292,7 +332,10 @@ class AgentRuntime:
             active_follow_up_behavior=(active_run.options.follow_up_behavior if active_run is not None else None),
             queued_count=len(self._queued_by_session.get(session_id, ())),
             queue_paused=session_id in self._queue_paused_sessions,
-            pending_steer_count=((control.pending_count() if control is not None else 0) + len(self._steer_fallback_by_session.get(session_id, ()))),
+            pending_steer_count=(
+                (control.pending_count() if control is not None else 0)
+                + len(self._steer_fallback_by_session.get(session_id, ()))
+            ),
             todos=tuple(dict(todo) for todo in active_run.todos) if active_run is not None else (),
         )
 
@@ -355,7 +398,13 @@ class AgentRuntime:
         if (
             session_id in self._active_by_session
             or session_id in self._maintenance_sessions
-            or (not allow_pending_work and (bool(self._steer_fallback_by_session.get(session_id)) or bool(self._queued_by_session.get(session_id))))
+            or (
+                not allow_pending_work
+                and (
+                    bool(self._steer_fallback_by_session.get(session_id))
+                    or bool(self._queued_by_session.get(session_id))
+                )
+            )
         ):
             raise SessionBusyError(f"Session {session_id} already has an active operation")
 
@@ -421,7 +470,11 @@ class AgentRuntime:
 
         async def handle_approval(approval_user_input: str, tool_name: str, arguments: str | None) -> ApprovalOutcome:
             active_run = self._active_by_run.get(run_id)
-            if active_run is not None and active_run.session_id == session_id and self._active_by_session.get(session_id) is active_run:
+            if (
+                active_run is not None
+                and active_run.session_id == session_id
+                and self._active_by_session.get(session_id) is active_run
+            ):
                 active_run.phase = "waiting_approval"
                 self._notify_state(session_id)
             try:
@@ -499,11 +552,19 @@ class AgentRuntime:
                     fallbacks = run_control.take_fallbacks()
                     if fallbacks:
                         self._steer_fallback_by_session.setdefault(session_id, deque()).extend(fallbacks)
-                        logger.info("Steer terminal fallback session=%s run=%s count=%d", session_id, run_id, len(fallbacks))
+                        logger.info(
+                            "Steer terminal fallback session=%s run=%s count=%d", session_id, run_id, len(fallbacks)
+                        )
                 else:
                     discarded_steer_count = run_control.discard()
                     if discarded_steer_count:
-                        logger.info("Discarded unconsumed Steer input session=%s run=%s status=%s count=%d", session_id, run_id, status, discarded_steer_count)
+                        logger.info(
+                            "Discarded unconsumed Steer input session=%s run=%s status=%s count=%d",
+                            session_id,
+                            run_id,
+                            status,
+                            discarded_steer_count,
+                        )
                     self.pause_queue(session_id)
                 self._active_by_run.pop(run_id, None)
                 if active_run is not None and self._active_by_session.get(session_id) is active_run:
@@ -550,7 +611,11 @@ class AgentRuntime:
             await self._follow_up_handler(event)
         except Exception:
             logger.exception(
-                "Runtime follow-up handler failed for session=%s run=%s follow_up=%s kind=%s", event.session_id, event.run_id, event.follow_up_id, event.kind
+                "Runtime follow-up handler failed for session=%s run=%s follow_up=%s kind=%s",
+                event.session_id,
+                event.run_id,
+                event.follow_up_id,
+                event.kind,
             )
 
     async def _try_promote_steer_fallback(self, session_id: str) -> None:
@@ -565,7 +630,12 @@ class AgentRuntime:
 
     async def _promote_steer_fallback(self, session_id: str) -> None:
         queue = self._steer_fallback_by_session.get(session_id)
-        if self._closed or not queue or session_id in self._active_by_session or session_id in self._maintenance_sessions:
+        if (
+            self._closed
+            or not queue
+            or session_id in self._active_by_session
+            or session_id in self._maintenance_sessions
+        ):
             return
 
         steer = queue.popleft()
@@ -573,7 +643,14 @@ class AgentRuntime:
             self._steer_fallback_by_session.pop(session_id, None)
         start_gate = asyncio.Event()
         try:
-            active_run = self._start_run(session_id, steer.text, steer.options, record_user_message=False, start_gate=start_gate, allow_steer_fallback=True)
+            active_run = self._start_run(
+                session_id,
+                steer.text,
+                steer.options,
+                record_user_message=False,
+                start_gate=start_gate,
+                allow_steer_fallback=True,
+            )
         except Exception:
             self._steer_fallback_by_session.setdefault(session_id, deque()).appendleft(steer)
             raise
@@ -594,7 +671,13 @@ class AgentRuntime:
             input_journal.succeed()
         finally:
             start_gate.set()
-        logger.info("Promoted Steer fallback session=%s source_run=%s run=%s steer=%s", session_id, steer.source_run_id, active_run.run_id, steer.steer_id)
+        logger.info(
+            "Promoted Steer fallback session=%s source_run=%s run=%s steer=%s",
+            session_id,
+            steer.source_run_id,
+            active_run.run_id,
+            steer.steer_id,
+        )
 
     async def _try_promote_queue(self, session_id: str) -> None:
         task = asyncio.current_task()
@@ -623,7 +706,12 @@ class AgentRuntime:
         start_gate = asyncio.Event()
         try:
             active_run = self._start_run(
-                session_id, queued_input.text, queued_input.options, record_user_message=False, start_gate=start_gate, allow_queue_promotion=True
+                session_id,
+                queued_input.text,
+                queued_input.options,
+                record_user_message=False,
+                start_gate=start_gate,
+                allow_queue_promotion=True,
             )
         except Exception:
             self._queued_by_session.setdefault(session_id, deque()).appendleft(queued_input)
@@ -632,7 +720,9 @@ class AgentRuntime:
 
         await asyncio.sleep(0)
         try:
-            journal_seq, cancellation = await _await_journal_write(self._record_user_message(session_id, queued_input.text))
+            journal_seq, cancellation = await _await_journal_write(
+                self._record_user_message(session_id, queued_input.text)
+            )
         except BaseException as error:
             input_journal.fail(error)
             self._queued_by_session.setdefault(session_id, deque()).appendleft(queued_input)
@@ -642,13 +732,23 @@ class AgentRuntime:
             await asyncio.gather(active_run.task, return_exceptions=True)
             if isinstance(error, asyncio.CancelledError):
                 raise
-            logger.exception("Queued input promotion failed before Agent execution session=%s run=%s queue=%s", session_id, active_run.run_id, queued_input.queue_id)
+            logger.exception(
+                "Queued input promotion failed before Agent execution session=%s run=%s queue=%s",
+                session_id,
+                active_run.run_id,
+                queued_input.queue_id,
+            )
             return
 
         input_journal.succeed()
         if cancellation is not None:
             start_gate.set()
-            logger.info("Queued input journal committed during cancelled promotion session=%s run=%s queue=%s", session_id, active_run.run_id, queued_input.queue_id)
+            logger.info(
+                "Queued input journal committed during cancelled promotion session=%s run=%s queue=%s",
+                session_id,
+                active_run.run_id,
+                queued_input.queue_id,
+            )
             raise cancellation
         try:
             await self._notify_follow_up(
@@ -664,4 +764,6 @@ class AgentRuntime:
             )
         finally:
             start_gate.set()
-        logger.info("Queued input promoted session=%s run=%s queue=%s", session_id, active_run.run_id, queued_input.queue_id)
+        logger.info(
+            "Queued input promoted session=%s run=%s queue=%s", session_id, active_run.run_id, queued_input.queue_id
+        )

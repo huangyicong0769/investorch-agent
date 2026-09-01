@@ -70,8 +70,12 @@ class ApprovalCoordinator:
                 review_usage = review_result.usage
                 review = review_result.review
             except Exception:
-                logger.exception("Permission review failed for tool %s; falling back to manual approval", request.tool_name)
-                review = PermissionReview(decision="ask", reason="AutoReview is unavailable; manual approval is required.")
+                logger.exception(
+                    "Permission review failed for tool %s; falling back to manual approval", request.tool_name
+                )
+                review = PermissionReview(
+                    decision="ask", reason="AutoReview is unavailable; manual approval is required."
+                )
 
             review_decision = review.decision
             review_reason = review.reason

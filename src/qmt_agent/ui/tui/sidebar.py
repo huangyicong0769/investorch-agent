@@ -37,7 +37,9 @@ def format_session_status(snapshot: RuntimeSessionSnapshot | None) -> str:
 
 
 class SessionListItem(ListItem):
-    def __init__(self, record: SessionRecord, *, current: bool = False, snapshot: RuntimeSessionSnapshot | None = None) -> None:
+    def __init__(
+        self, record: SessionRecord, *, current: bool = False, snapshot: RuntimeSessionSnapshot | None = None
+    ) -> None:
         self.record = record
         self.session_id = record.session_id
         title = record.title or "(untitled)"
@@ -59,14 +61,23 @@ class SessionListItem(ListItem):
 
 
 class SessionSidebar(ListView):
-    async def replace_sessions(self, records: list[SessionRecord], current_session_id: str, snapshots: dict[str, RuntimeSessionSnapshot]) -> None:
+    async def replace_sessions(
+        self, records: list[SessionRecord], current_session_id: str, snapshots: dict[str, RuntimeSessionSnapshot]
+    ) -> None:
         await self.clear()
         current_index: int | None = None
         session_ids = {record.session_id for record in records}
 
         if current_session_id not in session_ids:
             records = [
-                SessionRecord(session_id=current_session_id, title=None, branch_from_session_id=None, archived_at=None, created_at="", updated_at=""),
+                SessionRecord(
+                    session_id=current_session_id,
+                    title=None,
+                    branch_from_session_id=None,
+                    archived_at=None,
+                    created_at="",
+                    updated_at="",
+                ),
                 *records,
             ]
 

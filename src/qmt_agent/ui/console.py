@@ -1,5 +1,6 @@
 import asyncio
 import json
+
 from qmt_agent.output import (
     AgentChanged,
     AssistantMessage,
@@ -8,6 +9,7 @@ from qmt_agent.output import (
     ToolCalled,
     ToolOutput,
 )
+
 
 class ConsoleUI:
     def write(self, text: str) -> None:

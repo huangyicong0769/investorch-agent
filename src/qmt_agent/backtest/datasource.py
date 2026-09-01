@@ -14,9 +14,7 @@ from rqalpha.utils.datetime_func import convert_date_to_int
 
 _RQ_TO_CN_EXCHANGE = {"XSHG": "SH", "XSHE": "SZ"}
 _DAY_BAR_DTYPE = SecuritiesDayBarStore.DEFAULT_DTYPE
-_ADJ_FACTOR_DTYPE = np.dtype(
-    [("start_date", np.int64), ("ex_cum_factor", np.float64)]
-)
+_ADJ_FACTOR_DTYPE = np.dtype([("start_date", np.int64), ("ex_cum_factor", np.float64)])
 
 
 def _to_cnequity_symbol(order_book_id: str) -> str:
@@ -39,10 +37,7 @@ class CNEquityStockDayBarStore(AbstractDayBarStore):
         self._is_suspended = is_suspended
         self._end_date = end_date
         self._bars: dict[str, np.ndarray] = {}
-        datasets = {
-            row["dataset"]: row
-            for row in list_datasets(config=config).iter_rows(named=True)
-        }
+        datasets = {row["dataset"]: row for row in list_datasets(config=config).iter_rows(named=True)}
         daily_bars = datasets.get("daily_bars")
         if daily_bars is None:
             raise RuntimeError("CNEquity daily_bars is unavailable")
@@ -77,9 +72,7 @@ class CNEquityStockDayBarStore(AbstractDayBarStore):
         required = {"symbol", "trade_date", "open", "close", "high", "low", "volume", "amount"}
         missing = sorted(required - set(frame.columns))
         if missing:
-            raise RuntimeError(
-                f"CNEquity daily_bars for {symbol} is missing fields: {', '.join(missing)}"
-            )
+            raise RuntimeError(f"CNEquity daily_bars for {symbol} is missing fields: {', '.join(missing)}")
         if frame.is_empty():
             raise RuntimeError(f"CNEquity daily_bars has no bars for {symbol}")
         if set(frame["symbol"].to_list()) != {symbol}:
@@ -103,17 +96,11 @@ class CNEquityStockDayBarStore(AbstractDayBarStore):
             ("amount", "total_turnover"),
         ):
             try:
-                values = frame[source].fill_null(float("nan")).to_numpy().astype(
-                    np.float64, copy=False
-                )
+                values = frame[source].fill_null(float("nan")).to_numpy().astype(np.float64, copy=False)
             except (TypeError, ValueError) as exc:
-                raise RuntimeError(
-                    f"CNEquity daily_bars has invalid {source} values for {symbol}"
-                ) from exc
+                raise RuntimeError(f"CNEquity daily_bars has invalid {source} values for {symbol}") from exc
             if source != "amount" and not np.all(np.isfinite(values)):
-                raise RuntimeError(
-                    f"CNEquity daily_bars has invalid {source} values for {symbol}"
-                )
+                raise RuntimeError(f"CNEquity daily_bars has invalid {source} values for {symbol}")
             bars[target] = values
 
         native = self._fallback.get_bars(order_book_id)
@@ -122,9 +109,7 @@ class CNEquityStockDayBarStore(AbstractDayBarStore):
         matched[matched] &= native["datetime"][positions[matched]] == bars["datetime"][matched]
         if not np.all(matched):
             missing_date = str(int(bars["datetime"][np.flatnonzero(~matched)[0]]))[:8]
-            raise RuntimeError(
-                f"RQAlpha bundle has no stock bar for {order_book_id} on {missing_date}"
-            )
+            raise RuntimeError(f"RQAlpha bundle has no stock bar for {order_book_id} on {missing_date}")
         native_in_scope = native[
             (native["datetime"] >= convert_date_to_int(self._coverage_start))
             & (native["datetime"] <= convert_date_to_int(self._end_date))
@@ -136,18 +121,10 @@ class CNEquityStockDayBarStore(AbstractDayBarStore):
         native_in_scope = native_in_scope[~suspended]
         cn_positions = bars["datetime"].searchsorted(native_in_scope["datetime"])
         cn_matched = cn_positions < len(bars)
-        cn_matched[cn_matched] &= (
-            bars["datetime"][cn_positions[cn_matched]]
-            == native_in_scope["datetime"][cn_matched]
-        )
+        cn_matched[cn_matched] &= bars["datetime"][cn_positions[cn_matched]] == native_in_scope["datetime"][cn_matched]
         if not np.all(cn_matched):
-            missing_date = str(
-                int(native_in_scope["datetime"][np.flatnonzero(~cn_matched)[0]])
-            )[:8]
-            raise RuntimeError(
-                f"CNEquity daily_bars has no normal trading bar for {symbol} on "
-                f"{missing_date}"
-            )
+            missing_date = str(int(native_in_scope["datetime"][np.flatnonzero(~cn_matched)[0]]))[:8]
+            raise RuntimeError(f"CNEquity daily_bars has no normal trading bar for {symbol} on {missing_date}")
         bars["limit_up"] = native["limit_up"][positions]
         bars["limit_down"] = native["limit_down"][positions]
         return bars
@@ -164,10 +141,7 @@ class CNEquityExFactorStore(AbstractSimpleFactorStore):
         self._fallback = fallback
         self._end_date = end_date
         self._factors: dict[str, np.ndarray] = {}
-        datasets = {
-            row["dataset"]: row
-            for row in list_datasets(config=config).iter_rows(named=True)
-        }
+        datasets = {row["dataset"]: row for row in list_datasets(config=config).iter_rows(named=True)}
         adj_factors = datasets.get("adj_factors")
         if adj_factors is None:
             raise RuntimeError("CNEquity adj_factors is unavailable")
@@ -197,9 +171,7 @@ class CNEquityExFactorStore(AbstractSimpleFactorStore):
         required = {"symbol", "trade_date", "adjust_type", "factor"}
         missing = sorted(required - set(frame.columns))
         if missing:
-            raise RuntimeError(
-                f"CNEquity adj_factors for {symbol} is missing fields: {', '.join(missing)}"
-            )
+            raise RuntimeError(f"CNEquity adj_factors for {symbol} is missing fields: {', '.join(missing)}")
         if not frame.is_empty() and set(frame["symbol"].to_list()) != {symbol}:
             raise RuntimeError(f"CNEquity adj_factors returned unexpected symbols for {symbol}")
         frame = frame.filter(frame["adjust_type"] == "hfq").sort("trade_date")
@@ -213,18 +185,12 @@ class CNEquityExFactorStore(AbstractSimpleFactorStore):
             count=frame.height,
         )
         try:
-            factors["ex_cum_factor"] = frame["factor"].to_numpy().astype(
-                np.float64, copy=False
-            )
+            factors["ex_cum_factor"] = frame["factor"].to_numpy().astype(np.float64, copy=False)
         except (TypeError, ValueError) as exc:
-            raise RuntimeError(
-                f"CNEquity adj_factors has invalid hfq factors for {symbol}"
-            ) from exc
+            raise RuntimeError(f"CNEquity adj_factors has invalid hfq factors for {symbol}") from exc
         if len(np.unique(factors["start_date"])) != len(factors):
             raise RuntimeError(f"CNEquity adj_factors has duplicate dates for {symbol}")
-        if not np.all(np.isfinite(factors["ex_cum_factor"])) or np.any(
-            factors["ex_cum_factor"] <= 0
-        ):
+        if not np.all(np.isfinite(factors["ex_cum_factor"])) or np.any(factors["ex_cum_factor"] <= 0):
             raise RuntimeError(f"CNEquity adj_factors has invalid hfq factors for {symbol}")
         return factors
 

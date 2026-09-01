@@ -204,7 +204,9 @@ def _backup_target(workspace: Path, backup_dir: Path | None, entry: _BootstrapTa
         backup_path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(entry.target, backup_path)
     except OSError as exc:
-        raise ConfigError(f"Unable to back up bootstrap target: {entry.target}; backup directory: {backup_dir}") from exc
+        raise ConfigError(
+            f"Unable to back up bootstrap target: {entry.target}; backup directory: {backup_dir}"
+        ) from exc
 
     return backup_path
 

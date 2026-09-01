@@ -11,6 +11,7 @@ from agents.mcp import MCPServer, MCPServerStreamableHttp
 
 _VARIABLE_PATTERN = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 
+
 def read_mcp_server_configs(path: str | Path) -> list[dict[str, Any]]:
     path = Path(path)
 
@@ -151,7 +152,10 @@ def _expand_variables(value: Any, variables: Mapping[str, str]) -> Any:
 
     return value
 
-def load_mcp_servers(path: str | Path, variables: Mapping[str, str] | None, default_timeout_seconds: int | float) -> list[MCPServer]:
+
+def load_mcp_servers(
+    path: str | Path, variables: Mapping[str, str] | None, default_timeout_seconds: int | float
+) -> list[MCPServer]:
     configs = read_mcp_server_configs(path)
 
     servers: list[MCPServer] = []
@@ -183,7 +187,7 @@ def load_mcp_servers(path: str | Path, variables: Mapping[str, str] | None, defa
                     "cache_tools_list",
                     False,
                 ),
-                client_session_timeout_seconds=server.get("timeout", default_timeout_seconds)
+                client_session_timeout_seconds=server.get("timeout", default_timeout_seconds),
             )
         )
 

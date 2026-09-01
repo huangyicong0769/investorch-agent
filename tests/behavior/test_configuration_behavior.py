@@ -26,7 +26,7 @@ def test_local_config_cannot_redirect_project_root(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    with pytest.raises(ConfigError, match="paths.root"):
+    with pytest.raises(ConfigError, match=r"paths\.root"):
         load_config(config.project_config_path)
 
 

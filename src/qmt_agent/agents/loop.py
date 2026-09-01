@@ -41,14 +41,18 @@ class AgentRunResult:
     auto_compaction_consistency_uncertain: bool = False
 
 
-def should_auto_compact(*, enabled: bool, context_tokens: int | None, context_window_tokens: int, trigger_ratio: float) -> bool:
+def should_auto_compact(
+    *, enabled: bool, context_tokens: int | None, context_window_tokens: int, trigger_ratio: float
+) -> bool:
     if not enabled or context_tokens is None:
         return False
     return context_tokens >= math.floor(context_window_tokens * trigger_ratio)
 
 
 class AgentLoop:
-    def __init__(self, agent: Agent[AgentContext], title_agent: Agent, compaction_agent: Agent, config: AppConfig) -> None:
+    def __init__(
+        self, agent: Agent[AgentContext], title_agent: Agent, compaction_agent: Agent, config: AppConfig
+    ) -> None:
         self._agent = agent
         self._title_agent = title_agent
         self._compaction_agent = compaction_agent
@@ -70,8 +74,16 @@ class AgentLoop:
     ) -> AgentRunResult:
         settings = self._agent.model_settings.resolve({"reasoning": {"effort": reasoning_effort}})
         run_agent = self._agent.clone(model_settings=settings)
-        agent_context = AgentContext(config=self._config, execution=execution, session_id=session_id, run_id=run_id, todo_update_handler=todo_update_handler)
-        result = Runner.run_streamed(run_agent, user_input, session=session, context=agent_context, max_turns=self._config["runtime.max_turns"])
+        agent_context = AgentContext(
+            config=self._config,
+            execution=execution,
+            session_id=session_id,
+            run_id=run_id,
+            todo_update_handler=todo_update_handler,
+        )
+        result = Runner.run_streamed(
+            run_agent, user_input, session=session, context=agent_context, max_turns=self._config["runtime.max_turns"]
+        )
 
         current_agent_name = run_agent.name
         approval_usage = TokenUsage()
@@ -86,13 +98,17 @@ class AgentLoop:
             sdk_state = result.to_state() if result.interruptions else None
             if sdk_state is not None:
                 for interruption in result.interruptions:
-                    outcome = await approval_handler(user_input, interruption.name or "unknown_tool", interruption.arguments)
+                    outcome = await approval_handler(
+                        user_input, interruption.name or "unknown_tool", interruption.arguments
+                    )
                     approval_usage += outcome.usage
 
                     if outcome.approved:
                         sdk_state.approve(interruption, always_approve=False)
                     else:
-                        sdk_state.reject(interruption, always_reject=False, rejection_message="The tool action was rejected.")
+                        sdk_state.reject(
+                            interruption, always_reject=False, rejection_message="The tool action was rejected."
+                        )
 
             pending_steers = await run_control.pending_for_boundary(seal_if_empty=not result.interruptions)
             staged_ids: list[str] = []
@@ -102,9 +118,9 @@ class AgentLoop:
                     for steer in pending_steers:
                         sdk_state.add_input(steer.text)
                         staged_ids.append(steer.steer_id)
-                except UserError:
+                except UserError as error:
                     if staged_ids:
-                        raise RuntimeError("Steer input staging failed after a partial FIFO write")
+                        raise RuntimeError("Steer input staging failed after a partial FIFO write") from error
                     run_control.move_pending_to_fallback()
                     logger.info(
                         "Steer input could not be staged and will continue as a subsequent Run: session=%s run=%s count=%d",
@@ -117,7 +133,9 @@ class AgentLoop:
                     logger.info("Steer staged session=%s run=%s count=%d", session_id, run_id, len(staged_ids))
 
             if sdk_state is not None and (result.interruptions or staged_ids):
-                result = Runner.run_streamed(run_agent, sdk_state, session=session, max_turns=self._config["runtime.max_turns"])
+                result = Runner.run_streamed(
+                    run_agent, sdk_state, session=session, max_turns=self._config["runtime.max_turns"]
+                )
                 continue
             break
 
@@ -126,7 +144,9 @@ class AgentLoop:
         title_usage = await ensure_session_title(self._title_agent, session, self._config.sessions_db)
         await output_handler(AssistantMessage(text=output))
         auto_compaction, auto_compaction_failed, consistency_uncertain = await self._auto_compact(session, main_usage)
-        auxiliary_usage = approval_usage + title_usage + (auto_compaction.usage if auto_compaction is not None else TokenUsage())
+        auxiliary_usage = (
+            approval_usage + title_usage + (auto_compaction.usage if auto_compaction is not None else TokenUsage())
+        )
         return AgentRunResult(
             output=output,
             main_usage=main_usage,
@@ -139,7 +159,9 @@ class AgentLoop:
     async def compact(self, session: SQLiteSession) -> CompactionResult:
         return await compact_session(self._compaction_agent, session, self._config)
 
-    async def _auto_compact(self, session: SQLiteSession, main_usage: TokenUsage) -> tuple[CompactionResult | None, bool, bool]:
+    async def _auto_compact(
+        self, session: SQLiteSession, main_usage: TokenUsage
+    ) -> tuple[CompactionResult | None, bool, bool]:
         context_tokens = main_usage.last_request_total_tokens
         context_window_tokens = self._config.model("main").context_window_tokens
         assert context_window_tokens is not None
@@ -177,7 +199,12 @@ class AgentLoop:
             return None, True, False
 
         if result.changed:
-            logger.info("Context compaction completed: trigger=auto session=%s context_tokens=%d threshold=%d", session.session_id, context_tokens, threshold)
+            logger.info(
+                "Context compaction completed: trigger=auto session=%s context_tokens=%d threshold=%d",
+                session.session_id,
+                context_tokens,
+                threshold,
+            )
         return result, False, False
 
     @property

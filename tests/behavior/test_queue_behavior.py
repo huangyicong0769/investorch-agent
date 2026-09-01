@@ -129,7 +129,9 @@ async def test_stop_preserves_and_pauses_queued_intent(tmp_path: Path) -> None:
     assert snapshot.queue_paused is True
     assert snapshot.queued_count == 2
     assert [item.text for item in harness.runtime.list_queued_inputs("session-a")] == ["Q1", "Q2"]
-    assert [record["text"] for record in read_session_journal(harness.config.session_journal_dir, "session-a")] == ["current"]
+    assert [record["text"] for record in read_session_journal(harness.config.session_journal_dir, "session-a")] == [
+        "current"
+    ]
     assert [event for event in harness.follow_ups if event.kind == "queue_promoted"] == []
     await harness.runtime.aclose()
 
@@ -147,7 +149,10 @@ async def test_resume_promotes_the_paused_queue_head(tmp_path: Path) -> None:
     await harness.runtime.resume_queue("session-a")
     await harness.agent_loop.wait_until_started("session-a", occurrence=2)
 
-    assert [record["text"] for record in read_session_journal(harness.config.session_journal_dir, "session-a")] == ["current", "Q1"]
+    assert [record["text"] for record in read_session_journal(harness.config.session_journal_dir, "session-a")] == [
+        "current",
+        "Q1",
+    ]
     assert [item.text for item in harness.runtime.list_queued_inputs("session-a")] == ["Q2"]
     harness.runtime.clear_queue("session-a")
     harness.agent_loop.complete("session-a")
@@ -179,8 +184,7 @@ async def test_removing_one_queue_item_preserves_remaining_fifo_order(tmp_path: 
     harness.runtime.start_run("session-a", "current", run_options("queue"))
     await harness.agent_loop.wait_until_started("session-a")
     submissions = [
-        await harness.runtime.submit_follow_up("session-a", text, run_options())
-        for text in ("Q1", "Q2", "Q3")
+        await harness.runtime.submit_follow_up("session-a", text, run_options()) for text in ("Q1", "Q2", "Q3")
     ]
 
     removed = harness.runtime.remove_queued_input("session-a", submissions[1].follow_up_id)

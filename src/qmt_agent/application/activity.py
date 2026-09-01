@@ -91,7 +91,9 @@ class ActivityCoordinator:
         self._tasks.clear()
         self._reasoning_by_run.clear()
 
-    async def _generate_label(self, *, output: RuntimeOutput, target_seq: int, user_message: str, reasoning: str) -> None:
+    async def _generate_label(
+        self, *, output: RuntimeOutput, target_seq: int, user_message: str, reasoning: str
+    ) -> None:
         event = output.event
         assert isinstance(event, ToolCalled)
         try:
@@ -112,7 +114,11 @@ class ActivityCoordinator:
         try:
             journal_seq = await self._journal.record_activity_label(output.session_id, target_seq, result.label)
         except Exception:
-            logger.exception("Failed to append activity label to session journal for session %s target %d", output.session_id, target_seq)
+            logger.exception(
+                "Failed to append activity label to session journal for session %s target %d",
+                output.session_id,
+                target_seq,
+            )
             return
 
         try:

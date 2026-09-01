@@ -1,15 +1,15 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import AsyncIterator
 
 import httpx
 from agents import Agent
 
-from qmt_agent.application import ApprovalCoordinator, ApplicationHost
+from qmt_agent.application import ApplicationHost, ApprovalCoordinator
 from qmt_agent.application.presentation_state import SessionPresentationStore
 from qmt_agent.application.sessions import SessionOperations
 from qmt_agent.context import AppState

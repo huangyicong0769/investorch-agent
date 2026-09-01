@@ -18,7 +18,6 @@ async def write_todos(context: RunContextWrapper[AgentContext], todos: list[Todo
     Returns:
         str: A formatted string representation of the current todo list.
     """
-
     in_progress = sum(todo["status"] == "in_progress" for todo in todos)
 
     if in_progress > 1:

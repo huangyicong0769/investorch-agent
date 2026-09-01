@@ -4,17 +4,23 @@ import asyncio
 import logging
 import sys
 import uuid
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from typing import AsyncIterator
 from zoneinfo import ZoneInfo
 
 from agents import ModelSettings, OpenAIResponsesModel
 from agents.mcp import MCPServer, MCPServerManager, MCPServerStdio
 from openai import AsyncOpenAI
 
-from qmt_agent.agents import AgentLoop, create_activity_agent, create_agent, create_compaction_agent, create_permission_agent, create_title_agent
+from qmt_agent.agents import (
+    AgentLoop,
+    create_activity_agent,
+    create_agent,
+    create_compaction_agent,
+    create_permission_agent,
+    create_title_agent,
+)
 from qmt_agent.config import AppConfig
 from qmt_agent.context import AppState, ExecutionState
 from qmt_agent.journal import SessionJournal
@@ -86,7 +92,9 @@ class ApplicationHost:
 def create_model(config: AppConfig, agent: str) -> tuple[OpenAIResponsesModel, ModelSettings]:
     model = config.model(agent)
     client = AsyncOpenAI(api_key=config.secret(model.api_key_secret), base_url=model.base_url)
-    return OpenAIResponsesModel(model=model.name, openai_client=client), ModelSettings(reasoning={"effort": model.reasoning_effort})
+    return OpenAIResponsesModel(model=model.name, openai_client=client), ModelSettings(
+        reasoning={"effort": model.reasoning_effort}
+    )
 
 
 def _load_agent_mcp_servers(config: AppConfig) -> list[MCPServer]:
@@ -96,7 +104,11 @@ def _load_agent_mcp_servers(config: AppConfig) -> list[MCPServer]:
 
     cnequity_server = MCPServerStdio(
         name="cnequity",
-        params={"command": sys.executable, "args": ["-m", "cnequity", "mcp", "--config", str(config.cnequity_config_path)], "cwd": str(config.root)},
+        params={
+            "command": sys.executable,
+            "args": ["-m", "cnequity", "mcp", "--config", str(config.cnequity_config_path)],
+            "cwd": str(config.root),
+        },
         cache_tools_list=config["cnequity.mcp_cache_tools_list"],
         client_session_timeout_seconds=config["mcp.default_timeout_seconds"],
     )
@@ -170,9 +182,15 @@ async def open_application_host(
         if activity is not None:
             activity.finish_run(event.run_id)
         try:
-            await journal.record_run_ended(event.session_id, event.run_id, event.status, event.started_at, event.ended_at)
+            await journal.record_run_ended(
+                event.session_id, event.run_id, event.status, event.started_at, event.ended_at
+            )
         except Exception:
-            logger.exception("Failed to append run-ended event to session journal for session %s run %s", event.session_id, event.run_id)
+            logger.exception(
+                "Failed to append run-ended event to session journal for session %s run %s",
+                event.session_id,
+                event.run_id,
+            )
         presentation_state.observe_run_ended(event)
         await callbacks.handle_run_ended(event)
 
@@ -197,7 +215,12 @@ async def open_application_host(
                 title_model, title_model_settings = create_model(config, "title")
                 compact_model, compact_model_settings = create_model(config, "compact")
                 permission_model, permission_model_settings = create_model(config, "permission")
-                agent = create_agent(model=main_model, model_settings=main_model_settings, config=config, mcp_servers=mcp_manager.active_servers)
+                agent = create_agent(
+                    model=main_model,
+                    model_settings=main_model_settings,
+                    config=config,
+                    mcp_servers=mcp_manager.active_servers,
+                )
                 agent_loop = AgentLoop(
                     agent,
                     create_title_agent(title_model, title_model_settings),

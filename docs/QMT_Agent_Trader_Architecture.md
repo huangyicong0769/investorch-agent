@@ -365,8 +365,7 @@ Tool 可以直接使用 Agents SDK 提供的 Function Tool 能力。
 
 ```python
 @function_tool
-def get_market_snapshot(symbol: str):
-    ...
+def get_market_snapshot(symbol: str): ...
 ```
 
 而不是自己定义一套：

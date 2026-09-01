@@ -19,11 +19,14 @@ _SECRET_PLACEHOLDER_PATTERN = re.compile(r"\$\{[A-Za-z_][A-Za-z0-9_]*\}")
 
 
 class MCPHeader(BaseModel):
-    name : str
-    value : str
+    name: str
+    value: str
+
 
 @tool
-def list_mcp_servers(context: RunContextWrapper[AgentContext],) -> dict[str, Any]:
+def list_mcp_servers(
+    context: RunContextWrapper[AgentContext],
+) -> dict[str, Any]:
     """
     List user-configured MCP servers from mcp.toml.
 
@@ -76,10 +79,7 @@ def configure_mcp_server(
     """
     config = context.context.config
 
-    header_dict = (
-        { header.name: header.value for header in headers }
-        if headers is not None else None
-    )
+    header_dict = {header.name: header.value for header in headers} if headers is not None else None
 
     server = configure_mcp_server_config(
         config.mcp_config_path,
@@ -145,6 +145,9 @@ def _public_secret_value(value: str) -> str:
 def _redact_url(url: str) -> str:
     parts = urlsplit(url)
     netloc = re.sub(r"^[^@]+@", f"{REDACTED}@", parts.netloc)
-    query = "&".join(f"{quote_plus(name)}={_public_secret_value(value)}" for name, value in parse_qsl(parts.query, keep_blank_values=True))
+    query = "&".join(
+        f"{quote_plus(name)}={_public_secret_value(value)}"
+        for name, value in parse_qsl(parts.query, keep_blank_values=True)
+    )
     fragment = _public_secret_value(parts.fragment) if parts.fragment else ""
     return urlunsplit((parts.scheme, netloc, parts.path, query, fragment))

@@ -34,10 +34,7 @@ def _validate_cnequity_data(config_path: Path, start_date: date, end_date: date)
     if not config_path.is_file():
         raise FileNotFoundError(f"CNEquity config not found: {config_path}")
     config = load_cnequity_config(config_path)
-    datasets = {
-        row["dataset"]: row
-        for row in list_datasets(config=config).iter_rows(named=True)
-    }
+    datasets = {row["dataset"]: row for row in list_datasets(config=config).iter_rows(named=True)}
     missing = sorted(set(_COVERED_DATASETS) - datasets.keys())
     if missing:
         raise RuntimeError(f"CNEquity datasets are unavailable: {', '.join(missing)}")
@@ -47,7 +44,9 @@ def _validate_cnequity_data(config_path: Path, start_date: date, end_date: date)
         if coverage_start is None or coverage_end is None:
             raise RuntimeError(f"CNEquity {dataset} has no data coverage")
         if coverage_start > start_date:
-            raise RuntimeError(f"CNEquity {dataset} coverage starts at {coverage_start}, but backtest requests {start_date}")
+            raise RuntimeError(
+                f"CNEquity {dataset} coverage starts at {coverage_start}, but backtest requests {start_date}"
+            )
         if coverage_end < end_date:
             raise RuntimeError(f"CNEquity {dataset} coverage ends at {coverage_end}, but backtest requests {end_date}")
 

@@ -16,11 +16,12 @@ from agents.decorators import tool
 
 from qmt_agent.backtest import (
     inspect_rqalpha_bundle,
+)
+from qmt_agent.backtest import (
     run_backtest as run_rqalpha_backtest,
 )
 from qmt_agent.config import AppConfig
 from qmt_agent.context import AgentContext
-
 
 _TABULAR_RESULTS = (
     "portfolio",
@@ -53,14 +54,10 @@ def _inspect_rqalpha_data(
     symbols: list[str] | None = None,
 ) -> dict[str, Any]:
     if config["backtest.use_cnequity"]:
-        raise RuntimeError(
-            "inspect_rqalpha_data is unavailable while the CNEquity backtest overlay is enabled"
-        )
+        raise RuntimeError("inspect_rqalpha_data is unavailable while the CNEquity backtest overlay is enabled")
     limit = config["backtest.inspect_max_symbols"]
     if symbols is not None and len(symbols) > limit:
-        raise ValueError(
-            f"inspect_rqalpha_data accepts at most {limit} symbols"
-        )
+        raise ValueError(f"inspect_rqalpha_data accepts at most {limit} symbols")
     return inspect_rqalpha_bundle(config.rqalpha_bundle_dir, symbols)
 
 
@@ -152,11 +149,7 @@ def _run_backtest(
         "created_at": datetime.now(UTC).isoformat(),
         "engine": "rqalpha",
         "engine_version": engine_version,
-        "data_source": (
-            "cnequity_overlay"
-            if config["backtest.use_cnequity"]
-            else "rqalpha_bundle"
-        ),
+        "data_source": ("cnequity_overlay" if config["backtest.use_cnequity"] else "rqalpha_bundle"),
         "strategy_path": relative_strategy,
         "strategy_sha256": strategy_sha256,
         "start_date": start.isoformat(),

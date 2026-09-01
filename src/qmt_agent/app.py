@@ -9,19 +9,26 @@ from qmt_agent.agents import (
     create_bootstrap_sync_agent,
     run_bootstrap_sync,
 )
-from qmt_agent.application import ActivityLabelEvent, ApprovalResolvedEvent, ApplicationCallbacks, SessionOperations, create_model, open_application_host
+from qmt_agent.application import (
+    ActivityLabelEvent,
+    ApplicationCallbacks,
+    ApprovalResolvedEvent,
+    SessionOperations,
+    create_model,
+    open_application_host,
+)
 from qmt_agent.commands import dispatch_command, parse_command
 from qmt_agent.config import AppConfig, load_config
 from qmt_agent.context import AgentContext, AppState, ExecutionState
 from qmt_agent.initializer import initialize, sync_bootstrap_files
 from qmt_agent.log import configure_logging
 from qmt_agent.runtime import (
-    ApprovalRequest,
     AgentRuntime,
+    ApprovalRequest,
     RunOptions,
     RuntimeFollowUpEvent,
-    RuntimeRunEnded,
     RuntimeOutput,
+    RuntimeRunEnded,
     RuntimeSessionSnapshot,
 )
 from qmt_agent.storage import is_session_archived
@@ -55,13 +62,19 @@ async def _run_console(state: AppState, runtime: AgentRuntime, sessions: Session
         active_run = runtime.start_run(
             session_id,
             user_input,
-            RunOptions(reasoning_effort=state.main_reasoning_effort, permission_mode=state.permission_mode, follow_up_behavior=state.follow_up_behavior),
+            RunOptions(
+                reasoning_effort=state.main_reasoning_effort,
+                permission_mode=state.permission_mode,
+                follow_up_behavior=state.follow_up_behavior,
+            ),
         )
         result = await active_run.task
         if result.auto_compaction is not None and result.auto_compaction.changed:
             ui.write("Context compacted automatically.")
         elif result.auto_compaction_consistency_uncertain:
-            ui.write("Automatic context compaction failed and context storage may be damaged. Stop this session and see the system log.")
+            ui.write(
+                "Automatic context compaction failed and context storage may be damaged. Stop this session and see the system log."
+            )
         elif result.auto_compaction_failed:
             ui.write("Automatic context compaction failed; existing context was kept. Use /compact to retry.")
 
@@ -84,14 +97,18 @@ async def run_app(sync: bool = False, sync_force: bool = False, plain: bool = Fa
         logger.info("QMT Agent stopped")
 
 
-async def _run_configured_app(ui: ConsoleUI, config: AppConfig, initialized: bool, sync: bool, sync_force: bool, plain: bool) -> None:
+async def _run_configured_app(
+    ui: ConsoleUI, config: AppConfig, initialized: bool, sync: bool, sync_force: bool, plain: bool
+) -> None:
     def report_sync_progress(index: int, total: int, target: Path, status: str) -> None:
         relative_target = target.relative_to(config.workspace_dir)
         ui.write(f"[{index}/{total}] {status.capitalize()} {relative_target}")
 
     if initialized and not sync_force:
         logger.info("First initialization completed at %s", config.root)
-        ui.write(f"QMT Agent initialized at {config.root}\nPlease configure required secrets in {config.root_config_path} and start QMT Agent again.")
+        ui.write(
+            f"QMT Agent initialized at {config.root}\nPlease configure required secrets in {config.root_config_path} and start QMT Agent again."
+        )
         return
 
     if sync_force:
@@ -99,12 +116,20 @@ async def _run_configured_app(ui: ConsoleUI, config: AppConfig, initialized: boo
         result = await sync_bootstrap_files(config, force=True, progress=report_sync_progress)
         backup = result.backup_dir or "none"
         logger.info(
-            "Bootstrap force synchronization completed: created=%d updated=%d unchanged=%d backup=%s", result.created, result.updated, result.unchanged, backup
+            "Bootstrap force synchronization completed: created=%d updated=%d unchanged=%d backup=%s",
+            result.created,
+            result.updated,
+            result.unchanged,
+            backup,
         )
-        ui.write(f"Bootstrap files force-synchronized: created={result.created}, updated={result.updated}, unchanged={result.unchanged}, backup={backup}")
+        ui.write(
+            f"Bootstrap files force-synchronized: created={result.created}, updated={result.updated}, unchanged={result.unchanged}, backup={backup}"
+        )
         if initialized:
             logger.info("First initialization completed at %s", config.root)
-            ui.write(f"QMT Agent initialized at {config.root}\nPlease configure required secrets in {config.root_config_path} before starting QMT Agent.")
+            ui.write(
+                f"QMT Agent initialized at {config.root}\nPlease configure required secrets in {config.root_config_path} before starting QMT Agent."
+            )
         return
 
     if sync:
@@ -113,16 +138,24 @@ async def _run_configured_app(ui: ConsoleUI, config: AppConfig, initialized: boo
         agent = create_bootstrap_sync_agent(model, model_settings)
 
         async def merge_target(target: Path, template: str, exists: bool) -> None:
-            context = AgentContext(config=config, execution=ExecutionState(), session_id="bootstrap-sync", run_id="bootstrap-sync")
+            context = AgentContext(
+                config=config, execution=ExecutionState(), session_id="bootstrap-sync", run_id="bootstrap-sync"
+            )
             prompt = build_bootstrap_sync_prompt(target, config.workspace_dir, template, exists)
             await run_bootstrap_sync(agent, context, prompt, target)
 
         result = await sync_bootstrap_files(config, merge_target, progress=report_sync_progress)
         backup = result.backup_dir or "none"
         logger.info(
-            "Bootstrap synchronization completed: created=%d updated=%d unchanged=%d backup=%s", result.created, result.updated, result.unchanged, backup
+            "Bootstrap synchronization completed: created=%d updated=%d unchanged=%d backup=%s",
+            result.created,
+            result.updated,
+            result.unchanged,
+            backup,
         )
-        ui.write(f"Bootstrap files synchronized: created={result.created}, updated={result.updated}, unchanged={result.unchanged}, backup={backup}")
+        ui.write(
+            f"Bootstrap files synchronized: created={result.created}, updated={result.updated}, unchanged={result.unchanged}, backup={backup}"
+        )
         return
 
     renderer = ConsoleRenderer(ui) if plain else None
@@ -134,7 +167,9 @@ async def _run_configured_app(ui: ConsoleUI, config: AppConfig, initialized: boo
             return
 
         assert tui is not None
-        await tui.handle_output(output.event, session_id=output.session_id, run_id=output.run_id, journal_seq=journal_seq)
+        await tui.handle_output(
+            output.event, session_id=output.session_id, run_id=output.run_id, journal_seq=journal_seq
+        )
 
     async def handle_follow_up(event: RuntimeFollowUpEvent) -> None:
         if tui is not None:
@@ -182,7 +217,9 @@ async def _run_configured_app(ui: ConsoleUI, config: AppConfig, initialized: boo
         handle_activity_label=handle_activity_label,
     )
 
-    async with open_application_host(config, manual_approval_handler=request_user_approval, callbacks=callbacks, enable_activity=not plain) as host:
+    async with open_application_host(
+        config, manual_approval_handler=request_user_approval, callbacks=callbacks, enable_activity=not plain
+    ) as host:
         if plain:
             await _run_console(host.state, host.runtime, host.sessions, ui)
             return

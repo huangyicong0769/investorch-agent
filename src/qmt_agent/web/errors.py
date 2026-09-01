@@ -60,7 +60,9 @@ def raise_application_error(error: Exception) -> NoReturn:
             details={"paused": error.paused},
         ) from error
     if isinstance(error, SteerPromotionPendingError):
-        raise APIError(409, "steer_promotion_pending", "A Steer follow-up is being promoted for this session.") from error
+        raise APIError(
+            409, "steer_promotion_pending", "A Steer follow-up is being promoted for this session."
+        ) from error
     if isinstance(error, ActiveRunChangedError):
         raise APIError(
             409,
@@ -85,7 +87,9 @@ def raise_application_error(error: Exception) -> NoReturn:
             details={"consistency_uncertain": True},
         ) from error
     if isinstance(error, SessionForkError):
-        raise APIError(503, "fork_failed", "The session could not be forked.", details={"consistency_uncertain": False}) from error
+        raise APIError(
+            503, "fork_failed", "The session could not be forked.", details={"consistency_uncertain": False}
+        ) from error
     if isinstance(error, SessionBusyError):
         raise APIError(409, "session_busy", "This session has an active operation.") from error
     raise error
@@ -98,14 +102,20 @@ def _error_payload(code: str, message: str, details: dict[str, object] | None = 
 def install_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(APIError)
     async def handle_api_error(_request: Request, error: APIError) -> JSONResponse:
-        return JSONResponse(status_code=error.status_code, content=_error_payload(error.code, error.message, error.details))
+        return JSONResponse(
+            status_code=error.status_code, content=_error_payload(error.code, error.message, error.details)
+        )
 
     @app.exception_handler(RequestValidationError)
     async def handle_validation_error(_request: Request, error: RequestValidationError) -> JSONResponse:
-        errors = [{"type": item["type"], "location": list(item["loc"]), "message": item["msg"]} for item in error.errors()]
+        errors = [
+            {"type": item["type"], "location": list(item["loc"]), "message": item["msg"]} for item in error.errors()
+        ]
         return JSONResponse(
             status_code=422,
-            content=_error_payload("validation_error", "The request did not match the required schema.", {"errors": errors}),
+            content=_error_payload(
+                "validation_error", "The request did not match the required schema.", {"errors": errors}
+            ),
         )
 
     @app.exception_handler(StarletteHTTPException)
@@ -116,5 +126,9 @@ def install_error_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(Exception)
     async def handle_unexpected_error(request: Request, error: Exception) -> JSONResponse:
-        logger.exception("Unexpected Web API failure method=%s path=%s", request.method, request.url.path, exc_info=error)
-        return JSONResponse(status_code=500, content=_error_payload("internal_error", "An unexpected internal error occurred."))
+        logger.exception(
+            "Unexpected Web API failure method=%s path=%s", request.method, request.url.path, exc_info=error
+        )
+        return JSONResponse(
+            status_code=500, content=_error_payload("internal_error", "An unexpected internal error occurred.")
+        )

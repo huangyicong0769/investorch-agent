@@ -255,7 +255,7 @@ def explore(
             raise ValueError(f"Workspace path does not exist: {path}")
 
         if not target.is_dir():
-            raise ValueError( f"Path is not a directory: {path}")
+            raise ValueError(f"Path is not a directory: {path}")
 
         return _list_directory(
             root=root,
@@ -430,7 +430,10 @@ def delete(
     if not resolved.exists():
         raise ValueError(f"Workspace path does not exist: {path}")
 
-    display_path = _display_path(root, resolved,)
+    display_path = _display_path(
+        root,
+        resolved,
+    )
 
     if resolved.is_file():
         resolved.unlink()
@@ -504,9 +507,7 @@ def _evaluate_calculation_node(node: ast.AST, max_abs_exponent: int, max_integer
 
     if isinstance(node, ast.Name):
         if node.id not in _CALCULATE_CONSTANTS:
-            raise ValueError(
-                f"Unknown constant: {node.id}"
-            )
+            raise ValueError(f"Unknown constant: {node.id}")
 
         return _CALCULATE_CONSTANTS[node.id]
 
@@ -749,7 +750,7 @@ def _search(root: Path, target: Path, query: str, *, max_results: int, max_snipp
                     snippet = line.rstrip("\r\n")
 
                     if len(snippet) > max_snippet_chars:
-                        snippet = (snippet[:max_snippet_chars] + "...")
+                        snippet = snippet[:max_snippet_chars] + "..."
 
                     results.append(
                         {
@@ -860,9 +861,7 @@ def format_background_jobs(jobs: list[BackgroundJob]) -> str:
             status = f"exited({job.exit_code})"
 
         command = job.command.replace("\n", "\\n")
-        lines.append(
-            f"{job.pid}\t{status}\t{job.owner_session_id[:8]}\t{_format_elapsed(job)}\t{command}"
-        )
+        lines.append(f"{job.pid}\t{status}\t{job.owner_session_id[:8]}\t{_format_elapsed(job)}\t{command}")
 
     return "\n".join(lines)
 
@@ -921,7 +920,7 @@ async def _start_background_command(
         "trap 'trap - TERM INT; kill -TERM -- -$$' TERM INT; "
         f"/bin/sh -c {shlex.quote(command)} "
         f"> {shlex.quote(str(stdout_log))} 2> {shlex.quote(str(stderr_log))} & "
-        "child=$!; wait \"$child\"; exit \"$?\""
+        'child=$!; wait "$child"; exit "$?"'
     )
 
     update = await sandbox.pty_exec_start(
@@ -974,7 +973,7 @@ def _parse_background_pid(output: bytes) -> int:
         if not line.startswith(BACKGROUND_PID_MARKER):
             continue
 
-        value = line[len(BACKGROUND_PID_MARKER):].strip()
+        value = line[len(BACKGROUND_PID_MARKER) :].strip()
 
         try:
             pid = int(value)

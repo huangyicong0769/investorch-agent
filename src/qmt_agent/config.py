@@ -86,7 +86,9 @@ class AppConfig:
 
     @property
     def background_job_dir(self) -> Path:
-        return _resolve_under_root(self.workspace_dir, self["execution.background_job_dir"], "execution.background_job_dir")
+        return _resolve_under_root(
+            self.workspace_dir, self["execution.background_job_dir"], "execution.background_job_dir"
+        )
 
     @property
     def cnequity_config_path(self) -> Path:
@@ -119,7 +121,7 @@ class AppConfig:
     @property
     def bootstrap_files(self) -> list[tuple[Path, Path]]:
         """
-        Return configured bootstrap files as:
+        Return configured bootstrap files as pairs.
 
             (source_template, workspace_target)
 
@@ -188,7 +190,7 @@ class AppConfig:
 
     def __getitem__(self, key: str) -> Any:
         """
-        Internal access.
+        Access internal configuration.
 
         Example:
             config["models.main.name"]
@@ -220,7 +222,7 @@ class AppConfig:
 
     def secret(self, name: str) -> str:
         """
-        Internal access to a secret.
+        Return an internal secret.
 
         Secrets should never be returned directly
         by Agent-facing tools.
@@ -233,10 +235,7 @@ class AppConfig:
         return value
 
     def public(self) -> dict[str, Any]:
-        """
-        Return the effective configuration with
-        secrets redacted.
-        """
+        """Return the effective configuration with secrets redacted."""
         data = deepcopy(self._data)
 
         if "secrets" in data:
@@ -319,10 +318,7 @@ class AppConfig:
     def _persist(self, key: str, value: Any) -> None:
         path = self.root_config_path
 
-        if path.exists():
-            document = tomlkit.parse(path.read_text(encoding="utf-8"))
-        else:
-            document = tomlkit.document()
+        document = tomlkit.parse(path.read_text(encoding="utf-8")) if path.exists() else tomlkit.document()
 
         parts = _split_key(key)
         table = document
@@ -342,7 +338,9 @@ class AppConfig:
 
 
 def load_config(project_config_path: str | Path | None = None) -> AppConfig:
-    project_path = PROJECT_CONFIG_PATH if project_config_path is None else Path(project_config_path).expanduser().resolve()
+    project_path = (
+        PROJECT_CONFIG_PATH if project_config_path is None else Path(project_config_path).expanduser().resolve()
+    )
 
     if not project_path.is_file():
         raise ConfigError(f"Project config not found: {project_path}")
@@ -508,7 +506,12 @@ def _require_bool(data: dict[str, Any], key: str) -> bool:
 def _require_number(data: dict[str, Any], key: str, *, minimum: float = 0) -> int | float:
     value = _required_config_value(data, key)
 
-    if isinstance(value, bool) or not isinstance(value, (int, float)) or (isinstance(value, float) and not math.isfinite(value)) or value < minimum:
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or (isinstance(value, float) and not math.isfinite(value))
+        or value < minimum
+    ):
         raise ConfigError(f"{key} must be a finite number >= {minimum}")
 
     return value
@@ -617,7 +620,9 @@ def _validate_config_data(data: dict[str, Any], root: Path) -> None:
     if workspace == state or workspace.is_relative_to(state) or state.is_relative_to(workspace):
         raise ConfigError("paths.workspace and paths.state must not overlap")
 
-    _resolve_under_root(workspace, _require_string(data, "execution.background_job_dir"), "execution.background_job_dir")
+    _resolve_under_root(
+        workspace, _require_string(data, "execution.background_job_dir"), "execution.background_job_dir"
+    )
     _resolve_under_root(root, _require_string(data, "cnequity.config_path"), "cnequity.config_path")
     _resolve_under_root(root, _require_string(data, "backtest.rqalpha_bundle_dir"), "backtest.rqalpha_bundle_dir")
     _resolve_under_root(workspace, _require_string(data, "backtest.artifact_dir"), "backtest.artifact_dir")

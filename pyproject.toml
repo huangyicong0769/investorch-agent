@@ -29,9 +29,72 @@ module-name = "qmt_agent"
 testpaths = ["tests"]
 asyncio_mode = "auto"
 
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+preview = false
+
+[tool.ruff.lint]
+select = [
+    # Basic Python correctness / structure
+    "E4",
+    "E7",
+    "E9",
+
+    # Pyflakes
+    "F",
+
+    # Import ordering
+    "I",
+
+    # Modern Python syntax
+    "UP",
+
+    # Likely bugs / suspicious constructs
+    "B",
+
+    # Simplification
+    "SIM",
+
+    # Ruff-native correctness / quality rules
+    "RUF",
+
+    # PEP 257 docstring quality
+    "D",
+]
+
+ignore = [
+    # We do NOT require docstrings to exist.
+    "D100",  # public module
+    "D101",  # public class
+    "D102",  # public method
+    "D103",  # public function
+    "D104",  # public package
+    "D105",  # magic method
+    "D106",  # nested class
+    "D107",  # __init__
+
+    # Ruff formatter already owns these formatting decisions.
+    "D206",  # docstring indentation
+    "D300",  # triple quote style
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "pep257"
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "auto"
+skip-magic-trailing-comma = false
+
+docstring-code-format = true
+docstring-code-line-length = "dynamic"
+
 [dependency-groups]
 dev = [
     "httpx>=0.28.1",
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
+    "ruff>=0.16.5",
 ]

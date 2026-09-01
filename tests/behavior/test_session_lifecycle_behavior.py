@@ -66,7 +66,9 @@ async def test_archive_and_unarchive_preserve_durable_session_state(tmp_path: Pa
     assert archived.title == "Research"
     assert archived.branch_from_session_id == parent_id
     assert await sdk_items(harness, session_id) == [{"role": "user", "content": "sdk history"}]
-    assert [record["text"] for record in read_session_journal(harness.runtime.config.session_journal_dir, session_id)] == ["journal history"]
+    assert [
+        record["text"] for record in read_session_journal(harness.runtime.config.session_journal_dir, session_id)
+    ] == ["journal history"]
 
     state = AppState(
         config=harness.runtime.config,
@@ -188,8 +190,14 @@ async def test_forked_sessions_evolve_independently(tmp_path: Path) -> None:
 
     assert [item["content"] for item in await sdk_items(harness, source_id)] == ["shared", "source-only"]
     assert [item["content"] for item in await sdk_items(harness, target_id)] == ["shared", "target-only"]
-    assert [item["text"] for item in read_session_journal(harness.runtime.config.session_journal_dir, source_id)] == ["shared", "source-only"]
-    assert [item["text"] for item in read_session_journal(harness.runtime.config.session_journal_dir, target_id)] == ["shared", "target-only"]
+    assert [item["text"] for item in read_session_journal(harness.runtime.config.session_journal_dir, source_id)] == [
+        "shared",
+        "source-only",
+    ]
+    assert [item["text"] for item in read_session_journal(harness.runtime.config.session_journal_dir, target_id)] == [
+        "shared",
+        "target-only",
+    ]
     await harness.runtime.runtime.aclose()
 
 
@@ -216,7 +224,9 @@ async def test_delete_removes_identity_and_history_and_blocks_late_journal_write
     await harness.operations.delete(session_id)
 
     assert get_session(harness.runtime.config.sessions_db, session_id) is None
-    assert session_id not in {record.session_id for record in list_sessions(harness.runtime.config.sessions_db, include_archived=True)}
+    assert session_id not in {
+        record.session_id for record in list_sessions(harness.runtime.config.sessions_db, include_archived=True)
+    }
     assert await harness.runtime.journal.session_exists(session_id) is False
     with pytest.raises(RuntimeError, match="deleted"):
         await harness.runtime.journal.record_user_message(session_id, "late")

@@ -57,7 +57,9 @@ class CommandResult:
     compaction: CompactionResult | None = None
 
 
-async def dispatch_command(command: Command, state: AppState, *, runtime: AgentRuntime, sessions: SessionOperations) -> CommandResult:
+async def dispatch_command(
+    command: Command, state: AppState, *, runtime: AgentRuntime, sessions: SessionOperations
+) -> CommandResult:
     match command.name:
         case "session":
             title, branch_from = await asyncio.gather(
@@ -85,7 +87,9 @@ async def dispatch_command(command: Command, state: AppState, *, runtime: AgentR
                 for record in sessions:
                     marker = "*" if record.session_id == state.selected_session_id else " "
                     title = record.title or "(untitled)"
-                    lines.append(f"{marker} {record.session_id[:8]} {title}, (updated: {record.updated_at}, created: {record.created_at})")
+                    lines.append(
+                        f"{marker} {record.session_id[:8]} {title}, (updated: {record.updated_at}, created: {record.created_at})"
+                    )
                 return CommandResult("\n".join(lines))
 
             session_id = command.args[0]
@@ -171,7 +175,9 @@ async def dispatch_command(command: Command, state: AppState, *, runtime: AgentR
                 return CommandResult("Cannot fork this session while it has an active operation.")
             except SessionForkRollbackError:
                 logger.exception("Session fork failed with incomplete cleanup source=%s", source_session_id)
-                return CommandResult("Session fork failed and partial fork cleanup may be incomplete. See the system log.")
+                return CommandResult(
+                    "Session fork failed and partial fork cleanup may be incomplete. See the system log."
+                )
             except SessionForkError:
                 logger.exception("Session fork failed source=%s", source_session_id)
                 return CommandResult("Session fork failed. See the system log.")
@@ -280,7 +286,9 @@ async def dispatch_command(command: Command, state: AppState, *, runtime: AgentR
                 return CommandResult("Cannot compact this session while it has an active operation.")
             except SessionCompactionError as exc:
                 if exc.consistency_uncertain:
-                    return CommandResult("Context compaction failed and context storage may be damaged. Stop this session and see the system log.")
+                    return CommandResult(
+                        "Context compaction failed and context storage may be damaged. Stop this session and see the system log."
+                    )
                 return CommandResult("Context compaction failed; existing context was kept. See the system log.")
             if not result.changed:
                 return CommandResult("Session context is already empty or compacted.")
@@ -292,7 +300,9 @@ async def dispatch_command(command: Command, state: AppState, *, runtime: AgentR
 
         case "exit":
             if runtime.has_active_runs() or runtime.has_queued_inputs():
-                return CommandResult("There are active or queued Agent tasks.\nStop/finish runs and clear queued follow-ups before exiting.")
+                return CommandResult(
+                    "There are active or queued Agent tasks.\nStop/finish runs and clear queued follow-ups before exiting."
+                )
             logger.info("Exit requested")
             return CommandResult(output="Exiting...", exit_requested=True)
 

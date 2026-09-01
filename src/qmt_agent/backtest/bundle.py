@@ -17,17 +17,12 @@ def _download_command(bundle_path: Path) -> str:
 def _open_rqalpha_bundle(bundle_path: Path) -> BaseDataSource:
     download_command = _download_command(bundle_path)
     if not bundle_path.is_dir():
-        raise FileNotFoundError(
-            f"RQAlpha bundle not found at {bundle_path}. Run `{download_command}` first."
-        )
+        raise FileNotFoundError(f"RQAlpha bundle not found at {bundle_path}. Run `{download_command}` first.")
     try:
-        return BaseDataSource(
-            SimpleNamespace(data_bundle_path=str(bundle_path), future_info={})
-        )
+        return BaseDataSource(SimpleNamespace(data_bundle_path=str(bundle_path), future_info={}))
     except Exception as exc:
         raise RuntimeError(
-            f"RQAlpha bundle at {bundle_path} cannot be loaded. "
-            f"Run `{download_command}` to replace it."
+            f"RQAlpha bundle at {bundle_path} cannot be loaded. Run `{download_command}` to replace it."
         ) from exc
 
 
@@ -39,8 +34,7 @@ def _native_stocks(data_source: BaseDataSource, bundle_path: Path) -> tuple:
     )
     if not stocks:
         raise RuntimeError(
-            f"RQAlpha bundle has no native stock metadata. "
-            f"Run `{_download_command(bundle_path)}` to replace it."
+            f"RQAlpha bundle has no native stock metadata. Run `{_download_command(bundle_path)}` to replace it."
         )
     return stocks
 
@@ -100,8 +94,7 @@ def inspect_rqalpha_bundle(
         }
 
     instruments = {
-        instrument.order_book_id: instrument
-        for instrument in data_source.get_instruments(id_or_syms=symbols)
+        instrument.order_book_id: instrument for instrument in data_source.get_instruments(id_or_syms=symbols)
     }
     results = []
     for order_book_id in symbols:

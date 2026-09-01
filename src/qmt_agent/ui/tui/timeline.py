@@ -30,7 +30,9 @@ def format_json(text: str | None) -> str:
 
 
 class UserMessageWidget(Vertical):
-    def __init__(self, text: str, author_margin_top: int, author_margin_bottom: int, *, author_label: str = "You") -> None:
+    def __init__(
+        self, text: str, author_margin_top: int, author_margin_bottom: int, *, author_label: str = "You"
+    ) -> None:
         author = Label(author_label, classes="message-author")
         author.styles.margin = (author_margin_top, 0, author_margin_bottom, 0)
         super().__init__(author, Static(text, markup=False, classes="message-content"), classes="user-message")
@@ -79,7 +81,9 @@ class ActivityStep(Collapsible):
         self._tool = ActivitySection("Tool")
         self._approval = ActivitySection("Approval")
         self._observation = ActivitySection("Observation")
-        self._details = VerticalScroll(self._reasoning, self._tool, self._approval, self._observation, classes="activity-details")
+        self._details = VerticalScroll(
+            self._reasoning, self._tool, self._approval, self._observation, classes="activity-details"
+        )
         self._details.styles.max_height = detail_max_height
         super().__init__(self._details, title=title, collapsed=True, classes="activity-step")
 
@@ -100,7 +104,14 @@ class ActivityStep(Collapsible):
     def set_observation(self, output: str) -> None:
         self._observation.set_content(output)
 
-    def set_approval(self, approved: bool, *, source: str | None = None, review_decision: str | None = None, review_reason: str | None = None) -> None:
+    def set_approval(
+        self,
+        approved: bool,
+        *,
+        source: str | None = None,
+        review_decision: str | None = None,
+        review_reason: str | None = None,
+    ) -> None:
         if source == "permission":
             text = "✓ Auto-approved" if approved else "✗ Auto-rejected"
         elif source == "user":
@@ -183,7 +194,9 @@ class ChatTimeline(VerticalScroll):
 
     async def _ensure_assistant_turn(self) -> AssistantTurnWidget:
         if self._current_assistant_turn is None:
-            self._current_assistant_turn = AssistantTurnWidget(self._message_author_margin_top, self._message_author_margin_bottom)
+            self._current_assistant_turn = AssistantTurnWidget(
+                self._message_author_margin_top, self._message_author_margin_bottom
+            )
             await self.mount(self._current_assistant_turn)
         return self._current_assistant_turn
 
@@ -196,7 +209,11 @@ class ChatTimeline(VerticalScroll):
 
     async def add_steer_message(self, text: str) -> None:
         self._finish_assistant_turn()
-        await self.mount(UserMessageWidget(text, self._message_author_margin_top, self._message_author_margin_bottom, author_label="You · Steer"))
+        await self.mount(
+            UserMessageWidget(
+                text, self._message_author_margin_top, self._message_author_margin_bottom, author_label="You · Steer"
+            )
+        )
         self.scroll_end(animate=False)
 
     async def add_assistant_message(self, text: str) -> None:
@@ -258,7 +275,9 @@ class ChatTimeline(VerticalScroll):
             (
                 candidate
                 for candidate in self._tool_steps
-                if not candidate.approval_recorded and candidate.tool_name == tool_name and candidate.tool_arguments == arguments
+                if not candidate.approval_recorded
+                and candidate.tool_name == tool_name
+                and candidate.tool_arguments == arguments
             ),
             None,
         )
@@ -359,6 +378,10 @@ class ChatTimeline(VerticalScroll):
                         arguments if isinstance(arguments, str) else None,
                         record["approved"],
                         source=record.get("source") if isinstance(record.get("source"), str) else None,
-                        review_decision=record.get("review_decision") if isinstance(record.get("review_decision"), str) else None,
-                        review_reason=record.get("review_reason") if isinstance(record.get("review_reason"), str) else None,
+                        review_decision=record.get("review_decision")
+                        if isinstance(record.get("review_decision"), str)
+                        else None,
+                        review_reason=record.get("review_reason")
+                        if isinstance(record.get("review_reason"), str)
+                        else None,
                     )

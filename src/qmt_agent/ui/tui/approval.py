@@ -74,7 +74,9 @@ class ApprovalPanel(Vertical):
         yield Static(id="approval-tool", markup=False)
         yield VerticalScroll(Static(id="approval-arguments", markup=False), id="approval-arguments-scroll")
         yield Horizontal(
-            Button("Reject", variant="error", id="reject-button"), Button("Approve", variant="success", id="approve-button"), id="approval-actions"
+            Button("Reject", variant="error", id="reject-button"),
+            Button("Approve", variant="success", id="approve-button"),
+            id="approval-actions",
         )
 
     def on_mount(self) -> None:
@@ -100,8 +102,12 @@ class ApprovalPanel(Vertical):
             return
 
         title = session_title or "(untitled)"
-        self.query_one("#approval-title", Label).update(f"Approval required · {title} · {request.session_id[:8]} · {pending_count} pending")
-        self.query_one("#approval-review", Static).update(f"AutoReview · ASK\n{review_reason}" if review_reason is not None else "")
+        self.query_one("#approval-title", Label).update(
+            f"Approval required · {title} · {request.session_id[:8]} · {pending_count} pending"
+        )
+        self.query_one("#approval-review", Static).update(
+            f"AutoReview · ASK\n{review_reason}" if review_reason is not None else ""
+        )
         self.query_one("#approval-review").display = review_reason is not None
         self.query_one("#approval-tool", Static).update(f"Tool · {request.tool_name}")
         formatted = format_json(request.arguments)
@@ -109,7 +115,12 @@ class ApprovalPanel(Vertical):
         self.query_one("#approval-arguments-scroll").display = bool(formatted)
 
     def resolve(self, approved: bool) -> None:
-        if self.display and self._approval_id is not None and self._run_id is not None and not self._awaiting_resolution:
+        if (
+            self.display
+            and self._approval_id is not None
+            and self._run_id is not None
+            and not self._awaiting_resolution
+        ):
             self._awaiting_resolution = True
             self.query_one("#approve-button", Button).disabled = True
             self.query_one("#reject-button", Button).disabled = True

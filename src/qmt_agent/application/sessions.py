@@ -145,14 +145,16 @@ class SessionOperations:
         target_session_id = uuid.uuid4().hex
         while target_session_id == source_session_id:
             target_session_id = uuid.uuid4().hex
-        async with self._runtime.reserve_session(source_session_id):
-            async with self._runtime.reserve_session(target_session_id):
-                await fork_session(
-                    source_session_id=source_session_id,
-                    target_session_id=target_session_id,
-                    sessions_db=self._config.sessions_db,
-                    journal=self._journal,
-                )
+        async with (
+            self._runtime.reserve_session(source_session_id),
+            self._runtime.reserve_session(target_session_id),
+        ):
+            await fork_session(
+                source_session_id=source_session_id,
+                target_session_id=target_session_id,
+                sessions_db=self._config.sessions_db,
+                journal=self._journal,
+            )
         return target_session_id
 
     async def set_title(self, session_id: str, title: str) -> SessionRecord:

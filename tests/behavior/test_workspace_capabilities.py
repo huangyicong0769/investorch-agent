@@ -93,7 +93,9 @@ async def test_create_does_not_overwrite_and_replace_requires_one_match(tmp_path
 
     created = await invoke(edit, context, path="note.txt", operation="create", content="same same", old_text="")
     duplicate_create = await invoke(edit, context, path="note.txt", operation="create", content="lost", old_text="")
-    ambiguous_replace = await invoke(edit, context, path="note.txt", operation="replace", content="new", old_text="same")
+    ambiguous_replace = await invoke(
+        edit, context, path="note.txt", operation="replace", content="new", old_text="same"
+    )
 
     assert isinstance(created, dict)
     assert isinstance(duplicate_create, str)

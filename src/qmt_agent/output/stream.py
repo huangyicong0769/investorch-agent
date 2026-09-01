@@ -52,9 +52,7 @@ async def consume_run_events(
         if event.name == "tool_called":
             raw_item = item.raw_item
             arguments = (
-                raw_item.get("arguments")
-                if isinstance(raw_item, dict)
-                else getattr(raw_item, "arguments", None)
+                raw_item.get("arguments") if isinstance(raw_item, dict) else getattr(raw_item, "arguments", None)
             )
             await output_handler(ToolCalled(name=item.tool_name, arguments=arguments))
         elif event.name == "tool_output":

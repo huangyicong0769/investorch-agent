@@ -93,7 +93,9 @@ Broker = Annotated[WebApprovalBroker, Depends(_approval_broker)]
 async def _session_record(session_id: str, host: Host) -> SessionRecord:
     record = await asyncio.to_thread(get_session, host.config.sessions_db, session_id)
     if record is None:
-        raise APIError(404, "session_not_found", "The requested session does not exist.", details={"session_id": session_id})
+        raise APIError(
+            404, "session_not_found", "The requested session does not exist.", details={"session_id": session_id}
+        )
     return record
 
 
@@ -113,7 +115,9 @@ def _serialize_defaults(host: ApplicationHost) -> dict[str, str]:
     }
 
 
-def _serialize_pending_approvals(broker: WebApprovalBroker, *, session_id: str | None = None) -> list[dict[str, object]]:
+def _serialize_pending_approvals(
+    broker: WebApprovalBroker, *, session_id: str | None = None
+) -> list[dict[str, object]]:
     return [
         serialize_approval_request(pending.request, review_reason=pending.review_reason)
         for pending in broker.list_pending(session_id=session_id)
@@ -236,7 +240,9 @@ async def send_message(request: SendMessageRequest, session: Session, host: Host
     if not request.text.strip():
         raise APIError(400, "invalid_message", "Message text must not be empty.")
     try:
-        submission = await submit_user_input(state=host.state, runtime=host.runtime, session_id=session.session_id, text=request.text)
+        submission = await submit_user_input(
+            state=host.state, runtime=host.runtime, session_id=session.session_id, text=request.text
+        )
     except Exception as error:
         raise_application_error(error)
     return serialize_user_input_submission(submission)
@@ -290,7 +296,9 @@ async def delete_session(request: ConfirmRequest, session_id: str, host: Host) -
     async with host.session_lifecycle_lock:
         session = await asyncio.to_thread(get_session, host.config.sessions_db, session_id)
         if session is None:
-            raise APIError(404, "session_not_found", "The requested session does not exist.", details={"session_id": session_id})
+            raise APIError(
+                404, "session_not_found", "The requested session does not exist.", details={"session_id": session_id}
+            )
 
         try:
             await host.sessions.delete(session_id)

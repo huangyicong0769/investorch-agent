@@ -44,7 +44,12 @@ def create_compaction_agent(model: OpenAIResponsesModel, model_settings: ModelSe
 
 
 def _is_compacted_summary(item: TResponseInputItem) -> bool:
-    return isinstance(item, dict) and item.get("role") == "assistant" and isinstance(item.get("content"), str) and item["content"].startswith(COMPACTED_CONTEXT_PREFIX)
+    return (
+        isinstance(item, dict)
+        and item.get("role") == "assistant"
+        and isinstance(item.get("content"), str)
+        and item["content"].startswith(COMPACTED_CONTEXT_PREFIX)
+    )
 
 
 async def _replace_session_history(
@@ -86,7 +91,9 @@ async def compact_session(agent: Agent, session: SQLiteSession, config: AppConfi
 
     replacement: list[TResponseInputItem] = [{"role": "assistant", "content": COMPACTED_CONTEXT_PREFIX + summary}]
     await _replace_session_history(session, history, replacement)
-    logger.info("Compacted session %s: source_items=%d summary_chars=%d", session.session_id, source_items, len(summary))
+    logger.info(
+        "Compacted session %s: source_items=%d summary_chars=%d", session.session_id, source_items, len(summary)
+    )
     return CompactionResult(
         changed=True,
         usage=TokenUsage.from_sdk(result.context_wrapper.usage),
