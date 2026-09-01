@@ -116,6 +116,24 @@ jobs:
         working-directory: dist
         run: sha256sum ./*.whl ./*.tar.gz > SHA256SUMS
 
+      - name: Install pinned GitHub CLI
+        env:
+          GH_CLI_SHA256: 3b8ac6b30336802fc1a858d7c084e11cdf24ac1a761ca90b68022d7d729208de
+          GH_CLI_VERSION: 2.98.0
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/gh_${GH_CLI_VERSION}_linux_amd64.tar.gz"
+          curl --proto '=https' --tlsv1.2 --fail --location --silent --show-error \
+            --output "$archive" \
+            "https://github.com/cli/cli/releases/download/v${GH_CLI_VERSION}/gh_${GH_CLI_VERSION}_linux_amd64.tar.gz"
+          echo "$GH_CLI_SHA256  $archive" | sha256sum --check --strict
+          tar --extract --gzip --file "$archive" --directory "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/gh_${GH_CLI_VERSION}_linux_amd64/bin" >> "$GITHUB_PATH"
+
+      - name: Verify GitHub CLI version
+        run: test "$(gh --version | head -n 1 | cut -d ' ' -f 3)" = "2.98.0"
+
       - name: Create or update draft prerelease
         env:
           GH_TOKEN: ${{ github.token }}
