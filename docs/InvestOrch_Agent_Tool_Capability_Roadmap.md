@@ -113,17 +113,13 @@ research
 
 ### 3.4 当前领域 Tool 状态
 
-项目中的领域模块为：
+当前已实现的内置领域 Tool 为：
 
 ```text
-market.py
-portfolio.py
 quant.py      -> run_backtest（已实现）
-research.py
-trading.py
 ```
 
-除 `quant.py` 的 RQAlpha 回测能力外，其余文件仍是按真实需求逐步实现的占位模块。
+行情、持仓、研究与交易等领域模块在真实需求出现后再创建。
 
 原则仍然是：
 
@@ -753,7 +749,7 @@ cancel_order
 
 这些后续 API 在真正实现 QMT / 数据能力时再确定。
 
-不要因为当前存在空的 `market.py` / `portfolio.py` / `research.py` / `trading.py` 就提前锁定设计。
+不要通过预建空模块提前锁定这些领域能力的设计。
 
 ---
 
