@@ -229,6 +229,7 @@ async def test_clear_empties_old_continuation_and_metadata_and_creates_replaceme
     harness = make_session_harness(tmp_path)
     parent_id = await harness.operations.create()
     old_id = await harness.operations.fork(parent_id)
+    await harness.operations.set_title(old_id, "Old title")
     await add_sdk_item(harness, old_id, "old continuation")
 
     replacement_id = await harness.operations.clear(old_id)
