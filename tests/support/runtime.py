@@ -11,7 +11,7 @@ from qmt_agent.agents import AgentLoop, ApprovalOutcome, TokenUsage
 from qmt_agent.config import AppConfig
 from qmt_agent.context import ExecutionState
 from qmt_agent.journal import SessionJournal
-from qmt_agent.runtime import AgentRuntime, RunOptions, RuntimeFollowUpEvent, RuntimeRunEnded
+from qmt_agent.runtime import AgentRuntime, RunOptions, RuntimeFollowUpEvent, RuntimeRunEnded, RuntimeSessionSnapshot
 from qmt_agent.runtime.models import ApprovalRequest, FollowUpBehavior, RuntimeOutput
 from tests.support.config import make_test_config
 from tests.support.controlled_agent import ControlledAgentLoop
@@ -37,6 +37,7 @@ class RuntimeHarness:
     run_ended: list[RuntimeRunEnded] = field(default_factory=list)
     follow_ups: list[RuntimeFollowUpEvent] = field(default_factory=list)
     _condition: asyncio.Condition = field(default_factory=asyncio.Condition)
+    _state_changed: asyncio.Event = field(default_factory=asyncio.Event)
 
     async def wait_for_run_ended(self, session_id: str, occurrence: int = 1) -> RuntimeRunEnded:
         async with asyncio.timeout(2):
@@ -49,6 +50,22 @@ class RuntimeHarness:
             async with self._condition:
                 await self._condition.wait_for(lambda: len(self._follow_ups_of_kind(kind)) >= occurrence)
                 return self._follow_ups_of_kind(kind)[occurrence - 1]
+
+    async def wait_for_snapshot(
+        self,
+        session_id: str,
+        predicate: Callable[[RuntimeSessionSnapshot], bool],
+    ) -> RuntimeSessionSnapshot:
+        async with asyncio.timeout(2):
+            while True:
+                snapshot = self.runtime.session_snapshot(session_id)
+                if predicate(snapshot):
+                    return snapshot
+                self._state_changed.clear()
+                snapshot = self.runtime.session_snapshot(session_id)
+                if predicate(snapshot):
+                    return snapshot
+                await self._state_changed.wait()
 
     def _ended_for(self, session_id: str) -> list[RuntimeRunEnded]:
         return [event for event in self.run_ended if event.session_id == session_id]
@@ -79,6 +96,17 @@ class ControllableUserMessageSink:
         self._release.set()
 
 
+class FailingTextUserMessageSink:
+    def __init__(self, journal: SessionJournal, failing_text: str) -> None:
+        self._journal = journal
+        self._failing_text = failing_text
+
+    async def record(self, session_id: str, text: str) -> int:
+        if text == self._failing_text:
+            raise RuntimeError("controlled journal failure")
+        return await self._journal.record_user_message(session_id, text)
+
+
 def make_runtime_harness(
     tmp_path: Path,
     *,
@@ -106,6 +134,9 @@ def make_runtime_harness(
             harness.follow_ups.append(event)
             harness._condition.notify_all()
 
+    def handle_state(_snapshot: RuntimeSessionSnapshot) -> None:
+        harness._state_changed.set()
+
     runtime = AgentRuntime(
         cast(AgentLoop, agent_loop),
         ExecutionState(workspace_root=config.workspace_dir),
@@ -114,6 +145,7 @@ def make_runtime_harness(
         handle_approval,
         record_user_message or journal.record_user_message,
         record_user_steer or journal.record_user_steer,
+        state_handler=handle_state,
         run_ended_handler=handle_run_ended,
         follow_up_handler=handle_follow_up,
     )
