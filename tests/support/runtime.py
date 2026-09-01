@@ -96,6 +96,28 @@ class ControllableUserMessageSink:
         self._release.set()
 
 
+class ControllableSteerSink:
+    def __init__(self, journal: SessionJournal, *, error: Exception | None = None) -> None:
+        self._journal = journal
+        self._error = error
+        self._write_started = asyncio.Event()
+        self._release = asyncio.Event()
+
+    async def record(self, session_id: str, run_id: str, text: str) -> int:
+        self._write_started.set()
+        await self._release.wait()
+        if self._error is not None:
+            raise self._error
+        return await self._journal.record_user_steer(session_id, run_id, text)
+
+    async def wait_until_write_started(self) -> None:
+        async with asyncio.timeout(2):
+            await self._write_started.wait()
+
+    def release(self) -> None:
+        self._release.set()
+
+
 class FailingTextUserMessageSink:
     def __init__(self, journal: SessionJournal, failing_text: str) -> None:
         self._journal = journal
