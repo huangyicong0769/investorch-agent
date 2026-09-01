@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path
 
 import pytest
@@ -85,10 +84,8 @@ async def test_queue_item_captures_follow_up_default_at_submission(tmp_path: Pat
     submission = await harness.runtime.submit_follow_up("session-a", "during Q1", run_options("queue"))
     assert submission.behavior == "steer"
 
-    active = harness.runtime.cancel_run("session-a")
-    with pytest.raises(asyncio.CancelledError):
-        await active.task
-    await harness.wait_for_run_ended("session-a", occurrence=2)
+    harness.runtime.cancel_run("session-a")
+    assert (await harness.wait_for_run_ended("session-a", occurrence=2)).status == "cancelled"
     await harness.runtime.aclose()
 
 
@@ -124,9 +121,7 @@ async def test_stop_preserves_and_pauses_queued_intent(tmp_path: Path) -> None:
     await harness.runtime.submit_follow_up("session-a", "Q1", run_options())
     await harness.runtime.submit_follow_up("session-a", "Q2", run_options())
 
-    active = harness.runtime.cancel_run("session-a")
-    with pytest.raises(asyncio.CancelledError):
-        await active.task
+    harness.runtime.cancel_run("session-a")
     ended = await harness.wait_for_run_ended("session-a")
 
     snapshot = harness.runtime.session_snapshot("session-a")
@@ -146,10 +141,8 @@ async def test_resume_promotes_the_paused_queue_head(tmp_path: Path) -> None:
     await harness.agent_loop.wait_until_started("session-a")
     await harness.runtime.submit_follow_up("session-a", "Q1", run_options())
     await harness.runtime.submit_follow_up("session-a", "Q2", run_options())
-    active = harness.runtime.cancel_run("session-a")
-    with pytest.raises(asyncio.CancelledError):
-        await active.task
-    await harness.wait_for_run_ended("session-a")
+    harness.runtime.cancel_run("session-a")
+    assert (await harness.wait_for_run_ended("session-a")).status == "cancelled"
 
     await harness.runtime.resume_queue("session-a")
     await harness.agent_loop.wait_until_started("session-a", occurrence=2)

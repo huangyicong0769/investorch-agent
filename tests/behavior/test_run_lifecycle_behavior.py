@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -73,12 +72,10 @@ async def test_completed_run_returns_session_to_idle_and_allows_the_next_run(tmp
 async def test_failed_run_returns_session_to_idle_and_allows_recovery(tmp_path: Path) -> None:
     harness = make_runtime_harness(tmp_path)
     harness.agent_loop.fail_input("fail")
-    failed = harness.runtime.start_run("session-a", "fail", run_options())
+    harness.runtime.start_run("session-a", "fail", run_options())
     await harness.agent_loop.wait_until_started("session-a")
     harness.agent_loop.complete("session-a")
 
-    with pytest.raises(RuntimeError, match="controlled Agent failure"):
-        await failed.task
     ended = await harness.wait_for_run_ended("session-a")
     assert ended.status == "failed"
     assert harness.runtime.session_snapshot("session-a").run_id is None
@@ -120,13 +117,10 @@ async def test_initial_journal_failure_prevents_agent_execution(tmp_path: Path) 
     journal = SessionJournal(journal_config.session_journal_dir, ZoneInfo("UTC"))
     sink = ControllableUserMessageSink(journal, error=RuntimeError("journal unavailable"))
     harness = make_runtime_harness(tmp_path / "runtime", record_user_message=sink.record)
-    active = harness.runtime.start_run("session-a", "never execute", run_options())
+    harness.runtime.start_run("session-a", "never execute", run_options())
     await sink.wait_until_write_started()
 
     sink.release()
-    with pytest.raises(RuntimeError, match="journal unavailable"):
-        await active.task
-
     ended = await harness.wait_for_run_ended("session-a")
     assert ended.status == "failed"
     assert harness.runtime.session_snapshot("session-a").run_id is None
@@ -137,14 +131,12 @@ async def test_initial_journal_failure_prevents_agent_execution(tmp_path: Path) 
 @pytest.mark.asyncio
 async def test_stop_is_immediately_visible_then_run_ends_cancelled(tmp_path: Path) -> None:
     harness = make_runtime_harness(tmp_path)
-    active = harness.runtime.start_run("session-a", "long running", run_options())
+    harness.runtime.start_run("session-a", "long running", run_options())
     await harness.agent_loop.wait_until_started("session-a")
 
     harness.runtime.cancel_run("session-a")
 
     assert harness.runtime.session_snapshot("session-a").run_phase == "stopping"
-    with pytest.raises(asyncio.CancelledError):
-        await active.task
     ended = await harness.wait_for_run_ended("session-a")
     assert ended.status == "cancelled"
     assert harness.runtime.session_snapshot("session-a").run_id is None

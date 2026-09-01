@@ -14,7 +14,7 @@ async def test_steer_submission_returns_only_after_it_is_durable(tmp_path: Path)
     sink = ControllableSteerSink(base.journal)
     await base.runtime.aclose()
     harness = make_runtime_harness(tmp_path / "runtime", record_user_steer=sink.record)
-    active = harness.runtime.start_run("session-a", "current", run_options("steer"))
+    harness.runtime.start_run("session-a", "current", run_options("steer"))
     await harness.agent_loop.wait_until_started("session-a")
 
     submission_task = asyncio.create_task(harness.runtime.submit_follow_up("session-a", "steer", run_options()))
@@ -28,9 +28,7 @@ async def test_steer_submission_returns_only_after_it_is_durable(tmp_path: Path)
     assert event.journal_seq is not None
 
     harness.runtime.cancel_run("session-a")
-    with pytest.raises(asyncio.CancelledError):
-        await active.task
-    await harness.wait_for_run_ended("session-a")
+    assert (await harness.wait_for_run_ended("session-a")).status == "cancelled"
     await harness.runtime.aclose()
 
 
@@ -74,7 +72,5 @@ async def test_steer_event_preserves_session_and_run_attribution(tmp_path: Path)
     assert event.journal_seq is not None
 
     harness.runtime.cancel_run("session-a")
-    with pytest.raises(asyncio.CancelledError):
-        await active.task
-    await harness.wait_for_run_ended("session-a")
+    assert (await harness.wait_for_run_ended("session-a")).status == "cancelled"
     await harness.runtime.aclose()

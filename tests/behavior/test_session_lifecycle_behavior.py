@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path
 
 import pytest
@@ -305,8 +304,6 @@ async def test_discard_unused_deletes_only_unowned_empty_session(tmp_path: Path)
     assert get_session(harness.runtime.config.sessions_db, empty_id) is None
 
     harness.runtime.runtime.clear_queue(queued_id)
-    active = harness.runtime.runtime.cancel_run(queued_id)
-    with pytest.raises(asyncio.CancelledError):
-        await active.task
-    await harness.runtime.wait_for_run_ended(queued_id)
+    harness.runtime.runtime.cancel_run(queued_id)
+    assert (await harness.runtime.wait_for_run_ended(queued_id)).status == "cancelled"
     await harness.runtime.runtime.aclose()

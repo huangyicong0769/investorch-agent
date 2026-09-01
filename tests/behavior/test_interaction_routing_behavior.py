@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path
 
 import pytest
@@ -89,10 +88,8 @@ async def test_active_session_routes_input_using_its_run_mode(
     assert follow_up.follow_up_id
 
     harness.runtime.clear_queue("session-a")
-    active = harness.runtime.cancel_run("session-a")
-    with pytest.raises(asyncio.CancelledError):
-        await active.task
-    await harness.wait_for_run_ended("session-a")
+    harness.runtime.cancel_run("session-a")
+    assert (await harness.wait_for_run_ended("session-a")).status == "cancelled"
     await harness.runtime.aclose()
 
 
@@ -112,8 +109,6 @@ async def test_active_run_keeps_frozen_mode_when_future_default_changes(tmp_path
     assert follow_up.disposition == "steer_submitted"
     assert follow_up.run_id == first.run_id
 
-    active = harness.runtime.cancel_run("session-a")
-    with pytest.raises(asyncio.CancelledError):
-        await active.task
-    await harness.wait_for_run_ended("session-a")
+    harness.runtime.cancel_run("session-a")
+    assert (await harness.wait_for_run_ended("session-a")).status == "cancelled"
     await harness.runtime.aclose()
