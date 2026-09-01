@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import cast
@@ -14,6 +15,9 @@ from qmt_agent.runtime import AgentRuntime, RunOptions, RuntimeFollowUpEvent, Ru
 from qmt_agent.runtime.models import ApprovalRequest, FollowUpBehavior, RuntimeOutput
 from tests.support.config import make_test_config
 from tests.support.controlled_agent import ControlledAgentLoop
+
+RecordUserMessage = Callable[[str, str], Awaitable[int]]
+RecordUserSteer = Callable[[str, str, str], Awaitable[int]]
 
 
 def run_options(follow_up_behavior: FollowUpBehavior = "steer") -> RunOptions:
@@ -53,7 +57,34 @@ class RuntimeHarness:
         return [event for event in self.follow_ups if event.kind == kind]
 
 
-def make_runtime_harness(tmp_path: Path) -> RuntimeHarness:
+class ControllableUserMessageSink:
+    def __init__(self, journal: SessionJournal, *, error: Exception | None = None) -> None:
+        self._journal = journal
+        self._error = error
+        self._write_started = asyncio.Event()
+        self._release = asyncio.Event()
+
+    async def record(self, session_id: str, text: str) -> int:
+        self._write_started.set()
+        await self._release.wait()
+        if self._error is not None:
+            raise self._error
+        return await self._journal.record_user_message(session_id, text)
+
+    async def wait_until_write_started(self) -> None:
+        async with asyncio.timeout(2):
+            await self._write_started.wait()
+
+    def release(self) -> None:
+        self._release.set()
+
+
+def make_runtime_harness(
+    tmp_path: Path,
+    *,
+    record_user_message: RecordUserMessage | None = None,
+    record_user_steer: RecordUserSteer | None = None,
+) -> RuntimeHarness:
     config = make_test_config(tmp_path)
     journal = SessionJournal(config.session_journal_dir, ZoneInfo("UTC"))
     agent_loop = ControlledAgentLoop()
@@ -81,8 +112,8 @@ def make_runtime_harness(tmp_path: Path) -> RuntimeHarness:
         config.sessions_db,
         handle_output,
         handle_approval,
-        journal.record_user_message,
-        journal.record_user_steer,
+        record_user_message or journal.record_user_message,
+        record_user_steer or journal.record_user_steer,
         run_ended_handler=handle_run_ended,
         follow_up_handler=handle_follow_up,
     )
