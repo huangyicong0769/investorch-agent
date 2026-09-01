@@ -6,11 +6,13 @@ from pathlib import Path
 import pytest
 from agents import SQLiteSession
 
+from qmt_agent.application.interaction import ArchivedSessionInputError, submit_user_input
 from qmt_agent.application.sessions import (
     SessionArchivedError,
     SessionHasChildrenError,
     SessionHasQueuedInputsError,
 )
+from qmt_agent.context import AppState
 from qmt_agent.journal import read_session_journal
 from qmt_agent.runtime import SessionBusyError
 from qmt_agent.storage import get_session, list_archived_sessions, list_sessions
@@ -50,7 +52,8 @@ async def test_create_persists_a_normal_unarchived_session(tmp_path: Path) -> No
 @pytest.mark.asyncio
 async def test_archive_and_unarchive_preserve_durable_session_state(tmp_path: Path) -> None:
     harness = make_session_harness(tmp_path)
-    session_id = await harness.operations.create()
+    parent_id = await harness.operations.create()
+    session_id = await harness.operations.fork(parent_id)
     await harness.operations.set_title(session_id, "Research")
     await add_sdk_item(harness, session_id, "sdk history")
     await harness.runtime.journal.record_user_message(session_id, "journal history")
@@ -62,15 +65,38 @@ async def test_archive_and_unarchive_preserve_durable_session_state(tmp_path: Pa
     archived = get_session(harness.runtime.config.sessions_db, session_id)
     assert archived is not None
     assert archived.title == "Research"
+    assert archived.branch_from_session_id == parent_id
     assert await sdk_items(harness, session_id) == [{"role": "user", "content": "sdk history"}]
     assert [record["text"] for record in read_session_journal(harness.runtime.config.session_journal_dir, session_id)] == ["journal history"]
+
+    state = AppState(
+        config=harness.runtime.config,
+        execution=harness.runtime.execution,
+        selected_session_id=session_id,
+        main_reasoning_effort="none",
+        permission_mode="manual",
+    )
+    with pytest.raises(ArchivedSessionInputError):
+        await submit_user_input(state=state, runtime=harness.runtime.runtime, session_id=session_id, text="blocked")
 
     await harness.operations.unarchive(session_id)
 
     restored = get_session(harness.runtime.config.sessions_db, session_id)
     assert restored is not None
     assert restored.archived_at is None
+    assert restored.branch_from_session_id == parent_id
     assert session_id in {item.session_id for item in list_sessions(harness.runtime.config.sessions_db)}
+
+    submission = await submit_user_input(
+        state=state,
+        runtime=harness.runtime.runtime,
+        session_id=session_id,
+        text="accepted after restore",
+    )
+    await harness.runtime.agent_loop.wait_until_started(session_id)
+    assert submission.disposition == "run_started"
+    harness.runtime.agent_loop.complete(session_id)
+    await harness.runtime.wait_for_run_ended(session_id)
     await harness.runtime.runtime.aclose()
 
 
