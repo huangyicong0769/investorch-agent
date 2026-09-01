@@ -33,12 +33,43 @@ The core is currently validated on macOS locally and Ubuntu in CI, and targets m
 
 The runtime uses the [OpenAI Agents SDK](https://github.com/openai/openai-agents-python) Responses model adapter. The bundled configuration uses [DeepSeek](https://api-docs.deepseek.com/) by default. All bundled Agent roles read the API key from the local secret named `DEEPSEEK_API_KEY`.
 
-## Quick start
+## Installation
 
-### 1. Install and initialize
+### GitHub Release
+
+Download `investorch-0.1.0-py3-none-any.whl` and `SHA256SUMS` from the [`v0.1.0` GitHub Release](https://github.com/huangyicong0769/investorch-agent/releases/tag/v0.1.0). Verify the downloaded wheel from the directory containing both files:
 
 ```bash
+# macOS
+grep 'investorch-0.1.0-py3-none-any.whl$' SHA256SUMS | shasum -a 256 -c -
+
+# Linux
+grep 'investorch-0.1.0-py3-none-any.whl$' SHA256SUMS | sha256sum -c -
+```
+
+Then install the wheel as a uv-managed tool:
+
+```bash
+uv tool install ./investorch-0.1.0-py3-none-any.whl
+```
+
+The installed command is `investorch`.
+
+### Source checkout
+
+```bash
+git clone https://github.com/huangyicong0769/investorch-agent.git
+cd investorch-agent
 uv sync --locked
+```
+
+The examples below use the source-checkout form `uv run investorch`. When using the release tool installation, omit `uv run` and start each command with `investorch`.
+
+## First run
+
+### 1. Initialize local state
+
+```bash
 uv run investorch web
 ```
 
@@ -106,6 +137,12 @@ Install the optional extra only when using the current CNEquity CLI passthrough,
 
 ```bash
 uv sync --locked --extra cnequity
+```
+
+For a GitHub Release wheel installation, include the extra when installing the tool:
+
+```bash
+uv tool install './investorch-0.1.0-py3-none-any.whl[cnequity]'
 ```
 
 CNEquity is an optional data backend. Broader integration is deferred until its upstream behavior is sufficiently stable.

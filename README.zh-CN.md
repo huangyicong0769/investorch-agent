@@ -33,12 +33,43 @@ InvestOrch Agent 是面向个人投资者的本地优先、human-in-the-loop 投
 
 Runtime 使用 [OpenAI Agents SDK](https://github.com/openai/openai-agents-python) 的 Responses 模型适配器。随包配置默认使用 [DeepSeek](https://api-docs.deepseek.com/)，所有随包 Agent 角色都从名为 `DEEPSEEK_API_KEY` 的本地 secret 读取 API Key。
 
-## 快速开始
+## 安装
 
-### 1. 安装并初始化
+### GitHub Release
+
+从 [`v0.1.0` GitHub Release](https://github.com/huangyicong0769/investorch-agent/releases/tag/v0.1.0) 下载 `investorch-0.1.0-py3-none-any.whl` 和 `SHA256SUMS`。在两个文件所在的目录中校验 wheel：
 
 ```bash
+# macOS
+grep 'investorch-0.1.0-py3-none-any.whl$' SHA256SUMS | shasum -a 256 -c -
+
+# Linux
+grep 'investorch-0.1.0-py3-none-any.whl$' SHA256SUMS | sha256sum -c -
+```
+
+校验通过后，将 wheel 安装为由 uv 管理的工具：
+
+```bash
+uv tool install ./investorch-0.1.0-py3-none-any.whl
+```
+
+安装后的命令是 `investorch`。
+
+### 从源码检出
+
+```bash
+git clone https://github.com/huangyicong0769/investorch-agent.git
+cd investorch-agent
 uv sync --locked
+```
+
+下文使用源码检出形式 `uv run investorch`。如果通过 Release wheel 安装，请省略 `uv run`，直接以 `investorch` 开始每条命令。
+
+## 首次运行
+
+### 1. 初始化本地状态
+
+```bash
 uv run investorch web
 ```
 
@@ -106,6 +137,12 @@ uv run investorch --sync-force
 
 ```bash
 uv sync --locked --extra cnequity
+```
+
+如果使用 GitHub Release wheel，请在安装工具时启用 extra：
+
+```bash
+uv tool install './investorch-0.1.0-py3-none-any.whl[cnequity]'
 ```
 
 CNEquity 是可选数据后端。更广泛的集成要等待上游行为足够稳定后再评估。

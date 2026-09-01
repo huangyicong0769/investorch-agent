@@ -28,11 +28,19 @@ def main() -> None:
     installed_package = Path(package_distribution.locate_file("investorch")).resolve()
     assert package_file.parent == installed_package
     assert package_distribution.metadata["Name"] == "investorch"
+    assert package_distribution.metadata["Author"] == "InvestOrch contributors"
     assert package_distribution.metadata["License-Expression"] == "Apache-2.0"
     assert set(package_distribution.metadata.get_all("License-File") or []) == {
         "LICENSE",
         "NOTICE",
         "THIRD_PARTY_NOTICES.md",
+    }
+    project_urls = dict(value.split(", ", 1) for value in package_distribution.metadata.get_all("Project-URL") or [])
+    assert project_urls == {
+        "Documentation": "https://github.com/huangyicong0769/investorch-agent#readme",
+        "Homepage": "https://github.com/huangyicong0769/investorch-agent",
+        "Issues": "https://github.com/huangyicong0769/investorch-agent/issues",
+        "Repository": "https://github.com/huangyicong0769/investorch-agent.git",
     }
     assert {entry.name for entry in package_distribution.entry_points if entry.group == "console_scripts"} == {
         "investorch"
