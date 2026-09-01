@@ -23,14 +23,13 @@ from .routes import APPLICATION_VERSION, router
 logger = logging.getLogger(__name__)
 
 WEB_HOST = "127.0.0.1"
-DEFAULT_WEB_PORT = 1334
 
 
 def create_web_app(config: AppConfig) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         logger.info("Web application lifespan starting")
-        connections = WebConnectionHub()
+        connections = WebConnectionHub(queue_capacity=config["web.connection_queue_capacity"])
         events = WebEventBridge(connections)
         approval_broker = WebApprovalBroker(events)
         app.state.connections = connections
@@ -70,7 +69,7 @@ def create_web_app(config: AppConfig) -> FastAPI:
     return app
 
 
-def run_web(*, port: int = DEFAULT_WEB_PORT) -> None:
+def run_web(*, port: int | None = None) -> None:
     config = load_config()
     set_tracing_disabled(not config["observability.sdk_tracing_enabled"])
     initialized = initialize(config)
@@ -86,9 +85,10 @@ def run_web(*, port: int = DEFAULT_WEB_PORT) -> None:
             )
             return
 
-        url = f"http://{WEB_HOST}:{port}"
+        effective_port = config["web.default_port"] if port is None else port
+        url = f"http://{WEB_HOST}:{effective_port}"
         logger.info("Starting local Web server at %s", url)
         print(f"InvestOrch Agent Web: {url}")
-        uvicorn.run(create_web_app(config), host=WEB_HOST, port=port, access_log=False)
+        uvicorn.run(create_web_app(config), host=WEB_HOST, port=effective_port, access_log=False)
     finally:
         logger.info("InvestOrch Agent Web stopped")

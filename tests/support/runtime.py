@@ -143,10 +143,11 @@ class FailingTextUserMessageSink:
 def make_runtime_harness(
     tmp_path: Path,
     *,
+    config_overrides: dict[str, dict[str, object]] | None = None,
     record_user_message: RecordUserMessage | None = None,
     record_user_steer: RecordUserSteer | None = None,
 ) -> RuntimeHarness:
-    config = make_test_config(tmp_path)
+    config = make_test_config(tmp_path, config_overrides)
     journal = SessionJournal(config.session_journal_dir, ZoneInfo("UTC"))
     agent_loop = ControlledAgentLoop()
     harness: RuntimeHarness

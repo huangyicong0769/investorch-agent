@@ -10,7 +10,8 @@ import {
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 
 import { getSessionHistory, getSessionState, sendMessage, stopSession } from '../../api/client'
-import { HISTORY_PAGE_SIZE, queryKeys } from '../../api/queries'
+import { queryKeys } from '../../api/queries'
+import { useWebConfig } from '../../config/WebConfigContext'
 import type {
   BootstrapResponse,
   SessionPresentationState,
@@ -49,7 +50,6 @@ interface StopVariables {
   runId: string | null
 }
 
-const MAX_TEXTAREA_HEIGHT = 160
 const NATIVE_ACTIONS = new Set(['/new', '/fork', '/stop', '/archive', '/unarchive', '/clear', '/compact'])
 
 async function refreshSessionState(
@@ -75,6 +75,7 @@ export function Composer({
   onPendingDirectMessage,
   presentation,
 }: ComposerProps) {
+  const webConfig = useWebConfig()
   const queryClient = useQueryClient()
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const stopRunIdRef = useRef<string | null>(null)
@@ -172,9 +173,9 @@ export function Composer({
       return
     }
     textarea.style.height = 'auto'
-    textarea.style.height = `${Math.min(textarea.scrollHeight, MAX_TEXTAREA_HEIGHT)}px`
-    textarea.style.overflowY = textarea.scrollHeight > MAX_TEXTAREA_HEIGHT ? 'auto' : 'hidden'
-  }, [draft])
+    textarea.style.height = `${Math.min(textarea.scrollHeight, webConfig.composer_max_height_px)}px`
+    textarea.style.overflowY = textarea.scrollHeight > webConfig.composer_max_height_px ? 'auto' : 'hidden'
+  }, [draft, webConfig.composer_max_height_px])
 
   const submit = async () => {
     const targetSessionId = sessionId
@@ -203,7 +204,7 @@ export function Composer({
 
       if (!baseSequenceKnown) {
         try {
-          const latest = await getSessionHistory(targetSessionId, { limit: HISTORY_PAGE_SIZE })
+          const latest = await getSessionHistory(targetSessionId, { limit: webConfig.history_page_size })
           baseNewestSeq = latest.newest_seq
           baseSequenceKnown = true
         } catch {

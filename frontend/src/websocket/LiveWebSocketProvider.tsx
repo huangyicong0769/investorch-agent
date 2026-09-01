@@ -17,9 +17,9 @@ import {
   getSessions,
 } from '../api/client'
 import {
-  HISTORY_PAGE_SIZE,
   queryKeys,
 } from '../api/queries'
+import { useWebConfig } from '../config/WebConfigContext'
 import type {
   ApprovalRequest,
   ApprovalRequiredLiveEvent,
@@ -67,8 +67,6 @@ interface LiveWebSocketContextValue {
 
 const EMPTY_RECORDS: JournalRecord[] = []
 const EMPTY_NOTICES: LiveNotice[] = []
-const MAX_NOTICES = 12
-
 const LiveWebSocketContext = createContext<LiveWebSocketContextValue>({
   selectedSessionId: null,
   status: 'disconnected',
@@ -507,6 +505,7 @@ function canonicalRunEndedIds(
 }
 
 export function LiveWebSocketProvider({ children }: PropsWithChildren) {
+  const webConfig = useWebConfig()
   const queryClient = useQueryClient()
   const selectedMatch = useMatch('/c/:sessionId')
   const selectedSessionId = selectedMatch?.params.sessionId ?? null
@@ -563,7 +562,7 @@ export function LiveWebSocketProvider({ children }: PropsWithChildren) {
     setNoticeState((current) =>
       current.some((item) => item.id === id)
         ? current
-        : [...current, notice].slice(-MAX_NOTICES),
+        : [...current, notice].slice(-webConfig.max_notices),
     )
   }
 
@@ -712,7 +711,7 @@ export function LiveWebSocketProvider({ children }: PropsWithChildren) {
       getBootstrap({ signal: controller.signal }),
       getSessions({ signal: controller.signal }),
       getSessionState(sessionId, { signal: controller.signal }),
-      getSessionHistory(sessionId, { limit: HISTORY_PAGE_SIZE, signal: controller.signal }),
+      getSessionHistory(sessionId, { limit: webConfig.history_page_size, signal: controller.signal }),
     ])
 
     if (!mountedRef.current || token !== resyncTokenRef.current || selectedSessionRef.current !== sessionId) {
@@ -737,7 +736,7 @@ export function LiveWebSocketProvider({ children }: PropsWithChildren) {
     }
     if (latest) {
       queryClient.setQueryData<HistoryInfiniteData>(historyKey, (current) =>
-        mergeHistoryPages(current, latest, HISTORY_PAGE_SIZE),
+        mergeHistoryPages(current, latest, webConfig.history_page_size),
       )
       const endedRunId = endedRunBySessionRef.current.get(sessionId)
       if (endedRunId) {
@@ -811,6 +810,8 @@ export function LiveWebSocketProvider({ children }: PropsWithChildren) {
   useEffect(() => {
     mountedRef.current = true
     const connection = createWebSocketConnection({
+      baseDelayMs: webConfig.websocket_reconnect_base_delay_ms,
+      maxDelayMs: webConfig.websocket_reconnect_max_delay_ms,
       onMessage: (payload) => {
         const event = parseLiveEvent(payload)
         if (event === null) {
@@ -849,7 +850,10 @@ export function LiveWebSocketProvider({ children }: PropsWithChildren) {
       endedRunBySessionRef.current.clear()
       connection.close()
     }
-  }, [])
+  }, [
+    webConfig.websocket_reconnect_base_delay_ms,
+    webConfig.websocket_reconnect_max_delay_ms,
+  ])
 
   const records = useMemo(
     () => (liveSessionRef.current === selectedSessionId ? [...overlayState.values()] : EMPTY_RECORDS),

@@ -11,8 +11,6 @@ import {
   getSessions,
 } from './client'
 
-export const HISTORY_PAGE_SIZE = 200
-
 export const queryKeys = {
   all: ['investorch'] as const,
   archivedSessions: () => [...queryKeys.all, 'sessions', 'archived'] as const,
@@ -64,14 +62,14 @@ export const sessionHistoryQueryOptions = (sessionId: string, beforeSeq?: number
     queryFn: ({ signal }) => getSessionHistory(sessionId, { beforeSeq, limit, signal }),
   })
 
-export const sessionHistoryInfiniteQueryOptions = (sessionId: string) =>
+export const sessionHistoryInfiniteQueryOptions = (sessionId: string, pageSize: number) =>
   infiniteQueryOptions({
     queryKey: queryKeys.sessionHistoryPages(sessionId),
     initialPageParam: undefined as number | undefined,
     queryFn: ({ pageParam, signal }) =>
       getSessionHistory(sessionId, {
         beforeSeq: pageParam,
-        limit: HISTORY_PAGE_SIZE,
+        limit: pageSize,
         signal,
       }),
     getNextPageParam: (lastPage) =>

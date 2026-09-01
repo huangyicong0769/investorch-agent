@@ -3,16 +3,13 @@ export type WebSocketConnectionStatus = 'connected' | 'reconnecting' | 'disconne
 export interface WebSocketConnectionOptions {
   onMessage: (payload: unknown) => void
   onStatusChange: (status: WebSocketConnectionStatus) => void
-  baseDelayMs?: number
-  maxDelayMs?: number
+  baseDelayMs: number
+  maxDelayMs: number
 }
 
 export interface WebSocketConnection {
   close: () => void
 }
-
-const DEFAULT_BASE_DELAY_MS = 500
-const DEFAULT_MAX_DELAY_MS = 8_000
 
 /** Build the same-origin websocket endpoint used by the browser application. */
 export function websocketUrl(): string {
@@ -32,8 +29,8 @@ export function websocketUrl(): string {
  * HTTP API.
  */
 export function createWebSocketConnection(options: WebSocketConnectionOptions): WebSocketConnection {
-  const baseDelayMs = Math.max(0, options.baseDelayMs ?? DEFAULT_BASE_DELAY_MS)
-  const maxDelayMs = Math.max(baseDelayMs, options.maxDelayMs ?? DEFAULT_MAX_DELAY_MS)
+  const baseDelayMs = Math.max(0, options.baseDelayMs)
+  const maxDelayMs = Math.max(baseDelayMs, options.maxDelayMs)
 
   let disposed = false
   let socket: WebSocket | null = null

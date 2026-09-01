@@ -3,6 +3,7 @@ import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, use
 
 import { sessionHistoryInfiniteQueryOptions } from '../../api/queries'
 import { ApiError } from '../../api/client'
+import { useWebConfig } from '../../config/WebConfigContext'
 import type { JournalRecord, RuntimeSnapshot } from '../../api/types'
 import type {
   TimelineAssistantTurnViewModel,
@@ -102,6 +103,7 @@ function RunTiming({ timing }: { timing: TimelineRunTimingViewModel }) {
 }
 
 function ActiveRunTiming({ runtime }: { runtime: RuntimeSnapshot }) {
+  const webConfig = useWebConfig()
   const [now, setNow] = useState(() => Date.now())
   const startedAt = runtime.run_started_at
 
@@ -110,9 +112,9 @@ function ActiveRunTiming({ runtime }: { runtime: RuntimeSnapshot }) {
       return
     }
     setNow(Date.now())
-    const timer = window.setInterval(() => setNow(Date.now()), 1000)
+    const timer = window.setInterval(() => setNow(Date.now()), webConfig.run_timer_interval_ms)
     return () => window.clearInterval(timer)
-  }, [runtime.run_phase, startedAt])
+  }, [runtime.run_phase, startedAt, webConfig.run_timer_interval_ms])
 
   if (!startedAt || !runtime.run_phase) {
     return null
@@ -155,6 +157,7 @@ export function ConversationTimeline({
   onPendingMessageCanonical,
   runtime,
 }: ConversationTimelineProps) {
+  const webConfig = useWebConfig()
   const scrollRef = useRef<HTMLDivElement>(null)
   const sentinelRef = useRef<HTMLDivElement>(null)
   const sessionRef = useRef(sessionId)
@@ -164,7 +167,7 @@ export function ConversationTimeline({
   const activityKeyRef = useRef('')
   const [observerAvailable, setObserverAvailable] = useState<boolean | null>(null)
   const [showNewActivity, setShowNewActivity] = useState(false)
-  const historyQuery = useInfiniteQuery(sessionHistoryInfiniteQueryOptions(sessionId))
+  const historyQuery = useInfiniteQuery(sessionHistoryInfiniteQueryOptions(sessionId, webConfig.history_page_size))
   const {
     data,
     error,

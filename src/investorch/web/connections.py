@@ -12,7 +12,6 @@ from starlette.websockets import WebSocketDisconnect
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_CONNECTION_QUEUE_CAPACITY = 1000
 _LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
 
 WebPayload = dict[str, object]
@@ -32,7 +31,7 @@ class _WebConnection:
 
 
 class WebConnectionHub:
-    def __init__(self, *, queue_capacity: int = DEFAULT_CONNECTION_QUEUE_CAPACITY) -> None:
+    def __init__(self, *, queue_capacity: int) -> None:
         if type(queue_capacity) is not int or queue_capacity < 1:
             raise ValueError("queue_capacity must be a positive integer")
         self._queue_capacity = queue_capacity

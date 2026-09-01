@@ -253,7 +253,6 @@ class InvestOrchAgentTUI(App[None]):
     #interaction-scroll {
         width: 100%;
         height: auto;
-        max-height: 9;
         scrollbar-size-vertical: 1;
     }
 
@@ -400,8 +399,17 @@ class InvestOrchAgentTUI(App[None]):
                     id="timeline",
                 ),
                 VerticalScroll(
-                    TodoPanel(id="todo-panel"),
-                    QueuePanel(id="queue-panel"),
+                    TodoPanel(
+                        self.state.config["tui.todo_panel_max_height"],
+                        self.state.config["tui.todo_collapsible_max_height"],
+                        self.state.config["tui.todo_contents_max_height"],
+                        id="todo-panel",
+                    ),
+                    QueuePanel(
+                        self.state.config["tui.queue_panel_max_height"],
+                        self.state.config["tui.queue_preview_count"],
+                        id="queue-panel",
+                    ),
                     ApprovalPanel(self.state.config["tui.approval_arguments_max_height"], id="approval-panel"),
                     id="interaction-scroll",
                 ),
@@ -415,6 +423,7 @@ class InvestOrchAgentTUI(App[None]):
         sidebar = self.query_one(SessionSidebar)
         sidebar.styles.width = self.state.config["tui.sidebar_width"]
         sidebar.styles.min_width = self.state.config["tui.sidebar_min_width"]
+        self.query_one("#interaction-scroll").styles.max_height = self.state.config["tui.interaction_scroll_max_height"]
         self.set_interval(self.state.config["tui.run_timer_interval_seconds"], self._refresh_run_status)
         self._loading_session_id = self.state.selected_session_id
         self._refresh_selected_controls()

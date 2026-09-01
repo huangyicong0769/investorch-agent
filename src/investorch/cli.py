@@ -17,7 +17,7 @@ class StartupOptions:
 
 @dataclass(frozen=True)
 class WebOptions:
-    port: int
+    port: int | None
 
 
 def parse_startup_args(argv: list[str] | None = None) -> StartupOptions:
@@ -47,11 +47,9 @@ def _web_port(value: str) -> int:
 
 
 def parse_web_args(argv: list[str] | None = None) -> WebOptions:
-    from investorch.web import DEFAULT_WEB_PORT
-
     parser = argparse.ArgumentParser(prog="investorch web", description="Run the local InvestOrch Agent Web interface.")
     parser.add_argument(
-        "--port", type=_web_port, default=DEFAULT_WEB_PORT, help=f"Loopback port (default: {DEFAULT_WEB_PORT})."
+        "--port", type=_web_port, help="Override the AppConfig web.default_port value for this process."
     )
     args = parser.parse_args(argv)
     return WebOptions(port=args.port)
