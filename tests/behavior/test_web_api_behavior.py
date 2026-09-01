@@ -163,6 +163,15 @@ async def test_future_default_changes_without_mutating_active_run_snapshot(tmp_p
         assert stopped.json()["status"] == "stopping"
         await web.runtime.wait_for_run_ended(session_id)
 
+        next_run = await web.client.post(f"/api/sessions/{session_id}/messages", json={"text": "next"})
+        await web.runtime.agent_loop.wait_until_started(session_id, occurrence=2)
+        next_state = await web.client.get(f"/api/sessions/{session_id}/state")
+        assert next_run.json()["disposition"] == "run_started"
+        assert next_state.json()["runtime"]["active_follow_up_behavior"] == "queue"
+
+        web.runtime.agent_loop.complete(session_id)
+        await web.runtime.wait_for_run_ended(session_id, occurrence=2)
+
 
 @pytest.mark.asyncio
 async def test_queue_endpoints_distinguish_missing_and_unpaused_queue(tmp_path: Path) -> None:
