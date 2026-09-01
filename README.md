@@ -11,7 +11,7 @@ uv sync
 uv run qmt-agent web
 ```
 
-The first run initializes local state in `~/.qmt-agent-trader` and exits. Add the secrets referenced by `config/qmt.toml` to `~/.qmt-agent-trader/qmt.toml` (the default configuration uses `DEEPSEEK_API_KEY`), then run the Web command again.
+The first run initializes local state in `~/.qmt-agent-trader` and exits. Add the required local secrets to `~/.qmt-agent-trader/qmt.toml` (the bundled defaults currently reference `DEEPSEEK_API_KEY`), then run the Web command again.
 
 Open <http://127.0.0.1:1334>. To use another loopback port:
 
@@ -19,7 +19,7 @@ Open <http://127.0.0.1:1334>. To use another loopback port:
 uv run qmt-agent web --port 8000
 ```
 
-The production Web bundle ships inside the Python package, so Node.js is not needed at runtime. The 0.1 server intentionally listens on loopback only and does not expose an unauthenticated LAN endpoint.
+The wheel contains the application defaults, bootstrap templates, and production Web bundle, so a source checkout and Node.js are not needed at runtime. The 0.1 server intentionally listens on loopback only and does not expose an unauthenticated LAN endpoint.
 
 ## Other clients
 

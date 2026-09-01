@@ -1,7 +1,7 @@
 [project]
 name = "qmt-agent-trader"
 version = "0.1.0"
-description = "Add your description here"
+description = "Local human-supervised quantitative trading agent with Web, TUI, and plain-console clients."
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
