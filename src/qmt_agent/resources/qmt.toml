@@ -1,4 +1,4 @@
-# config/qmt.toml
+# Bundled QMT Agent project defaults.
 
 [paths]
 root = "~/.qmt-agent-trader"

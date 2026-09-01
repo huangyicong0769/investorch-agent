@@ -12,7 +12,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import tomlkit
 
 REDACTED = "<redacted>"
-PROJECT_CONFIG_PATH = Path(__file__).resolve().parents[2] / "config" / "qmt.toml"
+PROJECT_CONFIG_PATH = Path(__file__).resolve().parent / "resources" / "qmt.toml"
 REQUIRED_MODEL_AGENTS = ("main", "title", "activity", "bootstrap", "permission", "compact")
 REASONING_EFFORTS = ("none", "minimal", "low", "medium", "high", "xhigh", "max")
 PERMISSION_MODES = ("manual", "review")
@@ -123,7 +123,7 @@ class AppConfig:
 
             (source_template, workspace_target)
 
-        Source paths are relative to config/qmt.toml.
+        Source paths are relative to the bundled project configuration directory.
         Target paths are relative to the user workspace.
         """
         raw_files = self._data.get("bootstrap", {}).get("files", [])
@@ -152,7 +152,7 @@ class AppConfig:
             source_relative = Path(source)
 
             if source_relative.is_absolute():
-                raise ConfigError("Bootstrap source paths must be relative to config/qmt.toml")
+                raise ConfigError("Bootstrap source paths must be relative to the project defaults")
 
             source_path = (config_dir / source_relative).resolve()
 
@@ -349,14 +349,14 @@ def load_config(project_config_path: str | Path | None = None) -> AppConfig:
 
     project_data = _read_toml(project_path)
 
-    # Secrets must live outside the repository.
+    # Secrets must live outside the bundled project defaults.
     if project_data.get("secrets"):
-        raise ConfigError("[secrets] must not appear in config/qmt.toml")
+        raise ConfigError("[secrets] must not appear in the project defaults")
 
     root_value = project_data.get("paths", {}).get("root")
 
     if not isinstance(root_value, str):
-        raise ConfigError("config/qmt.toml must define paths.root")
+        raise ConfigError("Project defaults must define paths.root")
 
     root = Path(root_value).expanduser()
 
@@ -380,10 +380,10 @@ def load_config(project_config_path: str | Path | None = None) -> AppConfig:
 
     # root/qmt.toml cannot redirect itself.
     if "root" in root_data.get("paths", {}):
-        raise ConfigError("paths.root must only be defined in config/qmt.toml")
+        raise ConfigError("paths.root must only be defined in the project defaults")
 
     if "bootstrap" in root_data:
-        raise ConfigError("[bootstrap] must only be defined in config/qmt.toml")
+        raise ConfigError("[bootstrap] must only be defined in the project defaults")
 
     data = _merge(project_data, root_data)
 

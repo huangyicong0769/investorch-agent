@@ -9,7 +9,7 @@ Never store secret values in this file.
 
 Effective application configuration is built from these layers, from lowest to highest priority:
 
-1. Repository configuration at `config/qmt.toml`
+1. Bundled application defaults
 2. Local instance configuration at `<root>/qmt.toml`
 3. Runtime-only changes to the current `AppConfig`
 
@@ -31,7 +31,7 @@ A persistent runtime update is written to `<root>/qmt.toml` and therefore become
 
 ## Root Directory
 
-The repository configuration defines `paths.root`.
+The bundled project defaults define `paths.root`.
 `paths.root` is bootstrap configuration.
 The local `<root>/qmt.toml` must not redefine it.
 The root contains local QMT Agent state including:
@@ -56,8 +56,7 @@ Long-term memory is maintained as Markdown in the workspace, with `MEMORY.md` as
 
 ## Project Configuration
 
-Repository defaults live in:
-`config/qmt.toml`
+Bundled application defaults are package-owned and read-only.
 Project configuration may be committed to Git and must not contain secrets.
 
 The runtime policy sections below are TOML-only and must be present in the effective configuration:
@@ -256,7 +255,7 @@ Keep the configuration system explicit and small.
 
 Prefer:
 
-- repository defaults
+- bundled defaults
 - local overrides
 - runtime mutation
 - explicit Agent tools

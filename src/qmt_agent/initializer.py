@@ -12,7 +12,7 @@ from qmt_agent.config import AppConfig, ConfigError
 from qmt_agent.storage import init_session_metadata
 
 LOCAL_CONFIG_TEMPLATE = """# Local QMT Agent configuration.
-# Overrides config/qmt.toml and stores local secrets.
+# Overrides bundled QMT Agent defaults and stores local secrets.
 
 [secrets]
 """
