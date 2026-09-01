@@ -5,8 +5,8 @@ from pathlib import Path
 import pytest
 from agents import Agent, SQLiteSession
 
-from qmt_agent.agents import TokenUsage, compact_session
-from qmt_agent.storage import create_session
+from investorch.agents import TokenUsage, compact_session
+from investorch.storage import create_session
 from tests.support.config import make_test_config
 
 

@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from qmt_agent.config import REDACTED, ConfigError, load_config
+from investorch.config import PROJECT_CONFIG_PATH, REDACTED, ConfigError, load_config
 from tests.support.config import make_test_config
 
 
@@ -17,6 +17,16 @@ def test_local_override_preserves_unset_defaults_and_project_root(tmp_path: Path
     assert config["interaction.follow_up_behavior"] == "queue"
     assert config["runtime.max_turns"] == 100
     assert config.root == (tmp_path / "root").resolve()
+
+
+def test_investorch_default_filesystem_identity(tmp_path: Path) -> None:
+    config = make_test_config(tmp_path)
+
+    assert PROJECT_CONFIG_PATH.name == "investorch.toml"
+    assert config.root_config_path == config.root / "investorch.toml"
+    assert config.state_dir == config.root / "state"
+    assert config.log_path == config.root / "state" / "logs" / "investorch.log"
+    assert config.background_job_dir == config.root / "workspace" / ".investorch-processes"
 
 
 def test_local_config_cannot_redirect_project_root(tmp_path: Path) -> None:

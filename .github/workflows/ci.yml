@@ -72,11 +72,11 @@ jobs:
       - name: Verify committed production bundle
         shell: bash
         run: |
-          if ! git diff --quiet -- src/qmt_agent/web/static ||
-             [ -n "$(git ls-files --others --exclude-standard -- src/qmt_agent/web/static)" ]; then
+          if ! git diff --quiet -- src/investorch/web/static ||
+             [ -n "$(git ls-files --others --exclude-standard -- src/investorch/web/static)" ]; then
             echo "Bundled WebUI is out of date. Run: cd frontend && npm run build"
-            git status --short -- src/qmt_agent/web/static
-            git diff -- src/qmt_agent/web/static
+            git status --short -- src/investorch/web/static
+            git diff -- src/investorch/web/static
             exit 1
           fi
 

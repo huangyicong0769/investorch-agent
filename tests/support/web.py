@@ -9,14 +9,14 @@ from pathlib import Path
 import httpx
 from agents import Agent
 
-from qmt_agent.application import ApplicationHost, ApprovalCoordinator
-from qmt_agent.application.presentation_state import SessionPresentationStore
-from qmt_agent.application.sessions import SessionOperations
-from qmt_agent.context import AppState
-from qmt_agent.web.approvals import WebApprovalBroker
-from qmt_agent.web.connections import WebConnectionHub
-from qmt_agent.web.events import WebEventBridge
-from qmt_agent.web.server import create_web_app
+from investorch.application import ApplicationHost, ApprovalCoordinator
+from investorch.application.presentation_state import SessionPresentationStore
+from investorch.application.sessions import SessionOperations
+from investorch.context import AppState
+from investorch.web.approvals import WebApprovalBroker
+from investorch.web.connections import WebConnectionHub
+from investorch.web.events import WebEventBridge
+from investorch.web.server import create_web_app
 from tests.support.runtime import RuntimeHarness, make_runtime_harness
 
 

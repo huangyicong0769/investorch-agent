@@ -42,7 +42,7 @@ function AssistantTurn({ turn }: { turn: TimelineAssistantTurnViewModel }) {
   return (
     <article className="py-4" data-seq={turn.seq}>
       <div className="mb-2 flex items-center gap-2 text-xs font-medium text-muted-foreground">
-        <span>QMT Agent</span>
+        <span>InvestOrch Agent</span>
         <time dateTime={turn.timestamp}>{formatTimelineTime(turn.timestamp)}</time>
       </div>
       <div className="min-w-0">
@@ -440,7 +440,7 @@ export function ConversationTimeline({
           ) : null}
 
           {!isPending && !isError && timeline.length === 0 && liveSession.notices.length === 0 && !pendingVisible ? (
-            <p className="py-24 text-center text-sm text-muted-foreground">Ask QMT Agent anything.</p>
+            <p className="py-24 text-center text-sm text-muted-foreground">Ask InvestOrch Agent anything.</p>
           ) : null}
 
           {visibleTimeline.map((item, index) => {

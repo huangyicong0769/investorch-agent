@@ -1,7 +1,7 @@
 [project]
-name = "qmt-agent-trader"
+name = "investorch"
 version = "0.1.0"
-description = "Local human-supervised quantitative trading agent with Web, TUI, and plain-console clients."
+description = "Local human-in-the-loop investment orchestration agent with Web, TUI, and plain-console clients."
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -20,14 +20,14 @@ cnequity = [
 ]
 
 [project.scripts]
-qmt-agent = "qmt_agent.__main__:entrypoint"
+investorch = "investorch.__main__:entrypoint"
 
 [build-system]
 requires = ["uv_build>=0.12.3,<0.13"]
 build-backend = "uv_build"
 
 [tool.uv.build-backend]
-module-name = "qmt_agent"
+module-name = "investorch"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

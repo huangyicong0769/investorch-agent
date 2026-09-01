@@ -3,8 +3,8 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass, field
 
-from qmt_agent.agents import AgentRunResult, CompactionResult, TokenUsage
-from qmt_agent.output import AssistantMessage
+from investorch.agents import AgentRunResult, CompactionResult, TokenUsage
+from investorch.output import AssistantMessage
 
 
 @dataclass(slots=True)

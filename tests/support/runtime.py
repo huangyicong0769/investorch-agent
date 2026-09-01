@@ -7,12 +7,12 @@ from pathlib import Path
 from typing import cast
 from zoneinfo import ZoneInfo
 
-from qmt_agent.agents import AgentLoop, ApprovalOutcome, TokenUsage
-from qmt_agent.config import AppConfig
-from qmt_agent.context import ExecutionState
-from qmt_agent.journal import SessionJournal
-from qmt_agent.runtime import AgentRuntime, RunOptions, RuntimeFollowUpEvent, RuntimeRunEnded, RuntimeSessionSnapshot
-from qmt_agent.runtime.models import ApprovalRequest, FollowUpBehavior, RuntimeOutput
+from investorch.agents import AgentLoop, ApprovalOutcome, TokenUsage
+from investorch.config import AppConfig
+from investorch.context import ExecutionState
+from investorch.journal import SessionJournal
+from investorch.runtime import AgentRuntime, RunOptions, RuntimeFollowUpEvent, RuntimeRunEnded, RuntimeSessionSnapshot
+from investorch.runtime.models import ApprovalRequest, FollowUpBehavior, RuntimeOutput
 from tests.support.config import make_test_config
 from tests.support.controlled_agent import ControlledAgentLoop
 

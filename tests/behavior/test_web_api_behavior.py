@@ -4,7 +4,17 @@ from pathlib import Path
 
 import pytest
 
+from investorch.web.routes import APPLICATION_VERSION
+from investorch.web.server import create_web_app
+from tests.support.config import make_test_config
 from tests.support.web import open_test_web
+
+
+def test_web_application_metadata_uses_investorch_identity(tmp_path: Path) -> None:
+    app = create_web_app(make_test_config(tmp_path))
+
+    assert app.title == "InvestOrch Agent"
+    assert app.version == APPLICATION_VERSION == "0.1.0"
 
 
 @pytest.mark.asyncio
@@ -14,7 +24,7 @@ async def test_health_exposes_ready_status_and_version(tmp_path: Path) -> None:
 
         assert response.status_code == 200
         assert response.json()["status"] == "ok"
-        assert response.json()["version"]
+        assert response.json()["version"] == "0.1.0"
 
 
 @pytest.mark.asyncio

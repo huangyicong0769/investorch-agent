@@ -206,7 +206,7 @@ export function SessionSidebar({
       id="session-sidebar"
     >
       <div className="flex items-center justify-between px-2">
-        <div className="text-sm font-semibold">QMT Agent</div>
+        <div className="text-sm font-semibold">InvestOrch Agent</div>
         <Button
           size={null}
           variant={null}

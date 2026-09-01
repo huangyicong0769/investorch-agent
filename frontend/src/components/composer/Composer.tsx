@@ -250,12 +250,12 @@ export function Composer({
   return (
     <form className="rounded-2xl border border-border bg-card p-3 shadow-sm" onSubmit={handleSubmit}>
       <textarea
-        aria-label="Message QMT Agent"
+        aria-label="Message InvestOrch Agent"
         className="block max-h-40 min-h-10 w-full resize-none overflow-hidden bg-transparent px-1 py-1.5 text-sm leading-6 outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60"
         disabled={archived}
         onChange={handleDraftChange}
         onKeyDown={handleKeyDown}
-        placeholder={archived ? 'Archived sessions are read-only.' : 'Message QMT Agent'}
+        placeholder={archived ? 'Archived sessions are read-only.' : 'Message InvestOrch Agent'}
         ref={textareaRef}
         rows={1}
         value={draft}

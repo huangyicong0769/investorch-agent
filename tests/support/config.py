@@ -6,8 +6,8 @@ from typing import Any
 
 import tomlkit
 
-from qmt_agent.config import PROJECT_CONFIG_PATH, AppConfig, load_config
-from qmt_agent.initializer import initialize
+from investorch.config import PROJECT_CONFIG_PATH, AppConfig, load_config
+from investorch.initializer import initialize
 
 
 def make_test_config(
@@ -27,7 +27,7 @@ def make_test_config(
 
     if overrides:
         root.mkdir(parents=True)
-        (root / "qmt.toml").write_text(tomlkit.dumps(overrides), encoding="utf-8")
+        (root / "investorch.toml").write_text(tomlkit.dumps(overrides), encoding="utf-8")
 
     config = load_config(project_config_path)
     if initialize_state:

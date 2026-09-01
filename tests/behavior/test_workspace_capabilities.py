@@ -8,8 +8,8 @@ import pytest
 from agents.tool import FunctionTool
 from agents.tool_context import ToolContext
 
-from qmt_agent.context import AgentContext, ExecutionState
-from qmt_agent.tools.base import calculate, delete, edit, explore
+from investorch.context import AgentContext, ExecutionState
+from investorch.tools.base import calculate, delete, edit, explore
 from tests.support.config import make_test_config
 
 

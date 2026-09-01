@@ -14,7 +14,7 @@ import {
 export const HISTORY_PAGE_SIZE = 200
 
 export const queryKeys = {
-  all: ['qmt'] as const,
+  all: ['investorch'] as const,
   archivedSessions: () => [...queryKeys.all, 'sessions', 'archived'] as const,
   bootstrap: () => [...queryKeys.all, 'bootstrap'] as const,
   defaults: () => [...queryKeys.all, 'defaults'] as const,

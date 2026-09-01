@@ -6,10 +6,10 @@ from zoneinfo import ZoneInfo
 import pytest
 from agents import Agent
 
-from qmt_agent.agents import TokenUsage, review_permission
-from qmt_agent.application import ApprovalCoordinator, ApprovalResolvedEvent
-from qmt_agent.journal import SessionJournal, read_session_journal
-from qmt_agent.runtime import ApprovalRequest
+from investorch.agents import TokenUsage, review_permission
+from investorch.application import ApprovalCoordinator, ApprovalResolvedEvent
+from investorch.journal import SessionJournal, read_session_journal
+from investorch.runtime import ApprovalRequest
 from tests.support.config import make_test_config
 
 

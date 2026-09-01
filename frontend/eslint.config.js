@@ -3,7 +3,7 @@ import tseslint from 'typescript-eslint'
 
 export default tseslint.config(
   {
-    ignores: ['dist', '../src/qmt_agent/web/static'],
+    ignores: ['dist', '../src/investorch/web/static'],
   },
   eslint.configs.recommended,
   ...tseslint.configs.recommended,

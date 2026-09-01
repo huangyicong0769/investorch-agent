@@ -3,8 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from qmt_agent.application.presentation_state import SessionPresentationStore
-from qmt_agent.application.sessions import SessionOperations
+from investorch.application.presentation_state import SessionPresentationStore
+from investorch.application.sessions import SessionOperations
 from tests.support.runtime import RuntimeHarness, make_runtime_harness
 
 
