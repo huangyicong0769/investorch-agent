@@ -3,16 +3,37 @@ name = "investorch"
 version = "0.1.0"
 description = "Local human-in-the-loop investment orchestration agent with Web, TUI, and plain-console clients."
 readme = "README.md"
+authors = [{ name = "InvestOrch contributors" }]
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.md"]
 requires-python = ">=3.12"
+keywords = ["agent", "backtesting", "human-in-the-loop", "investment", "local-first"]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Environment :: Console",
+    "Framework :: FastAPI",
+    "Intended Audience :: Financial and Insurance Industry",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Office/Business :: Financial :: Investment",
+]
 dependencies = [
-    "fastapi>=0.141.1",
-    "openai-agents>=0.22.0",
+    "fastapi>=0.141.1,<0.142",
+    "openai-agents>=0.22.0,<0.23",
     "rqalpha==6.3.0",
     "socksio==1.*",
     "textual==8.2.8",
-    "tomlkit>=0.15.1",
-    "uvicorn[standard]>=0.52.4",
+    "tomlkit>=0.15.1,<0.16",
+    "uvicorn[standard]>=0.52.4,<0.53",
 ]
+
+[project.urls]
+Homepage = "https://github.com/huangyicong0769/investorch-agent"
+Documentation = "https://github.com/huangyicong0769/investorch-agent#readme"
+Issues = "https://github.com/huangyicong0769/investorch-agent/issues"
+Repository = "https://github.com/huangyicong0769/investorch-agent.git"
 
 [project.optional-dependencies]
 cnequity = [
@@ -23,7 +44,7 @@ cnequity = [
 investorch = "investorch.__main__:entrypoint"
 
 [build-system]
-requires = ["uv_build>=0.12.3,<0.13"]
+requires = ["uv_build==0.12.8"]
 build-backend = "uv_build"
 
 [tool.uv.build-backend]
