@@ -212,8 +212,44 @@ async def test_clear_empties_old_continuation_and_metadata_and_creates_replaceme
     assert replacement_id != old_id
     assert replacement is not None
     assert replacement.archived_at is None
+    assert replacement.title is None
+    assert replacement.branch_from_session_id is None
     assert old is None
     assert await sdk_items(harness, old_id) == []
+
+    harness.runtime.runtime.start_run(replacement_id, "replacement is usable", run_options())
+    await harness.runtime.agent_loop.wait_until_started(replacement_id)
+    harness.runtime.agent_loop.complete(replacement_id)
+    assert (await harness.runtime.wait_for_run_ended(replacement_id)).status == "completed"
+    await harness.runtime.runtime.aclose()
+
+
+@pytest.mark.asyncio
+async def test_clear_rejects_archived_busy_or_queued_session(tmp_path: Path) -> None:
+    harness = make_session_harness(tmp_path)
+
+    archived_id = await harness.operations.create()
+    await harness.operations.archive(archived_id)
+    with pytest.raises(SessionArchivedError):
+        await harness.operations.clear(archived_id)
+
+    busy_id = await harness.operations.create()
+    harness.runtime.runtime.start_run(busy_id, "running", run_options())
+    await harness.runtime.agent_loop.wait_until_started(busy_id)
+    with pytest.raises(SessionBusyError):
+        await harness.operations.clear(busy_id)
+    harness.runtime.agent_loop.complete(busy_id)
+    await harness.runtime.wait_for_run_ended(busy_id)
+
+    queued_id = await harness.operations.create()
+    harness.runtime.runtime.start_run(queued_id, "running", run_options("queue"))
+    await harness.runtime.agent_loop.wait_until_started(queued_id)
+    await harness.runtime.runtime.submit_follow_up(queued_id, "future", run_options())
+    with pytest.raises(SessionHasQueuedInputsError):
+        await harness.operations.clear(queued_id)
+    harness.runtime.runtime.clear_queue(queued_id)
+    harness.runtime.agent_loop.complete(queued_id)
+    await harness.runtime.wait_for_run_ended(queued_id)
     await harness.runtime.runtime.aclose()
 
 
