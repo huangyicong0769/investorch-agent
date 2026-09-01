@@ -241,7 +241,7 @@ InvestOrch Agent 构建于以下项目之上：
 - [Textual](https://github.com/Textualize/textual)：TUI。
 - [uv](https://github.com/astral-sh/uv)：Python 环境、lockfile 与打包工作流。
 
-InvestOrch Agent 自有代码和文档采用 [Apache-2.0](LICENSE) 许可证，第三方组件仍适用各自的许可证。特别是，RQAlpha 仓库的许可证分别限制了其中定义的非商业与商业用途，InvestOrch Agent 的许可证不会覆盖这些条款。详情及随包 Web 客户端的许可清单见[第三方声明](THIRD_PARTY_NOTICES.md)。
+InvestOrch Agent 自有代码和文档采用 [Apache-2.0](LICENSE) 许可证，第三方组件仍适用各自的许可证。RQAlpha 及其 RQRisk 依赖对各自定义的非商业与商业用途采用项目自己的许可条款，InvestOrch Agent 的许可证不会覆盖这些条款。详情及随包 Web 客户端的许可清单见[第三方声明](THIRD_PARTY_NOTICES.md)。
 
 ## 人与 AI 的开发协作
 
