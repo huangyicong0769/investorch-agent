@@ -16,7 +16,6 @@ class QueuePanel(Vertical):
         display: none;
         width: 100%;
         height: auto;
-        max-height: 7;
         padding: 0 1;
         background: $panel;
         border-top: solid $primary-background;
@@ -55,17 +54,26 @@ class QueuePanel(Vertical):
             self.session_id = session_id
 
     def __init__(
-        self, queued_inputs: list[QueuedInput] | None = None, *, session_id: str = "", paused: bool = False, **kwargs
+        self,
+        max_height: int,
+        preview_count: int,
+        queued_inputs: list[QueuedInput] | None = None,
+        *,
+        session_id: str = "",
+        paused: bool = False,
+        **kwargs,
     ) -> None:
         super().__init__(**kwargs)
+        self._max_height = max_height
+        self._preview_count = preview_count
         self._session_id = session_id
         self._queued_inputs = list(queued_inputs or ())
         self._paused = paused
 
     def compose(self) -> ComposeResult:
         yield Label(id="queue-heading", classes="queue-heading")
-        yield Label(markup=False, id="queue-preview-1", classes="queue-preview")
-        yield Label(markup=False, id="queue-preview-2", classes="queue-preview")
+        for index in range(self._preview_count):
+            yield Label(markup=False, id=f"queue-preview-{index + 1}", classes="queue-preview")
         yield Horizontal(
             Button("Resume", variant="success", id="queue-resume"),
             Button("Clear", variant="warning", id="queue-clear"),
@@ -73,6 +81,7 @@ class QueuePanel(Vertical):
         )
 
     def on_mount(self) -> None:
+        self.styles.max_height = self._max_height
         self._refresh()
 
     def replace_queue(self, session_id: str, queued_inputs: list[QueuedInput], *, paused: bool) -> None:
@@ -91,8 +100,8 @@ class QueuePanel(Vertical):
         heading = f"Paused · {count}" if self._paused else f"Queued follow-ups · {count}"
         self.query_one("#queue-heading", Label).update(heading)
 
-        previews = self._queued_inputs[:2]
-        for index in range(2):
+        previews = self._queued_inputs[: self._preview_count]
+        for index in range(self._preview_count):
             label = self.query_one(f"#queue-preview-{index + 1}", Label)
             if index < len(previews):
                 text = " ".join(previews[index].text.split())

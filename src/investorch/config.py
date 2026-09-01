@@ -36,11 +36,17 @@ RESTART_REQUIRED_KEYS = {
     "tui.activity_panel_max_height",
     "tui.approval_arguments_max_height",
     "tui.composer_height",
+    "tui.interaction_scroll_max_height",
     "tui.message_author_margin_bottom",
     "tui.message_author_margin_top",
+    "tui.queue_panel_max_height",
+    "tui.queue_preview_count",
     "tui.run_timer_interval_seconds",
     "tui.sidebar_min_width",
     "tui.sidebar_width",
+    "tui.todo_collapsible_max_height",
+    "tui.todo_contents_max_height",
+    "tui.todo_panel_max_height",
 }
 
 
@@ -466,7 +472,7 @@ def _set_config_value(data: dict[str, Any], parts: tuple[str, ...], value: Any) 
 
 
 def _requires_restart(key: str) -> bool:
-    return key in RESTART_REQUIRED_KEYS or key.startswith(("models.", "permission."))
+    return key in RESTART_REQUIRED_KEYS or key.startswith(("models.", "permission.", "web."))
 
 
 def _required_config_value(data: dict[str, Any], key: str) -> Any:
@@ -575,6 +581,16 @@ def _validate_config_data(data: dict[str, Any], root: Path) -> None:
     _require_int(data, "tui.activity_panel_max_height", minimum=1)
     _require_int(data, "tui.activity_detail_max_height", minimum=1)
     _require_int(data, "tui.approval_arguments_max_height", minimum=1)
+    _require_int(data, "tui.interaction_scroll_max_height", minimum=1)
+    _require_int(data, "tui.queue_panel_max_height", minimum=1)
+    _require_int(data, "tui.queue_preview_count", minimum=1)
+    todo_panel_max_height = _require_int(data, "tui.todo_panel_max_height", minimum=1)
+    todo_collapsible_max_height = _require_int(data, "tui.todo_collapsible_max_height", minimum=1)
+    todo_contents_max_height = _require_int(data, "tui.todo_contents_max_height", minimum=1)
+    if todo_collapsible_max_height > todo_panel_max_height:
+        raise ConfigError("tui.todo_collapsible_max_height must be <= tui.todo_panel_max_height")
+    if todo_contents_max_height > todo_collapsible_max_height:
+        raise ConfigError("tui.todo_contents_max_height must be <= tui.todo_collapsible_max_height")
     message_author_margin_top = _require_int(data, "tui.message_author_margin_top", minimum=1)
     message_author_margin_bottom = _require_int(data, "tui.message_author_margin_bottom", minimum=1)
     if message_author_margin_top <= message_author_margin_bottom:
@@ -582,6 +598,20 @@ def _validate_config_data(data: dict[str, Any], root: Path) -> None:
     run_timer_interval = _require_number(data, "tui.run_timer_interval_seconds", minimum=0.0)
     if run_timer_interval <= 0:
         raise ConfigError("tui.run_timer_interval_seconds must be greater than 0")
+
+    web_port = _require_int(data, "web.default_port", minimum=1)
+    if web_port > 65535:
+        raise ConfigError("web.default_port must be <= 65535")
+    _require_int(data, "web.connection_queue_capacity", minimum=1)
+    _require_int(data, "web.history_page_size", minimum=1)
+    reconnect_base_delay = _require_int(data, "web.websocket_reconnect_base_delay_ms")
+    reconnect_max_delay = _require_int(data, "web.websocket_reconnect_max_delay_ms")
+    if reconnect_max_delay < reconnect_base_delay:
+        raise ConfigError("web.websocket_reconnect_max_delay_ms must be >= web.websocket_reconnect_base_delay_ms")
+    _require_int(data, "web.max_notices", minimum=1)
+    _require_int(data, "web.composer_max_height_px", minimum=1)
+    _require_int(data, "web.unused_session_discard_delay_ms")
+    _require_int(data, "web.run_timer_interval_ms", minimum=1)
 
     _require_bool(data, "observability.sdk_tracing_enabled")
     _require_bool(data, "backtest.use_cnequity")

@@ -19,7 +19,7 @@ uv sync --extra cnequity
 
 The first run initializes local state in `~/.investorch` and exits. Add the required local secrets to `~/.investorch/investorch.toml` (the bundled defaults currently reference `DEEPSEEK_API_KEY`), then run the Web command again.
 
-Open <http://127.0.0.1:1334>. To use another loopback port:
+The bundled `[web].default_port` is `1334`, so the default address is <http://127.0.0.1:1334>. To override the configured loopback port for one process:
 
 ```bash
 uv run investorch web --port 8000

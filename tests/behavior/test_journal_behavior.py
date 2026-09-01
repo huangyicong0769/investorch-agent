@@ -60,7 +60,7 @@ async def test_page_before_first_record_has_empty_boundaries(tmp_path: Path) -> 
     journal = make_journal(tmp_path)
     await journal.record_user_message("session-a", "one")
 
-    page = read_session_journal_page(tmp_path, "session-a", before_seq=1)
+    page = read_session_journal_page(tmp_path, "session-a", before_seq=1, limit=200)
 
     assert page.records == ()
     assert page.oldest_seq is None

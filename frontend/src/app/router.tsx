@@ -5,6 +5,7 @@ import { BrowserRouter, Link, Outlet, Route, Routes, useMatch } from 'react-rout
 
 import { discardUnusedSession } from '../api/client'
 import { queryKeys } from '../api/queries'
+import { useWebConfig } from '../config/WebConfigContext'
 import type { BootstrapResponse, SessionListResponse } from '../api/types'
 import { ConversationPage } from '../components/conversation/ConversationPage'
 import { SessionSidebar } from '../components/sidebar/SessionSidebar'
@@ -12,6 +13,7 @@ import { LiveWebSocketProvider } from '../websocket/LiveWebSocketProvider'
 import { Button } from '@/components/ui/button'
 
 function AppShell() {
+  const webConfig = useWebConfig()
   const queryClient = useQueryClient()
   const sessionMatch = useMatch('/c/:sessionId')
   const selectedSessionId = sessionMatch?.params.sessionId ?? null
@@ -77,14 +79,14 @@ function AppShell() {
           void queryClient.invalidateQueries({ queryKey: queryKeys.sessions() })
         })
         .catch(() => undefined)
-    }, 1000)
+    }, webConfig.unused_session_discard_delay_ms)
 
     return () => {
       cancelled = true
       window.clearTimeout(discardTimer)
       controller.abort()
     }
-  }, [queryClient, selectedSessionId])
+  }, [queryClient, selectedSessionId, webConfig.unused_session_discard_delay_ms])
 
   return (
     <div className="flex min-h-dvh bg-background text-foreground">

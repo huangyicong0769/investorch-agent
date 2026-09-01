@@ -27,7 +27,7 @@ def read_session_journal_page(
     session_id: str,
     *,
     before_seq: int | None = None,
-    limit: int = 200,
+    limit: int,
 ) -> JournalPage:
     if type(limit) is not int or limit < 1:
         raise ValueError("limit must be a positive integer")

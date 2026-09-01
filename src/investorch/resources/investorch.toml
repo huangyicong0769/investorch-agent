@@ -70,9 +70,26 @@ composer_height = 7
 activity_panel_max_height = 8
 activity_detail_max_height = 12
 approval_arguments_max_height = 12
+interaction_scroll_max_height = 9
+queue_panel_max_height = 7
+queue_preview_count = 2
+todo_panel_max_height = 7
+todo_collapsible_max_height = 6
+todo_contents_max_height = 5
 message_author_margin_top = 3
 message_author_margin_bottom = 2
 run_timer_interval_seconds = 1.0
+
+[web]
+default_port = 1334
+connection_queue_capacity = 1000
+history_page_size = 200
+websocket_reconnect_base_delay_ms = 500
+websocket_reconnect_max_delay_ms = 8000
+max_notices = 12
+composer_max_height_px = 160
+unused_session_discard_delay_ms = 1000
+run_timer_interval_ms = 1000
 
 [observability]
 sdk_tracing_enabled = false

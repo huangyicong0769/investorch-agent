@@ -76,12 +76,23 @@ export interface Defaults {
   follow_up_behavior: FollowUpBehavior
 }
 
+export interface WebConfig {
+  history_page_size: number
+  websocket_reconnect_base_delay_ms: number
+  websocket_reconnect_max_delay_ms: number
+  max_notices: number
+  composer_max_height_px: number
+  unused_session_discard_delay_ms: number
+  run_timer_interval_ms: number
+}
+
 export interface BootstrapResponse {
   version: string
   initial_session_id: string | null
   agent_name: string
   context_window_tokens: number
   defaults: Defaults
+  web_config: WebConfig
   sessions: SessionRecord[]
   runtime: RuntimeSnapshot | null
   presentation: SessionPresentationState | null

@@ -38,6 +38,15 @@ async def test_bootstrap_stays_sessionless_until_user_creates_session(tmp_path: 
         assert payload["runtime"] is None
         assert payload["presentation"] is None
         assert payload["sessions"] == []
+        assert payload["web_config"] == {
+            "history_page_size": 200,
+            "websocket_reconnect_base_delay_ms": 500,
+            "websocket_reconnect_max_delay_ms": 8000,
+            "max_notices": 12,
+            "composer_max_height_px": 160,
+            "unused_session_discard_delay_ms": 1000,
+            "run_timer_interval_ms": 1000,
+        }
 
 
 @pytest.mark.asyncio
@@ -147,6 +156,21 @@ async def test_session_without_journal_has_empty_history_page(tmp_path: Path) ->
         assert response.status_code == 200
         assert response.json()["records"] == []
         assert response.json()["has_older"] is False
+
+
+@pytest.mark.asyncio
+async def test_history_default_page_size_comes_from_appconfig(tmp_path: Path) -> None:
+    async with open_test_web(tmp_path, {"web": {"history_page_size": 1}}) as web:
+        created = await web.client.post("/api/sessions")
+        session_id = created.json()["session"]["session_id"]
+        await web.runtime.journal.record_user_message(session_id, "one")
+        await web.runtime.journal.record_user_message(session_id, "two")
+
+        response = await web.client.get(f"/api/sessions/{session_id}/history")
+
+        assert response.status_code == 200
+        assert [record["text"] for record in response.json()["records"]] == ["two"]
+        assert response.json()["has_older"] is True
 
 
 @pytest.mark.asyncio

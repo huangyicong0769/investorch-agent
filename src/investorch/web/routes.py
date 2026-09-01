@@ -115,6 +115,18 @@ def _serialize_defaults(host: ApplicationHost) -> dict[str, str]:
     }
 
 
+def _serialize_web_config(host: ApplicationHost) -> dict[str, int]:
+    return {
+        "history_page_size": host.config["web.history_page_size"],
+        "websocket_reconnect_base_delay_ms": host.config["web.websocket_reconnect_base_delay_ms"],
+        "websocket_reconnect_max_delay_ms": host.config["web.websocket_reconnect_max_delay_ms"],
+        "max_notices": host.config["web.max_notices"],
+        "composer_max_height_px": host.config["web.composer_max_height_px"],
+        "unused_session_discard_delay_ms": host.config["web.unused_session_discard_delay_ms"],
+        "run_timer_interval_ms": host.config["web.run_timer_interval_ms"],
+    }
+
+
 def _serialize_pending_approvals(
     broker: WebApprovalBroker, *, session_id: str | None = None
 ) -> list[dict[str, object]]:
@@ -145,6 +157,7 @@ async def bootstrap(host: Host, broker: Broker) -> dict[str, object]:
             "agent_name": host.runtime.agent_name,
             "context_window_tokens": host.config.model("main").context_window_tokens,
             "defaults": _serialize_defaults(host),
+            "web_config": _serialize_web_config(host),
             "sessions": [serialize_session_record(record) for record in records],
             "runtime": (
                 serialize_runtime_snapshot(host.runtime.session_snapshot(initial_session_id))
@@ -202,15 +215,16 @@ async def get_session_history(
     session: Session,
     host: Host,
     before_seq: Annotated[int | None, Query(ge=1)] = None,
-    limit: Annotated[int, Query(ge=1)] = 200,
+    limit: Annotated[int | None, Query(ge=1)] = None,
 ) -> dict[str, object]:
+    effective_limit = host.config["web.history_page_size"] if limit is None else limit
     try:
         page = await asyncio.to_thread(
             read_session_journal_page,
             host.config.session_journal_dir,
             session.session_id,
             before_seq=before_seq,
-            limit=limit,
+            limit=effective_limit,
         )
     except FileNotFoundError:
         page = JournalPage(records=(), has_older=False, oldest_seq=None, newest_seq=None)

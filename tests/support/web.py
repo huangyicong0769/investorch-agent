@@ -27,8 +27,10 @@ class WebHarness:
 
 
 @asynccontextmanager
-async def open_test_web(tmp_path: Path) -> AsyncIterator[WebHarness]:
-    runtime = make_runtime_harness(tmp_path)
+async def open_test_web(
+    tmp_path: Path, config_overrides: dict[str, dict[str, object]] | None = None
+) -> AsyncIterator[WebHarness]:
+    runtime = make_runtime_harness(tmp_path, config_overrides=config_overrides)
     presentation_state = SessionPresentationStore()
     sessions = SessionOperations(
         config=runtime.config,
@@ -66,7 +68,7 @@ async def open_test_web(tmp_path: Path) -> AsyncIterator[WebHarness]:
         session_lifecycle_lock=asyncio.Lock(),
         initial_session_id=None,
     )
-    connections = WebConnectionHub()
+    connections = WebConnectionHub(queue_capacity=runtime.config["web.connection_queue_capacity"])
     broker = WebApprovalBroker(WebEventBridge(connections))
     app = create_web_app(runtime.config)
     app.state.host = host

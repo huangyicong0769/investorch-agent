@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from investorch.cli import parse_web_args
 from investorch.config import PROJECT_CONFIG_PATH, REDACTED, ConfigError, load_config
 from tests.support.config import make_test_config
 
@@ -27,6 +28,29 @@ def test_investorch_default_filesystem_identity(tmp_path: Path) -> None:
     assert config.state_dir == config.root / "state"
     assert config.log_path == config.root / "state" / "logs" / "investorch.log"
     assert config.background_job_dir == config.root / "workspace" / ".investorch-processes"
+
+
+def test_web_and_tui_policy_come_from_appconfig(tmp_path: Path) -> None:
+    config = make_test_config(tmp_path)
+
+    assert config["web.default_port"] == 1334
+    assert config["web.connection_queue_capacity"] == 1000
+    assert config["web.history_page_size"] == 200
+    assert config["tui.interaction_scroll_max_height"] == 9
+    assert config["tui.queue_preview_count"] == 2
+    assert config["tui.todo_contents_max_height"] == 5
+
+
+def test_web_cli_port_override_is_optional() -> None:
+    assert parse_web_args([]).port is None
+    assert parse_web_args(["--port", "8000"]).port == 8000
+
+
+def test_web_updates_require_restart(tmp_path: Path) -> None:
+    config = make_test_config(tmp_path)
+
+    with pytest.raises(ConfigError, match=r"web\.default_port requires persist=true"):
+        config.update("web.default_port", 8000, persist=False)
 
 
 def test_local_config_cannot_redirect_project_root(tmp_path: Path) -> None:
@@ -98,3 +122,22 @@ def test_invalid_update_leaves_memory_and_disk_unchanged(tmp_path: Path) -> None
     assert config["interaction.follow_up_behavior"] == original_value
     assert config.root_config_path.read_text(encoding="utf-8") == original_file
     assert load_config(config.project_config_path)["interaction.follow_up_behavior"] == original_value
+
+
+@pytest.mark.parametrize(
+    ("key", "value", "message"),
+    [
+        ("web.default_port", 65536, r"web\.default_port"),
+        (
+            "web.websocket_reconnect_max_delay_ms",
+            100,
+            r"web\.websocket_reconnect_max_delay_ms",
+        ),
+        ("tui.todo_contents_max_height", 7, r"tui\.todo_contents_max_height"),
+    ],
+)
+def test_invalid_web_and_tui_policy_is_rejected(tmp_path: Path, key: str, value: int, message: str) -> None:
+    config = make_test_config(tmp_path)
+
+    with pytest.raises(ConfigError, match=message):
+        config.update(key, value, persist=True)

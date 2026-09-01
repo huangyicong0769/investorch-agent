@@ -22,7 +22,7 @@ A persistent runtime update is written to `<root>/investorch.toml` and therefore
 | lifecycle | keys | behavior |
 | --- | --- | --- |
 | immutable | `paths.root`, `bootstrap.*` | Cannot be changed through runtime configuration. |
-| restart-required | `paths.workspace`, `paths.state`, `models.*`, `permission.*`, `tui.*`, `logging.*`, `mcp.*`, `cnequity.*`, `backtest.use_cnequity`, `backtest.rqalpha_bundle_dir`, `observability.sdk_tracing_enabled` | `persist=false` is rejected. `persist=true` writes the next-start value but does not change the current runtime; restart InvestOrch Agent to apply it. |
+| restart-required | `paths.workspace`, `paths.state`, `models.*`, `permission.*`, `tui.*`, `web.*`, `logging.*`, `mcp.*`, `cnequity.*`, `backtest.use_cnequity`, `backtest.rqalpha_bundle_dir`, `observability.sdk_tracing_enabled` | `persist=false` is rejected. `persist=true` writes the next-start value but does not change the current runtime; restart InvestOrch Agent to apply it. |
 | hot | `runtime.*`, `activity.*`, `compaction.*`, execution/explore/calculate limits, `backtest.artifact_dir`, and backtest execution policy | Validated and applied to the current `AppConfig`; persistence is optional. The next applicable operation uses the new value. |
 
 `get_config` reports the value currently used by this process. A persisted restart-required update therefore continues to report the old value until the application is restarted.
@@ -66,7 +66,8 @@ The runtime policy sections below are TOML-only and must be present in the effec
 - `[activity]` prompt input and label length limits
 - `[compaction]` automatic context-compaction policy and summary output budget
 - `[permission]` tool approval mode and complete-input limits
-- `[tui]` sidebar, composer, Activity, and approval dimensions
+- `[tui]` sidebar, composer, Activity, approval, Todo, and Queue dimensions
+- `[web]` server, transport, pagination, reconnect, and WebUI presentation settings
 - `[backtest]` data paths, artifact path, execution policy, default cash, and inspection limit
 - `[cnequity].config_path` and `mcp_cache_tools_list`
 - `[execution].default_timeout_seconds`, `max_timeout_seconds`, and `background_job_dir`
@@ -157,7 +158,9 @@ The built-in CNEquity MCP server is composed only when `backtest.use_cnequity=tr
 
 `investorch` starts the Textual chat workspace by default. The session list occupies the full workspace height below the header. The conversation pane to its right contains the timeline and composer, so the input region never extends underneath the session list. User and assistant messages remain the primary timeline, with raw reasoning, tool arguments, approval state, and tool output inside collapsible activity steps. Approval requests replace the normal composer controls in the current input region; they do not open a modal screen.
 
-`models.main.context_window_tokens` supplies the configured Main Agent capacity shown by the interface. The `[activity]` section owns Activity Agent prompt truncation and label length limits. The `[tui]` section owns user-adjustable sidebar and composer dimensions, message-author spacing, run-timer refresh frequency, and maximum heights for the Activity title list, Activity detail, and inline approval arguments. `message_author_margin_top` must be greater than `message_author_margin_bottom`, so each `You` or `InvestOrch Agent` heading has stronger separation from the preceding timeline content than from its own message body. While an Agent run is active, the header shows elapsed wall-clock time; approval waiting remains part of the same run and does not reset the timer. The timer disappears when the run returns to Ready. TUI settings are restart-required because the widget tree and timers apply them when the application mounts; Activity limits are hot and apply to the next generated label.
+`models.main.context_window_tokens` supplies the configured Main Agent capacity shown by the interface. The `[activity]` section owns Activity Agent prompt truncation and label length limits. The `[tui]` section owns user-adjustable sidebar and composer dimensions, message-author spacing, run-timer refresh frequency, interaction-panel height, Queue height and preview count, Todo heights, and maximum heights for the Activity title list, Activity detail, and inline approval arguments. `message_author_margin_top` must be greater than `message_author_margin_bottom`, so each `You` or `InvestOrch Agent` heading has stronger separation from the preceding timeline content than from its own message body. While an Agent run is active, the header shows elapsed wall-clock time; approval waiting remains part of the same run and does not reset the timer. The timer disappears when the run returns to Ready. TUI settings are restart-required because the widget tree and timers apply them when the application mounts; Activity limits are hot and apply to the next generated label.
+
+The `[web]` section owns the default loopback port, per-connection event queue capacity, history page size, WebSocket reconnect delays, retained notice count, composer height, unused-session discard delay, and active-run timer interval. The Web bootstrap response exposes only the validated WebUI subset; the frontend has no independent fallback defaults. `investorch web --port` overrides `web.default_port` for one process without changing AppConfig. The server remains loopback-only as a security invariant. All Web settings are restart-required because the server and frontend read one snapshot during startup.
 
 `investorch --plain` starts the verbose Console fallback. Plain mode renders raw reasoning and tool output directly; it does not create the Activity Agent, generate activity labels, or backfill labels for historical sessions.
 

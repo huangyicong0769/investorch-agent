@@ -17,7 +17,6 @@ class TodoPanel(Vertical):
         display: none;
         width: 100%;
         height: auto;
-        max-height: 7;
         padding: 0 1;
         background: $panel;
         border-top: solid $primary-background;
@@ -26,7 +25,6 @@ class TodoPanel(Vertical):
     TodoPanel Collapsible {
         width: 100%;
         height: auto;
-        max-height: 6;
         padding: 0;
         border: none;
     }
@@ -38,7 +36,6 @@ class TodoPanel(Vertical):
 
     TodoPanel Contents {
         height: auto;
-        max-height: 5;
         padding: 0 0 0 2;
         color: $text-muted;
     }
@@ -50,14 +47,28 @@ class TodoPanel(Vertical):
 
     _SYMBOLS: ClassVar[dict[str, str]] = {"pending": "○", "in_progress": "●", "completed": "✓", "failed": "✗"}
 
-    def __init__(self, todos: tuple[TodoItem, ...] = (), **kwargs) -> None:
+    def __init__(
+        self,
+        panel_max_height: int,
+        collapsible_max_height: int,
+        contents_max_height: int,
+        todos: tuple[TodoItem, ...] = (),
+        **kwargs,
+    ) -> None:
         super().__init__(**kwargs)
+        self._panel_max_height = panel_max_height
+        self._collapsible_max_height = collapsible_max_height
+        self._contents_max_height = contents_max_height
         self._todos = tuple(dict(todo) for todo in todos)
 
     def compose(self) -> ComposeResult:
         yield Collapsible(Static(markup=False, id="todo-items"), title="Tasks", collapsed=False, id="todo-collapsible")
 
     def on_mount(self) -> None:
+        self.styles.max_height = self._panel_max_height
+        collapsible = self.query_one("#todo-collapsible", Collapsible)
+        collapsible.styles.max_height = self._collapsible_max_height
+        collapsible.query_one(Collapsible.Contents).styles.max_height = self._contents_max_height
         self._refresh()
 
     def replace_todos(self, todos: tuple[TodoItem, ...]) -> None:
