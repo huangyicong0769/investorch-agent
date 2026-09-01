@@ -33,6 +33,7 @@ class RuntimeHarness:
     config: AppConfig
     journal: SessionJournal
     agent_loop: ControlledAgentLoop
+    execution: ExecutionState
     runtime: AgentRuntime
     run_ended: list[RuntimeRunEnded] = field(default_factory=list)
     follow_ups: list[RuntimeFollowUpEvent] = field(default_factory=list)
@@ -159,9 +160,10 @@ def make_runtime_harness(
     def handle_state(_snapshot: RuntimeSessionSnapshot) -> None:
         harness._state_changed.set()
 
+    execution = ExecutionState(workspace_root=config.workspace_dir)
     runtime = AgentRuntime(
         cast(AgentLoop, agent_loop),
-        ExecutionState(workspace_root=config.workspace_dir),
+        execution,
         config.sessions_db,
         handle_output,
         handle_approval,
@@ -171,5 +173,11 @@ def make_runtime_harness(
         run_ended_handler=handle_run_ended,
         follow_up_handler=handle_follow_up,
     )
-    harness = RuntimeHarness(config=config, journal=journal, agent_loop=agent_loop, runtime=runtime)
+    harness = RuntimeHarness(
+        config=config,
+        journal=journal,
+        agent_loop=agent_loop,
+        execution=execution,
+        runtime=runtime,
+    )
     return harness

@@ -1,0 +1,179 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+from tests.support.web import open_test_web
+
+
+@pytest.mark.asyncio
+async def test_health_exposes_ready_status_and_version(tmp_path: Path) -> None:
+    async with open_test_web(tmp_path) as web:
+        response = await web.client.get("/api/health")
+
+        assert response.status_code == 200
+        assert response.json()["status"] == "ok"
+        assert response.json()["version"]
+
+
+@pytest.mark.asyncio
+async def test_bootstrap_stays_sessionless_until_user_creates_session(tmp_path: Path) -> None:
+    async with open_test_web(tmp_path) as web:
+        response = await web.client.get("/api/bootstrap")
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["initial_session_id"] is None
+        assert payload["runtime"] is None
+        assert payload["presentation"] is None
+        assert payload["sessions"] == []
+
+
+@pytest.mark.asyncio
+async def test_post_sessions_explicitly_creates_a_readable_session(tmp_path: Path) -> None:
+    async with open_test_web(tmp_path) as web:
+        created = await web.client.post("/api/sessions")
+        session_id = created.json()["session"]["session_id"]
+
+        fetched = await web.client.get(f"/api/sessions/{session_id}")
+        bootstrap = await web.client.get("/api/bootstrap")
+
+        assert created.status_code == 200
+        assert fetched.status_code == 200
+        assert fetched.json()["session"]["session_id"] == session_id
+        assert [session["session_id"] for session in bootstrap.json()["sessions"]] == [session_id]
+
+
+@pytest.mark.asyncio
+async def test_deleting_initial_session_returns_to_sessionless_without_replacement(tmp_path: Path) -> None:
+    async with open_test_web(tmp_path) as web:
+        created = await web.client.post("/api/sessions")
+        session_id = created.json()["session"]["session_id"]
+        web.host.initial_session_id = session_id
+
+        deleted = await web.client.request("DELETE", f"/api/sessions/{session_id}", json={"confirm": True})
+        bootstrap = await web.client.get("/api/bootstrap")
+
+        assert deleted.status_code == 200
+        assert deleted.json()["deleted"] is True
+        assert deleted.json()["replacement_session_id"] is None
+        assert bootstrap.json()["initial_session_id"] is None
+        assert bootstrap.json()["runtime"] is None
+        assert bootstrap.json()["sessions"] == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("method", "path_suffix"),
+    [
+        ("DELETE", ""),
+        ("POST", "/clear"),
+        ("DELETE", "/queue"),
+    ],
+)
+async def test_destructive_operations_require_explicit_confirmation(
+    tmp_path: Path,
+    method: str,
+    path_suffix: str,
+) -> None:
+    async with open_test_web(tmp_path) as web:
+        created = await web.client.post("/api/sessions")
+        session_id = created.json()["session"]["session_id"]
+
+        response = await web.client.request(
+            method,
+            f"/api/sessions/{session_id}{path_suffix}",
+            json={"confirm": False},
+        )
+
+        assert response.status_code == 400
+        assert response.json()["error"]["code"] == "confirmation_required"
+        assert (await web.client.get(f"/api/sessions/{session_id}")).status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_unknown_session_has_stable_not_found_error(tmp_path: Path) -> None:
+    async with open_test_web(tmp_path) as web:
+        response = await web.client.get("/api/sessions/unknown")
+
+        assert response.status_code == 404
+        assert response.json()["error"]["code"] == "session_not_found"
+
+
+@pytest.mark.asyncio
+async def test_empty_message_is_invalid_and_does_not_start_run(tmp_path: Path) -> None:
+    async with open_test_web(tmp_path) as web:
+        created = await web.client.post("/api/sessions")
+        session_id = created.json()["session"]["session_id"]
+
+        response = await web.client.post(f"/api/sessions/{session_id}/messages", json={"text": "  "})
+
+        assert response.status_code == 400
+        assert response.json()["error"]["code"] == "invalid_message"
+        assert web.runtime.runtime.session_snapshot(session_id).run_id is None
+
+
+@pytest.mark.asyncio
+async def test_session_without_journal_has_empty_history_page(tmp_path: Path) -> None:
+    async with open_test_web(tmp_path) as web:
+        created = await web.client.post("/api/sessions")
+        session_id = created.json()["session"]["session_id"]
+
+        response = await web.client.get(f"/api/sessions/{session_id}/history")
+
+        assert response.status_code == 200
+        assert response.json()["records"] == []
+        assert response.json()["has_older"] is False
+
+
+@pytest.mark.asyncio
+async def test_corrupt_history_maps_to_machine_readable_journal_error(tmp_path: Path) -> None:
+    async with open_test_web(tmp_path) as web:
+        created = await web.client.post("/api/sessions")
+        session_id = created.json()["session"]["session_id"]
+        (web.runtime.config.session_journal_dir / f"{session_id}.jsonl").write_text("not-json\n", encoding="utf-8")
+
+        response = await web.client.get(f"/api/sessions/{session_id}/history")
+
+        assert response.status_code == 500
+        assert response.json()["error"]["code"] == "journal_invalid"
+
+
+@pytest.mark.asyncio
+async def test_future_default_changes_without_mutating_active_run_snapshot(tmp_path: Path) -> None:
+    async with open_test_web(tmp_path) as web:
+        created = await web.client.post("/api/sessions")
+        session_id = created.json()["session"]["session_id"]
+        started = await web.client.post(f"/api/sessions/{session_id}/messages", json={"text": "first"})
+        await web.runtime.agent_loop.wait_until_started(session_id)
+
+        updated = await web.client.patch("/api/defaults", json={"follow_up_behavior": "queue"})
+        defaults = await web.client.get("/api/defaults")
+        state = await web.client.get(f"/api/sessions/{session_id}/state")
+        follow_up = await web.client.post(f"/api/sessions/{session_id}/messages", json={"text": "more"})
+
+        assert started.json()["disposition"] == "run_started"
+        assert updated.json()["follow_up_behavior"] == "queue"
+        assert defaults.json()["follow_up_behavior"] == "queue"
+        assert state.json()["runtime"]["active_follow_up_behavior"] == "steer"
+        assert follow_up.json()["disposition"] == "steer_submitted"
+
+        stopped = await web.client.post(f"/api/sessions/{session_id}/stop")
+        assert stopped.json()["status"] == "stopping"
+        await web.runtime.wait_for_run_ended(session_id)
+
+
+@pytest.mark.asyncio
+async def test_queue_endpoints_distinguish_missing_and_unpaused_queue(tmp_path: Path) -> None:
+    async with open_test_web(tmp_path) as web:
+        created = await web.client.post("/api/sessions")
+        session_id = created.json()["session"]["session_id"]
+
+        missing_resume = await web.client.post(f"/api/sessions/{session_id}/queue/resume")
+        missing_remove = await web.client.delete(f"/api/sessions/{session_id}/queue/unknown")
+
+        assert missing_resume.status_code == 404
+        assert missing_resume.json()["error"]["code"] == "queue_not_found"
+        assert missing_remove.status_code == 404
+        assert missing_remove.json()["error"]["code"] == "queue_not_found"
