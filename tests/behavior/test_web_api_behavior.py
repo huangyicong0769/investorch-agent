@@ -46,21 +46,33 @@ async def test_post_sessions_explicitly_creates_a_readable_session(tmp_path: Pat
 
 
 @pytest.mark.asyncio
-async def test_deleting_initial_session_returns_to_sessionless_without_replacement(tmp_path: Path) -> None:
+async def test_deleting_created_session_returns_to_sessionless_without_replacement(tmp_path: Path) -> None:
     async with open_test_web(tmp_path) as web:
+        initial = await web.client.get("/api/bootstrap")
+        assert initial.status_code == 200
+        assert initial.json()["initial_session_id"] is None
+        assert initial.json()["runtime"] is None
+        assert initial.json()["presentation"] is None
+        assert initial.json()["sessions"] == []
+
         created = await web.client.post("/api/sessions")
         session_id = created.json()["session"]["session_id"]
-        web.host.initial_session_id = session_id
+        assert (await web.client.get(f"/api/sessions/{session_id}")).status_code == 200
 
         deleted = await web.client.request("DELETE", f"/api/sessions/{session_id}", json={"confirm": True})
         bootstrap = await web.client.get("/api/bootstrap")
+        missing = await web.client.get(f"/api/sessions/{session_id}")
 
         assert deleted.status_code == 200
         assert deleted.json()["deleted"] is True
+        assert deleted.json()["session_id"] == session_id
         assert deleted.json()["replacement_session_id"] is None
         assert bootstrap.json()["initial_session_id"] is None
         assert bootstrap.json()["runtime"] is None
+        assert bootstrap.json()["presentation"] is None
         assert bootstrap.json()["sessions"] == []
+        assert missing.status_code == 404
+        assert missing.json()["error"]["code"] == "session_not_found"
 
 
 @pytest.mark.asyncio
