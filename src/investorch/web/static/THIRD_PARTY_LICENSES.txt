@@ -3234,7 +3234,7 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ================================================================================
-lucide-react@1.38.0
+lucide-react@1.37.0
 Installed path: node_modules/lucide-react
 License: ISC
 Repository: https://github.com/lucide-icons/lucide.git
