@@ -31,8 +31,8 @@ from investorch.portfolio.domain import (
 def project_portfolio(portfolio: Portfolio, entries: Iterable[LedgerEntry]) -> PortfolioState:
     """Rebuild a Portfolio's current Holdings and logical Cash from its Ledger."""
     ledger = tuple(entries)
-    _validate_ledger_context(portfolio, ledger)
     voided_entry_ids = _resolve_voids(ledger)
+    _validate_ledger_context(portfolio, ledger)
     active_entries = sorted(
         (
             entry
@@ -74,7 +74,7 @@ def _explicit_currency(entry: LedgerEntry) -> str | None:
 def _resolve_voids(ledger: tuple[LedgerEntry, ...]) -> set[str]:
     entries_by_id: dict[str, LedgerEntry] = {}
     sequences: set[int] = set()
-    voided_entry_ids: set[str] = set()
+    append_order: list[LedgerEntry] = []
 
     for entry in sorted(ledger, key=lambda candidate: candidate.sequence):
         if entry.entry_id in entries_by_id:
@@ -86,14 +86,20 @@ def _resolve_voids(ledger: tuple[LedgerEntry, ...]) -> set[str]:
             target = entries_by_id.get(entry.payload.target_entry_id)
             if target is None:
                 raise InvalidVoidError(f"VOID {entry.entry_id} must target an existing earlier entry")
-            if target.entry_type is LedgerEntryType.VOID:
-                raise InvalidVoidError(f"VOID {entry.entry_id} cannot target another VOID")
-            if target.entry_id in voided_entry_ids:
-                raise InvalidVoidError(f"entry {target.entry_id} is already voided")
-            voided_entry_ids.add(target.entry_id)
+            if target.portfolio_id != entry.portfolio_id:
+                raise InvalidVoidError(f"VOID {entry.entry_id} must target an entry in the same Portfolio")
 
         entries_by_id[entry.entry_id] = entry
         sequences.add(entry.sequence)
+        append_order.append(entry)
+
+    voided_entry_ids: set[str] = set()
+    for entry in reversed(append_order):
+        if entry.entry_id in voided_entry_ids or not isinstance(entry.payload, Void):
+            continue
+        if entry.payload.target_entry_id in voided_entry_ids:
+            raise InvalidVoidError(f"entry {entry.payload.target_entry_id} is already voided")
+        voided_entry_ids.add(entry.payload.target_entry_id)
 
     return voided_entry_ids
 

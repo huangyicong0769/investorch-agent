@@ -270,6 +270,17 @@ def test_void_removes_wrong_entry_and_replacement_supplies_truth() -> None:
     assert state.cash == {"CNY": Decimal("80")}
 
 
+def test_void_of_void_restores_the_original_entry() -> None:
+    portfolio = make_portfolio()
+    original = make_entry(portfolio.id, 1, LedgerEntryType.OPENING_CASH, OpeningCash("CNY", Decimal("100")))
+    mistaken_void = make_entry(portfolio.id, 2, LedgerEntryType.VOID, Void(original.entry_id, "mistaken correction"))
+    correction = make_entry(portfolio.id, 3, LedgerEntryType.VOID, Void(mistaken_void.entry_id, "restore original"))
+
+    state = project_portfolio(portfolio, [original, mistaken_void, correction])
+
+    assert state.cash == {"CNY": Decimal("100")}
+
+
 def test_void_target_must_be_earlier() -> None:
     portfolio = make_portfolio()
     target = make_entry(portfolio.id, 2, LedgerEntryType.OPENING_CASH, OpeningCash("CNY", Decimal("100")))
@@ -277,6 +288,15 @@ def test_void_target_must_be_earlier() -> None:
 
     with pytest.raises(InvalidVoidError, match="earlier"):
         project_portfolio(portfolio, [target, void])
+
+
+def test_void_target_must_belong_to_the_same_portfolio() -> None:
+    portfolio = make_portfolio()
+    foreign = make_entry("portfolio-2", 1, LedgerEntryType.OPENING_CASH, OpeningCash("CNY", Decimal("100")))
+    void = make_entry(portfolio.id, 2, LedgerEntryType.VOID, Void(foreign.entry_id, "wrong Portfolio"))
+
+    with pytest.raises(InvalidVoidError, match="same Portfolio"):
+        project_portfolio(portfolio, [foreign, void])
 
 
 def test_entry_cannot_be_voided_twice() -> None:
