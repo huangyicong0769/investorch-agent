@@ -8,7 +8,7 @@ The append-only Portfolio Ledger is authoritative history. Current Holdings and 
 
 ## Portfolio metadata
 
-A Portfolio has an id, name, optional description, base currency, timestamps, and an `ACTIVE` or `ARCHIVED` status. An archived Portfolio is conceptually read-only and may later be restored; enforcement belongs to later application and persistence work.
+A Portfolio has an id, name, optional description, base currency, timestamps, and an `ACTIVE` or `ARCHIVED` status. Its base currency is the single accounting currency for A0: all position cost, trade consideration, and logical cash use it. An archived Portfolio is conceptually read-only and may later be restored; enforcement belongs to later application and persistence work.
 
 An optional strategy binding contains only a Workspace-relative source path and JSON-compatible parameters. It does not execute or validate a strategy and does not store target holdings or weights.
 
@@ -20,7 +20,7 @@ Portfolio Holdings are not Broker positions. A future Portfolio may span several
 
 ## Logical cash
 
-Cash is tracked by currency as a logical Portfolio balance. It does not represent Broker-specific available, frozen, withdrawable, settlement, or buying-power balances. A `CASH_FLOW` uses a signed amount: positive for external capital entering the Portfolio and negative for capital leaving it.
+Cash is a logical Portfolio balance in `Portfolio.base_currency`. Explicit currency fields on cash entries must equal that base currency. A0 performs no FX conversion or multi-currency cost accounting. Logical cash does not represent Broker-specific available, frozen, withdrawable, settlement, or buying-power balances. A `CASH_FLOW` uses a signed amount: positive for external capital entering the Portfolio and negative for capital leaving it.
 
 ## Ledger contract
 
@@ -60,4 +60,4 @@ A valid `VOID` targets an existing earlier entry in the same Portfolio that has 
 
 ## A0 non-goals
 
-A0 does not introduce Portfolio persistence or `portfolio.db`; repositories or application use cases; Agent Tools or approval integration; Web/TUI UI; Broker/QMT accounts, positions, orders, trades, links, allocation, or reconciliation; strategy execution, signals, targets, or rebalancing; market data, valuation, P&L, NAV, performance, benchmark, or risk analysis; tax lots or double-entry accounting; generic event, investment-data, instrument-registry, or Broker frameworks; or multi-user authentication and RBAC.
+A0 does not introduce Portfolio persistence or `portfolio.db`; repositories or application use cases; Agent Tools or approval integration; Web/TUI UI; Broker/QMT accounts, positions, orders, trades, links, allocation, or reconciliation; FX or multi-currency cost accounting; strategy execution, signals, targets, or rebalancing; market data, valuation, P&L, NAV, performance, benchmark, or risk analysis; tax lots or double-entry accounting; generic event, investment-data, instrument-registry, or Broker frameworks; or multi-user authentication and RBAC.
