@@ -309,6 +309,19 @@ def test_entry_cannot_be_voided_twice() -> None:
         project_portfolio(portfolio, [target, first, second])
 
 
+def test_later_void_cannot_make_an_earlier_double_void_valid() -> None:
+    portfolio = make_portfolio()
+    target = make_entry(portfolio.id, 1, LedgerEntryType.OPENING_CASH, OpeningCash("CNY", Decimal("100")))
+    first = make_entry(portfolio.id, 2, LedgerEntryType.VOID, Void(target.entry_id, "first correction"))
+    invalid_second = make_entry(
+        portfolio.id, 3, LedgerEntryType.VOID, Void(target.entry_id, "invalid second correction")
+    )
+    later_correction = make_entry(portfolio.id, 4, LedgerEntryType.VOID, Void(first.entry_id, "too late"))
+
+    with pytest.raises(InvalidVoidError, match="already voided"):
+        project_portfolio(portfolio, [target, first, invalid_second, later_correction])
+
+
 def test_backdated_entry_replays_by_effective_time_then_sequence() -> None:
     portfolio = make_portfolio()
     opening = make_entry(

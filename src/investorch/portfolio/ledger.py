@@ -74,7 +74,7 @@ def _explicit_currency(entry: LedgerEntry) -> str | None:
 def _resolve_voids(ledger: tuple[LedgerEntry, ...]) -> set[str]:
     entries_by_id: dict[str, LedgerEntry] = {}
     sequences: set[int] = set()
-    append_order: list[LedgerEntry] = []
+    voided_entry_ids: set[str] = set()
 
     for entry in sorted(ledger, key=lambda candidate: candidate.sequence):
         if entry.entry_id in entries_by_id:
@@ -88,20 +88,30 @@ def _resolve_voids(ledger: tuple[LedgerEntry, ...]) -> set[str]:
                 raise InvalidVoidError(f"VOID {entry.entry_id} must target an existing earlier entry")
             if target.portfolio_id != entry.portfolio_id:
                 raise InvalidVoidError(f"VOID {entry.entry_id} must target an entry in the same Portfolio")
+            if target.entry_id in voided_entry_ids:
+                raise InvalidVoidError(f"entry {target.entry_id} is already voided")
+            _set_voided(target, True, entries_by_id, voided_entry_ids)
 
         entries_by_id[entry.entry_id] = entry
         sequences.add(entry.sequence)
-        append_order.append(entry)
-
-    voided_entry_ids: set[str] = set()
-    for entry in reversed(append_order):
-        if entry.entry_id in voided_entry_ids or not isinstance(entry.payload, Void):
-            continue
-        if entry.payload.target_entry_id in voided_entry_ids:
-            raise InvalidVoidError(f"entry {entry.payload.target_entry_id} is already voided")
-        voided_entry_ids.add(entry.payload.target_entry_id)
 
     return voided_entry_ids
+
+
+def _set_voided(
+    entry: LedgerEntry,
+    voided: bool,
+    entries_by_id: dict[str, LedgerEntry],
+    voided_entry_ids: set[str],
+) -> None:
+    if voided:
+        voided_entry_ids.add(entry.entry_id)
+    else:
+        voided_entry_ids.remove(entry.entry_id)
+
+    if isinstance(entry.payload, Void):
+        target = entries_by_id[entry.payload.target_entry_id]
+        _set_voided(target, not voided, entries_by_id, voided_entry_ids)
 
 
 def _apply_entry(
