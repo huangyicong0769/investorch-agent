@@ -345,9 +345,15 @@ class HoldingState:
     quantity: Decimal
     total_cost: Decimal | None
 
+    def __post_init__(self) -> None:
+        if not isinstance(self.instrument, InstrumentId):
+            raise PortfolioDomainError("instrument must be an InstrumentId")
+        _require_positive(self.quantity, "quantity")
+        _require_optional_non_negative(self.total_cost, "total_cost")
+
     @property
     def average_cost(self) -> Decimal | None:
-        if self.total_cost is None or self.quantity == 0:
+        if self.total_cost is None:
             return None
         return self.total_cost / self.quantity
 
@@ -357,3 +363,20 @@ class PortfolioState:
     portfolio_id: str
     holdings: dict[InstrumentId, HoldingState]
     cash: dict[str, Decimal]
+
+    def __post_init__(self) -> None:
+        _require_text(self.portfolio_id, "portfolio_id")
+        if not isinstance(self.holdings, dict):
+            raise PortfolioDomainError("holdings must be a mapping")
+        for instrument, holding in self.holdings.items():
+            if not isinstance(instrument, InstrumentId) or not isinstance(holding, HoldingState):
+                raise PortfolioDomainError("holdings must map InstrumentId to HoldingState")
+            if instrument != holding.instrument:
+                raise PortfolioDomainError("Holding key must match its instrument")
+        if not isinstance(self.cash, dict):
+            raise PortfolioDomainError("cash must be a mapping")
+        for currency, amount in self.cash.items():
+            _require_text(currency, "currency")
+            _require_decimal(amount, "cash amount")
+        object.__setattr__(self, "holdings", dict(self.holdings))
+        object.__setattr__(self, "cash", dict(self.cash))

@@ -4,6 +4,7 @@ from decimal import Decimal
 import pytest
 
 from investorch.portfolio import (
+    HoldingState,
     InstrumentId,
     LedgerEntry,
     LedgerEntryType,
@@ -11,6 +12,7 @@ from investorch.portfolio import (
     OpeningPosition,
     Portfolio,
     PortfolioDomainError,
+    PortfolioState,
     PortfolioStatus,
     StrategyBinding,
 )
@@ -48,6 +50,12 @@ def test_financial_float_is_rejected() -> None:
 
     with pytest.raises(PortfolioDomainError, match="Decimal"):
         OpeningPosition(instrument, 100.0, Decimal("1000"))  # type: ignore[arg-type]
+
+    with pytest.raises(PortfolioDomainError, match="Decimal"):
+        HoldingState(instrument, Decimal("100"), 1000.0)  # type: ignore[arg-type]
+
+    with pytest.raises(PortfolioDomainError, match="Decimal"):
+        PortfolioState("portfolio-1", {}, {"CNY": 1000.0})  # type: ignore[dict-item]
 
 
 def test_ledger_payload_must_match_entry_type() -> None:
