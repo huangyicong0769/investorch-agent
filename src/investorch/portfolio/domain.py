@@ -17,6 +17,10 @@ class InvalidLedgerError(PortfolioDomainError):
     """Raised when Ledger entries cannot form a valid Portfolio history."""
 
 
+class CurrencyMismatchError(InvalidLedgerError):
+    """Raised when a cash entry does not use the Portfolio base currency."""
+
+
 class InvalidVoidError(InvalidLedgerError):
     """Raised when a VOID relationship violates Ledger rules."""
 
