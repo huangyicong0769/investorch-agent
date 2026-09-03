@@ -2,7 +2,11 @@ import { useQuery } from '@tanstack/react-query'
 import { useCallback, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 
-import { bootstrapQueryOptions, sessionStateQueryOptions } from '../../api/queries'
+import {
+  bootstrapQueryOptions,
+  sessionRelatedPortfoliosQueryOptions,
+  sessionStateQueryOptions,
+} from '../../api/queries'
 import { errorMessage } from '../../lib/errors'
 import { ApprovalCard } from '../approval/ApprovalCard'
 import { Composer } from '../composer/Composer'
@@ -20,6 +24,10 @@ export function ConversationPage() {
   const [pendingMessages, setPendingMessages] = useState<Map<string, PendingDirectMessage>>(() => new Map())
   const stateQuery = useQuery({
     ...sessionStateQueryOptions(sessionId),
+    enabled: Boolean(sessionId),
+  })
+  const relatedQuery = useQuery({
+    ...sessionRelatedPortfoliosQueryOptions(sessionId),
     enabled: Boolean(sessionId),
   })
   const bootstrapQuery = useQuery(bootstrapQueryOptions())
@@ -70,14 +78,6 @@ export function ConversationPage() {
     return <ConversationError message="The session URL is incomplete." />
   }
 
-  if (stateQuery.isPending) {
-    return (
-      <div className="flex min-h-screen items-center justify-center text-sm text-muted-foreground" role="status">
-        Loading conversation…
-      </div>
-    )
-  }
-
   if (stateQuery.isError) {
     return (
       <ConversationError
@@ -87,10 +87,22 @@ export function ConversationPage() {
     )
   }
 
+  if (stateQuery.isPending || relatedQuery.isPending) {
+    return (
+      <div className="flex min-h-screen items-center justify-center text-sm text-muted-foreground" role="status">
+        Loading conversation…
+      </div>
+    )
+  }
+
   return (
     <section className="flex h-dvh min-w-0 flex-col bg-background">
       <ConversationHeader session={stateQuery.data.session} />
-      <RelatedPortfolios sessionId={sessionId} />
+      <RelatedPortfolios
+        error={relatedQuery.error}
+        onRetry={() => void relatedQuery.refetch()}
+        portfolios={relatedQuery.data?.portfolios ?? []}
+      />
       <ConversationTimeline
         onPendingMessageCanonical={() => {
           if (pendingMessage) {

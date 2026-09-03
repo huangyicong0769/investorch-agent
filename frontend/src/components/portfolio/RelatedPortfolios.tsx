@@ -1,30 +1,25 @@
-import { useQuery } from '@tanstack/react-query'
 import { ArrowUpRight } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
-import { sessionRelatedPortfoliosQueryOptions } from '../../api/queries'
+import type { PortfolioSummary } from '../../api/types'
 import { errorMessage } from '../../lib/errors'
 import { logicalCashEntries, portfolioPath } from '../../lib/portfolio'
 import { cn } from '../../lib/utils'
 import { Button } from '@/components/ui/button'
 
 interface RelatedPortfoliosProps {
-  sessionId: string
+  error: unknown | null
+  onRetry: () => void
+  portfolios: PortfolioSummary[]
 }
 
-export function RelatedPortfolios({ sessionId }: RelatedPortfoliosProps) {
-  const relatedQuery = useQuery(sessionRelatedPortfoliosQueryOptions(sessionId))
-
-  if (relatedQuery.isPending) {
-    return null
-  }
-
-  if (relatedQuery.isError) {
+export function RelatedPortfolios({ error, onRetry, portfolios }: RelatedPortfoliosProps) {
+  if (error) {
     return (
       <div className="border-b border-border px-4 py-2 sm:px-6" role="alert">
         <div className="mx-auto flex max-w-4xl items-center justify-between gap-3 text-xs text-muted-foreground">
-          <span>{errorMessage(relatedQuery.error, 'Related Portfolios could not be loaded.')}</span>
-          <Button onClick={() => void relatedQuery.refetch()} size="xs" type="button" variant="ghost">
+          <span>{errorMessage(error, 'Related Portfolios could not be loaded.')}</span>
+          <Button onClick={onRetry} size="xs" type="button" variant="ghost">
             Retry
           </Button>
         </div>
@@ -32,7 +27,7 @@ export function RelatedPortfolios({ sessionId }: RelatedPortfoliosProps) {
     )
   }
 
-  if (relatedQuery.data.portfolios.length === 0) {
+  if (portfolios.length === 0) {
     return null
   }
 
@@ -43,7 +38,7 @@ export function RelatedPortfolios({ sessionId }: RelatedPortfoliosProps) {
           Related Portfolios
         </h2>
         <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
-          {relatedQuery.data.portfolios.map((portfolio) => {
+          {portfolios.map((portfolio) => {
             const cash = logicalCashEntries(portfolio.logical_cash)
             const archived = portfolio.status === 'ARCHIVED'
             return (

@@ -38,12 +38,12 @@ export function PortfolioCard({ portfolio }: PortfolioCardProps) {
       </div>
 
       <div className="mt-6 space-y-2 text-sm">
-        <div className="flex items-baseline justify-between gap-4">
-          <span className="text-muted-foreground">Logical cash</span>
+        <div className="flex min-w-0 items-baseline justify-between gap-4">
+          <span className="shrink-0 text-muted-foreground">Logical cash</span>
           {cash.length === 0 ? (
             <span className="text-muted-foreground">Not recorded</span>
           ) : (
-            <span className="text-right font-medium tabular-nums">
+            <span className="min-w-0 break-all text-right font-medium tabular-nums">
               {cash.map(([currency, amount]) => `${currency} ${amount}`).join(' · ')}
             </span>
           )}
