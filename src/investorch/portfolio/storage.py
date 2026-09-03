@@ -206,6 +206,23 @@ def get_portfolio_state(db_path: str | Path, portfolio_id: str) -> PortfolioStat
             raise PortfolioDataError(f"invalid persisted projection for Portfolio {portfolio_id}: {exc}") from exc
 
 
+def rebuild_portfolio_projection(db_path: str | Path, portfolio_id: str) -> PortfolioState:
+    """Rebuild and persist one Portfolio projection from its complete Ledger."""
+    with closing(_connect(db_path)) as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        try:
+            portfolio = _get_portfolio(connection, portfolio_id)
+            if portfolio is None:
+                raise PortfolioNotFoundError(f"Portfolio not found: {portfolio_id}")
+            state = project_portfolio(portfolio, _list_ledger_entries(connection, portfolio_id))
+            _replace_projection(connection, state)
+            connection.commit()
+        except BaseException:
+            connection.rollback()
+            raise
+    return state
+
+
 def _connect(db_path: str | Path) -> sqlite3.Connection:
     connection = sqlite3.connect(db_path, isolation_level=None)
     connection.row_factory = sqlite3.Row

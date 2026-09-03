@@ -39,6 +39,7 @@ from investorch.portfolio import (
     list_ledger_entries,
     list_portfolios,
     project_portfolio,
+    rebuild_portfolio_projection,
     update_portfolio_metadata,
 )
 
@@ -370,3 +371,37 @@ def test_multi_portfolio_ledger_operation_commits_or_rolls_back_as_one_unit(tmp_
     assert list_ledger_entries(db_path, destination.id) == ledger_before_failure[destination.id]
     assert get_portfolio_state(db_path, source.id) == states_before_failure[source.id]
     assert get_portfolio_state(db_path, destination.id) == states_before_failure[destination.id]
+
+
+def test_projection_can_be_rebuilt_from_authoritative_ledger(tmp_path: Path) -> None:
+    db_path = make_db(tmp_path)
+    portfolio = Portfolio("portfolio-1", "Core", "CNY", NOW, NOW)
+    create_portfolio(db_path, portfolio)
+    entries = [
+        make_entry(
+            portfolio.id,
+            1,
+            LedgerEntryType.OPENING_POSITION,
+            OpeningPosition(STOCK, Decimal("10"), Decimal("100")),
+        ),
+        make_entry(portfolio.id, 2, LedgerEntryType.OPENING_CASH, OpeningCash("CNY", Decimal("50"))),
+    ]
+    expected = append_ledger_operation(db_path, entries)[portfolio.id]
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            "UPDATE portfolio_holdings SET quantity = '999' WHERE portfolio_id = ?",
+            (portfolio.id,),
+        )
+        connection.execute("DELETE FROM portfolio_cash WHERE portfolio_id = ?", (portfolio.id,))
+
+    rebuilt = rebuild_portfolio_projection(db_path, portfolio.id)
+
+    assert rebuilt == expected
+    assert get_portfolio_state(db_path, portfolio.id) == expected
+
+
+def test_projection_rebuild_rejects_missing_portfolio(tmp_path: Path) -> None:
+    db_path = make_db(tmp_path)
+
+    with pytest.raises(PortfolioNotFoundError, match="missing"):
+        rebuild_portfolio_projection(db_path, "missing")

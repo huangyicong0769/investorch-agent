@@ -44,6 +44,7 @@ from investorch.portfolio.storage import (
     get_portfolio_state,
     list_ledger_entries,
     list_portfolios,
+    rebuild_portfolio_projection,
     update_portfolio_metadata,
 )
 
@@ -89,5 +90,6 @@ __all__ = [
     "list_ledger_entries",
     "list_portfolios",
     "project_portfolio",
+    "rebuild_portfolio_projection",
     "update_portfolio_metadata",
 ]
