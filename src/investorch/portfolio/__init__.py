@@ -37,6 +37,12 @@ from investorch.portfolio.schema import (
     UnsupportedPortfolioSchemaError,
     init_portfolio_storage,
 )
+from investorch.portfolio.storage import (
+    create_portfolio,
+    get_portfolio,
+    list_portfolios,
+    update_portfolio_metadata,
+)
 
 __all__ = [
     "LATEST_SCHEMA_VERSION",
@@ -72,6 +78,10 @@ __all__ = [
     "TransferDirection",
     "UnsupportedPortfolioSchemaError",
     "Void",
+    "create_portfolio",
+    "get_portfolio",
     "init_portfolio_storage",
+    "list_portfolios",
     "project_portfolio",
+    "update_portfolio_metadata",
 ]
