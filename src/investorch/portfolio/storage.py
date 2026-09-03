@@ -147,9 +147,11 @@ def append_ledger_operation(
                     raise PortfolioNotFoundError(f"Portfolio not found: {portfolio_id}")
                 portfolios[portfolio_id] = portfolio
 
+            _validate_entry_id_conflicts(connection, proposed)
             for portfolio_id, portfolio in portfolios.items():
                 existing = _list_ledger_entries(connection, portfolio_id)
                 additions = [entry for entry in proposed if entry.portfolio_id == portfolio_id]
+                _validate_sequence_conflicts(existing, additions)
                 projected_states[portfolio_id] = project_portfolio(portfolio, [*existing, *additions])
 
             _insert_ledger_entries(connection, proposed)
@@ -261,8 +263,10 @@ def _row_to_ledger_entry(row: sqlite3.Row) -> LedgerEntry:
             external_ref=row["external_ref"],
             payload=deserialize_ledger_payload(entry_type, row["payload_json"], entry_id=entry_id),
         )
-    except PortfolioDataError:
-        raise
+    except PortfolioDataError as exc:
+        raise PortfolioDataError(
+            f"invalid persisted Ledger entry for Portfolio {portfolio_id}: {entry_id} ({entry_type_value}): {exc}"
+        ) from exc
     except (TypeError, ValueError) as exc:
         raise PortfolioDataError(
             f"invalid persisted Ledger entry {entry_id} ({entry_type_value}) for Portfolio {portfolio_id}: {exc}"
@@ -293,6 +297,25 @@ def _insert_ledger_entries(connection: sqlite3.Connection, entries: tuple[Ledger
             for entry in entries
         ],
     )
+
+
+def _validate_entry_id_conflicts(connection: sqlite3.Connection, entries: tuple[LedgerEntry, ...]) -> None:
+    entry_ids = [entry.entry_id for entry in entries]
+    if len(set(entry_ids)) != len(entry_ids):
+        raise PortfolioConflictError("duplicate entry_id within Ledger operation")
+    for entry_id in entry_ids:
+        if connection.execute("SELECT 1 FROM portfolio_ledger WHERE entry_id = ?", (entry_id,)).fetchone():
+            raise PortfolioConflictError(f"entry_id already exists: {entry_id}")
+
+
+def _validate_sequence_conflicts(existing: list[LedgerEntry], additions: list[LedgerEntry]) -> None:
+    existing_sequences = {entry.sequence for entry in existing}
+    addition_sequences = [entry.sequence for entry in additions]
+    if len(set(addition_sequences)) != len(addition_sequences):
+        raise PortfolioConflictError("duplicate sequence within Portfolio Ledger operation")
+    conflict = existing_sequences.intersection(addition_sequences)
+    if conflict:
+        raise PortfolioConflictError(f"sequence already exists: {min(conflict)}")
 
 
 def _replace_projection(connection: sqlite3.Connection, state: PortfolioState) -> None:

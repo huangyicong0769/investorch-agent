@@ -22,6 +22,7 @@ from investorch.portfolio import (
     Portfolio,
     PortfolioAlreadyExistsError,
     PortfolioConflictError,
+    PortfolioDataError,
     PortfolioNotFoundError,
     PortfolioStatus,
     PositionAdjustment,
@@ -405,3 +406,101 @@ def test_projection_rebuild_rejects_missing_portfolio(tmp_path: Path) -> None:
 
     with pytest.raises(PortfolioNotFoundError, match="missing"):
         rebuild_portfolio_projection(db_path, "missing")
+
+
+def test_ledger_operation_rejects_invalid_grouping_and_missing_portfolios(tmp_path: Path) -> None:
+    db_path = make_db(tmp_path)
+    portfolio = Portfolio("portfolio-1", "Core", "CNY", NOW, NOW)
+    create_portfolio(db_path, portfolio)
+    first = make_entry(portfolio.id, 1, LedgerEntryType.OPENING_CASH, OpeningCash("CNY", Decimal("10")))
+    second = make_entry(
+        portfolio.id,
+        2,
+        LedgerEntryType.CASH_FLOW,
+        CashFlow("CNY", Decimal("1")),
+        operation_id="operation-2",
+    )
+
+    with pytest.raises(PortfolioConflictError, match="at least one"):
+        append_ledger_operation(db_path, [])
+    with pytest.raises(PortfolioConflictError, match="LedgerEntry"):
+        append_ledger_operation(db_path, [object()])  # type: ignore[list-item]
+    with pytest.raises(PortfolioConflictError, match="operation_id"):
+        append_ledger_operation(db_path, [first, second])
+    with pytest.raises(PortfolioNotFoundError, match="missing"):
+        append_ledger_operation(
+            db_path,
+            [make_entry("missing", 1, LedgerEntryType.OPENING_CASH, OpeningCash("CNY", Decimal("10")))],
+        )
+
+    assert list_ledger_entries(db_path, portfolio.id) == []
+
+
+@pytest.mark.parametrize("conflict", ["entry_id", "sequence"])
+def test_duplicate_ledger_identity_rolls_back_without_projection_drift(tmp_path: Path, conflict: str) -> None:
+    db_path = make_db(tmp_path)
+    portfolio = Portfolio("portfolio-1", "Core", "CNY", NOW, NOW)
+    create_portfolio(db_path, portfolio)
+    opening = make_entry(
+        portfolio.id,
+        1,
+        LedgerEntryType.OPENING_CASH,
+        OpeningCash("CNY", Decimal("10")),
+        operation_id="opening",
+    )
+    append_ledger_operation(db_path, [opening])
+    duplicate = make_entry(
+        portfolio.id,
+        2,
+        LedgerEntryType.CASH_FLOW,
+        CashFlow("CNY", Decimal("5")),
+        operation_id="conflict",
+    )
+    if conflict == "entry_id":
+        duplicate = replace(duplicate, entry_id=opening.entry_id)
+    else:
+        duplicate = replace(duplicate, sequence=opening.sequence)
+    valid = make_entry(
+        portfolio.id,
+        3,
+        LedgerEntryType.CASH_FLOW,
+        CashFlow("CNY", Decimal("1")),
+        operation_id="conflict",
+    )
+    state_before = get_portfolio_state(db_path, portfolio.id)
+
+    with pytest.raises(PortfolioConflictError, match=conflict):
+        append_ledger_operation(db_path, [valid, duplicate])
+
+    assert list_ledger_entries(db_path, portfolio.id) == [opening]
+    assert get_portfolio_state(db_path, portfolio.id) == state_before
+
+
+def test_corrupt_persisted_payload_raises_contextual_typed_error(tmp_path: Path) -> None:
+    db_path = make_db(tmp_path)
+    portfolio = Portfolio("portfolio-1", "Core", "CNY", NOW, NOW)
+    create_portfolio(db_path, portfolio)
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            """
+            INSERT INTO portfolio_ledger (
+                entry_id, portfolio_id, operation_id, sequence, entry_type,
+                effective_at, recorded_at, source, external_ref, payload_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "corrupt-entry",
+                portfolio.id,
+                "corrupt-operation",
+                1,
+                LedgerEntryType.OPENING_CASH.value,
+                NOW.isoformat(),
+                NOW.isoformat(),
+                "test",
+                None,
+                '{"amount":0.1,"currency":"CNY"}',
+            ),
+        )
+
+    with pytest.raises(PortfolioDataError, match=r"portfolio-1.*corrupt-entry.*OPENING_CASH"):
+        list_ledger_entries(db_path, portfolio.id)
