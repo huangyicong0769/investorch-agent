@@ -350,6 +350,10 @@ export function projectTimeline(records: readonly JournalRecord[]): TimelineView
       continue
     }
 
+    if (record.type === 'user_steers_activated' || record.type === 'user_steers_discarded') {
+      continue
+    }
+
     if (record.type === 'user_message') {
       finishAssistantTurn()
       pendingTools.length = 0

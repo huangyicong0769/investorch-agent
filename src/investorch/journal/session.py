@@ -53,6 +53,55 @@ class SessionJournal:
     async def record_user_steer(self, session_id: str, run_id: str, text: str) -> int:
         return await self._record(session_id, {"type": "user_steer", "run_id": run_id, "text": text})
 
+    async def record_user_steers_activated(
+        self,
+        session_id: str,
+        run_id: str,
+        user_steer_seqs: tuple[int, ...],
+    ) -> int:
+        return await self._record_user_steer_disposition(
+            session_id,
+            run_id,
+            user_steer_seqs,
+            event_type="user_steers_activated",
+        )
+
+    async def record_user_steers_discarded(
+        self,
+        session_id: str,
+        run_id: str,
+        user_steer_seqs: tuple[int, ...],
+    ) -> int:
+        return await self._record_user_steer_disposition(
+            session_id,
+            run_id,
+            user_steer_seqs,
+            event_type="user_steers_discarded",
+        )
+
+    async def _record_user_steer_disposition(
+        self,
+        session_id: str,
+        run_id: str,
+        user_steer_seqs: tuple[int, ...],
+        *,
+        event_type: Literal["user_steers_activated", "user_steers_discarded"],
+    ) -> int:
+        if not user_steer_seqs:
+            raise ValueError("user_steer_seqs must not be empty")
+        if any(type(seq) is not int or seq < 1 for seq in user_steer_seqs):
+            raise ValueError("user_steer_seqs must contain positive integers")
+        if len(set(user_steer_seqs)) != len(user_steer_seqs):
+            raise ValueError("user_steer_seqs must be unique")
+        return await self._record(
+            session_id,
+            {
+                "type": event_type,
+                "run_id": run_id,
+                "user_steer_seqs": list(user_steer_seqs),
+            },
+        )
+
     async def record_run_ended(
         self,
         session_id: str,
@@ -60,6 +109,8 @@ class SessionJournal:
         status: Literal["completed", "cancelled", "failed"],
         started_at: datetime,
         ended_at: datetime,
+        *,
+        discarded_user_steer_seqs: tuple[int, ...] = (),
     ) -> int:
         if status not in {"completed", "cancelled", "failed"}:
             raise ValueError("run-ended status must be completed, cancelled, or failed")
@@ -69,18 +120,27 @@ class SessionJournal:
             raise ValueError("ended_at must be timezone-aware")
         if ended_at < started_at:
             raise ValueError("ended_at must not be earlier than started_at")
+        if any(type(seq) is not int or seq < 1 for seq in discarded_user_steer_seqs):
+            raise ValueError("discarded_user_steer_seqs must contain positive integers")
+        if len(set(discarded_user_steer_seqs)) != len(discarded_user_steer_seqs):
+            raise ValueError("discarded_user_steer_seqs must be unique")
+        if status == "completed" and discarded_user_steer_seqs:
+            raise ValueError("completed Run cannot discard user Steers")
 
         duration_ms = max(0, round((ended_at - started_at).total_seconds() * 1000))
+        record: dict[str, object] = {
+            "type": "run_ended",
+            "run_id": run_id,
+            "status": status,
+            "started_at": started_at.isoformat(),
+            "ended_at": ended_at.isoformat(),
+            "duration_ms": duration_ms,
+        }
+        if discarded_user_steer_seqs:
+            record["discarded_user_steer_seqs"] = list(discarded_user_steer_seqs)
         return await self._record(
             session_id,
-            {
-                "type": "run_ended",
-                "run_id": run_id,
-                "status": status,
-                "started_at": started_at.isoformat(),
-                "ended_at": ended_at.isoformat(),
-                "duration_ms": duration_ms,
-            },
+            record,
         )
 
     async def record_output(self, session_id: str, event: OutputEvent) -> int:
@@ -98,6 +158,7 @@ class SessionJournal:
         source: str = "user",
         review_decision: str | None = None,
         review_reason: str | None = None,
+        instruction_head_seq: int | None = None,
     ) -> int:
         if source not in {"user", "permission"}:
             raise ValueError("approval source must be user or permission")
@@ -109,6 +170,8 @@ class SessionJournal:
             review_reason = review_reason.strip()
             if not review_reason:
                 raise ValueError("review_reason must not be empty")
+        if instruction_head_seq is not None and (type(instruction_head_seq) is not int or instruction_head_seq < 1):
+            raise ValueError("instruction_head_seq must be a positive integer or None")
 
         record: dict[str, object] = {
             "type": "approval",
@@ -123,6 +186,8 @@ class SessionJournal:
             record["review_decision"] = review_decision
         if review_reason is not None:
             record["review_reason"] = review_reason
+        if instruction_head_seq is not None:
+            record["instruction_head_seq"] = instruction_head_seq
 
         return await self._record(session_id, record)
 

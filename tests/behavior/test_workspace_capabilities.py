@@ -8,6 +8,7 @@ import pytest
 from agents.tool import FunctionTool
 from agents.tool_context import ToolContext
 
+from investorch.application import PortfolioOperations
 from investorch.context import AgentContext, ExecutionState
 from investorch.tools.base import calculate, delete, edit, explore
 from tests.support.config import make_test_config
@@ -20,6 +21,7 @@ def make_tool_context(tmp_path: Path, overrides: dict[str, dict[str, Any]] | Non
         execution=ExecutionState(workspace_root=config.workspace_dir),
         session_id="session-a",
         run_id="run-a",
+        portfolios=PortfolioOperations(config=config),
     )
     return ToolContext(
         context=context,

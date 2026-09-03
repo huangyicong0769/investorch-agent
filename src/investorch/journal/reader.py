@@ -17,9 +17,13 @@ class JournalPage:
 def read_session_journal(
     directory: Path,
     session_id: str,
+    *,
+    through_seq: int | None = None,
 ) -> list[dict[str, object]]:
+    if through_seq is not None and (type(through_seq) is not int or through_seq < 1):
+        raise ValueError("through_seq must be a positive integer or None")
     path = _session_path(directory, session_id)
-    return list(_iter_session_journal_records(path))
+    return list(_iter_session_journal_records(path, through_seq=through_seq))
 
 
 def read_session_journal_page(
@@ -52,7 +56,11 @@ def read_session_journal_page(
     )
 
 
-def _iter_session_journal_records(path: Path) -> Iterator[dict[str, object]]:
+def _iter_session_journal_records(
+    path: Path,
+    *,
+    through_seq: int | None = None,
+) -> Iterator[dict[str, object]]:
 
     if path.is_symlink():
         raise RuntimeError(f"Session journal is not a regular file: {path}")
@@ -87,7 +95,11 @@ def _iter_session_journal_records(path: Path) -> Iterator[dict[str, object]]:
                 raise RuntimeError(f"Session journal has an invalid type on line {line_number}: {path}")
 
             previous_seq = seq
+            if through_seq is not None and seq > through_seq:
+                return
             yield record
+            if seq == through_seq:
+                return
 
 
 def _session_path(directory: Path, session_id: str) -> Path:

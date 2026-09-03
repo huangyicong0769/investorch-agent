@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 import threading
+from collections.abc import Iterable
 from contextlib import closing
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -20,12 +22,17 @@ class SessionRecord:
     updated_at: str
 
 
-def create_session(db_path: str | Path, session_id: str) -> None:
+class SessionMetadataError(RuntimeError):
+    pass
+
+
+def create_session(db_path: str | Path, session_id: str) -> bool:
     session = SQLiteSession(session_id, db_path)
     session.close()
     with closing(sqlite3.connect(db_path)) as connection:
-        connection.execute("INSERT OR IGNORE INTO agent_sessions (session_id) VALUES (?)", (session_id,))
+        cursor = connection.execute("INSERT OR IGNORE INTO agent_sessions (session_id) VALUES (?)", (session_id,))
         connection.commit()
+    return cursor.rowcount == 1
 
 
 def session_exists(db_path: str | Path, session_id: str) -> bool:
@@ -99,13 +106,21 @@ def init_session_metadata(db_path: str | Path) -> None:
             CREATE TABLE IF NOT EXISTS extra_session_metadata (
                 session_id TEXT PRIMARY KEY,
                 title TEXT NOT NULL,
-                archived_at TEXT
+                archived_at TEXT,
+                related_portfolio_ids_json TEXT,
+                application_workflow_started INTEGER NOT NULL DEFAULT 0
             )
             """
         )
         columns = {row[1] for row in connection.execute("PRAGMA table_info(extra_session_metadata)")}
         if "archived_at" not in columns:
             connection.execute("ALTER TABLE extra_session_metadata ADD COLUMN archived_at TEXT")
+        if "related_portfolio_ids_json" not in columns:
+            connection.execute("ALTER TABLE extra_session_metadata ADD COLUMN related_portfolio_ids_json TEXT")
+        if "application_workflow_started" not in columns:
+            connection.execute(
+                "ALTER TABLE extra_session_metadata ADD COLUMN application_workflow_started INTEGER NOT NULL DEFAULT 0"
+            )
         connection.execute(
             """
             CREATE TABLE IF NOT EXISTS session_lineage (
@@ -273,6 +288,167 @@ def set_session_title(db_path: str | Path, session_id: str, title: str) -> None:
             (session_id, title),
         )
         connection.commit()
+
+
+def get_session_related_portfolio_ids(db_path: str | Path, session_id: str) -> tuple[str, ...]:
+    with closing(sqlite3.connect(db_path)) as connection:
+        row = connection.execute(
+            """
+            SELECT metadata.related_portfolio_ids_json
+            FROM agent_sessions AS sessions
+            LEFT JOIN extra_session_metadata AS metadata
+                ON metadata.session_id = sessions.session_id
+            WHERE sessions.session_id = ?
+            """,
+            (session_id,),
+        ).fetchone()
+    if row is None:
+        raise KeyError(session_id)
+    return _decode_related_portfolio_ids(row[0])
+
+
+def is_application_workflow_started(db_path: str | Path, session_id: str) -> bool:
+    with closing(sqlite3.connect(db_path)) as connection:
+        row = connection.execute(
+            """
+            SELECT metadata.application_workflow_started
+            FROM agent_sessions AS sessions
+            LEFT JOIN extra_session_metadata AS metadata
+                ON metadata.session_id = sessions.session_id
+            WHERE sessions.session_id = ?
+            """,
+            (session_id,),
+        ).fetchone()
+    if row is None:
+        raise KeyError(session_id)
+    return row[0] == 1
+
+
+def mark_application_workflow_started(db_path: str | Path, session_id: str) -> None:
+    with closing(sqlite3.connect(db_path)) as connection:
+        if connection.execute("SELECT 1 FROM agent_sessions WHERE session_id = ?", (session_id,)).fetchone() is None:
+            raise KeyError(session_id)
+        connection.execute(
+            """
+            INSERT INTO extra_session_metadata (session_id, title, application_workflow_started)
+            VALUES (?, '', 1)
+            ON CONFLICT(session_id) DO UPDATE
+            SET application_workflow_started = 1
+            """,
+            (session_id,),
+        )
+        connection.commit()
+
+
+def add_session_related_portfolio_ids(
+    db_path: str | Path,
+    session_id: str,
+    portfolio_ids: Iterable[str],
+) -> tuple[str, ...]:
+    additions = _normalize_related_portfolio_ids(portfolio_ids)
+    with closing(sqlite3.connect(db_path)) as connection:
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                """
+                SELECT metadata.related_portfolio_ids_json
+                FROM agent_sessions AS sessions
+                LEFT JOIN extra_session_metadata AS metadata
+                    ON metadata.session_id = sessions.session_id
+                WHERE sessions.session_id = ?
+                """,
+                (session_id,),
+            ).fetchone()
+            if row is None:
+                raise KeyError(session_id)
+            existing = _decode_related_portfolio_ids(row[0])
+            combined = _normalize_related_portfolio_ids((*existing, *additions))
+            if combined != existing:
+                connection.execute(
+                    """
+                    INSERT INTO extra_session_metadata (session_id, title, related_portfolio_ids_json)
+                    VALUES (?, '', ?)
+                    ON CONFLICT(session_id) DO UPDATE
+                    SET related_portfolio_ids_json = excluded.related_portfolio_ids_json
+                    """,
+                    (session_id, _encode_related_portfolio_ids(combined)),
+                )
+            connection.commit()
+        except BaseException:
+            connection.rollback()
+            raise
+    return combined
+
+
+def copy_session_related_portfolio_ids(
+    db_path: str | Path,
+    source_session_id: str,
+    target_session_id: str,
+) -> None:
+    with closing(sqlite3.connect(db_path)) as connection:
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            rows = connection.execute(
+                """
+                SELECT sessions.session_id, metadata.related_portfolio_ids_json
+                FROM agent_sessions AS sessions
+                LEFT JOIN extra_session_metadata AS metadata
+                    ON metadata.session_id = sessions.session_id
+                WHERE sessions.session_id IN (?, ?)
+                """,
+                (source_session_id, target_session_id),
+            ).fetchall()
+            values = {row[0]: row[1] for row in rows}
+            if source_session_id not in values:
+                raise KeyError(source_session_id)
+            if target_session_id not in values:
+                raise KeyError(target_session_id)
+            related = _decode_related_portfolio_ids(values[source_session_id])
+            if related:
+                connection.execute(
+                    """
+                    INSERT INTO extra_session_metadata (session_id, title, related_portfolio_ids_json)
+                    VALUES (?, '', ?)
+                    ON CONFLICT(session_id) DO UPDATE
+                    SET related_portfolio_ids_json = excluded.related_portfolio_ids_json
+                    """,
+                    (target_session_id, _encode_related_portfolio_ids(related)),
+                )
+            connection.commit()
+        except BaseException:
+            connection.rollback()
+            raise
+
+
+def _decode_related_portfolio_ids(value: str | None) -> tuple[str, ...]:
+    if value is None:
+        return ()
+    try:
+        decoded = json.loads(value)
+    except (json.JSONDecodeError, TypeError) as exc:
+        raise SessionMetadataError("Malformed related Portfolio metadata") from exc
+    if not isinstance(decoded, list):
+        raise SessionMetadataError("Malformed related Portfolio metadata: expected a JSON array")
+    try:
+        return _normalize_related_portfolio_ids(decoded)
+    except ValueError as exc:
+        raise SessionMetadataError("Malformed related Portfolio metadata: expected non-empty string IDs") from exc
+
+
+def _normalize_related_portfolio_ids(portfolio_ids: Iterable[str]) -> tuple[str, ...]:
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for portfolio_id in portfolio_ids:
+        if not isinstance(portfolio_id, str) or not portfolio_id:
+            raise ValueError("Related Portfolio IDs must be non-empty strings")
+        if portfolio_id not in seen:
+            normalized.append(portfolio_id)
+            seen.add(portfolio_id)
+    return tuple(normalized)
+
+
+def _encode_related_portfolio_ids(portfolio_ids: tuple[str, ...]) -> str:
+    return json.dumps(portfolio_ids, ensure_ascii=False, separators=(",", ":"))
 
 
 def get_session_branch_from(db_path: str | Path, session_id: str) -> str | None:

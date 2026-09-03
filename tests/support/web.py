@@ -9,7 +9,12 @@ from pathlib import Path
 import httpx
 from agents import Agent
 
-from investorch.application import ApplicationHost, ApprovalCoordinator
+from investorch.application import (
+    ApplicationHost,
+    ApprovalCoordinator,
+    PortfolioOperations,
+    PortfolioSessionWorkflows,
+)
 from investorch.application.presentation_state import SessionPresentationStore
 from investorch.application.sessions import SessionOperations
 from investorch.context import AppState
@@ -23,12 +28,16 @@ from tests.support.runtime import RuntimeHarness, make_runtime_harness
 @dataclass(slots=True)
 class WebHarness:
     runtime: RuntimeHarness
+    host: ApplicationHost
     client: httpx.AsyncClient
 
 
 @asynccontextmanager
 async def open_test_web(
-    tmp_path: Path, config_overrides: dict[str, dict[str, object]] | None = None
+    tmp_path: Path,
+    config_overrides: dict[str, dict[str, object]] | None = None,
+    *,
+    raise_app_exceptions: bool = True,
 ) -> AsyncIterator[WebHarness]:
     runtime = make_runtime_harness(tmp_path, config_overrides=config_overrides)
     presentation_state = SessionPresentationStore()
@@ -55,6 +64,7 @@ async def open_test_web(
         main_reasoning_effort="none",
         permission_mode="manual",
     )
+    portfolios = PortfolioOperations(config=runtime.config)
     host = ApplicationHost(
         config=runtime.config,
         state=state,
@@ -62,6 +72,13 @@ async def open_test_web(
         journal=runtime.journal,
         runtime=runtime.runtime,
         sessions=sessions,
+        portfolios=portfolios,
+        portfolio_sessions=PortfolioSessionWorkflows(
+            state=state,
+            runtime=runtime.runtime,
+            sessions=sessions,
+            portfolios=portfolios,
+        ),
         approvals=approvals,
         activity=None,
         presentation_state=presentation_state,
@@ -74,9 +91,12 @@ async def open_test_web(
     app.state.host = host
     app.state.approval_broker = broker
     app.state.connections = connections
-    client = httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test")
+    client = httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app, raise_app_exceptions=raise_app_exceptions),
+        base_url="http://test",
+    )
     try:
-        yield WebHarness(runtime=runtime, client=client)
+        yield WebHarness(runtime=runtime, host=host, client=client)
     finally:
         await client.aclose()
         broker.close()

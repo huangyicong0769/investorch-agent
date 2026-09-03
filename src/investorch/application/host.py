@@ -19,6 +19,7 @@ from investorch.agents import (
     create_agent,
     create_compaction_agent,
     create_permission_agent,
+    create_review_instruction_compactor,
     create_title_agent,
 )
 from investorch.config import AppConfig
@@ -37,6 +38,13 @@ from investorch.tools import close_execution, start_execution
 
 from .activity import ActivityCoordinator, ActivityLabelEvent, ActivityLabelHandler, _ignore_activity_label
 from .approval import ApprovalCoordinator, ApprovalResolvedHandler, ManualApprovalHandler, _ignore_approval_resolved
+from .portfolio_context import (
+    PortfolioContextOperations,
+    PortfolioToolSucceededHandler,
+    _ignore_portfolio_tool_succeeded,
+)
+from .portfolio_sessions import PortfolioSessionWorkflows
+from .portfolios import PortfolioOperations
 from .presentation_state import SessionPresentationStore
 from .sessions import SessionOperations
 
@@ -72,6 +80,7 @@ class ApplicationCallbacks:
     handle_runtime_state: ApplicationRuntimeStateHandler = _ignore_runtime_state
     handle_approval_resolved: ApprovalResolvedHandler = _ignore_approval_resolved
     handle_activity_label: ActivityLabelHandler = _ignore_activity_label
+    handle_portfolio_tool_succeeded: PortfolioToolSucceededHandler = _ignore_portfolio_tool_succeeded
 
 
 @dataclass(slots=True)
@@ -82,6 +91,8 @@ class ApplicationHost:
     journal: SessionJournal
     runtime: AgentRuntime
     sessions: SessionOperations
+    portfolios: PortfolioOperations
+    portfolio_sessions: PortfolioSessionWorkflows
     approvals: ApprovalCoordinator
     activity: ActivityCoordinator | None
     presentation_state: SessionPresentationStore
@@ -154,6 +165,7 @@ async def open_application_host(
         await asyncio.to_thread(create_session, config.sessions_db, initial_session_id)
         logger.info("Started session %s", initial_session_id)
     execution = ExecutionState()
+    portfolios = PortfolioOperations(config=config)
     state = AppState(
         config=config,
         execution=execution,
@@ -167,6 +179,12 @@ async def open_application_host(
 
     async def record_user_steer(session_id: str, run_id: str, text: str) -> int:
         return await journal.record_user_steer(session_id, run_id, text)
+
+    async def record_user_steers_activated(session_id: str, run_id: str, steer_seqs: tuple[int, ...]) -> int:
+        return await journal.record_user_steers_activated(session_id, run_id, steer_seqs)
+
+    async def record_user_steers_discarded(session_id: str, run_id: str, steer_seqs: tuple[int, ...]) -> int:
+        return await journal.record_user_steers_discarded(session_id, run_id, steer_seqs)
 
     async def handle_output(output: RuntimeOutput) -> None:
         journal_seq = None
@@ -183,7 +201,12 @@ async def open_application_host(
             activity.finish_run(event.run_id)
         try:
             await journal.record_run_ended(
-                event.session_id, event.run_id, event.status, event.started_at, event.ended_at
+                event.session_id,
+                event.run_id,
+                event.status,
+                event.started_at,
+                event.ended_at,
+                discarded_user_steer_seqs=event.discarded_steer_seqs,
             )
         except Exception:
             logger.exception(
@@ -215,6 +238,10 @@ async def open_application_host(
                 title_model, title_model_settings = create_model(config, "title")
                 compact_model, compact_model_settings = create_model(config, "compact")
                 permission_model, permission_model_settings = create_model(config, "permission")
+                portfolio_context = PortfolioContextOperations(
+                    config=config,
+                    succeeded_handler=callbacks.handle_portfolio_tool_succeeded,
+                )
                 agent = create_agent(
                     model=main_model,
                     model_settings=main_model_settings,
@@ -226,10 +253,16 @@ async def open_application_host(
                     create_title_agent(title_model, title_model_settings),
                     create_compaction_agent(compact_model, compact_model_settings),
                     config,
+                    portfolios,
+                    successful_tool_handler=portfolio_context.observe_successful_tool,
                 )
                 approvals = ApprovalCoordinator(
                     config=config,
                     permission_agent=create_permission_agent(permission_model, permission_model_settings),
+                    review_compaction_agent=create_review_instruction_compactor(
+                        permission_model,
+                        permission_model_settings,
+                    ),
                     journal=journal,
                     manual_handler=manual_approval_handler,
                     resolved_handler=callbacks.handle_approval_resolved,
@@ -242,6 +275,8 @@ async def open_application_host(
                     approvals.handle,
                     record_user_message,
                     record_user_steer,
+                    record_user_steers_activated,
+                    record_user_steers_discarded,
                     state_handler=handle_runtime_state,
                     run_ended_handler=handle_run_ended,
                     follow_up_handler=callbacks.handle_follow_up,
@@ -261,6 +296,12 @@ async def open_application_host(
                     journal=journal,
                     presentation_state=presentation_state,
                 )
+                portfolio_sessions = PortfolioSessionWorkflows(
+                    state=state,
+                    runtime=runtime,
+                    sessions=sessions,
+                    portfolios=portfolios,
+                )
                 yield ApplicationHost(
                     config=config,
                     state=state,
@@ -268,6 +309,8 @@ async def open_application_host(
                     journal=journal,
                     runtime=runtime,
                     sessions=sessions,
+                    portfolios=portfolios,
+                    portfolio_sessions=portfolio_sessions,
                     approvals=approvals,
                     activity=activity,
                     presentation_state=presentation_state,

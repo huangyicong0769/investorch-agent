@@ -107,12 +107,135 @@ export interface SessionResponse {
   session: SessionRecord
 }
 
+export interface PortfolioSessionResponse extends SessionResponse {
+  run_id: string | null
+  started: boolean
+}
+
 export interface SessionStateResponse {
   session: SessionRecord
   runtime: RuntimeSnapshot
   presentation: SessionPresentationState
   queue: QueueItem[]
   pending_approvals: ApprovalRequest[]
+}
+
+export type PortfolioStatus = 'ACTIVE' | 'ARCHIVED'
+
+export interface PortfolioStrategyBinding {
+  source_path: string
+  parameters: JsonObject
+}
+
+export interface PortfolioBase {
+  portfolio_id: string
+  name: string
+  description: string | null
+  status: PortfolioStatus
+  base_currency: string
+  strategy_binding: PortfolioStrategyBinding | null
+}
+
+export interface PortfolioSummary extends PortfolioBase {
+  logical_cash: Record<string, string>
+  holdings_count: number
+}
+
+export interface PortfolioMetadata extends PortfolioBase {
+  created_at: string
+  updated_at: string
+}
+
+export interface PortfolioInstrument {
+  code: string
+  market: string
+}
+
+export interface PortfolioHolding {
+  instrument: PortfolioInstrument
+  quantity: string
+  total_cost: string | null
+  average_cost: string | null
+}
+
+export interface PortfolioState {
+  portfolio_id: string
+  cash: Record<string, string>
+  holdings: PortfolioHolding[]
+}
+
+export interface PortfolioListResponse {
+  portfolios: PortfolioSummary[]
+}
+
+export interface PortfolioDetailResponse {
+  portfolio: PortfolioMetadata
+  state: PortfolioState
+}
+
+export type PortfolioLedgerEntryType =
+  | 'OPENING_POSITION'
+  | 'OPENING_CASH'
+  | 'TRADE'
+  | 'CASH_FLOW'
+  | 'INCOME'
+  | 'TRANSFER'
+  | 'ADJUSTMENT'
+  | 'VOID'
+
+export type PortfolioLedgerPayload =
+  | { instrument: PortfolioInstrument; quantity: string; total_cost: string | null }
+  | { currency: string; amount: string }
+  | {
+      instrument: PortfolioInstrument
+      side: 'BUY' | 'SELL'
+      quantity: string
+      price: string
+      commission: string
+      tax: string
+      other_fee: string
+    }
+  | {
+      currency: string
+      gross_amount: string
+      tax: string
+      other_fee: string
+      instrument: PortfolioInstrument | null
+    }
+  | {
+      instrument: PortfolioInstrument
+      direction: 'IN' | 'OUT'
+      quantity: string
+      transferred_cost: string | null
+    }
+  | { currency: string; direction: 'IN' | 'OUT'; amount: string }
+  | {
+      instrument: PortfolioInstrument
+      resulting_quantity: string
+      resulting_total_cost: string | null
+      reason: string
+    }
+  | { currency: string; resulting_amount: string; reason: string }
+  | { target_entry_id: string; reason: string }
+
+export interface PortfolioLedgerEntry {
+  entry_id: string
+  operation_id: string
+  sequence: number
+  entry_type: PortfolioLedgerEntryType
+  effective_at: string
+  recorded_at: string
+  source: string
+  external_ref: string | null
+  payload: PortfolioLedgerPayload
+}
+
+export interface PortfolioLedgerResponse {
+  portfolio_id: string
+  entries: PortfolioLedgerEntry[]
+  returned: number
+  total: number
+  has_older: boolean
 }
 
 export interface OutputEventAgentChanged {
@@ -199,6 +322,14 @@ export interface ActivityLabelLiveEvent {
   text: string
 }
 
+export interface PortfolioToolSucceededLiveEvent {
+  kind: 'portfolio_tool_succeeded'
+  session_id: string
+  run_id: string
+  portfolio_ids: string[]
+  mutated: boolean
+}
+
 export interface ApprovalRequiredLiveEvent extends ApprovalRequest {
   kind: 'approval_required'
 }
@@ -228,6 +359,7 @@ export type LiveEvent =
   | FollowUpLiveEvent
   | RunEndedLiveEvent
   | ActivityLabelLiveEvent
+  | PortfolioToolSucceededLiveEvent
   | ApprovalRequiredLiveEvent
   | ApprovalResolvedLiveEvent
   | ApprovalCancelledLiveEvent
@@ -246,6 +378,12 @@ export interface UserSteerRecord extends JournalRecordBase {
   type: 'user_steer'
   run_id: string
   text: string
+}
+
+export interface UserSteerDispositionRecord extends JournalRecordBase {
+  type: 'user_steers_activated' | 'user_steers_discarded'
+  run_id: string
+  user_steer_seqs: number[]
 }
 
 export interface ActivityLabelRecord extends JournalRecordBase {
@@ -273,6 +411,7 @@ export interface RunEndedRecord extends JournalRecordBase {
   started_at?: string
   ended_at?: string
   duration_ms?: number
+  discarded_user_steer_seqs?: number[]
 }
 
 export type JournalOutputRecord = JournalRecordBase & OutputEvent
@@ -280,6 +419,7 @@ export type JournalOutputRecord = JournalRecordBase & OutputEvent
 export type JournalRecord =
   | UserMessageRecord
   | UserSteerRecord
+  | UserSteerDispositionRecord
   | ActivityLabelRecord
   | ApprovalRecord
   | RunEndedRecord
@@ -383,6 +523,15 @@ export interface ApiErrorEnvelope {
 
 export interface SendMessageBody {
   text: string
+}
+
+export interface AskPortfolioBody {
+  request_id: string
+  text: string
+}
+
+export interface StartPortfolioSessionBody {
+  request_id: string
 }
 
 export interface RenameSessionBody {

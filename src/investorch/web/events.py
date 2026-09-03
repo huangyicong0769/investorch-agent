@@ -1,6 +1,11 @@
 from __future__ import annotations
 
-from investorch.application import ActivityLabelEvent, ApplicationCallbacks, ApprovalResolvedEvent
+from investorch.application import (
+    ActivityLabelEvent,
+    ApplicationCallbacks,
+    ApprovalResolvedEvent,
+    PortfolioToolSucceededEvent,
+)
 from investorch.presentation import (
     serialize_activity_label,
     serialize_approval_cancelled,
@@ -34,6 +39,7 @@ class WebEventBridge:
             handle_runtime_state=self.handle_runtime_state,
             handle_approval_resolved=self.handle_approval_resolved,
             handle_activity_label=self.handle_activity_label,
+            handle_portfolio_tool_succeeded=self.handle_portfolio_tool_succeeded,
         )
 
     async def handle_output(self, output: RuntimeOutput, journal_seq: int | None) -> None:
@@ -67,6 +73,17 @@ class WebEventBridge:
 
     async def handle_activity_label(self, event: ActivityLabelEvent) -> None:
         self._connections.publish(serialize_activity_label(event))
+
+    async def handle_portfolio_tool_succeeded(self, event: PortfolioToolSucceededEvent) -> None:
+        self._connections.publish(
+            {
+                "kind": "portfolio_tool_succeeded",
+                "session_id": event.session_id,
+                "run_id": event.run_id,
+                "portfolio_ids": list(event.portfolio_ids),
+                "mutated": event.mutated,
+            }
+        )
 
     def publish_approval_required(self, request: ApprovalRequest, review_reason: str | None) -> None:
         self._connections.publish(serialize_approval_request(request, review_reason=review_reason))

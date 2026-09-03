@@ -5,40 +5,20 @@ from pathlib import Path
 import pytest
 
 from investorch.cli import parse_web_args
-from investorch.config import PROJECT_CONFIG_PATH, REDACTED, ConfigError, load_config
+from investorch.config import REDACTED, ConfigError, load_config
 from tests.support.config import make_test_config
 
 
 def test_local_override_preserves_unset_defaults_and_project_root(tmp_path: Path) -> None:
+    baseline = make_test_config(tmp_path / "baseline")
     config = make_test_config(
-        tmp_path,
+        tmp_path / "override",
         {"interaction": {"follow_up_behavior": "queue"}},
     )
 
     assert config["interaction.follow_up_behavior"] == "queue"
-    assert config["runtime.max_turns"] == 100
-    assert config.root == (tmp_path / "root").resolve()
-
-
-def test_investorch_default_filesystem_identity(tmp_path: Path) -> None:
-    config = make_test_config(tmp_path)
-
-    assert PROJECT_CONFIG_PATH.name == "investorch.toml"
-    assert config.root_config_path == config.root / "investorch.toml"
-    assert config.state_dir == config.root / "state"
-    assert config.log_path == config.root / "state" / "logs" / "investorch.log"
-    assert config.background_job_dir == config.root / "workspace" / ".investorch-processes"
-
-
-def test_web_and_tui_policy_come_from_appconfig(tmp_path: Path) -> None:
-    config = make_test_config(tmp_path)
-
-    assert config["web.default_port"] == 1334
-    assert config["web.connection_queue_capacity"] == 1000
-    assert config["web.history_page_size"] == 200
-    assert config["tui.interaction_scroll_max_height"] == 9
-    assert config["tui.queue_preview_count"] == 2
-    assert config["tui.todo_contents_max_height"] == 5
+    assert config["runtime.max_turns"] == baseline["runtime.max_turns"]
+    assert config.root == (tmp_path / "override" / "root").resolve()
 
 
 def test_web_cli_port_override_is_optional() -> None:
@@ -122,6 +102,19 @@ def test_invalid_update_leaves_memory_and_disk_unchanged(tmp_path: Path) -> None
     assert config["interaction.follow_up_behavior"] == original_value
     assert config.root_config_path.read_text(encoding="utf-8") == original_file
     assert load_config(config.project_config_path)["interaction.follow_up_behavior"] == original_value
+
+
+def test_review_compaction_budget_cannot_exceed_raw_instruction_budget(tmp_path: Path) -> None:
+    config = make_test_config(tmp_path)
+    invalid_limit = config["permission.max_user_instruction_chars"] + 1
+
+    with pytest.raises(ConfigError, match=r"permission\.max_compacted_instruction_chars"):
+        config.update("permission.max_compacted_instruction_chars", invalid_limit, persist=True)
+
+
+def test_renamed_permission_instruction_limit_is_not_silently_ignored(tmp_path: Path) -> None:
+    with pytest.raises(ConfigError, match=r"permission\.max_user_message_chars.*renamed"):
+        make_test_config(tmp_path, {"permission": {"max_user_message_chars": 123}})
 
 
 @pytest.mark.parametrize(

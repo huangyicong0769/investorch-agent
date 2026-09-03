@@ -12,6 +12,8 @@ from investorch.config import AppConfig
 from investorch.journal import SessionJournal
 from investorch.runtime import ApprovalRequest
 
+from .review_context import ReviewContext
+
 logger = logging.getLogger(__name__)
 
 ApprovalSource = Literal["user", "permission"]
@@ -41,6 +43,7 @@ class ApprovalCoordinator:
         *,
         config: AppConfig,
         permission_agent: Agent,
+        review_compaction_agent: Agent | None = None,
         journal: SessionJournal,
         manual_handler: ManualApprovalHandler,
         resolved_handler: ApprovalResolvedHandler = _ignore_approval_resolved,
@@ -50,6 +53,7 @@ class ApprovalCoordinator:
         self._journal = journal
         self._manual_handler = manual_handler
         self._resolved_handler = resolved_handler
+        self._review_context = ReviewContext(config=config, compaction_agent=review_compaction_agent)
 
     async def handle(self, request: ApprovalRequest) -> ApprovalOutcome:
         review_usage = TokenUsage()
@@ -60,15 +64,23 @@ class ApprovalCoordinator:
             source: ApprovalSource = "user"
         else:
             try:
-                review_result = await review_permission(
-                    self._permission_agent,
-                    self._config,
-                    request.user_input,
-                    request.tool_name,
-                    request.arguments,
-                )
-                review_usage = review_result.usage
-                review = review_result.review
+                prepared = await self._review_context.prepare(request.session_id, request.instruction_head_seq)
+                review_usage = prepared.usage
+                if prepared.instruction_count:
+                    review_result = await review_permission(
+                        self._permission_agent,
+                        self._config,
+                        prepared.text,
+                        request.tool_name,
+                        request.arguments,
+                    )
+                    review_usage += review_result.usage
+                    review = review_result.review
+                else:
+                    review = PermissionReview(
+                        decision="ask",
+                        reason="No active user-authored instruction authorizes this tool call.",
+                    )
             except Exception:
                 logger.exception(
                     "Permission review failed for tool %s; falling back to manual approval", request.tool_name
@@ -104,6 +116,7 @@ class ApprovalCoordinator:
                 source=source,
                 review_decision=review_decision,
                 review_reason=review_reason,
+                instruction_head_seq=request.instruction_head_seq,
             )
         except Exception:
             logger.exception("Failed to append approval to session journal for session %s", request.session_id)

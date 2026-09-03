@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from investorch.config import AppConfig, ConfigError
+from investorch.portfolio import init_portfolio_storage
 from investorch.storage import init_session_metadata
 
 LOCAL_CONFIG_TEMPLATE = """# Local InvestOrch Agent configuration.
@@ -66,6 +67,7 @@ def initialize(config: AppConfig, *, copy_bootstrap: bool = True) -> bool:
 
     # Session schema initialization is idempotent.
     init_session_metadata(config.sessions_db)
+    init_portfolio_storage(config.portfolio_db)
 
     if copy_bootstrap:
         _copy_bootstrap_files(config)

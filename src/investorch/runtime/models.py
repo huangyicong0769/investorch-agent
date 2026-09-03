@@ -110,6 +110,7 @@ class RuntimeRunEnded:
     ended_at: datetime
     result: AgentRunResult | None
     discarded_steer_count: int = 0
+    discarded_steer_seqs: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -121,3 +122,4 @@ class ApprovalRequest:
     permission_mode: str
     tool_name: str
     arguments: str | None
+    instruction_head_seq: int | None = None

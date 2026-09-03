@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import math
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from agents import Agent, Runner, SQLiteSession, UserError
+from agents import Agent, RunContextWrapper, Runner, SQLiteSession, TResponseInputItem, UserError
+from agents.lifecycle import RunHooksBase
+from agents.tool import Tool
 
 from investorch.config import AppConfig
 from investorch.context import AgentContext, ExecutionState, TodoUpdateHandler
@@ -17,6 +20,7 @@ from .title import ensure_session_title
 from .usage import TokenUsage
 
 if TYPE_CHECKING:
+    from investorch.application.portfolios import PortfolioOperations
     from investorch.runtime.control import RunControl
 
 logger = logging.getLogger(__name__)
@@ -28,7 +32,38 @@ class ApprovalOutcome:
     usage: TokenUsage
 
 
-ApprovalHandler = Callable[[str, str, str | None], Awaitable[ApprovalOutcome]]
+ApprovalHandler = Callable[[int | None, str, str | None], Awaitable[ApprovalOutcome]]
+SuccessfulToolHandler = Callable[[str, str, str, object], Awaitable[None]]
+SteerActivatedHandler = Callable[
+    [tuple[int, ...]],
+    Awaitable[tuple[int, asyncio.CancelledError | None]],
+]
+
+
+async def _ignore_successful_tool(_session_id: str, _run_id: str, _tool_name: str, _result: object) -> None:
+    pass
+
+
+class _SuccessfulToolHooks(RunHooksBase[AgentContext, Agent[AgentContext]]):
+    def __init__(
+        self,
+        *,
+        session_id: str,
+        run_id: str,
+        handler: SuccessfulToolHandler,
+    ) -> None:
+        self._session_id = session_id
+        self._run_id = run_id
+        self._handler = handler
+
+    async def on_tool_end(
+        self,
+        _context: RunContextWrapper[AgentContext],
+        _agent: Agent[AgentContext],
+        tool: Tool,
+        result: object,
+    ) -> None:
+        await self._handler(self._session_id, self._run_id, tool.name, result)
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,12 +86,20 @@ def should_auto_compact(
 
 class AgentLoop:
     def __init__(
-        self, agent: Agent[AgentContext], title_agent: Agent, compaction_agent: Agent, config: AppConfig
+        self,
+        agent: Agent[AgentContext],
+        title_agent: Agent,
+        compaction_agent: Agent,
+        config: AppConfig,
+        portfolios: PortfolioOperations,
+        successful_tool_handler: SuccessfulToolHandler = _ignore_successful_tool,
     ) -> None:
         self._agent = agent
         self._title_agent = title_agent
         self._compaction_agent = compaction_agent
         self._config = config
+        self._portfolios = portfolios
+        self._successful_tool_handler = successful_tool_handler
 
     async def run(
         self,
@@ -71,6 +114,9 @@ class AgentLoop:
         output_handler: OutputHandler,
         run_control: RunControl,
         todo_update_handler: TodoUpdateHandler | None = None,
+        instruction_head_seq: int | None = None,
+        steer_activated_handler: SteerActivatedHandler | None = None,
+        application_instruction: str | None = None,
     ) -> AgentRunResult:
         settings = self._agent.model_settings.resolve({"reasoning": {"effort": reasoning_effort}})
         run_agent = self._agent.clone(model_settings=settings)
@@ -79,10 +125,29 @@ class AgentLoop:
             execution=execution,
             session_id=session_id,
             run_id=run_id,
+            portfolios=self._portfolios,
             todo_update_handler=todo_update_handler,
         )
+        hooks = _SuccessfulToolHooks(
+            session_id=session_id,
+            run_id=run_id,
+            handler=self._successful_tool_handler,
+        )
+        model_input: str | list[TResponseInputItem] = user_input
+        if application_instruction is not None:
+            if not application_instruction.strip():
+                raise ValueError("Application instruction must not be empty")
+            model_input = [{"role": "developer", "content": application_instruction}]
+            if user_input:
+                model_input.append({"role": "user", "content": user_input})
+
         result = Runner.run_streamed(
-            run_agent, user_input, session=session, context=agent_context, max_turns=self._config["runtime.max_turns"]
+            run_agent,
+            model_input,
+            session=session,
+            context=agent_context,
+            max_turns=self._config["runtime.max_turns"],
+            hooks=hooks,
         )
 
         current_agent_name = run_agent.name
@@ -99,7 +164,9 @@ class AgentLoop:
             if sdk_state is not None:
                 for interruption in result.interruptions:
                     outcome = await approval_handler(
-                        user_input, interruption.name or "unknown_tool", interruption.arguments
+                        instruction_head_seq,
+                        interruption.name or "unknown_tool",
+                        interruption.arguments,
                     )
                     approval_usage += outcome.usage
 
@@ -129,12 +196,26 @@ class AgentLoop:
                         len(pending_steers),
                     )
                 else:
+                    steer_seqs = tuple(steer.journal_seq for steer in pending_steers)
+                    if any(seq is None for seq in steer_seqs):
+                        raise RuntimeError("Steer input reached the Agent boundary without durable journal sequence")
+                    if steer_activated_handler is None:
+                        raise RuntimeError("Steer input reached the Agent boundary without an activation recorder")
+                    instruction_head_seq, activation_cancellation = await steer_activated_handler(
+                        tuple(seq for seq in steer_seqs if seq is not None)
+                    )
                     run_control.mark_staged(staged_ids)
+                    if activation_cancellation is not None:
+                        raise activation_cancellation
                     logger.info("Steer staged session=%s run=%s count=%d", session_id, run_id, len(staged_ids))
 
             if sdk_state is not None and (result.interruptions or staged_ids):
                 result = Runner.run_streamed(
-                    run_agent, sdk_state, session=session, max_turns=self._config["runtime.max_turns"]
+                    run_agent,
+                    sdk_state,
+                    session=session,
+                    max_turns=self._config["runtime.max_turns"],
+                    hooks=hooks,
                 )
                 continue
             break

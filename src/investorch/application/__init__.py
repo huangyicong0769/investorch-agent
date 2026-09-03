@@ -9,9 +9,25 @@ from .interaction import (
     SteerPromotionPendingError,
     UserInputRejected,
     UserInputSubmission,
+    current_run_options,
     submit_user_input,
 )
+from .portfolio_context import PortfolioContextOperations, PortfolioToolSucceededEvent
+from .portfolio_sessions import PortfolioSessionResult, PortfolioSessionWorkflows
+from .portfolios import (
+    PortfolioAlreadyActiveError,
+    PortfolioAlreadyArchivedError,
+    PortfolioAlreadyInitializedError,
+    PortfolioArchivedError,
+    PortfolioCorrectionError,
+    PortfolioMutationResult,
+    PortfolioOperationError,
+    PortfolioOperations,
+    PortfolioSequenceRetryExhaustedError,
+    PortfolioTransferCurrencyError,
+)
 from .presentation_state import SessionPresentationState, SessionPresentationStore
+from .review_context import PreparedReviewContext, ReviewContext, ReviewContextError
 from .sessions import (
     SessionAlreadyArchivedError,
     SessionArchivedError,
@@ -33,7 +49,24 @@ __all__ = [
     "ArchivedSessionInputError",
     "FollowUpSubmissionError",
     "ManualApprovalHandler",
+    "PortfolioAlreadyActiveError",
+    "PortfolioAlreadyArchivedError",
+    "PortfolioAlreadyInitializedError",
+    "PortfolioArchivedError",
+    "PortfolioContextOperations",
+    "PortfolioCorrectionError",
+    "PortfolioMutationResult",
+    "PortfolioOperationError",
+    "PortfolioOperations",
+    "PortfolioSequenceRetryExhaustedError",
+    "PortfolioSessionResult",
+    "PortfolioSessionWorkflows",
+    "PortfolioToolSucceededEvent",
+    "PortfolioTransferCurrencyError",
+    "PreparedReviewContext",
     "QueuedFollowUpsPendingError",
+    "ReviewContext",
+    "ReviewContextError",
     "SessionAlreadyArchivedError",
     "SessionArchivedError",
     "SessionCompactionError",
@@ -47,6 +80,7 @@ __all__ = [
     "UserInputRejected",
     "UserInputSubmission",
     "create_model",
+    "current_run_options",
     "open_application_host",
     "submit_user_input",
 ]

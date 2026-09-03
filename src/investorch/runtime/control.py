@@ -123,14 +123,14 @@ class RunControl:
         self._fallback.clear()
         return steers
 
-    def discard(self) -> int:
-        count = len(self._pending) + len(self._fallback)
+    def discard(self) -> tuple[PendingSteer, ...]:
+        steers = tuple(entry.steer for entry in (*self._pending, *self._fallback))
         self._pending.clear()
         self._fallback.clear()
         self._accepting_current = False
         self._accepting_submissions = False
         self._changed.set()
-        return count
+        return steers
 
     def pending_count(self) -> int:
         return len(self._pending) + len(self._fallback)

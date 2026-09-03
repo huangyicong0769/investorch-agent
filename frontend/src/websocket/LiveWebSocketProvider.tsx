@@ -192,6 +192,10 @@ function todoItems(value: unknown): TodoItem[] | null {
   return result
 }
 
+function stringItems(value: unknown): string[] | null {
+  return Array.isArray(value) && value.every((item) => typeof item === 'string') ? value : null
+}
+
 function runtimeSnapshot(value: Record<string, unknown>): RuntimeStateLiveEvent | null {
   const sessionId = stringField(value, 'session_id')
   const runId = nullableStringField(value, 'run_id')
@@ -265,6 +269,20 @@ function parseLiveEvent(value: unknown): ParsedLiveEvent | null {
             target_seq: targetSeq,
             journal_seq: journalSeq,
             text,
+          }
+    }
+    case 'portfolio_tool_succeeded': {
+      const sessionId = stringField(value, 'session_id')
+      const runId = stringField(value, 'run_id')
+      const portfolioIds = stringItems(value.portfolio_ids)
+      return sessionId === null || runId === null || portfolioIds === null || typeof value.mutated !== 'boolean'
+        ? null
+        : {
+            kind: 'portfolio_tool_succeeded',
+            session_id: sessionId,
+            run_id: runId,
+            portfolio_ids: portfolioIds,
+            mutated: value.mutated,
           }
     }
     case 'follow_up': {
@@ -570,6 +588,9 @@ export function LiveWebSocketProvider({ children }: PropsWithChildren) {
     void queryClient.invalidateQueries({ queryKey: queryKeys.sessions() })
     void queryClient.invalidateQueries({ exact: true, queryKey: queryKeys.session(sessionId) })
     void queryClient.invalidateQueries({ exact: true, queryKey: queryKeys.sessionState(sessionId) })
+    void queryClient.invalidateQueries({ queryKey: queryKeys.portfolios() })
+    void queryClient.invalidateQueries({ queryKey: queryKeys.portfolioRecords() })
+    void queryClient.invalidateQueries({ exact: true, queryKey: queryKeys.sessionRelatedPortfolios(sessionId) })
     void queryClient.invalidateQueries({ queryKey: queryKeys.bootstrap() })
   }
 
@@ -659,6 +680,14 @@ export function LiveWebSocketProvider({ children }: PropsWithChildren) {
       }
       if (selectedSessionRef.current === event.session_id) {
         requestSelectedResync(event.session_id)
+      }
+    } else if (event.kind === 'portfolio_tool_succeeded') {
+      void queryClient.invalidateQueries({ exact: true, queryKey: queryKeys.sessionRelatedPortfolios(event.session_id) })
+      if (event.mutated) {
+        void queryClient.invalidateQueries({ queryKey: queryKeys.portfolios() })
+        for (const portfolioId of event.portfolio_ids) {
+          void queryClient.invalidateQueries({ queryKey: queryKeys.portfolio(portfolioId) })
+        }
       }
     } else if (event.kind === 'follow_up') {
       if (event.event_kind === 'steer_fallback_promoted') {

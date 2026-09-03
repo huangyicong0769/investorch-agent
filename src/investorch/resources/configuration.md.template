@@ -85,9 +85,9 @@ Each Agent owns an independent `[models.<agent>]` table represented by `ModelCon
 
 `permission.mode` selects `manual` or `review` as the startup default. Manual mode sends every SDK tool interruption to the user. Review mode first asks the independent Permission Agent for `APPROVE`, `ASK`, or `REJECT`; `ASK` uses the same human approval interface as manual mode. `/permission [manual|review]` overrides the mode for the current process only and never writes configuration.
 
-The Permission Agent receives the current user request and complete tool arguments, subject to `permission.max_user_message_chars` and `permission.max_tool_arguments_chars`. If either input exceeds its configured limit, or if review fails or returns invalid output, the decision falls back to `ASK` without sending truncated material to the model. Review reasons are limited by `permission.max_reason_chars`.
+The Permission Agent receives the complete active user-authored instruction history and complete tool arguments. Raw instruction history up to `permission.max_user_instruction_chars` is reviewed directly; larger history is sent to a specialized instruction compactor and its output must fit `permission.max_compacted_instruction_chars`, which cannot exceed the raw limit. History is never silently truncated. Missing or corrupt history, compaction failure, invalid or oversized compacted output, excessive tool arguments, and invalid review output all fall back to `ASK`. Review reasons are limited by `permission.max_reason_chars`.
 
-Changing `models.permission` to another provider sends these approval materials to that provider. The Agent-facing configuration tool may read Permission settings but cannot modify `permission.*` or `models.permission.*`; only the operator can change the subsystem configuration.
+Changing `models.permission` to another provider sends both review and instruction-compaction materials to that provider. The Agent-facing configuration tool may read Permission settings but cannot modify `permission.*` or `models.permission.*`; only the operator can change the subsystem configuration.
 
 ## Context Compaction
 

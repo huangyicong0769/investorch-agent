@@ -17,6 +17,11 @@ from .permission import (
     review_permission,
 )
 from .prompts import build_bootstrap_sync_prompt
+from .review_compact import (
+    ReviewInstructionCompactionResult,
+    compact_review_instructions,
+    create_review_instruction_compactor,
+)
 from .title import create_title_agent
 from .usage import TokenUsage
 
@@ -30,15 +35,18 @@ __all__ = (
     "PermissionDecision",
     "PermissionReview",
     "PermissionReviewResult",
+    "ReviewInstructionCompactionResult",
     "SessionHistoryRestoreError",
     "TokenUsage",
     "build_bootstrap_sync_prompt",
+    "compact_review_instructions",
     "compact_session",
     "create_activity_agent",
     "create_agent",
     "create_bootstrap_sync_agent",
     "create_compaction_agent",
     "create_permission_agent",
+    "create_review_instruction_compactor",
     "create_title_agent",
     "generate_activity_label",
     "review_permission",

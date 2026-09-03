@@ -4,7 +4,7 @@ import asyncio
 import logging
 import threading
 import uuid
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Iterable
 
 from agents import SQLiteSession
 
@@ -14,6 +14,7 @@ from investorch.journal import SessionJournal
 from investorch.runtime import AgentRuntime, SessionBusyError
 from investorch.storage import (
     SessionRecord,
+    add_session_related_portfolio_ids,
     archive_session,
     create_session,
     delete_session_metadata,
@@ -21,7 +22,10 @@ from investorch.storage import (
     delete_unused_session,
     fork_session,
     get_session,
+    get_session_related_portfolio_ids,
+    is_application_workflow_started,
     is_session_archived,
+    mark_application_workflow_started,
     session_has_children,
     set_session_title,
     unarchive_session,
@@ -108,6 +112,72 @@ class SessionOperations:
         await asyncio.to_thread(create_session, self._config.sessions_db, session_id)
         logger.info("Started session %s", session_id)
         return session_id
+
+    async def create_for_request(self, workflow: str, request_id: str) -> tuple[str, bool]:
+        if not workflow.strip() or not request_id.strip():
+            raise ValueError("workflow and request_id must not be empty")
+        session_id = uuid.uuid5(
+            uuid.NAMESPACE_URL,
+            f"urn:investorch:session-request:{workflow.strip()}:{request_id.strip()}",
+        ).hex
+        created = await asyncio.to_thread(create_session, self._config.sessions_db, session_id)
+        if created:
+            logger.info("Started idempotent session %s for workflow %s", session_id, workflow)
+        return session_id, created
+
+    async def has_agent_activity(self, session_id: str) -> bool:
+        if await self._journal.session_exists(session_id):
+            return True
+        session = SQLiteSession(session_id, self._config.sessions_db)
+        try:
+            return bool(await session.get_items(limit=1))
+        finally:
+            session.close()
+
+    async def is_application_workflow_started(self, session_id: str) -> bool:
+        try:
+            return await asyncio.to_thread(
+                is_application_workflow_started,
+                self._config.sessions_db,
+                session_id,
+            )
+        except KeyError:
+            raise SessionNotFoundError(session_id) from None
+
+    async def mark_application_workflow_started(self, session_id: str) -> None:
+        try:
+            await asyncio.to_thread(
+                mark_application_workflow_started,
+                self._config.sessions_db,
+                session_id,
+            )
+        except KeyError:
+            raise SessionNotFoundError(session_id) from None
+
+    async def get_related_portfolio_ids(self, session_id: str) -> tuple[str, ...]:
+        try:
+            return await asyncio.to_thread(
+                get_session_related_portfolio_ids,
+                self._config.sessions_db,
+                session_id,
+            )
+        except KeyError:
+            raise SessionNotFoundError(session_id) from None
+
+    async def add_related_portfolio_ids(
+        self,
+        session_id: str,
+        portfolio_ids: Iterable[str],
+    ) -> tuple[str, ...]:
+        try:
+            return await asyncio.to_thread(
+                add_session_related_portfolio_ids,
+                self._config.sessions_db,
+                session_id,
+                tuple(portfolio_ids),
+            )
+        except KeyError:
+            raise SessionNotFoundError(session_id) from None
 
     async def discard_if_unused(self, session_id: str) -> bool:
         if self._runtime.has_queued_inputs(session_id):

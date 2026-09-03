@@ -113,6 +113,10 @@ class AppConfig:
         return self.state_dir / "sessions.db"
 
     @property
+    def portfolio_db(self) -> Path:
+        return self.state_dir / "portfolio.db"
+
+    @property
     def log_dir(self) -> Path:
         return self.state_dir / "logs"
 
@@ -562,10 +566,16 @@ def _validate_config_data(data: dict[str, Any], root: Path) -> None:
     _require_ratio(data, "compaction.trigger_ratio")
     _require_int(data, "compaction.max_output_tokens", minimum=1)
 
+    permission = data.get("permission")
+    if isinstance(permission, dict) and "max_user_message_chars" in permission:
+        raise ConfigError("permission.max_user_message_chars was renamed to permission.max_user_instruction_chars")
     permission_mode = _require_string(data, "permission.mode")
     if permission_mode not in PERMISSION_MODES:
         raise ConfigError(f"permission.mode must be one of {', '.join(PERMISSION_MODES)}")
-    _require_int(data, "permission.max_user_message_chars", minimum=1)
+    max_user_instruction_chars = _require_int(data, "permission.max_user_instruction_chars", minimum=1)
+    max_compacted_instruction_chars = _require_int(data, "permission.max_compacted_instruction_chars", minimum=1)
+    if max_compacted_instruction_chars > max_user_instruction_chars:
+        raise ConfigError("permission.max_compacted_instruction_chars must be <= permission.max_user_instruction_chars")
     _require_int(data, "permission.max_tool_arguments_chars", minimum=1)
     _require_int(data, "permission.max_reason_chars", minimum=1)
 

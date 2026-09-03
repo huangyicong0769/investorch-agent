@@ -27,6 +27,25 @@ async def test_appends_have_increasing_sequences_and_preserve_event_order(tmp_pa
 
 
 @pytest.mark.asyncio
+async def test_steer_activation_records_the_durable_instruction_boundary(tmp_path: Path) -> None:
+    journal = make_journal(tmp_path)
+    await journal.record_user_message("session-a", "initial")
+    first_steer = await journal.record_user_steer("session-a", "run-a", "first")
+    second_steer = await journal.record_user_steer("session-a", "run-a", "second")
+
+    activation = await journal.record_user_steers_activated(
+        "session-a",
+        "run-a",
+        (first_steer, second_steer),
+    )
+
+    records = read_session_journal(tmp_path, "session-a")
+    assert activation == 4
+    assert records[-1]["type"] == "user_steers_activated"
+    assert records[-1]["user_steer_seqs"] == [first_steer, second_steer]
+
+
+@pytest.mark.asyncio
 async def test_reopened_journal_continues_the_durable_sequence(tmp_path: Path) -> None:
     first_instance = make_journal(tmp_path)
     await first_instance.record_user_message("session-a", "one")

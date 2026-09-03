@@ -1,6 +1,7 @@
 import type {
   ApiErrorDetails,
   ApiErrorEnvelope,
+  AskPortfolioBody,
   BackgroundJob,
   BootstrapResponse,
   ClearQueueResponse,
@@ -13,6 +14,10 @@ import type {
   HealthResponse,
   HistoryResponse,
   JsonValue,
+  PortfolioDetailResponse,
+  PortfolioLedgerResponse,
+  PortfolioListResponse,
+  PortfolioSessionResponse,
   ProcessListResponse,
   QueueMutationResponse,
   RemovedQueueItemResponse,
@@ -24,6 +29,7 @@ import type {
   SessionResponse,
   SessionStateResponse,
   StopResponse,
+  StartPortfolioSessionBody,
   UpdateDefaultsBody,
   UserInputSubmission,
 } from './types'
@@ -146,6 +152,69 @@ export function getSessions(options: RequestOverrides = {}): Promise<SessionList
 
 export function getArchivedSessions(options: RequestOverrides = {}): Promise<SessionListResponse> {
   return request<SessionListResponse>('/api/sessions/archived', { ...options, method: 'GET' })
+}
+
+export function getPortfolios(options: RequestOverrides = {}): Promise<PortfolioListResponse> {
+  return request<PortfolioListResponse>('/api/portfolios', { ...options, method: 'GET' })
+}
+
+export function getPortfolio(
+  portfolioId: string,
+  options: RequestOverrides = {},
+): Promise<PortfolioDetailResponse> {
+  return request<PortfolioDetailResponse>(`/api/portfolios/${encodePathPart(portfolioId)}`, {
+    ...options,
+    method: 'GET',
+  })
+}
+
+export interface PortfolioLedgerOptions extends RequestOverrides {
+  limit?: number
+}
+
+export function getPortfolioLedger(
+  portfolioId: string,
+  options: PortfolioLedgerOptions = {},
+): Promise<PortfolioLedgerResponse> {
+  const { limit, ...requestOptions } = options
+  const suffix = limit === undefined ? '' : `?limit=${encodeURIComponent(String(limit))}`
+  return request<PortfolioLedgerResponse>(`/api/portfolios/${encodePathPart(portfolioId)}/ledger${suffix}`, {
+    ...requestOptions,
+    method: 'GET',
+  })
+}
+
+export function getSessionRelatedPortfolios(
+  sessionId: string,
+  options: RequestOverrides = {},
+): Promise<PortfolioListResponse> {
+  return request<PortfolioListResponse>(`/api/sessions/${encodePathPart(sessionId)}/related-portfolios`, {
+    ...options,
+    method: 'GET',
+  })
+}
+
+export function askPortfolioAgent(
+  portfolioId: string,
+  body: AskPortfolioBody,
+  options: RequestOverrides = {},
+): Promise<PortfolioSessionResponse> {
+  return request<PortfolioSessionResponse>(`/api/portfolios/${encodePathPart(portfolioId)}/ask`, {
+    ...options,
+    body,
+    method: 'POST',
+  })
+}
+
+export function startPortfolioSession(
+  body: StartPortfolioSessionBody,
+  options: RequestOverrides = {},
+): Promise<PortfolioSessionResponse> {
+  return request<PortfolioSessionResponse>('/api/portfolio-sessions', {
+    ...options,
+    body,
+    method: 'POST',
+  })
 }
 
 export function createSession(options: RequestOverrides = {}): Promise<SessionResponse> {
@@ -315,6 +384,7 @@ export function getProcesses(options: RequestOverrides = {}): Promise<ProcessLis
 
 export const api = {
   archiveSession,
+  askPortfolioAgent,
   clearSession,
   clearSessionQueue,
   compactSession,
@@ -327,8 +397,12 @@ export const api = {
   getDefaults,
   getHealth,
   getProcesses,
+  getPortfolio,
+  getPortfolioLedger,
+  getPortfolios,
   getSession,
   getSessionHistory,
+  getSessionRelatedPortfolios,
   getSessionState,
   getSessions,
   removeQueuedInput,
@@ -338,6 +412,7 @@ export const api = {
   resumeSessionQueue,
   sendMessage,
   stopSession,
+  startPortfolioSession,
   unarchiveSession,
   updateDefaults,
 }

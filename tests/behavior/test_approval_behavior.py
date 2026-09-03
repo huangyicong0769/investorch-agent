@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import json
+from html import unescape
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import pytest
-from agents import Agent
+from agents import Agent, ModelSettings
+from agents.testing import ModelCall, ModelStep, ScriptedModel, assistant_message
 
-from investorch.agents import TokenUsage, review_permission
+from investorch.agents import TokenUsage, create_permission_agent, review_permission
 from investorch.application import ApprovalCoordinator, ApprovalResolvedEvent
 from investorch.journal import SessionJournal, read_session_journal
 from investorch.runtime import ApprovalRequest
@@ -72,7 +75,8 @@ async def test_oversized_auto_review_input_escalates_without_model_usage(
         tmp_path,
         {
             "permission": {
-                "max_user_message_chars": 3,
+                "max_user_instruction_chars": 3,
+                "max_compacted_instruction_chars": 3,
                 "max_tool_arguments_chars": 3,
                 "max_reason_chars": 32,
             }
@@ -90,3 +94,98 @@ async def test_oversized_auto_review_input_escalates_without_model_usage(
     assert result.review.decision == "ask"
     assert len(result.review.reason) <= 32
     assert result.usage == TokenUsage()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("user_instructions", "argument_overrides", "required_policy", "expected_decision"),
+    [
+        pytest.param(
+            (
+                "Record a current BUY in Portfolio portfolio-a of 10 shares of 600519 at CNY 1500. "
+                "Commission is 5, tax is 0, and other fee is 0."
+            ),
+            {},
+            "stable verifiable facts",
+            "approve",
+            id="stable-market-mapping",
+        ),
+        pytest.param(
+            (
+                "Record a current BUY in Portfolio portfolio-a of 10 shares of 600519. "
+                "Commission is 5, tax is 0, and other fee is 0."
+            ),
+            {},
+            "execution price",
+            "ask",
+            id="invented-execution-price",
+        ),
+        pytest.param(
+            (
+                "Record a current BUY in Portfolio portfolio-a of 10 shares of 600519 at CNY 1500. "
+                "Tax is 0 and other fee is 0."
+            ),
+            {"commission": "0"},
+            "zero is a material fee value",
+            "ask",
+            id="silent-zero-commission",
+        ),
+        pytest.param(
+            (
+                "Record a current BUY in Portfolio portfolio-a of 10 shares of 600519 at CNY 1500. "
+                "Commission is 0.1% of gross consideration; tax and other fee are 0."
+            ),
+            {"commission": "15"},
+            "deterministic derivation",
+            "approve",
+            id="deterministic-commission",
+        ),
+    ],
+)
+async def test_permission_review_receives_portfolio_grounding_policy_and_evidence(
+    tmp_path: Path,
+    user_instructions: str,
+    argument_overrides: dict[str, object],
+    required_policy: str,
+    expected_decision: str,
+) -> None:
+    arguments = {
+        "portfolio_id": "portfolio-a",
+        "code": "600519",
+        "market": "XSHG",
+        "side": "BUY",
+        "quantity": "10",
+        "price": "1500",
+        "commission": "5",
+        "tax": "0",
+        "other_fee": "0",
+        "effective_at": None,
+        **argument_overrides,
+    }
+    raw_arguments = json.dumps(arguments)
+
+    def review_scenario(call: ModelCall) -> tuple[object, ...]:
+        assert call.system_instructions is not None
+        assert required_policy in call.system_instructions
+        review_input = unescape(str(call.input))
+        assert user_instructions in review_input
+        assert raw_arguments in review_input
+        return (
+            assistant_message(
+                json.dumps({"decision": expected_decision, "reason": "Grounding policy applied to supplied evidence."})
+            ),
+        )
+
+    model = ScriptedModel((ModelStep.respond(review_scenario),))
+    permission_agent = create_permission_agent(model, ModelSettings())  # type: ignore[arg-type]
+
+    result = await review_permission(
+        permission_agent,
+        make_test_config(tmp_path),
+        user_instructions,
+        "record_portfolio_trade",
+        raw_arguments,
+    )
+
+    assert result.review.decision == expected_decision
+    model.assert_complete()

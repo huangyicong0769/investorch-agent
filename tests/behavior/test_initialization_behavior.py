@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 
 from investorch.config import ConfigError
 from investorch.initializer import initialize, sync_bootstrap_files
+from investorch.portfolio import Portfolio, create_portfolio, get_portfolio
+from investorch.storage import create_session, delete_session_metadata
 from tests.support.config import make_test_config
 
 
@@ -20,6 +23,7 @@ def test_first_initialization_creates_the_user_instance(tmp_path: Path) -> None:
     assert config.workspace_dir.is_dir()
     assert config.state_dir.is_dir()
     assert config.sessions_db.is_file()
+    assert config.portfolio_db.is_file()
     assert (config.workspace_dir / "MEMORY.md").is_file()
     assert (config.workspace_dir / "memory" / "configuration.md").is_file()
     assert (config.workspace_dir / "memory" / "rqalpha.md").is_file()
@@ -35,6 +39,18 @@ def test_reinitialization_preserves_user_bootstrap_content(tmp_path: Path) -> No
 
     assert created is False
     assert memory_path.read_text(encoding="utf-8") == user_content
+
+
+def test_session_lifecycle_does_not_modify_portfolio_persistence(tmp_path: Path) -> None:
+    config = make_test_config(tmp_path, {"paths": {"state": "custom-state"}})
+    now = datetime(2026, 1, 1, tzinfo=UTC)
+    portfolio = Portfolio("portfolio-1", "Core", "CNY", now, now)
+    create_portfolio(config.portfolio_db, portfolio)
+
+    create_session(config.sessions_db, "session-1")
+    delete_session_metadata(config.sessions_db, "session-1")
+
+    assert get_portfolio(config.portfolio_db, portfolio.id) == portfolio
 
 
 @pytest.mark.asyncio
