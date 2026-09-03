@@ -126,14 +126,17 @@ def deserialize_strategy_parameters(parameters_json: str, *, portfolio_id: str) 
 
 def _deserialize_payload(entry_type: LedgerEntryType, value: dict) -> LedgerPayload:
     if entry_type is LedgerEntryType.OPENING_POSITION:
+        _require_exact_keys(value, {"instrument", "quantity", "total_cost"})
         return OpeningPosition(
             _deserialize_instrument(value["instrument"]),
             _deserialize_decimal(value["quantity"]),
             _deserialize_optional_decimal(value["total_cost"]),
         )
     if entry_type is LedgerEntryType.OPENING_CASH:
+        _require_exact_keys(value, {"amount", "currency"})
         return OpeningCash(value["currency"], _deserialize_decimal(value["amount"]))
     if entry_type is LedgerEntryType.TRADE:
+        _require_exact_keys(value, {"commission", "instrument", "other_fee", "price", "quantity", "side", "tax"})
         return Trade(
             _deserialize_instrument(value["instrument"]),
             TradeSide(value["side"]),
@@ -144,8 +147,10 @@ def _deserialize_payload(entry_type: LedgerEntryType, value: dict) -> LedgerPayl
             _deserialize_decimal(value["other_fee"]),
         )
     if entry_type is LedgerEntryType.CASH_FLOW:
+        _require_exact_keys(value, {"amount", "currency"})
         return CashFlow(value["currency"], _deserialize_decimal(value["amount"]))
     if entry_type is LedgerEntryType.INCOME:
+        _require_exact_keys(value, {"currency", "gross_amount", "instrument", "other_fee", "tax"})
         instrument = value["instrument"]
         return Income(
             value["currency"],
@@ -159,6 +164,7 @@ def _deserialize_payload(entry_type: LedgerEntryType, value: dict) -> LedgerPayl
     if entry_type is LedgerEntryType.ADJUSTMENT:
         return _deserialize_adjustment(value)
     if entry_type is LedgerEntryType.VOID:
+        _require_exact_keys(value, {"reason", "target_entry_id"})
         return Void(value["target_entry_id"], value["reason"])
     raise ValueError(f"unsupported Ledger entry type: {entry_type}")
 
@@ -166,6 +172,7 @@ def _deserialize_payload(entry_type: LedgerEntryType, value: dict) -> LedgerPayl
 def _deserialize_transfer(value: dict) -> PositionTransfer | CashTransfer:
     kind = value["kind"]
     if kind == "position":
+        _require_exact_keys(value, {"direction", "instrument", "kind", "quantity", "transferred_cost"})
         return PositionTransfer(
             _deserialize_instrument(value["instrument"]),
             TransferDirection(value["direction"]),
@@ -173,6 +180,7 @@ def _deserialize_transfer(value: dict) -> PositionTransfer | CashTransfer:
             _deserialize_optional_decimal(value["transferred_cost"]),
         )
     if kind == "cash":
+        _require_exact_keys(value, {"amount", "currency", "direction", "kind"})
         return CashTransfer(
             value["currency"], TransferDirection(value["direction"]), _deserialize_decimal(value["amount"])
         )
@@ -182,6 +190,10 @@ def _deserialize_transfer(value: dict) -> PositionTransfer | CashTransfer:
 def _deserialize_adjustment(value: dict) -> PositionAdjustment | CashAdjustment:
     kind = value["kind"]
     if kind == "position":
+        _require_exact_keys(
+            value,
+            {"instrument", "kind", "reason", "resulting_quantity", "resulting_total_cost"},
+        )
         return PositionAdjustment(
             _deserialize_instrument(value["instrument"]),
             _deserialize_decimal(value["resulting_quantity"]),
@@ -189,6 +201,7 @@ def _deserialize_adjustment(value: dict) -> PositionAdjustment | CashAdjustment:
             value["reason"],
         )
     if kind == "cash":
+        _require_exact_keys(value, {"currency", "kind", "reason", "resulting_amount"})
         return CashAdjustment(value["currency"], _deserialize_decimal(value["resulting_amount"]), value["reason"])
     raise ValueError(f"unsupported ADJUSTMENT kind: {kind}")
 
@@ -200,7 +213,14 @@ def _serialize_instrument(instrument: InstrumentId) -> dict[str, str]:
 def _deserialize_instrument(value: object) -> InstrumentId:
     if not isinstance(value, dict):
         raise TypeError("instrument must be a JSON object")
+    _require_exact_keys(value, {"code", "market"})
     return InstrumentId(value["code"], value["market"])
+
+
+def _require_exact_keys(value: dict, expected: set[str]) -> None:
+    actual = set(value)
+    if actual != expected:
+        raise ValueError(f"payload fields must be {sorted(expected)}, got {sorted(actual)}")
 
 
 def _serialize_optional_decimal(value: Decimal | None) -> str | None:

@@ -81,3 +81,10 @@ def test_union_payloads_store_an_explicit_subtype_discriminator() -> None:
 def test_malformed_payload_raises_typed_error_with_entry_context() -> None:
     with pytest.raises(PortfolioDataError, match=r"entry-1.*OPENING_CASH"):
         deserialize_ledger_payload(LedgerEntryType.OPENING_CASH, '{"amount":0.1}', entry_id="entry-1")
+
+    with pytest.raises(PortfolioDataError, match=r"entry-2.*OPENING_CASH"):
+        deserialize_ledger_payload(
+            LedgerEntryType.OPENING_CASH,
+            '{"amount":"1","currency":"CNY","unknown":"field"}',
+            entry_id="entry-2",
+        )
