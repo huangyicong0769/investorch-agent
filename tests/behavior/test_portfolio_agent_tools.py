@@ -10,7 +10,16 @@ from agents.tool_context import ToolContext
 from investorch.application import PortfolioOperations
 from investorch.context import AgentContext, ExecutionState
 from investorch.portfolio import InstrumentId, OpeningPosition
-from investorch.tools import get_portfolio, get_portfolio_ledger, list_portfolios
+from investorch.tools import (
+    archive_portfolio,
+    create_portfolio,
+    get_portfolio,
+    get_portfolio_ledger,
+    initialize_portfolio,
+    list_portfolios,
+    restore_portfolio,
+    update_portfolio,
+)
 from tests.support.config import make_test_config
 
 STOCK = InstrumentId("600519", "XSHG")
@@ -119,3 +128,100 @@ async def test_get_portfolio_ledger_returns_newest_entries_with_explicit_truncat
     invalid = await invoke(get_portfolio_ledger, context, portfolio_id=portfolio.id, limit=201)
     assert isinstance(invalid, str)
     assert "limit must be between 1 and 200" in invalid
+
+
+async def test_approved_lifecycle_tools_preserve_update_and_clear_semantics(tmp_path: Path) -> None:
+    context = make_tool_context(tmp_path)
+    mutations = (
+        create_portfolio,
+        update_portfolio,
+        archive_portfolio,
+        restore_portfolio,
+        initialize_portfolio,
+    )
+    assert all(tool.needs_approval is True for tool in mutations)
+    assert all(
+        field not in create_portfolio.params_json_schema["properties"]
+        for field in ("source", "external_ref", "operation_id", "entry_id", "sequence", "recorded_at")
+    )
+
+    created = await invoke(create_portfolio, context, name="Core", base_currency="CNY")
+    assert isinstance(created, dict)
+    portfolio_id = created["portfolio"]["portfolio_id"]
+
+    configured = await invoke(
+        update_portfolio,
+        context,
+        portfolio_id=portfolio_id,
+        name="Renamed",
+        description="Long-term",
+        strategy_source_path="strategies/value.py",
+        strategy_parameters_json='{"lookback":20}',
+    )
+    unchanged = await invoke(update_portfolio, context, portfolio_id=portfolio_id)
+    cleared = await invoke(
+        update_portfolio,
+        context,
+        portfolio_id=portfolio_id,
+        clear_description=True,
+        clear_strategy_binding=True,
+    )
+
+    assert isinstance(configured, dict)
+    assert configured["portfolio"]["name"] == "Renamed"
+    assert configured["portfolio"]["description"] == "Long-term"
+    assert configured["portfolio"]["strategy_binding"] == {
+        "source_path": "strategies/value.py",
+        "parameters": {"lookback": 20},
+    }
+    assert isinstance(unchanged, dict)
+    assert unchanged["portfolio"] == configured["portfolio"]
+    assert isinstance(cleared, dict)
+    assert cleared["portfolio"]["description"] is None
+    assert cleared["portfolio"]["strategy_binding"] is None
+
+    archived = await invoke(archive_portfolio, context, portfolio_id=portfolio_id)
+    restored = await invoke(restore_portfolio, context, portfolio_id=portfolio_id)
+    assert isinstance(archived, dict)
+    assert archived["portfolio"]["status"] == "ARCHIVED"
+    assert isinstance(restored, dict)
+    assert restored["portfolio"]["status"] == "ACTIVE"
+
+
+async def test_initialize_tool_uses_strict_exact_inputs_and_agent_audit_metadata(tmp_path: Path) -> None:
+    context = make_tool_context(tmp_path)
+    portfolio = await context.context.portfolios.create(name="Core", base_currency="CNY")
+    effective_at = "2026-09-03T10:30:00+08:00"
+
+    result = await invoke(
+        initialize_portfolio,
+        context,
+        portfolio_id=portfolio.id,
+        cash="0.1",
+        positions=[
+            {"code": "600519", "market": "XSHG", "quantity": "100", "total_cost": "152345.00"},
+            {"code": "000001", "market": "XSHE", "quantity": "0.03", "total_cost": None},
+        ],
+        effective_at=effective_at,
+    )
+
+    assert initialize_portfolio.strict_json_schema is True
+    assert isinstance(result, dict)
+    assert result["states"][portfolio.id]["cash"] == {"CNY": "0.1"}
+    assert result["states"][portfolio.id]["holdings"][0]["total_cost"] is None
+    assert result["states"][portfolio.id]["holdings"][1]["total_cost"] == "152345.00"
+    ledger = await context.context.portfolios.list_ledger(portfolio.id)
+    assert {entry.source for entry in ledger} == {"agent"}
+    assert {entry.external_ref for entry in ledger} == {None}
+    assert {entry.effective_at.isoformat() for entry in ledger} == {effective_at}
+
+    naive = await invoke(
+        initialize_portfolio,
+        context,
+        portfolio_id=portfolio.id,
+        cash="1",
+        positions=None,
+        effective_at="2026-09-03T10:30:00",
+    )
+    assert isinstance(naive, str)
+    assert "timezone-aware" in naive

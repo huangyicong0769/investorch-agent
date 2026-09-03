@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import json
+from datetime import datetime
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from agents import RunContextWrapper
 from agents.decorators import tool
+from pydantic import BaseModel, ConfigDict
 
+from investorch.application.portfolios import PortfolioMutationResult
 from investorch.context import AgentContext
 from investorch.portfolio import (
     CashAdjustment,
@@ -19,9 +24,21 @@ from investorch.portfolio import (
     PortfolioState,
     PositionAdjustment,
     PositionTransfer,
+    StrategyBinding,
     Trade,
     Void,
 )
+
+
+class OpeningPositionInput(BaseModel):
+    """Strict Agent input for one opening position."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    code: str
+    market: str
+    quantity: str
+    total_cost: str | None
 
 
 @tool
@@ -66,6 +83,106 @@ async def get_portfolio_ledger(
         "total": len(ledger),
         "has_older": len(selected) < len(ledger),
     }
+
+
+@tool(needs_approval=True)
+async def create_portfolio(
+    context: RunContextWrapper[AgentContext],
+    name: str,
+    base_currency: str,
+    description: str | None = None,
+    strategy_source_path: str | None = None,
+    strategy_parameters_json: str | None = None,
+) -> dict[str, Any]:
+    """Create durable logical Portfolio metadata; this does not add opening state."""
+    portfolio = await context.context.portfolios.create(
+        name=name,
+        base_currency=base_currency,
+        description=description,
+        strategy_binding=_strategy_binding(strategy_source_path, strategy_parameters_json),
+    )
+    return {"portfolio": _serialize_portfolio(portfolio, include_timestamps=True)}
+
+
+@tool(needs_approval=True)
+async def update_portfolio(
+    context: RunContextWrapper[AgentContext],
+    portfolio_id: str,
+    name: str | None = None,
+    description: str | None = None,
+    clear_description: bool = False,
+    strategy_source_path: str | None = None,
+    strategy_parameters_json: str | None = None,
+    clear_strategy_binding: bool = False,
+) -> dict[str, Any]:
+    """Update durable active Portfolio metadata without changing currency or lifecycle status."""
+    if clear_description and description is not None:
+        raise ValueError("description cannot be supplied when clear_description is true")
+    if clear_strategy_binding and (strategy_source_path is not None or strategy_parameters_json is not None):
+        raise ValueError("strategy binding fields cannot be supplied when clear_strategy_binding is true")
+
+    changes: dict[str, Any] = {}
+    if name is not None:
+        changes["name"] = name
+    if clear_description:
+        changes["description"] = None
+    elif description is not None:
+        changes["description"] = description
+    if clear_strategy_binding:
+        changes["strategy_binding"] = None
+    elif strategy_source_path is not None or strategy_parameters_json is not None:
+        changes["strategy_binding"] = _strategy_binding(strategy_source_path, strategy_parameters_json)
+
+    portfolio = await context.context.portfolios.update_metadata(portfolio_id, **changes)
+    return {"portfolio": _serialize_portfolio(portfolio, include_timestamps=True)}
+
+
+@tool(needs_approval=True)
+async def archive_portfolio(
+    context: RunContextWrapper[AgentContext],
+    portfolio_id: str,
+) -> dict[str, Any]:
+    """Archive and freeze a durable Portfolio until it is explicitly restored."""
+    portfolio = await context.context.portfolios.archive(portfolio_id)
+    return {"portfolio": _serialize_portfolio(portfolio, include_timestamps=True)}
+
+
+@tool(needs_approval=True)
+async def restore_portfolio(
+    context: RunContextWrapper[AgentContext],
+    portfolio_id: str,
+) -> dict[str, Any]:
+    """Restore an archived Portfolio so durable metadata and economic facts can change again."""
+    portfolio = await context.context.portfolios.restore(portfolio_id)
+    return {"portfolio": _serialize_portfolio(portfolio, include_timestamps=True)}
+
+
+@tool(needs_approval=True)
+async def initialize_portfolio(
+    context: RunContextWrapper[AgentContext],
+    portfolio_id: str,
+    cash: str | None = None,
+    positions: list[OpeningPositionInput] | None = None,
+    effective_at: str | None = None,
+) -> dict[str, Any]:
+    """Initialize one empty active Portfolio with durable opening cash and positions exactly once."""
+    opening_positions = tuple(
+        OpeningPosition(
+            _instrument(position.code, position.market),
+            _parse_decimal(position.quantity, "positions.quantity"),
+            _parse_optional_decimal(position.total_cost, "positions.total_cost"),
+        )
+        for position in positions or []
+    )
+    result = await context.context.portfolios.initialize(
+        portfolio_id,
+        cash=_parse_optional_decimal(cash, "cash"),
+        positions=opening_positions,
+        effective_at=_parse_effective_at(effective_at),
+        source="agent",
+        external_ref=None,
+    )
+    return _serialize_mutation_result(result)
 
 
 def _serialize_portfolio(portfolio: Portfolio, *, include_timestamps: bool) -> dict[str, Any]:
@@ -189,3 +306,69 @@ def _serialize_payload(payload: object) -> dict[str, Any]:
 
 def _serialize_instrument(instrument: InstrumentId) -> dict[str, str]:
     return {"code": instrument.code, "market": instrument.market}
+
+
+def _serialize_mutation_result(result: PortfolioMutationResult) -> dict[str, Any]:
+    return {
+        "operation_id": result.operation_id,
+        "entries": [
+            {
+                "entry_id": entry.entry_id,
+                "portfolio_id": entry.portfolio_id,
+                "sequence": entry.sequence,
+                "entry_type": entry.entry_type.value,
+                "effective_at": entry.effective_at.isoformat(),
+                "recorded_at": entry.recorded_at.isoformat(),
+            }
+            for entry in result.entries
+        ],
+        "states": {
+            portfolio_id: _serialize_state(result.states[portfolio_id]) for portfolio_id in sorted(result.states)
+        },
+    }
+
+
+def _parse_decimal(value: str, field: str) -> Decimal:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{field} must be a valid decimal string")
+    try:
+        parsed = Decimal(value.strip())
+    except InvalidOperation as exc:
+        raise ValueError(f"{field} must be a valid decimal string") from exc
+    if not parsed.is_finite():
+        raise ValueError(f"{field} must be a finite decimal string")
+    return parsed
+
+
+def _parse_optional_decimal(value: str | None, field: str) -> Decimal | None:
+    return None if value is None else _parse_decimal(value, field)
+
+
+def _instrument(code: str, market: str) -> InstrumentId:
+    return InstrumentId(code, market)
+
+
+def _parse_effective_at(value: str | None) -> datetime | None:
+    if value is None:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError as exc:
+        raise ValueError("effective_at must be an ISO-8601 timezone-aware timestamp") from exc
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise ValueError("effective_at must be an ISO-8601 timezone-aware timestamp")
+    return parsed
+
+
+def _strategy_binding(source_path: str | None, parameters_json: str | None) -> StrategyBinding | None:
+    if source_path is None and parameters_json is None:
+        return None
+    if source_path is None or parameters_json is None:
+        raise ValueError("strategy_source_path and strategy_parameters_json must be supplied together")
+    try:
+        parameters = json.loads(parameters_json)
+    except json.JSONDecodeError as exc:
+        raise ValueError("strategy_parameters_json must be a valid JSON object") from exc
+    if not isinstance(parameters, dict):
+        raise ValueError("strategy_parameters_json must be a valid JSON object")
+    return StrategyBinding(source_path, parameters)
