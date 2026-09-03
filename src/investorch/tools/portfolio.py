@@ -7,7 +7,7 @@ from typing import Any, Literal
 
 from agents import RunContextWrapper
 from agents.decorators import tool
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from investorch.application.portfolios import PortfolioMutationResult
 from investorch.context import AgentContext
@@ -36,10 +36,12 @@ class OpeningPositionInput(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    code: str
-    market: str
-    quantity: str
-    total_cost: str | None
+    code: str = Field(description="Instrument code.")
+    market: str = Field(description="Instrument market identifier.")
+    quantity: str = Field(description="Positive opening quantity as an exact decimal string.")
+    total_cost: str | None = Field(
+        description="Non-negative total cost as an exact decimal string, or null if unknown."
+    )
 
 
 @tool
@@ -47,7 +49,14 @@ async def list_portfolios(
     context: RunContextWrapper[AgentContext],
     include_archived: bool = False,
 ) -> dict[str, Any]:
-    """List logical Portfolio metadata without loading holdings or Ledger history."""
+    """List logical Portfolio metadata without loading holdings or Ledger history.
+
+    Args:
+        include_archived: Include archived Portfolios when true. Defaults to false.
+
+    Returns:
+        Portfolio metadata summaries, excluding holdings and Ledger entries.
+    """
     portfolios = await context.context.portfolios.list(include_archived=include_archived)
     return {"portfolios": [_serialize_portfolio(portfolio, include_timestamps=False) for portfolio in portfolios]}
 
@@ -57,7 +66,14 @@ async def get_portfolio(
     context: RunContextWrapper[AgentContext],
     portfolio_id: str,
 ) -> dict[str, Any]:
-    """Get one logical Portfolio's metadata and current projected holdings and cash."""
+    """Get one logical Portfolio's metadata and current projected holdings and cash.
+
+    Args:
+        portfolio_id: Durable Portfolio identifier.
+
+    Returns:
+        Portfolio metadata and its current materialized logical state.
+    """
     portfolio = await context.context.portfolios.get(portfolio_id)
     state = await context.context.portfolios.get_state(portfolio_id)
     return {
@@ -72,7 +88,15 @@ async def get_portfolio_ledger(
     portfolio_id: str,
     limit: int = 50,
 ) -> dict[str, Any]:
-    """Get the newest bounded Portfolio Ledger entries in ascending append/audit order."""
+    """Get the newest bounded Portfolio Ledger entries in ascending append/audit order.
+
+    Args:
+        portfolio_id: Durable Portfolio identifier.
+        limit: Maximum newest entries to return, from 1 through 200. Defaults to 50.
+
+    Returns:
+        Ledger entries plus total, returned, and has_older pagination metadata.
+    """
     if not 1 <= limit <= 200:
         raise ValueError("limit must be between 1 and 200")
     ledger = await context.context.portfolios.list_ledger(portfolio_id)
@@ -95,7 +119,18 @@ async def create_portfolio(
     strategy_source_path: str | None = None,
     strategy_parameters_json: str | None = None,
 ) -> dict[str, Any]:
-    """Create durable logical Portfolio metadata; this does not add opening state."""
+    """Create durable logical Portfolio metadata; this does not add opening state.
+
+    Args:
+        name: Human-readable Portfolio name.
+        base_currency: Single accounting currency for cash, costs, and transaction amounts.
+        description: Optional Portfolio description.
+        strategy_source_path: Optional strategy source path; supply together with strategy_parameters_json.
+        strategy_parameters_json: Optional JSON object string of strategy parameters; supply with strategy_source_path.
+
+    Returns:
+        The created durable Portfolio metadata.
+    """
     portfolio = await context.context.portfolios.create(
         name=name,
         base_currency=base_currency,
@@ -116,7 +151,20 @@ async def update_portfolio(
     strategy_parameters_json: str | None = None,
     clear_strategy_binding: bool = False,
 ) -> dict[str, Any]:
-    """Update durable active Portfolio metadata without changing currency or lifecycle status."""
+    """Update durable active Portfolio metadata without changing currency or lifecycle status.
+
+    Args:
+        portfolio_id: Durable Portfolio identifier.
+        name: New name, or null to leave it unchanged.
+        description: New description, or null to leave it unchanged unless clear_description is true.
+        clear_description: Clear the description when true; cannot be combined with description.
+        strategy_source_path: New strategy source path; supply with strategy_parameters_json.
+        strategy_parameters_json: JSON object string of new strategy parameters; supply with strategy_source_path.
+        clear_strategy_binding: Clear the strategy binding when true; cannot be combined with strategy fields.
+
+    Returns:
+        The updated durable Portfolio metadata.
+    """
     if clear_description and description is not None:
         raise ValueError("description cannot be supplied when clear_description is true")
     if clear_strategy_binding and (strategy_source_path is not None or strategy_parameters_json is not None):
@@ -143,7 +191,14 @@ async def archive_portfolio(
     context: RunContextWrapper[AgentContext],
     portfolio_id: str,
 ) -> dict[str, Any]:
-    """Archive and freeze a durable Portfolio until it is explicitly restored."""
+    """Archive and freeze a durable Portfolio until it is explicitly restored.
+
+    Args:
+        portfolio_id: Durable Portfolio identifier.
+
+    Returns:
+        The archived Portfolio metadata.
+    """
     portfolio = await context.context.portfolios.archive(portfolio_id)
     return {"portfolio": _serialize_portfolio(portfolio, include_timestamps=True)}
 
@@ -153,7 +208,14 @@ async def restore_portfolio(
     context: RunContextWrapper[AgentContext],
     portfolio_id: str,
 ) -> dict[str, Any]:
-    """Restore an archived Portfolio so durable metadata and economic facts can change again."""
+    """Restore an archived Portfolio so durable metadata and economic facts can change again.
+
+    Args:
+        portfolio_id: Durable Portfolio identifier.
+
+    Returns:
+        The restored Portfolio metadata.
+    """
     portfolio = await context.context.portfolios.restore(portfolio_id)
     return {"portfolio": _serialize_portfolio(portfolio, include_timestamps=True)}
 
@@ -166,7 +228,17 @@ async def initialize_portfolio(
     positions: list[OpeningPositionInput] | None = None,
     effective_at: str | None = None,
 ) -> dict[str, Any]:
-    """Initialize one empty active Portfolio with durable opening cash and positions exactly once."""
+    """Initialize one empty active Portfolio with durable opening cash and positions exactly once.
+
+    Args:
+        portfolio_id: Durable Portfolio identifier.
+        cash: Opening cash in the Portfolio base currency as an exact decimal string, or null to omit cash.
+        positions: Opening positions with exact decimal strings, or null to omit positions.
+        effective_at: Optional timezone-aware ISO-8601 economic timestamp; null uses the operation time.
+
+    Returns:
+        Operation identifier, appended entry summaries, and the resulting Portfolio state.
+    """
     opening_positions = tuple(
         OpeningPosition(
             _instrument(position.code, position.market),
@@ -200,7 +272,23 @@ async def record_portfolio_trade(
     other_fee: str = "0",
     effective_at: str | None = None,
 ) -> dict[str, Any]:
-    """Record an already-realized trade fact; this does not place a Broker order."""
+    """Record an already-realized trade fact; this does not place a Broker order.
+
+    Args:
+        portfolio_id: Durable Portfolio identifier.
+        code: Instrument code.
+        market: Instrument market identifier.
+        side: Realized trade side, BUY or SELL.
+        quantity: Positive traded quantity as an exact decimal string.
+        price: Positive unit price in the Portfolio base currency as an exact decimal string.
+        commission: Non-negative commission as an exact decimal string. Defaults to zero.
+        tax: Non-negative tax as an exact decimal string. Defaults to zero.
+        other_fee: Non-negative other fee as an exact decimal string. Defaults to zero.
+        effective_at: Optional timezone-aware ISO-8601 economic timestamp; null uses the operation time.
+
+    Returns:
+        Operation identifier, appended entry summaries, and the resulting Portfolio state.
+    """
     result = await context.context.portfolios.record_trade(
         portfolio_id,
         instrument=_instrument(code, market),
@@ -224,7 +312,16 @@ async def record_portfolio_cash_flow(
     amount: str,
     effective_at: str | None = None,
 ) -> dict[str, Any]:
-    """Record external capital: a positive amount enters the Portfolio and a negative amount leaves it."""
+    """Record external capital: a positive amount enters the Portfolio and a negative amount leaves it.
+
+    Args:
+        portfolio_id: Durable Portfolio identifier.
+        amount: Signed amount in the Portfolio base currency as an exact decimal string.
+        effective_at: Optional timezone-aware ISO-8601 economic timestamp; null uses the operation time.
+
+    Returns:
+        Operation identifier, appended entry summaries, and the resulting Portfolio state.
+    """
     result = await context.context.portfolios.record_cash_flow(
         portfolio_id,
         amount=_parse_decimal(amount, "amount"),
@@ -246,7 +343,20 @@ async def record_portfolio_income(
     market: str | None = None,
     effective_at: str | None = None,
 ) -> dict[str, Any]:
-    """Record realized income, optionally attributed to one instrument."""
+    """Record realized income, optionally attributed to one instrument.
+
+    Args:
+        portfolio_id: Durable Portfolio identifier.
+        gross_amount: Non-negative gross income in the base currency as an exact decimal string.
+        tax: Non-negative tax as an exact decimal string. Defaults to zero.
+        other_fee: Non-negative other fee as an exact decimal string. Defaults to zero.
+        code: Optional instrument code; supply together with market.
+        market: Optional instrument market identifier; supply together with code.
+        effective_at: Optional timezone-aware ISO-8601 economic timestamp; null uses the operation time.
+
+    Returns:
+        Operation identifier, appended entry summaries, and the resulting Portfolio state.
+    """
     result = await context.context.portfolios.record_income(
         portfolio_id,
         gross_amount=_parse_decimal(gross_amount, "gross_amount"),
@@ -271,7 +381,20 @@ async def adjust_portfolio_position(
     reason: str,
     effective_at: str | None = None,
 ) -> dict[str, Any]:
-    """Assert newly recognized position state; do not use this to erase a historically wrong Ledger entry."""
+    """Assert newly recognized position state; do not use this to erase a historically wrong Ledger entry.
+
+    Args:
+        portfolio_id: Durable Portfolio identifier.
+        code: Instrument code.
+        market: Instrument market identifier.
+        resulting_quantity: Asserted non-negative quantity as an exact decimal string.
+        resulting_total_cost: Asserted non-negative total cost as an exact decimal string, or null if unknown.
+        reason: Human-readable reason for the state assertion.
+        effective_at: Optional timezone-aware ISO-8601 economic timestamp; null uses the operation time.
+
+    Returns:
+        Operation identifier, appended entry summaries, and the resulting Portfolio state.
+    """
     result = await context.context.portfolios.adjust_position(
         portfolio_id,
         instrument=_instrument(code, market),
@@ -293,7 +416,17 @@ async def adjust_portfolio_cash(
     reason: str,
     effective_at: str | None = None,
 ) -> dict[str, Any]:
-    """Assert newly recognized logical cash state in the Portfolio base currency."""
+    """Assert newly recognized logical cash state in the Portfolio base currency.
+
+    Args:
+        portfolio_id: Durable Portfolio identifier.
+        resulting_amount: Asserted cash amount as an exact decimal string.
+        reason: Human-readable reason for the state assertion.
+        effective_at: Optional timezone-aware ISO-8601 economic timestamp; null uses the operation time.
+
+    Returns:
+        Operation identifier, appended entry summaries, and the resulting Portfolio state.
+    """
     result = await context.context.portfolios.adjust_cash(
         portfolio_id,
         resulting_amount=_parse_decimal(resulting_amount, "resulting_amount"),
