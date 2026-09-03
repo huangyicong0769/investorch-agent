@@ -11,7 +11,7 @@ from agents.tool import FunctionTool
 
 from investorch.agents import AgentLoop, ApprovalOutcome, TokenUsage
 from investorch.application import PortfolioOperations
-from investorch.application.portfolio_context import PortfolioContextOperations
+from investorch.application.portfolio_context import PortfolioContextOperations, PortfolioToolSucceededEvent
 from investorch.config import AppConfig
 from investorch.context import AgentContext, ExecutionState
 from investorch.output import OutputEvent
@@ -81,6 +81,49 @@ async def run_scripted_tool(
 def create_titled_session(config: AppConfig, session_id: str) -> None:
     create_session(config.sessions_db, session_id)
     set_session_title(config.sessions_db, session_id, "Test")
+
+
+@pytest.mark.asyncio
+async def test_successful_portfolio_tools_publish_typed_read_and_mutation_events(tmp_path: Path) -> None:
+    config = make_test_config(tmp_path)
+    portfolios = PortfolioOperations(config=config)
+    events: list[PortfolioToolSucceededEvent] = []
+
+    async def capture(event: PortfolioToolSucceededEvent) -> None:
+        events.append(event)
+
+    context = PortfolioContextOperations(config=config, succeeded_handler=capture)
+    portfolio = await portfolios.create(name="Core", base_currency="CNY")
+    create_titled_session(config, "read")
+    await run_scripted_tool(
+        config=config,
+        portfolios=portfolios,
+        context=context,
+        session_id="read",
+        tool=get_portfolio,
+        arguments={"portfolio_id": portfolio.id},
+    )
+    create_titled_session(config, "create")
+    await run_scripted_tool(
+        config=config,
+        portfolios=portfolios,
+        context=context,
+        session_id="create",
+        tool=create_portfolio,
+        arguments={"name": "Growth", "base_currency": "USD"},
+    )
+
+    assert events[0] == PortfolioToolSucceededEvent(
+        session_id="read",
+        run_id="run-a",
+        portfolio_ids=(portfolio.id,),
+        mutated=False,
+    )
+    growth = next(item for item in await portfolios.list() if item.name == "Growth")
+    assert events[1].session_id == "create"
+    assert events[1].run_id == "run-a"
+    assert events[1].portfolio_ids == (growth.id,)
+    assert events[1].mutated is True
 
 
 @pytest.mark.asyncio

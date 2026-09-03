@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Mapping
+from collections.abc import Awaitable, Callable, Mapping
+from dataclasses import dataclass
 
 from investorch.config import AppConfig
 from investorch.storage import add_session_related_portfolio_ids, get_session_related_portfolio_ids
@@ -34,13 +35,43 @@ _PORTFOLIO_OPERATION_TOOLS = frozenset(
         "transfer_portfolio_cash",
     }
 )
+_PORTFOLIO_MUTATION_TOOLS = frozenset(
+    {
+        "create_portfolio",
+        "update_portfolio",
+        "archive_portfolio",
+        "restore_portfolio",
+        *_PORTFOLIO_OPERATION_TOOLS,
+    }
+)
+
+
+@dataclass(frozen=True, slots=True)
+class PortfolioToolSucceededEvent:
+    session_id: str
+    run_id: str
+    portfolio_ids: tuple[str, ...]
+    mutated: bool
+
+
+PortfolioToolSucceededHandler = Callable[[PortfolioToolSucceededEvent], Awaitable[None]]
+
+
+async def _ignore_portfolio_tool_succeeded(_event: PortfolioToolSucceededEvent) -> None:
+    pass
 
 
 class PortfolioContextOperations:
     """Maintain durable Portfolio identities related through structured Agent interactions."""
 
-    def __init__(self, *, config: AppConfig) -> None:
+    def __init__(
+        self,
+        *,
+        config: AppConfig,
+        succeeded_handler: PortfolioToolSucceededHandler = _ignore_portfolio_tool_succeeded,
+    ) -> None:
         self._config = config
+        self._succeeded_handler = succeeded_handler
 
     async def related_ids(self, session_id: str) -> tuple[str, ...]:
         try:
@@ -78,6 +109,22 @@ class PortfolioContextOperations:
         except Exception:
             logger.exception(
                 "Failed to relate successful Portfolio tool result session=%s run=%s tool=%s",
+                session_id,
+                run_id,
+                tool_name,
+            )
+        try:
+            await self._succeeded_handler(
+                PortfolioToolSucceededEvent(
+                    session_id=session_id,
+                    run_id=run_id,
+                    portfolio_ids=portfolio_ids,
+                    mutated=tool_name in _PORTFOLIO_MUTATION_TOOLS,
+                )
+            )
+        except Exception:
+            logger.exception(
+                "Failed to publish successful Portfolio tool result session=%s run=%s tool=%s",
                 session_id,
                 run_id,
                 tool_name,

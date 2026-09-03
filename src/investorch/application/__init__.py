@@ -12,7 +12,7 @@ from .interaction import (
     current_run_options,
     submit_user_input,
 )
-from .portfolio_context import PortfolioContextOperations
+from .portfolio_context import PortfolioContextOperations, PortfolioToolSucceededEvent
 from .portfolio_sessions import PortfolioSessionResult, PortfolioSessionWorkflows
 from .portfolios import (
     PortfolioAlreadyActiveError,
@@ -61,6 +61,7 @@ __all__ = [
     "PortfolioSequenceRetryExhaustedError",
     "PortfolioSessionResult",
     "PortfolioSessionWorkflows",
+    "PortfolioToolSucceededEvent",
     "PortfolioTransferCurrencyError",
     "PreparedReviewContext",
     "QueuedFollowUpsPendingError",

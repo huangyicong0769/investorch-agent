@@ -38,7 +38,11 @@ from investorch.tools import close_execution, start_execution
 
 from .activity import ActivityCoordinator, ActivityLabelEvent, ActivityLabelHandler, _ignore_activity_label
 from .approval import ApprovalCoordinator, ApprovalResolvedHandler, ManualApprovalHandler, _ignore_approval_resolved
-from .portfolio_context import PortfolioContextOperations
+from .portfolio_context import (
+    PortfolioContextOperations,
+    PortfolioToolSucceededHandler,
+    _ignore_portfolio_tool_succeeded,
+)
 from .portfolio_sessions import PortfolioSessionWorkflows
 from .portfolios import PortfolioOperations
 from .presentation_state import SessionPresentationStore
@@ -76,6 +80,7 @@ class ApplicationCallbacks:
     handle_runtime_state: ApplicationRuntimeStateHandler = _ignore_runtime_state
     handle_approval_resolved: ApprovalResolvedHandler = _ignore_approval_resolved
     handle_activity_label: ActivityLabelHandler = _ignore_activity_label
+    handle_portfolio_tool_succeeded: PortfolioToolSucceededHandler = _ignore_portfolio_tool_succeeded
 
 
 @dataclass(slots=True)
@@ -225,7 +230,10 @@ async def open_application_host(
                 title_model, title_model_settings = create_model(config, "title")
                 compact_model, compact_model_settings = create_model(config, "compact")
                 permission_model, permission_model_settings = create_model(config, "permission")
-                portfolio_context = PortfolioContextOperations(config=config)
+                portfolio_context = PortfolioContextOperations(
+                    config=config,
+                    succeeded_handler=callbacks.handle_portfolio_tool_succeeded,
+                )
                 agent = create_agent(
                     model=main_model,
                     model_settings=main_model_settings,

@@ -322,6 +322,14 @@ export interface ActivityLabelLiveEvent {
   text: string
 }
 
+export interface PortfolioToolSucceededLiveEvent {
+  kind: 'portfolio_tool_succeeded'
+  session_id: string
+  run_id: string
+  portfolio_ids: string[]
+  mutated: boolean
+}
+
 export interface ApprovalRequiredLiveEvent extends ApprovalRequest {
   kind: 'approval_required'
 }
@@ -351,6 +359,7 @@ export type LiveEvent =
   | FollowUpLiveEvent
   | RunEndedLiveEvent
   | ActivityLabelLiveEvent
+  | PortfolioToolSucceededLiveEvent
   | ApprovalRequiredLiveEvent
   | ApprovalResolvedLiveEvent
   | ApprovalCancelledLiveEvent
