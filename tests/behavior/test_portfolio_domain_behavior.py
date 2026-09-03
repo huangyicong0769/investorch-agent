@@ -14,6 +14,7 @@ from investorch.portfolio import (
     PortfolioDomainError,
     PortfolioState,
     PortfolioStatus,
+    PositionAdjustment,
     StrategyBinding,
 )
 
@@ -56,6 +57,29 @@ def test_financial_float_is_rejected() -> None:
 
     with pytest.raises(PortfolioDomainError, match="Decimal"):
         PortfolioState("portfolio-1", {}, {"CNY": 1000.0})  # type: ignore[dict-item]
+
+
+@pytest.mark.parametrize(
+    ("quantity", "total_cost"),
+    [
+        (Decimal("0"), None),
+        (Decimal("0"), Decimal("0")),
+        (Decimal("1"), None),
+        (Decimal("1"), Decimal("0")),
+    ],
+)
+def test_position_adjustment_accepts_consistent_quantity_and_cost(
+    quantity: Decimal, total_cost: Decimal | None
+) -> None:
+    adjustment = PositionAdjustment(InstrumentId("600519", "XSHG"), quantity, total_cost, "statement")
+
+    assert adjustment.resulting_quantity == quantity
+    assert adjustment.resulting_total_cost == total_cost
+
+
+def test_position_adjustment_rejects_cost_for_zero_quantity() -> None:
+    with pytest.raises(PortfolioDomainError, match="zero quantity"):
+        PositionAdjustment(InstrumentId("600519", "XSHG"), Decimal("0"), Decimal("100"), "statement")
 
 
 def test_ledger_payload_must_match_entry_type() -> None:

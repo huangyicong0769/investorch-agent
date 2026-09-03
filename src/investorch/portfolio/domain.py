@@ -258,6 +258,8 @@ class PositionAdjustment:
             raise PortfolioDomainError("instrument must be an InstrumentId")
         _require_non_negative(self.resulting_quantity, "resulting_quantity")
         _require_optional_non_negative(self.resulting_total_cost, "resulting_total_cost")
+        if self.resulting_quantity == 0 and self.resulting_total_cost not in (None, Decimal(0)):
+            raise PortfolioDomainError("resulting_total_cost must be None or zero for zero quantity")
         _require_text(self.reason, "reason")
 
 
