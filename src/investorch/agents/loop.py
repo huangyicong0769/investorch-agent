@@ -31,8 +31,9 @@ class ApprovalOutcome:
     usage: TokenUsage
 
 
-ApprovalHandler = Callable[[str, str, str | None], Awaitable[ApprovalOutcome]]
+ApprovalHandler = Callable[[int | None, str, str | None], Awaitable[ApprovalOutcome]]
 SuccessfulToolHandler = Callable[[str, str, str, object], Awaitable[None]]
+SteerActivatedHandler = Callable[[tuple[int, ...]], Awaitable[int]]
 
 
 async def _ignore_successful_tool(_session_id: str, _run_id: str, _tool_name: str, _result: object) -> None:
@@ -109,6 +110,8 @@ class AgentLoop:
         output_handler: OutputHandler,
         run_control: RunControl,
         todo_update_handler: TodoUpdateHandler | None = None,
+        instruction_head_seq: int | None = None,
+        steer_activated_handler: SteerActivatedHandler | None = None,
     ) -> AgentRunResult:
         settings = self._agent.model_settings.resolve({"reasoning": {"effort": reasoning_effort}})
         run_agent = self._agent.clone(model_settings=settings)
@@ -148,7 +151,9 @@ class AgentLoop:
             if sdk_state is not None:
                 for interruption in result.interruptions:
                     outcome = await approval_handler(
-                        user_input, interruption.name or "unknown_tool", interruption.arguments
+                        instruction_head_seq,
+                        interruption.name or "unknown_tool",
+                        interruption.arguments,
                     )
                     approval_usage += outcome.usage
 
@@ -178,6 +183,14 @@ class AgentLoop:
                         len(pending_steers),
                     )
                 else:
+                    steer_seqs = tuple(steer.journal_seq for steer in pending_steers)
+                    if any(seq is None for seq in steer_seqs):
+                        raise RuntimeError("Steer input reached the Agent boundary without durable journal sequence")
+                    if steer_activated_handler is None:
+                        raise RuntimeError("Steer input reached the Agent boundary without an activation recorder")
+                    instruction_head_seq = await steer_activated_handler(
+                        tuple(seq for seq in steer_seqs if seq is not None)
+                    )
                     run_control.mark_staged(staged_ids)
                     logger.info("Steer staged session=%s run=%s count=%d", session_id, run_id, len(staged_ids))
 

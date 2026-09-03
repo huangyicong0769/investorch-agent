@@ -53,6 +53,27 @@ class SessionJournal:
     async def record_user_steer(self, session_id: str, run_id: str, text: str) -> int:
         return await self._record(session_id, {"type": "user_steer", "run_id": run_id, "text": text})
 
+    async def record_user_steers_activated(
+        self,
+        session_id: str,
+        run_id: str,
+        user_steer_seqs: tuple[int, ...],
+    ) -> int:
+        if not user_steer_seqs:
+            raise ValueError("user_steer_seqs must not be empty")
+        if any(type(seq) is not int or seq < 1 for seq in user_steer_seqs):
+            raise ValueError("user_steer_seqs must contain positive integers")
+        if len(set(user_steer_seqs)) != len(user_steer_seqs):
+            raise ValueError("user_steer_seqs must be unique")
+        return await self._record(
+            session_id,
+            {
+                "type": "user_steers_activated",
+                "run_id": run_id,
+                "user_steer_seqs": list(user_steer_seqs),
+            },
+        )
+
     async def record_run_ended(
         self,
         session_id: str,

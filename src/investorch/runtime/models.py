@@ -121,3 +121,4 @@ class ApprovalRequest:
     permission_mode: str
     tool_name: str
     arguments: str | None
+    instruction_head_seq: int | None = None

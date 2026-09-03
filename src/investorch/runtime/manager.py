@@ -42,6 +42,7 @@ RuntimeOutputHandler = Callable[[RuntimeOutput], Awaitable[None]]
 RuntimeApprovalHandler = Callable[[ApprovalRequest], Awaitable[ApprovalOutcome]]
 RecordUserMessage = Callable[[str, str], Awaitable[int]]
 RecordUserSteer = Callable[[str, str, str], Awaitable[int]]
+RecordUserSteersActivated = Callable[[str, str, tuple[int, ...]], Awaitable[int]]
 RuntimeStateHandler = Callable[[RuntimeSessionSnapshot], None]
 RunEndedHandler = Callable[[RuntimeRunEnded], Awaitable[None]]
 RuntimeFollowUpHandler = Callable[[RuntimeFollowUpEvent], Awaitable[None]]
@@ -63,14 +64,17 @@ class _InputJournalBarrier:
     def __init__(self) -> None:
         self.event = asyncio.Event()
         self.error: BaseException | None = None
+        self.instruction_head_seq: int | None = None
 
-    async def wait(self) -> None:
+    async def wait(self) -> int | None:
         await self.event.wait()
         if self.error is not None:
             raise SessionBusyError("The Run failed before its initial input was journaled") from self.error
+        return self.instruction_head_seq
 
-    def succeed(self) -> None:
+    def succeed(self, instruction_head_seq: int | None) -> None:
         if not self.event.is_set():
+            self.instruction_head_seq = instruction_head_seq
             self.event.set()
 
     def fail(self, error: BaseException) -> None:
@@ -91,6 +95,7 @@ class AgentRuntime:
         approval_handler: RuntimeApprovalHandler,
         record_user_message: RecordUserMessage,
         record_user_steer: RecordUserSteer,
+        record_user_steers_activated: RecordUserSteersActivated,
         state_handler: RuntimeStateHandler | None = None,
         run_ended_handler: RunEndedHandler | None = None,
         follow_up_handler: RuntimeFollowUpHandler | None = None,
@@ -104,6 +109,7 @@ class AgentRuntime:
         self._state_handler = state_handler
         self._run_ended_handler = run_ended_handler
         self._record_user_steer = record_user_steer
+        self._record_user_steers_activated = record_user_steers_activated
         self._follow_up_handler = follow_up_handler
         self._active_by_session: dict[str, ActiveRun] = {}
         self._active_by_run: dict[str, ActiveRun] = {}
@@ -468,7 +474,11 @@ class AgentRuntime:
         async def handle_output(event: OutputEvent) -> None:
             await self._output_handler(RuntimeOutput(run_id=run_id, session_id=session_id, event=event))
 
-        async def handle_approval(approval_user_input: str, tool_name: str, arguments: str | None) -> ApprovalOutcome:
+        async def handle_approval(
+            instruction_head_seq: int | None,
+            tool_name: str,
+            arguments: str | None,
+        ) -> ApprovalOutcome:
             active_run = self._active_by_run.get(run_id)
             if (
                 active_run is not None
@@ -483,10 +493,11 @@ class AgentRuntime:
                         approval_id=uuid.uuid4().hex,
                         run_id=run_id,
                         session_id=session_id,
-                        user_input=approval_user_input,
+                        user_input=user_input,
                         permission_mode=options.permission_mode,
                         tool_name=tool_name,
                         arguments=arguments,
+                        instruction_head_seq=instruction_head_seq,
                     )
                 )
             finally:
@@ -507,13 +518,26 @@ class AgentRuntime:
             self._notify_state(session_id)
             logger.info("Todo updated session=%s run=%s count=%d", session_id, run_id, len(todos))
 
+        async def handle_steers_activated(steer_seqs: tuple[int, ...]) -> int:
+            try:
+                return await self._record_user_steers_activated(session_id, run_id, steer_seqs)
+            except Exception:
+                logger.exception(
+                    "Failed to record activated Steer inputs session=%s run=%s",
+                    session_id,
+                    run_id,
+                )
+                return max(steer_seqs)
+
         try:
             if start_gate is not None:
                 await start_gate.wait()
             session = SQLiteSession(session_id, self._sessions_db)
             if record_user_message:
-                await self._record_user_message(session_id, user_input)
-                input_journal.succeed()
+                instruction_head_seq = await self._record_user_message(session_id, user_input)
+                input_journal.succeed(instruction_head_seq)
+            else:
+                instruction_head_seq = await input_journal.wait()
             result = await self._agent_loop.run(
                 user_input,
                 session,
@@ -525,6 +549,8 @@ class AgentRuntime:
                 output_handler=handle_output,
                 run_control=run_control,
                 todo_update_handler=handle_todo_update,
+                instruction_head_seq=instruction_head_seq,
+                steer_activated_handler=handle_steers_activated,
             )
             status = "completed"
             logger.info("Completed Agent run session=%s run=%s", session_id, run_id)
@@ -655,8 +681,25 @@ class AgentRuntime:
             self._steer_fallback_by_session.setdefault(session_id, deque()).appendleft(steer)
             raise
         input_journal = self._input_journal_by_run[active_run.run_id]
+        cancellation: asyncio.CancelledError | None = None
 
         try:
+            if steer.journal_seq is None:
+                raise RuntimeError("Steer fallback does not have a durable journal sequence")
+            try:
+                activation_seq, cancellation = await _await_journal_write(
+                    self._record_user_steers_activated(session_id, active_run.run_id, (steer.journal_seq,))
+                )
+            except Exception:
+                logger.exception(
+                    "Failed to record promoted Steer activation session=%s run=%s steer=%s",
+                    session_id,
+                    active_run.run_id,
+                    steer.steer_id,
+                )
+                activation_seq = steer.journal_seq
+                cancellation = None
+            input_journal.succeed(activation_seq)
             await self._notify_follow_up(
                 RuntimeFollowUpEvent(
                     kind="steer_fallback_promoted",
@@ -668,9 +711,10 @@ class AgentRuntime:
                     journal_seq=steer.journal_seq,
                 )
             )
-            input_journal.succeed()
         finally:
             start_gate.set()
+        if cancellation is not None:
+            raise cancellation
         logger.info(
             "Promoted Steer fallback session=%s source_run=%s run=%s steer=%s",
             session_id,
@@ -740,7 +784,7 @@ class AgentRuntime:
             )
             return
 
-        input_journal.succeed()
+        input_journal.succeed(journal_seq)
         if cancellation is not None:
             start_gate.set()
             logger.info(

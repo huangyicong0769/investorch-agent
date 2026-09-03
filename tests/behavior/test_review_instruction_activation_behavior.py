@@ -1,0 +1,88 @@
+from __future__ import annotations
+
+import asyncio
+from pathlib import Path
+from zoneinfo import ZoneInfo
+
+import pytest
+from agents import Agent
+from agents.testing import ModelStep, ScriptedModel, assistant_message, function_call
+
+from investorch.agents import AgentLoop, ApprovalOutcome, TokenUsage
+from investorch.application import PortfolioOperations
+from investorch.context import AgentContext, ExecutionState
+from investorch.journal import SessionJournal, read_session_journal
+from investorch.runtime import AgentRuntime, ApprovalRequest, RuntimeOutput, RuntimeRunEnded
+from investorch.storage import create_session, set_session_title
+from investorch.tools import create_portfolio
+from tests.support.config import make_test_config
+from tests.support.runtime import run_options
+
+
+@pytest.mark.asyncio
+async def test_activated_steer_advances_the_next_approval_instruction_boundary(tmp_path: Path) -> None:
+    config = make_test_config(tmp_path)
+    journal = SessionJournal(config.session_journal_dir, ZoneInfo(config["runtime.default_timezone"]))
+    portfolios = PortfolioOperations(config=config)
+    create_session(config.sessions_db, "session-a")
+    set_session_title(config.sessions_db, "session-a", "Test")
+    first_model_started = asyncio.Event()
+    release_first_model = asyncio.Event()
+    two_runs_ended = asyncio.Event()
+    approval_requests: list[ApprovalRequest] = []
+    run_ended: list[RuntimeRunEnded] = []
+
+    async def first_step(_call: object) -> tuple[object, ...]:
+        first_model_started.set()
+        await release_first_model.wait()
+        return (assistant_message("first turn"),)
+
+    model = ScriptedModel(
+        (
+            ModelStep.respond(first_step),
+            (function_call("create_portfolio", {"name": "Core", "base_currency": "CNY"}, call_id="call-a"),),
+            (assistant_message("done"),),
+        )
+    )
+    agent = Agent[AgentContext](name="Main", instructions="test", model=model, tools=[create_portfolio])
+    unused_agent = Agent(name="Unused", instructions="test", model=ScriptedModel())
+    loop = AgentLoop(agent, unused_agent, unused_agent, config, portfolios)
+
+    async def approval_handler(request: ApprovalRequest) -> ApprovalOutcome:
+        approval_requests.append(request)
+        return ApprovalOutcome(approved=False, usage=TokenUsage())
+
+    async def output_handler(_output: RuntimeOutput) -> None:
+        pass
+
+    async def run_ended_handler(event: RuntimeRunEnded) -> None:
+        run_ended.append(event)
+        if len(run_ended) == 2:
+            two_runs_ended.set()
+
+    runtime = AgentRuntime(
+        loop,
+        ExecutionState(workspace_root=config.workspace_dir),
+        config.sessions_db,
+        output_handler,
+        approval_handler,
+        journal.record_user_message,
+        journal.record_user_steer,
+        journal.record_user_steers_activated,
+        run_ended_handler=run_ended_handler,
+    )
+    runtime.start_run("session-a", "initial instruction", run_options("steer"))
+    await first_model_started.wait()
+    await runtime.submit_follow_up("session-a", "later instruction", run_options())
+    release_first_model.set()
+
+    await asyncio.wait_for(two_runs_ended.wait(), timeout=2)
+    await runtime.aclose()
+
+    records = read_session_journal(config.session_journal_dir, "session-a")
+    steer = next(record for record in records if record["type"] == "user_steer")
+    activation = next(record for record in records if record["type"] == "user_steers_activated")
+    assert [request.instruction_head_seq for request in approval_requests] == [activation["seq"]]
+    assert activation["user_steer_seqs"] == [steer["seq"]]
+    assert [event.status for event in run_ended] == ["completed", "completed"]
+    model.assert_complete()
