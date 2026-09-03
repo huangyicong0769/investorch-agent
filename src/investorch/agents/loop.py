@@ -6,7 +6,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from agents import Agent, RunContextWrapper, Runner, SQLiteSession, UserError
+from agents import Agent, RunContextWrapper, Runner, SQLiteSession, TResponseInputItem, UserError
 from agents.lifecycle import RunHooksBase
 from agents.tool import Tool
 
@@ -112,6 +112,7 @@ class AgentLoop:
         todo_update_handler: TodoUpdateHandler | None = None,
         instruction_head_seq: int | None = None,
         steer_activated_handler: SteerActivatedHandler | None = None,
+        application_instruction: str | None = None,
     ) -> AgentRunResult:
         settings = self._agent.model_settings.resolve({"reasoning": {"effort": reasoning_effort}})
         run_agent = self._agent.clone(model_settings=settings)
@@ -128,9 +129,17 @@ class AgentLoop:
             run_id=run_id,
             handler=self._successful_tool_handler,
         )
+        model_input: str | list[TResponseInputItem] = user_input
+        if application_instruction is not None:
+            if not application_instruction.strip():
+                raise ValueError("Application instruction must not be empty")
+            model_input = [{"role": "developer", "content": application_instruction}]
+            if user_input:
+                model_input.append({"role": "user", "content": user_input})
+
         result = Runner.run_streamed(
             run_agent,
-            user_input,
+            model_input,
             session=session,
             context=agent_context,
             max_turns=self._config["runtime.max_turns"],

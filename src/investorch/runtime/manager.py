@@ -127,6 +127,45 @@ class AgentRuntime:
     def start_run(self, session_id: str, user_input: str, options: RunOptions) -> ActiveRun:
         return self._start_run(session_id, user_input, options)
 
+    def start_contextual_run(
+        self,
+        session_id: str,
+        user_input: str,
+        application_instruction: str,
+        options: RunOptions,
+    ) -> ActiveRun:
+        if not user_input.strip():
+            raise ValueError("User input must not be empty")
+        if not application_instruction.strip():
+            raise ValueError("Application instruction must not be empty")
+        return self._start_run(
+            session_id,
+            user_input,
+            options,
+            application_instruction=application_instruction,
+        )
+
+    def start_application_run(
+        self,
+        session_id: str,
+        application_instruction: str,
+        options: RunOptions,
+    ) -> ActiveRun:
+        if not application_instruction.strip():
+            raise ValueError("Application instruction must not be empty")
+        start_gate = asyncio.Event()
+        active_run = self._start_run(
+            session_id,
+            "",
+            options,
+            record_user_message=False,
+            start_gate=start_gate,
+            application_instruction=application_instruction,
+        )
+        self._input_journal_by_run[active_run.run_id].succeed(None)
+        start_gate.set()
+        return active_run
+
     def _start_run(
         self,
         session_id: str,
@@ -135,6 +174,7 @@ class AgentRuntime:
         *,
         record_user_message: bool = True,
         start_gate: asyncio.Event | None = None,
+        application_instruction: str | None = None,
         allow_steer_fallback: bool = False,
         allow_queue_promotion: bool = False,
     ) -> ActiveRun:
@@ -164,6 +204,7 @@ class AgentRuntime:
                 started_at,
                 record_user_message=record_user_message,
                 start_gate=start_gate,
+                application_instruction=application_instruction,
             ),
             name=f"agent-run-{run_id}",
         )
@@ -465,6 +506,7 @@ class AgentRuntime:
         *,
         record_user_message: bool,
         start_gate: asyncio.Event | None,
+        application_instruction: str | None,
     ) -> AgentRunResult:
         session: SQLiteSession | None = None
         result: AgentRunResult | None = None
@@ -551,6 +593,7 @@ class AgentRuntime:
                 todo_update_handler=handle_todo_update,
                 instruction_head_seq=instruction_head_seq,
                 steer_activated_handler=handle_steers_activated,
+                application_instruction=application_instruction,
             )
             status = "completed"
             logger.info("Completed Agent run session=%s run=%s", session_id, run_id)
