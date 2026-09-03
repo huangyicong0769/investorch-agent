@@ -4,10 +4,12 @@ import json
 from decimal import Decimal
 from pathlib import Path
 
-from agents import ModelSettings
+import pytest
+from agents import Agent, ModelSettings
 from agents.tool import FunctionTool
 from agents.tool_context import ToolContext
 
+from investorch.agents import AgentLoop
 from investorch.agents.main import create_agent
 from investorch.application import PortfolioOperations
 from investorch.context import AgentContext, ExecutionState
@@ -551,17 +553,45 @@ def test_main_agent_registers_complete_portfolio_tool_surface(tmp_path: Path) ->
     assert all(portfolio_tools[name].needs_approval is True for name in mutation_names)
 
 
-async def test_host_exposed_portfolio_operations_share_state_with_agent_tools(tmp_path: Path) -> None:
+async def test_run_created_agent_context_uses_host_portfolio_state(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     async with open_test_web(tmp_path) as harness:
         portfolio = await harness.host.portfolios.create(name="Core", base_currency="CNY")
-        context = ToolContext(
-            context=AgentContext(
-                config=harness.host.config,
-                execution=harness.host.execution,
-                session_id="session-a",
+        agent_loop = AgentLoop(
+            Agent(name="Main", instructions="test"),
+            Agent(name="Title", instructions="test"),
+            Agent(name="Compaction", instructions="test"),
+            harness.host.config,
+            harness.host.portfolios,
+        )
+        captured: dict[str, AgentContext] = {}
+
+        def stop_at_sdk_boundary(*_args: object, context: AgentContext, **_kwargs: object) -> None:
+            captured["context"] = context
+            raise RuntimeError("controlled SDK boundary")
+
+        monkeypatch.setattr("investorch.agents.loop.Runner.run_streamed", stop_at_sdk_boundary)
+
+        async def unused_handler(*_args: object) -> None:
+            raise AssertionError("handler should not be reached")
+
+        with pytest.raises(RuntimeError, match="controlled SDK boundary"):
+            await agent_loop.run(
+                "read the portfolio",
+                None,  # type: ignore[arg-type]
+                harness.host.execution,
                 run_id="run-a",
-                portfolios=harness.host.portfolios,
-            ),
+                session_id="session-a",
+                reasoning_effort="none",
+                approval_handler=unused_handler,  # type: ignore[arg-type]
+                output_handler=unused_handler,
+                run_control=None,  # type: ignore[arg-type]
+            )
+
+        context = ToolContext(
+            context=captured["context"],
             tool_name="portfolio-behavior-test",
             tool_call_id="call-a",
             tool_arguments="{}",
