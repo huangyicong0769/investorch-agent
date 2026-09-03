@@ -21,6 +21,7 @@ from .portfolios import (
     PortfolioOperationError,
     PortfolioOperations,
     PortfolioSequenceRetryExhaustedError,
+    PortfolioTransferCurrencyError,
 )
 from .presentation_state import SessionPresentationState, SessionPresentationStore
 from .sessions import (
@@ -53,6 +54,7 @@ __all__ = [
     "PortfolioOperationError",
     "PortfolioOperations",
     "PortfolioSequenceRetryExhaustedError",
+    "PortfolioTransferCurrencyError",
     "QueuedFollowUpsPendingError",
     "SessionAlreadyArchivedError",
     "SessionArchivedError",

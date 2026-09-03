@@ -13,6 +13,7 @@ from investorch.application import (
     PortfolioCorrectionError,
     PortfolioOperationError,
     PortfolioOperations,
+    PortfolioTransferCurrencyError,
 )
 from investorch.portfolio import (
     CashAdjustment,
@@ -27,9 +28,11 @@ from investorch.portfolio import (
     PortfolioNotFoundError,
     PortfolioStatus,
     PositionAdjustment,
+    PositionTransfer,
     StrategyBinding,
     Trade,
     TradeSide,
+    TransferDirection,
     Void,
     append_ledger_operation,
 )
@@ -407,3 +410,168 @@ async def test_correction_preserves_explicit_time_and_rejects_invalid_use_cases(
             reason="blocked",
             source="manual",
         )
+
+
+async def test_position_transfer_is_atomic_and_preserves_supplied_cost(tmp_path) -> None:
+    operations = PortfolioOperations(config=make_test_config(tmp_path))
+    source_portfolio = await operations.create(name="Source", base_currency="CNY")
+    destination = await operations.create(name="Destination", base_currency="CNY")
+    await operations.initialize(
+        source_portfolio.id,
+        positions=(OpeningPosition(STOCK, Decimal("10"), Decimal("100")),),
+        source="import",
+    )
+
+    transfer = await operations.transfer_position(
+        source_portfolio_id=source_portfolio.id,
+        destination_portfolio_id=destination.id,
+        instrument=STOCK,
+        quantity=Decimal("4"),
+        transferred_cost=Decimal("40"),
+        source="manual",
+        external_ref="allocation-1",
+    )
+
+    outgoing, incoming = transfer.entries
+    assert outgoing.payload == PositionTransfer(
+        STOCK,
+        TransferDirection.OUT,
+        Decimal("4"),
+        Decimal("40"),
+    )
+    assert incoming.payload == PositionTransfer(
+        STOCK,
+        TransferDirection.IN,
+        Decimal("4"),
+        Decimal("40"),
+    )
+    assert outgoing.operation_id == incoming.operation_id == transfer.operation_id
+    assert outgoing.sequence == 2
+    assert incoming.sequence == 1
+    assert transfer.states[source_portfolio.id].holdings[STOCK].total_cost == Decimal("60")
+    assert transfer.states[destination.id].holdings[STOCK].total_cost == Decimal("40")
+
+    unknown = await operations.transfer_position(
+        source_portfolio_id=source_portfolio.id,
+        destination_portfolio_id=destination.id,
+        instrument=STOCK,
+        quantity=Decimal("1"),
+        transferred_cost=None,
+        source="manual",
+    )
+    assert all(entry.payload.transferred_cost is None for entry in unknown.entries)
+    assert unknown.states[source_portfolio.id].holdings[STOCK].total_cost is None
+    assert unknown.states[destination.id].holdings[STOCK].total_cost is None
+
+    ledgers_before = {
+        source_portfolio.id: await operations.list_ledger(source_portfolio.id),
+        destination.id: await operations.list_ledger(destination.id),
+    }
+    states_before = {
+        source_portfolio.id: await operations.get_state(source_portfolio.id),
+        destination.id: await operations.get_state(destination.id),
+    }
+    with pytest.raises(InsufficientPositionError):
+        await operations.transfer_position(
+            source_portfolio_id=source_portfolio.id,
+            destination_portfolio_id=destination.id,
+            instrument=STOCK,
+            quantity=Decimal("100"),
+            transferred_cost=None,
+            source="manual",
+        )
+    assert await operations.list_ledger(source_portfolio.id) == ledgers_before[source_portfolio.id]
+    assert await operations.list_ledger(destination.id) == ledgers_before[destination.id]
+    assert await operations.get_state(source_portfolio.id) == states_before[source_portfolio.id]
+    assert await operations.get_state(destination.id) == states_before[destination.id]
+
+
+async def test_cash_transfer_is_paired_and_transfer_guards_leave_ledgers_unchanged(tmp_path) -> None:
+    operations = PortfolioOperations(config=make_test_config(tmp_path))
+    source_portfolio = await operations.create(name="Source", base_currency="CNY")
+    destination = await operations.create(name="Destination", base_currency="CNY")
+    usd = await operations.create(name="USD", base_currency="USD")
+
+    transfer = await operations.transfer_cash(
+        source_portfolio_id=source_portfolio.id,
+        destination_portfolio_id=destination.id,
+        amount=Decimal("50"),
+        source="manual",
+    )
+
+    outgoing, incoming = transfer.entries
+    assert outgoing.payload.currency == incoming.payload.currency == "CNY"
+    assert outgoing.payload.direction is TransferDirection.OUT
+    assert incoming.payload.direction is TransferDirection.IN
+    assert outgoing.operation_id == incoming.operation_id == transfer.operation_id
+    assert transfer.states[source_portfolio.id].cash == {"CNY": Decimal("-50")}
+    assert transfer.states[destination.id].cash == {"CNY": Decimal("50")}
+    ledgers_before = {
+        source_portfolio.id: await operations.list_ledger(source_portfolio.id),
+        destination.id: await operations.list_ledger(destination.id),
+        usd.id: await operations.list_ledger(usd.id),
+    }
+
+    with pytest.raises(PortfolioOperationError, match="distinct"):
+        await operations.transfer_cash(
+            source_portfolio_id=source_portfolio.id,
+            destination_portfolio_id=source_portfolio.id,
+            amount=Decimal("1"),
+            source="manual",
+        )
+    with pytest.raises(PortfolioOperationError, match="distinct"):
+        await operations.transfer_position(
+            source_portfolio_id=source_portfolio.id,
+            destination_portfolio_id=source_portfolio.id,
+            instrument=STOCK,
+            quantity=Decimal("1"),
+            transferred_cost=None,
+            source="manual",
+        )
+    with pytest.raises(PortfolioTransferCurrencyError):
+        await operations.transfer_cash(
+            source_portfolio_id=source_portfolio.id,
+            destination_portfolio_id=usd.id,
+            amount=Decimal("1"),
+            source="manual",
+        )
+    with pytest.raises(PortfolioTransferCurrencyError):
+        await operations.transfer_position(
+            source_portfolio_id=source_portfolio.id,
+            destination_portfolio_id=usd.id,
+            instrument=STOCK,
+            quantity=Decimal("1"),
+            transferred_cost=None,
+            source="manual",
+        )
+    await operations.archive(source_portfolio.id)
+    with pytest.raises(PortfolioArchivedError):
+        await operations.transfer_cash(
+            source_portfolio_id=source_portfolio.id,
+            destination_portfolio_id=destination.id,
+            amount=Decimal("1"),
+            source="manual",
+        )
+    with pytest.raises(PortfolioArchivedError):
+        await operations.transfer_position(
+            source_portfolio_id=source_portfolio.id,
+            destination_portfolio_id=destination.id,
+            instrument=STOCK,
+            quantity=Decimal("1"),
+            transferred_cost=None,
+            source="manual",
+        )
+    await operations.restore(source_portfolio.id)
+    await operations.archive(destination.id)
+    with pytest.raises(PortfolioArchivedError):
+        await operations.transfer_position(
+            source_portfolio_id=source_portfolio.id,
+            destination_portfolio_id=destination.id,
+            instrument=STOCK,
+            quantity=Decimal("1"),
+            transferred_cost=None,
+            source="manual",
+        )
+    assert await operations.list_ledger(source_portfolio.id) == ledgers_before[source_portfolio.id]
+    assert await operations.list_ledger(destination.id) == ledgers_before[destination.id]
+    assert await operations.list_ledger(usd.id) == ledgers_before[usd.id]

@@ -29,6 +29,7 @@ from investorch.portfolio import (
     StrategyBinding,
     Trade,
     TradeSide,
+    TransferDirection,
     Void,
     append_ledger_operation,
     create_portfolio,
@@ -69,6 +70,10 @@ class PortfolioSequenceRetryExhaustedError(PortfolioOperationError):
 
 class PortfolioCorrectionError(PortfolioOperationError):
     """Raised when a requested Ledger correction is not valid."""
+
+
+class PortfolioTransferCurrencyError(PortfolioOperationError):
+    """Raised when an internal transfer crosses base currencies."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -428,6 +433,124 @@ class PortfolioOperations:
         logger.info("Corrected Portfolio entry operation %s for %s", operation_id, portfolio_id)
         return result
 
+    async def transfer_position(
+        self,
+        *,
+        source_portfolio_id: str,
+        destination_portfolio_id: str,
+        instrument: InstrumentId,
+        quantity: Decimal,
+        transferred_cost: Decimal | None,
+        effective_at: datetime | None = None,
+        source: str,
+        external_ref: str | None = None,
+    ) -> PortfolioMutationResult:
+        return await self._record_transfer(
+            source_portfolio_id=source_portfolio_id,
+            destination_portfolio_id=destination_portfolio_id,
+            payload_factory=lambda _source_portfolio, _destination: (
+                PositionTransfer(
+                    instrument,
+                    TransferDirection.OUT,
+                    quantity,
+                    transferred_cost,
+                ),
+                PositionTransfer(
+                    instrument,
+                    TransferDirection.IN,
+                    quantity,
+                    transferred_cost,
+                ),
+            ),
+            effective_at=effective_at,
+            source=source,
+            external_ref=external_ref,
+        )
+
+    async def transfer_cash(
+        self,
+        *,
+        source_portfolio_id: str,
+        destination_portfolio_id: str,
+        amount: Decimal,
+        effective_at: datetime | None = None,
+        source: str,
+        external_ref: str | None = None,
+    ) -> PortfolioMutationResult:
+        return await self._record_transfer(
+            source_portfolio_id=source_portfolio_id,
+            destination_portfolio_id=destination_portfolio_id,
+            payload_factory=lambda source_portfolio, _destination: (
+                CashTransfer(source_portfolio.base_currency, TransferDirection.OUT, amount),
+                CashTransfer(source_portfolio.base_currency, TransferDirection.IN, amount),
+            ),
+            effective_at=effective_at,
+            source=source,
+            external_ref=external_ref,
+        )
+
+    async def _record_transfer(
+        self,
+        *,
+        source_portfolio_id: str,
+        destination_portfolio_id: str,
+        payload_factory: Callable[[Portfolio, Portfolio], tuple[LedgerPayload, LedgerPayload]],
+        effective_at: datetime | None,
+        source: str,
+        external_ref: str | None,
+    ) -> PortfolioMutationResult:
+        if source_portfolio_id == destination_portfolio_id:
+            raise PortfolioOperationError("Portfolio transfer requires distinct source and destination")
+        recorded_at = datetime.now(UTC)
+        effective_at = recorded_at if effective_at is None else effective_at
+        operation_id = uuid.uuid4().hex
+        async with self._mutation_lock:
+            source_portfolio = await self.get(source_portfolio_id)
+            destination_portfolio = await self.get(destination_portfolio_id)
+            _validate_transfer(source_portfolio, destination_portfolio)
+            outgoing, incoming = payload_factory(source_portfolio, destination_portfolio)
+            drafts = (
+                _EntryDraft(
+                    entry_id=uuid.uuid4().hex,
+                    portfolio_id=source_portfolio_id,
+                    entry_type=LedgerEntryType.TRANSFER,
+                    effective_at=effective_at,
+                    payload=outgoing,
+                ),
+                _EntryDraft(
+                    entry_id=uuid.uuid4().hex,
+                    portfolio_id=destination_portfolio_id,
+                    entry_type=LedgerEntryType.TRANSFER,
+                    effective_at=effective_at,
+                    payload=incoming,
+                ),
+            )
+
+            def validate(
+                portfolios: dict[str, Portfolio],
+                _ledgers: dict[str, list[LedgerEntry]],
+            ) -> None:
+                _validate_transfer(
+                    portfolios[source_portfolio_id],
+                    portfolios[destination_portfolio_id],
+                )
+
+            result = await self._append_operation(
+                operation_id=operation_id,
+                recorded_at=recorded_at,
+                source=source,
+                external_ref=external_ref,
+                drafts=drafts,
+                validate=validate,
+            )
+        logger.info(
+            "Transferred Portfolio operation=%s source=%s destination=%s",
+            operation_id,
+            source_portfolio_id,
+            destination_portfolio_id,
+        )
+        return result
+
     async def _record_single(
         self,
         *,
@@ -521,6 +644,15 @@ class PortfolioOperations:
 def _require_active(portfolio: Portfolio) -> None:
     if portfolio.status is PortfolioStatus.ARCHIVED:
         raise PortfolioArchivedError(f"Portfolio is archived: {portfolio.id}")
+
+
+def _validate_transfer(source: Portfolio, destination: Portfolio) -> None:
+    _require_active(source)
+    _require_active(destination)
+    if source.base_currency != destination.base_currency:
+        raise PortfolioTransferCurrencyError(
+            f"Portfolio transfer requires one base currency: {source.base_currency} != {destination.base_currency}"
+        )
 
 
 def _assign_sequences(
