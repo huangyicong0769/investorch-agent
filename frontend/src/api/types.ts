@@ -380,6 +380,12 @@ export interface UserSteerRecord extends JournalRecordBase {
   text: string
 }
 
+export interface UserSteerDispositionRecord extends JournalRecordBase {
+  type: 'user_steers_activated' | 'user_steers_discarded'
+  run_id: string
+  user_steer_seqs: number[]
+}
+
 export interface ActivityLabelRecord extends JournalRecordBase {
   type: 'activity_label'
   target_seq: number
@@ -405,6 +411,7 @@ export interface RunEndedRecord extends JournalRecordBase {
   started_at?: string
   ended_at?: string
   duration_ms?: number
+  discarded_user_steer_seqs?: number[]
 }
 
 export type JournalOutputRecord = JournalRecordBase & OutputEvent
@@ -412,6 +419,7 @@ export type JournalOutputRecord = JournalRecordBase & OutputEvent
 export type JournalRecord =
   | UserMessageRecord
   | UserSteerRecord
+  | UserSteerDispositionRecord
   | ActivityLabelRecord
   | ApprovalRecord
   | RunEndedRecord
