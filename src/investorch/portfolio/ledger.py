@@ -31,6 +31,7 @@ from investorch.portfolio.domain import (
 def project_portfolio(portfolio: Portfolio, entries: Iterable[LedgerEntry]) -> PortfolioState:
     """Rebuild a Portfolio's current Holdings and logical Cash from its Ledger."""
     ledger = tuple(entries)
+    _validate_entry_types(ledger)
     voided_entry_ids = _resolve_voids(ledger)
     _validate_ledger_context(portfolio, ledger)
     active_entries = sorted(
@@ -50,10 +51,13 @@ def project_portfolio(portfolio: Portfolio, entries: Iterable[LedgerEntry]) -> P
     return PortfolioState(portfolio_id=portfolio.id, holdings=dict(holdings), cash=dict(cash))
 
 
+def _validate_entry_types(ledger: tuple[LedgerEntry, ...]) -> None:
+    if any(not isinstance(entry, LedgerEntry) for entry in ledger):
+        raise InvalidLedgerError("entries must contain only LedgerEntry values")
+
+
 def _validate_ledger_context(portfolio: Portfolio, ledger: tuple[LedgerEntry, ...]) -> None:
     for entry in ledger:
-        if not isinstance(entry, LedgerEntry):
-            raise InvalidLedgerError("entries must contain only LedgerEntry values")
         if entry.portfolio_id != portfolio.id:
             raise InvalidLedgerError(f"entry {entry.entry_id} belongs to a different Portfolio")
 

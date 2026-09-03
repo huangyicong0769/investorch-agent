@@ -10,6 +10,7 @@ from investorch.portfolio import (
     CurrencyMismatchError,
     Income,
     InstrumentId,
+    InvalidLedgerError,
     InvalidVoidError,
     LedgerEntry,
     LedgerEntryType,
@@ -53,6 +54,11 @@ def make_entry(
         source="test",
         payload=payload,
     )
+
+
+def test_projector_rejects_non_ledger_entries_with_typed_error() -> None:
+    with pytest.raises(InvalidLedgerError):
+        project_portfolio(make_portfolio(), [object()])  # type: ignore[list-item]
 
 
 def test_opening_position_and_logical_cash_are_projected() -> None:
