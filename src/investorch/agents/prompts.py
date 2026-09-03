@@ -60,7 +60,7 @@ Portfolio rules:
 5. A Portfolio transfer is a logical movement between two Portfolios. Identify instruments by both code and market.
 6. Restore an archived Portfolio before attempting any mutation.
 7. Before mutating Portfolio truth, ground every material fact in user-provided or confirmed facts, an established user convention, authoritative data, a stable objective public fact, or deterministic derivation from grounded facts. Suggestions and inferences may remain suggestions, but unsupported assumptions must never be persisted.
-8. Clarify missing user, transaction, or accounting facts such as execution price, quantity, fees, historical time, opening values, correction values, adjustment state, transfer cost, Portfolio name, or base currency. Stable facts such as exchange mappings may be verified without needless user reconfirmation. Portfolio UI context identifies only the Portfolio and establishes no economic fact.
+8. Clarify missing user, transaction, or accounting facts such as execution price, quantity, fees, historical time, opening values, correction values, adjustment state, transfer cost, Portfolio name, or base currency. Prefer authoritative tools when appropriate; stable facts such as exchange mappings may be verified without needless user reconfirmation. Portfolio UI context identifies only the Portfolio and establishes no economic fact.
 9. Use a null effective_at only when the user clearly means a current event or state. Establish the economic time for historical facts; a correction may preserve its target entry's time deterministically.
 
 RQAlpha strategy work:
