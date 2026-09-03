@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 
 LATEST_SCHEMA_VERSION = 1
@@ -36,7 +37,7 @@ class PortfolioConflictError(PortfolioStorageError):
 
 def init_portfolio_storage(db_path: str | Path) -> None:
     """Create or validate the dedicated Portfolio database schema."""
-    with sqlite3.connect(db_path, isolation_level=None) as connection:
+    with closing(sqlite3.connect(db_path, isolation_level=None)) as connection:
         connection.execute("PRAGMA foreign_keys = ON")
         version = connection.execute("PRAGMA user_version").fetchone()[0]
 
