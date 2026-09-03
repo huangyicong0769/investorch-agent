@@ -35,6 +35,10 @@ class PortfolioConflictError(PortfolioStorageError):
     """Raised when a Portfolio write conflicts with persisted data."""
 
 
+class PortfolioSequenceConflictError(PortfolioConflictError):
+    """Raised when persisted Ledger append order advanced before commit."""
+
+
 def init_portfolio_storage(db_path: str | Path) -> None:
     """Create or validate the dedicated Portfolio database schema."""
     with closing(sqlite3.connect(db_path, isolation_level=None)) as connection:

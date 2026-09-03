@@ -23,6 +23,7 @@ from investorch.portfolio.schema import (
     PortfolioConflictError,
     PortfolioDataError,
     PortfolioNotFoundError,
+    PortfolioSequenceConflictError,
 )
 from investorch.portfolio.serialization import (
     deserialize_ledger_payload,
@@ -317,7 +318,7 @@ def _validate_sequence_conflicts(existing: list[LedgerEntry], additions: list[Le
         maximum = max(existing_sequences)
         invalid = [sequence for sequence in addition_sequences if sequence <= maximum]
         if invalid:
-            raise PortfolioConflictError(
+            raise PortfolioSequenceConflictError(
                 f"Ledger sequence must be greater than persisted maximum {maximum}: {min(invalid)}"
             )
 

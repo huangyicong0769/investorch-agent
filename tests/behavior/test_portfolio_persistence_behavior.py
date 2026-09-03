@@ -24,6 +24,7 @@ from investorch.portfolio import (
     PortfolioConflictError,
     PortfolioDataError,
     PortfolioNotFoundError,
+    PortfolioSequenceConflictError,
     PortfolioStatus,
     PositionAdjustment,
     PositionTransfer,
@@ -422,7 +423,7 @@ def test_ledger_sequence_cannot_move_behind_persisted_audit_order(tmp_path: Path
     append_ledger_operation(db_path, [opening])
     state_before = get_portfolio_state(db_path, portfolio.id)
 
-    with pytest.raises(PortfolioConflictError, match="sequence"):
+    with pytest.raises(PortfolioSequenceConflictError, match="sequence"):
         append_ledger_operation(
             db_path,
             [
