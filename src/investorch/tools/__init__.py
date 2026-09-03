@@ -16,6 +16,7 @@ from .mcp import (
     list_mcp_servers,
     remove_mcp_server,
 )
+from .portfolio import get_portfolio, get_portfolio_ledger, list_portfolios
 from .quant import inspect_rqalpha_data, run_backtest
 from .todo import write_todos
 
@@ -30,9 +31,12 @@ __all__ = (
     "format_background_jobs",
     "get_config",
     "get_current_time",
+    "get_portfolio",
+    "get_portfolio_ledger",
     "inspect_rqalpha_data",
     "list_background_jobs",
     "list_mcp_servers",
+    "list_portfolios",
     "remove_mcp_server",
     "run_backtest",
     "start_execution",
