@@ -1,7 +1,13 @@
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Plus } from 'lucide-react'
+import { useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
 
-import { portfoliosQueryOptions } from '../../api/queries'
+import { startPortfolioSession } from '../../api/client'
+import { portfoliosQueryOptions, queryKeys } from '../../api/queries'
+import type { SessionListResponse } from '../../api/types'
 import { errorMessage } from '../../lib/errors'
+import { sessionPath } from '../../lib/session'
 import { PortfolioCard } from './PortfolioCard'
 import { Button } from '@/components/ui/button'
 
@@ -20,18 +26,57 @@ function PortfolioCardSkeleton() {
 }
 
 export function PortfolioIndexPage() {
+  const navigate = useNavigate()
+  const queryClient = useQueryClient()
+  const requestIdRef = useRef<string | null>(null)
   const portfoliosQuery = useQuery(portfoliosQueryOptions())
   const portfolios = portfoliosQuery.data?.portfolios ?? []
+  const startMutation = useMutation({
+    mutationFn: () => {
+      requestIdRef.current ??= crypto.randomUUID()
+      return startPortfolioSession({ request_id: requestIdRef.current })
+    },
+    onSuccess: async (response) => {
+      requestIdRef.current = null
+      queryClient.setQueryData<SessionListResponse>(queryKeys.sessions(), (current) => ({
+        sessions: [
+          response.session,
+          ...(current?.sessions.filter((session) => session.session_id !== response.session.session_id) ?? []),
+        ],
+      }))
+      queryClient.setQueryData(queryKeys.session(response.session.session_id), { session: response.session })
+      navigate(sessionPath(response.session.session_id))
+      await queryClient.invalidateQueries({ queryKey: queryKeys.sessions() })
+    },
+  })
+
+  const startPortfolioWorkflow = () => {
+    if (!startMutation.isPending) {
+      startMutation.mutate()
+    }
+  }
 
   return (
     <div className="min-h-dvh">
       <div className="mx-auto w-full max-w-6xl px-4 py-16 sm:px-6 md:py-12 lg:px-8">
-        <header>
-          <h1 className="text-2xl font-semibold tracking-tight">Portfolios</h1>
-          <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
-            View and work with your logical investment portfolios.
-          </p>
+        <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight">Portfolios</h1>
+            <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
+              View and work with your logical investment portfolios.
+            </p>
+          </div>
+          <Button disabled={startMutation.isPending} onClick={startPortfolioWorkflow} size="sm" type="button">
+            <Plus aria-hidden="true" size={15} />
+            {startMutation.isPending ? 'Starting…' : 'New Portfolio'}
+          </Button>
         </header>
+
+        {startMutation.isError ? (
+          <p className="mt-4 text-sm text-destructive" role="alert">
+            {errorMessage(startMutation.error, 'The Portfolio workflow could not be started. Try again.')}
+          </p>
+        ) : null}
 
         {portfoliosQuery.isPending ? (
           <div aria-label="Loading portfolios" className="mt-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
@@ -62,6 +107,16 @@ export function PortfolioIndexPage() {
           <div className="mt-8 rounded-xl border border-dashed border-border bg-card/60 px-6 py-14 text-center">
             <h2 className="text-base font-semibold">No portfolios yet</h2>
             <p className="mt-2 text-sm text-muted-foreground">Create one with the Agent.</p>
+            <Button
+              className="mt-5"
+              disabled={startMutation.isPending}
+              onClick={startPortfolioWorkflow}
+              size="sm"
+              type="button"
+            >
+              <Plus aria-hidden="true" size={15} />
+              {startMutation.isPending ? 'Starting…' : 'New Portfolio'}
+            </Button>
           </div>
         ) : null}
 
