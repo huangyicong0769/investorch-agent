@@ -37,6 +37,7 @@ from investorch.tools import close_execution, start_execution
 
 from .activity import ActivityCoordinator, ActivityLabelEvent, ActivityLabelHandler, _ignore_activity_label
 from .approval import ApprovalCoordinator, ApprovalResolvedHandler, ManualApprovalHandler, _ignore_approval_resolved
+from .portfolio_context import PortfolioContextOperations
 from .portfolios import PortfolioOperations
 from .presentation_state import SessionPresentationStore
 from .sessions import SessionOperations
@@ -218,6 +219,7 @@ async def open_application_host(
                 title_model, title_model_settings = create_model(config, "title")
                 compact_model, compact_model_settings = create_model(config, "compact")
                 permission_model, permission_model_settings = create_model(config, "permission")
+                portfolio_context = PortfolioContextOperations(config=config)
                 agent = create_agent(
                     model=main_model,
                     model_settings=main_model_settings,
@@ -230,6 +232,7 @@ async def open_application_host(
                     create_compaction_agent(compact_model, compact_model_settings),
                     config,
                     portfolios,
+                    successful_tool_handler=portfolio_context.observe_successful_tool,
                 )
                 approvals = ApprovalCoordinator(
                     config=config,

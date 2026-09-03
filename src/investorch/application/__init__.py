@@ -11,6 +11,7 @@ from .interaction import (
     UserInputSubmission,
     submit_user_input,
 )
+from .portfolio_context import PortfolioContextOperations
 from .portfolios import (
     PortfolioAlreadyActiveError,
     PortfolioAlreadyArchivedError,
@@ -49,6 +50,7 @@ __all__ = [
     "PortfolioAlreadyArchivedError",
     "PortfolioAlreadyInitializedError",
     "PortfolioArchivedError",
+    "PortfolioContextOperations",
     "PortfolioCorrectionError",
     "PortfolioMutationResult",
     "PortfolioOperationError",

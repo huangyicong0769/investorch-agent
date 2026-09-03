@@ -6,7 +6,9 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from agents import Agent, Runner, SQLiteSession, UserError
+from agents import Agent, RunContextWrapper, Runner, SQLiteSession, UserError
+from agents.lifecycle import RunHooksBase
+from agents.tool import Tool
 
 from investorch.config import AppConfig
 from investorch.context import AgentContext, ExecutionState, TodoUpdateHandler
@@ -30,6 +32,33 @@ class ApprovalOutcome:
 
 
 ApprovalHandler = Callable[[str, str, str | None], Awaitable[ApprovalOutcome]]
+SuccessfulToolHandler = Callable[[str, str, str, object], Awaitable[None]]
+
+
+async def _ignore_successful_tool(_session_id: str, _run_id: str, _tool_name: str, _result: object) -> None:
+    pass
+
+
+class _SuccessfulToolHooks(RunHooksBase[AgentContext, Agent[AgentContext]]):
+    def __init__(
+        self,
+        *,
+        session_id: str,
+        run_id: str,
+        handler: SuccessfulToolHandler,
+    ) -> None:
+        self._session_id = session_id
+        self._run_id = run_id
+        self._handler = handler
+
+    async def on_tool_end(
+        self,
+        _context: RunContextWrapper[AgentContext],
+        _agent: Agent[AgentContext],
+        tool: Tool,
+        result: object,
+    ) -> None:
+        await self._handler(self._session_id, self._run_id, tool.name, result)
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,12 +87,14 @@ class AgentLoop:
         compaction_agent: Agent,
         config: AppConfig,
         portfolios: PortfolioOperations,
+        successful_tool_handler: SuccessfulToolHandler = _ignore_successful_tool,
     ) -> None:
         self._agent = agent
         self._title_agent = title_agent
         self._compaction_agent = compaction_agent
         self._config = config
         self._portfolios = portfolios
+        self._successful_tool_handler = successful_tool_handler
 
     async def run(
         self,
@@ -89,8 +120,18 @@ class AgentLoop:
             portfolios=self._portfolios,
             todo_update_handler=todo_update_handler,
         )
+        hooks = _SuccessfulToolHooks(
+            session_id=session_id,
+            run_id=run_id,
+            handler=self._successful_tool_handler,
+        )
         result = Runner.run_streamed(
-            run_agent, user_input, session=session, context=agent_context, max_turns=self._config["runtime.max_turns"]
+            run_agent,
+            user_input,
+            session=session,
+            context=agent_context,
+            max_turns=self._config["runtime.max_turns"],
+            hooks=hooks,
         )
 
         current_agent_name = run_agent.name
@@ -142,7 +183,11 @@ class AgentLoop:
 
             if sdk_state is not None and (result.interruptions or staged_ids):
                 result = Runner.run_streamed(
-                    run_agent, sdk_state, session=session, max_turns=self._config["runtime.max_turns"]
+                    run_agent,
+                    sdk_state,
+                    session=session,
+                    max_turns=self._config["runtime.max_turns"],
+                    hooks=hooks,
                 )
                 continue
             break
