@@ -8,6 +8,7 @@ import { queryKeys } from '../api/queries'
 import { useWebConfig } from '../config/WebConfigContext'
 import type { BootstrapResponse, SessionListResponse } from '../api/types'
 import { ConversationPage } from '../components/conversation/ConversationPage'
+import { PortfolioIndexPage } from '../components/portfolio/PortfolioIndexPage'
 import { SessionSidebar } from '../components/sidebar/SessionSidebar'
 import { LiveWebSocketProvider } from '../websocket/LiveWebSocketProvider'
 import { Button } from '@/components/ui/button'
@@ -151,6 +152,7 @@ export function AppRouter() {
           <Route element={<AppShell />}>
             <Route index element={<RootRoute />} />
             <Route element={<ConversationPage />} path="c/:sessionId" />
+            <Route element={<PortfolioIndexPage />} path="portfolios" />
             <Route element={<NotFoundRoute />} path="*" />
           </Route>
         </Routes>

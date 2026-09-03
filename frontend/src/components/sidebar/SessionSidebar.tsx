@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Archive, Plus, Search, X } from 'lucide-react'
-import { useNavigate } from 'react-router-dom'
+import { Archive, BriefcaseBusiness, Plus, Search, X } from 'lucide-react'
+import { NavLink, useNavigate } from 'react-router-dom'
 
 import { archiveSession, createSession, deleteSession } from '../../api/client'
 import {
@@ -236,6 +236,20 @@ export function SessionSidebar({
         </p>
       ) : null}
 
+      <NavLink
+        className={({ isActive }) =>
+          cn(
+            'mt-2 flex items-center gap-2 rounded-lg px-3 py-2 text-sm outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/40',
+            isActive ? 'bg-muted font-medium text-foreground' : 'text-muted-foreground',
+          )
+        }
+        onClick={onMobileNavigate}
+        to="/portfolios"
+      >
+        <BriefcaseBusiness aria-hidden="true" size={16} />
+        Portfolios
+      </NavLink>
+
       <div className="relative mt-3">
         <Search
           aria-hidden="true"
@@ -260,6 +274,9 @@ export function SessionSidebar({
         viewportProps={{ className: '[&>div]:!block [&>div]:w-full [&>div]:min-w-0' }}
       >
         <nav aria-label="Sessions">
+          <p className="mb-1 px-3 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+            Sessions
+          </p>
           {selectedArchived ? (
             <div className="mb-3">
               <p className="mb-1 px-3 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
