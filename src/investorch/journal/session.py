@@ -119,6 +119,7 @@ class SessionJournal:
         source: str = "user",
         review_decision: str | None = None,
         review_reason: str | None = None,
+        instruction_head_seq: int | None = None,
     ) -> int:
         if source not in {"user", "permission"}:
             raise ValueError("approval source must be user or permission")
@@ -130,6 +131,8 @@ class SessionJournal:
             review_reason = review_reason.strip()
             if not review_reason:
                 raise ValueError("review_reason must not be empty")
+        if instruction_head_seq is not None and (type(instruction_head_seq) is not int or instruction_head_seq < 1):
+            raise ValueError("instruction_head_seq must be a positive integer or None")
 
         record: dict[str, object] = {
             "type": "approval",
@@ -144,6 +147,8 @@ class SessionJournal:
             record["review_decision"] = review_decision
         if review_reason is not None:
             record["review_reason"] = review_reason
+        if instruction_head_seq is not None:
+            record["instruction_head_seq"] = instruction_head_seq
 
         return await self._record(session_id, record)
 

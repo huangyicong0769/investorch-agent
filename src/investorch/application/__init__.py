@@ -25,6 +25,7 @@ from .portfolios import (
     PortfolioTransferCurrencyError,
 )
 from .presentation_state import SessionPresentationState, SessionPresentationStore
+from .review_context import PreparedReviewContext, ReviewContext, ReviewContextError
 from .sessions import (
     SessionAlreadyArchivedError,
     SessionArchivedError,
@@ -57,7 +58,10 @@ __all__ = [
     "PortfolioOperations",
     "PortfolioSequenceRetryExhaustedError",
     "PortfolioTransferCurrencyError",
+    "PreparedReviewContext",
     "QueuedFollowUpsPendingError",
+    "ReviewContext",
+    "ReviewContextError",
     "SessionAlreadyArchivedError",
     "SessionArchivedError",
     "SessionCompactionError",
