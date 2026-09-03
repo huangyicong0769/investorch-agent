@@ -10,7 +10,7 @@ interface PortfolioCardProps {
 }
 
 export function PortfolioCard({ portfolio }: PortfolioCardProps) {
-  const cash = logicalCashEntries(portfolio)
+  const cash = logicalCashEntries(portfolio.logical_cash)
   const archived = portfolio.status === 'ARCHIVED'
 
   return (
