@@ -37,6 +37,7 @@ from investorch.tools import close_execution, start_execution
 
 from .activity import ActivityCoordinator, ActivityLabelEvent, ActivityLabelHandler, _ignore_activity_label
 from .approval import ApprovalCoordinator, ApprovalResolvedHandler, ManualApprovalHandler, _ignore_approval_resolved
+from .portfolios import PortfolioOperations
 from .presentation_state import SessionPresentationStore
 from .sessions import SessionOperations
 
@@ -82,6 +83,7 @@ class ApplicationHost:
     journal: SessionJournal
     runtime: AgentRuntime
     sessions: SessionOperations
+    portfolios: PortfolioOperations
     approvals: ApprovalCoordinator
     activity: ActivityCoordinator | None
     presentation_state: SessionPresentationStore
@@ -154,6 +156,7 @@ async def open_application_host(
         await asyncio.to_thread(create_session, config.sessions_db, initial_session_id)
         logger.info("Started session %s", initial_session_id)
     execution = ExecutionState()
+    portfolios = PortfolioOperations(config=config)
     state = AppState(
         config=config,
         execution=execution,
@@ -226,6 +229,7 @@ async def open_application_host(
                     create_title_agent(title_model, title_model_settings),
                     create_compaction_agent(compact_model, compact_model_settings),
                     config,
+                    portfolios,
                 )
                 approvals = ApprovalCoordinator(
                     config=config,
@@ -268,6 +272,7 @@ async def open_application_host(
                     journal=journal,
                     runtime=runtime,
                     sessions=sessions,
+                    portfolios=portfolios,
                     approvals=approvals,
                     activity=activity,
                     presentation_state=presentation_state,

@@ -17,6 +17,7 @@ from .title import ensure_session_title
 from .usage import TokenUsage
 
 if TYPE_CHECKING:
+    from investorch.application.portfolios import PortfolioOperations
     from investorch.runtime.control import RunControl
 
 logger = logging.getLogger(__name__)
@@ -51,12 +52,18 @@ def should_auto_compact(
 
 class AgentLoop:
     def __init__(
-        self, agent: Agent[AgentContext], title_agent: Agent, compaction_agent: Agent, config: AppConfig
+        self,
+        agent: Agent[AgentContext],
+        title_agent: Agent,
+        compaction_agent: Agent,
+        config: AppConfig,
+        portfolios: PortfolioOperations,
     ) -> None:
         self._agent = agent
         self._title_agent = title_agent
         self._compaction_agent = compaction_agent
         self._config = config
+        self._portfolios = portfolios
 
     async def run(
         self,
@@ -79,6 +86,7 @@ class AgentLoop:
             execution=execution,
             session_id=session_id,
             run_id=run_id,
+            portfolios=self._portfolios,
             todo_update_handler=todo_update_handler,
         )
         result = Runner.run_streamed(

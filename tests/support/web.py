@@ -9,7 +9,7 @@ from pathlib import Path
 import httpx
 from agents import Agent
 
-from investorch.application import ApplicationHost, ApprovalCoordinator
+from investorch.application import ApplicationHost, ApprovalCoordinator, PortfolioOperations
 from investorch.application.presentation_state import SessionPresentationStore
 from investorch.application.sessions import SessionOperations
 from investorch.context import AppState
@@ -62,6 +62,7 @@ async def open_test_web(
         journal=runtime.journal,
         runtime=runtime.runtime,
         sessions=sessions,
+        portfolios=PortfolioOperations(config=runtime.config),
         approvals=approvals,
         activity=None,
         presentation_state=presentation_state,

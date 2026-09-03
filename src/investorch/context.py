@@ -11,6 +11,7 @@ from typing_extensions import TypedDict
 from investorch.config import AppConfig
 
 if TYPE_CHECKING:
+    from investorch.application.portfolios import PortfolioOperations
     from investorch.runtime.models import FollowUpBehavior
 
 TodoStatus = Literal["pending", "in_progress", "completed", "failed"]
@@ -62,6 +63,7 @@ class AgentContext:
     execution: ExecutionState
     session_id: str
     run_id: str
+    portfolios: PortfolioOperations
     turn: TurnState = field(default_factory=TurnState)
     todo_update_handler: TodoUpdateHandler | None = None
 
