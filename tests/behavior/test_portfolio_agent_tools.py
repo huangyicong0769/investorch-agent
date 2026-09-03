@@ -500,7 +500,9 @@ async def test_approved_transfer_tools_mutate_both_portfolios_atomically(tmp_pat
     assert source_ledger[-3].operation_id == destination_ledger[0].operation_id == known_cost_position["operation_id"]
     assert source_ledger[-2].operation_id == destination_ledger[1].operation_id == unknown_cost_position["operation_id"]
     assert source_ledger[-1].operation_id == destination_ledger[-1].operation_id == cash["operation_id"]
+    assert destination_ledger[0].payload.quantity == Decimal("0.03")
     assert destination_ledger[0].payload.transferred_cost == Decimal("45.7035")
+    assert destination_ledger[1].payload.quantity == Decimal("0.03")
     assert destination_ledger[1].payload.transferred_cost is None
     assert {entry.source for entry in destination_ledger} == {"agent"}
 
