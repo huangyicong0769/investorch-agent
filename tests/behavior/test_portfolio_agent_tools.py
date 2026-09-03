@@ -40,6 +40,7 @@ from investorch.tools import (
     update_portfolio,
 )
 from tests.support.config import make_test_config
+from tests.support.web import open_test_web
 
 STOCK = InstrumentId("600519", "XSHG")
 UNKNOWN_STOCK = InstrumentId("000001", "XSHE")
@@ -505,3 +506,25 @@ def test_main_agent_registers_complete_portfolio_tool_surface(tmp_path: Path) ->
     assert set(portfolio_tools) == read_names | mutation_names
     assert all(portfolio_tools[name].needs_approval is False for name in read_names)
     assert all(portfolio_tools[name].needs_approval is True for name in mutation_names)
+
+
+async def test_host_exposed_portfolio_operations_share_state_with_agent_tools(tmp_path: Path) -> None:
+    async with open_test_web(tmp_path) as harness:
+        portfolio = await harness.host.portfolios.create(name="Core", base_currency="CNY")
+        context = ToolContext(
+            context=AgentContext(
+                config=harness.host.config,
+                execution=harness.host.execution,
+                session_id="session-a",
+                run_id="run-a",
+                portfolios=harness.host.portfolios,
+            ),
+            tool_name="portfolio-behavior-test",
+            tool_call_id="call-a",
+            tool_arguments="{}",
+        )
+
+        result = await invoke(get_portfolio, context, portfolio_id=portfolio.id)
+
+    assert isinstance(result, dict)
+    assert result["portfolio"]["portfolio_id"] == portfolio.id

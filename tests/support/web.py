@@ -23,6 +23,7 @@ from tests.support.runtime import RuntimeHarness, make_runtime_harness
 @dataclass(slots=True)
 class WebHarness:
     runtime: RuntimeHarness
+    host: ApplicationHost
     client: httpx.AsyncClient
 
 
@@ -77,7 +78,7 @@ async def open_test_web(
     app.state.connections = connections
     client = httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test")
     try:
-        yield WebHarness(runtime=runtime, client=client)
+        yield WebHarness(runtime=runtime, host=host, client=client)
     finally:
         await client.aclose()
         broker.close()
