@@ -16,7 +16,7 @@ export function PortfolioCard({ portfolio }: PortfolioCardProps) {
   return (
     <Link
       className={cn(
-        'group flex min-h-44 flex-col rounded-xl border border-border bg-card p-5 outline-none transition-[border-color,background-color,box-shadow] hover:border-muted-foreground/40 hover:bg-muted/30 hover:shadow-sm focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40',
+        'group flex min-h-44 min-w-0 flex-col rounded-xl border border-border bg-card p-5 outline-none transition-[border-color,background-color,box-shadow] hover:border-muted-foreground/40 hover:bg-muted/30 hover:shadow-sm focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40',
         archived && 'bg-card/60 text-muted-foreground',
       )}
       to={portfolioPath(portfolio.portfolio_id)}
