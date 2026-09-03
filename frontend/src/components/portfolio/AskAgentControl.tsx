@@ -100,7 +100,7 @@ export function AskAgentControl({ portfolioId, portfolioName }: AskAgentControlP
           <Button
             aria-controls={composerId}
             aria-expanded={expanded}
-            className="w-full"
+            className="w-full focus-visible:ring-inset"
             onClick={() => setExpanded(true)}
             ref={collapsedButtonRef}
             size="sm"
@@ -123,7 +123,7 @@ export function AskAgentControl({ portfolioId, portfolioName }: AskAgentControlP
         <div className="min-h-0 overflow-hidden">
           <form
             aria-label={`Ask Agent about ${portfolioName}`}
-            className="w-full rounded-xl border border-border bg-card p-3 shadow-sm"
+            className="w-full rounded-xl border border-border bg-card p-3 shadow-sm transition-[border-color,box-shadow] focus-within:border-ring focus-within:ring-[3px] focus-within:ring-inset focus-within:ring-ring/50"
             id={composerId}
             onSubmit={handleSubmit}
           >
