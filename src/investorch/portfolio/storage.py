@@ -1,18 +1,35 @@
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Iterable
 from contextlib import closing
 from datetime import datetime
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
-from investorch.portfolio.domain import Portfolio, PortfolioStatus, StrategyBinding
+from investorch.portfolio.domain import (
+    HoldingState,
+    InstrumentId,
+    LedgerEntry,
+    LedgerEntryType,
+    Portfolio,
+    PortfolioState,
+    PortfolioStatus,
+    StrategyBinding,
+)
+from investorch.portfolio.ledger import project_portfolio
 from investorch.portfolio.schema import (
     PortfolioAlreadyExistsError,
     PortfolioConflictError,
     PortfolioDataError,
     PortfolioNotFoundError,
 )
-from investorch.portfolio.serialization import deserialize_strategy_parameters, serialize_strategy_parameters
+from investorch.portfolio.serialization import (
+    deserialize_ledger_payload,
+    deserialize_strategy_parameters,
+    serialize_ledger_payload,
+    serialize_strategy_parameters,
+)
 
 
 def create_portfolio(db_path: str | Path, portfolio: Portfolio) -> None:
@@ -105,6 +122,90 @@ def update_portfolio_metadata(db_path: str | Path, portfolio: Portfolio) -> None
             raise
 
 
+def append_ledger_operation(
+    db_path: str | Path,
+    entries: Iterable[LedgerEntry],
+) -> dict[str, PortfolioState]:
+    """Append one atomic Ledger operation and replace all affected projections."""
+    proposed = tuple(entries)
+    if not proposed:
+        raise PortfolioConflictError("Ledger operation must contain at least one entry")
+    if any(not isinstance(entry, LedgerEntry) for entry in proposed):
+        raise PortfolioConflictError("Ledger operation must contain only LedgerEntry values")
+    if len({entry.operation_id for entry in proposed}) != 1:
+        raise PortfolioConflictError("Ledger operation entries must share one operation_id")
+
+    portfolio_ids = sorted({entry.portfolio_id for entry in proposed})
+    with closing(_connect(db_path)) as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        try:
+            portfolios: dict[str, Portfolio] = {}
+            projected_states: dict[str, PortfolioState] = {}
+            for portfolio_id in portfolio_ids:
+                portfolio = _get_portfolio(connection, portfolio_id)
+                if portfolio is None:
+                    raise PortfolioNotFoundError(f"Portfolio not found: {portfolio_id}")
+                portfolios[portfolio_id] = portfolio
+
+            for portfolio_id, portfolio in portfolios.items():
+                existing = _list_ledger_entries(connection, portfolio_id)
+                additions = [entry for entry in proposed if entry.portfolio_id == portfolio_id]
+                projected_states[portfolio_id] = project_portfolio(portfolio, [*existing, *additions])
+
+            _insert_ledger_entries(connection, proposed)
+            for state in projected_states.values():
+                _replace_projection(connection, state)
+            connection.commit()
+        except sqlite3.IntegrityError as exc:
+            connection.rollback()
+            raise PortfolioConflictError(f"Ledger operation conflicts with persisted data: {exc}") from exc
+        except BaseException:
+            connection.rollback()
+            raise
+
+    return projected_states
+
+
+def list_ledger_entries(db_path: str | Path, portfolio_id: str) -> list[LedgerEntry]:
+    """Load typed Ledger entries in append/audit sequence order."""
+    with closing(_connect(db_path)) as connection:
+        return _list_ledger_entries(connection, portfolio_id)
+
+
+def get_portfolio_state(db_path: str | Path, portfolio_id: str) -> PortfolioState:
+    """Read a Portfolio's materialized Holdings and logical Cash projection."""
+    with closing(_connect(db_path)) as connection:
+        if _get_portfolio(connection, portfolio_id) is None:
+            raise PortfolioNotFoundError(f"Portfolio not found: {portfolio_id}")
+        try:
+            holdings = {}
+            for row in connection.execute(
+                """
+                SELECT instrument_code, market, quantity, total_cost
+                FROM portfolio_holdings
+                WHERE portfolio_id = ?
+                ORDER BY instrument_code, market
+                """,
+                (portfolio_id,),
+            ):
+                instrument = InstrumentId(row["instrument_code"], row["market"])
+                holdings[instrument] = HoldingState(
+                    instrument,
+                    Decimal(row["quantity"]),
+                    None if row["total_cost"] is None else Decimal(row["total_cost"]),
+                )
+            cash = {
+                row["currency"]: Decimal(row["amount"])
+                for row in connection.execute(
+                    "SELECT currency, amount FROM portfolio_cash WHERE portfolio_id = ? ORDER BY currency",
+                    (portfolio_id,),
+                )
+            }
+            return PortfolioState(portfolio_id, holdings, cash)
+        except (InvalidOperation, TypeError, ValueError) as exc:
+            raise PortfolioDataError(f"invalid persisted projection for Portfolio {portfolio_id}: {exc}") from exc
+
+
 def _connect(db_path: str | Path) -> sqlite3.Connection:
     connection = sqlite3.connect(db_path, isolation_level=None)
     connection.row_factory = sqlite3.Row
@@ -115,6 +216,92 @@ def _connect(db_path: str | Path) -> sqlite3.Connection:
 def _get_portfolio(connection: sqlite3.Connection, portfolio_id: str) -> Portfolio | None:
     row = connection.execute("SELECT * FROM portfolios WHERE portfolio_id = ?", (portfolio_id,)).fetchone()
     return None if row is None else _row_to_portfolio(row)
+
+
+def _list_ledger_entries(connection: sqlite3.Connection, portfolio_id: str) -> list[LedgerEntry]:
+    rows = connection.execute(
+        "SELECT * FROM portfolio_ledger WHERE portfolio_id = ? ORDER BY sequence ASC",
+        (portfolio_id,),
+    )
+    return [_row_to_ledger_entry(row) for row in rows]
+
+
+def _row_to_ledger_entry(row: sqlite3.Row) -> LedgerEntry:
+    entry_id = row["entry_id"]
+    portfolio_id = row["portfolio_id"]
+    entry_type_value = row["entry_type"]
+    try:
+        entry_type = LedgerEntryType(entry_type_value)
+        return LedgerEntry(
+            entry_id=entry_id,
+            operation_id=row["operation_id"],
+            portfolio_id=portfolio_id,
+            sequence=row["sequence"],
+            entry_type=entry_type,
+            effective_at=datetime.fromisoformat(row["effective_at"]),
+            recorded_at=datetime.fromisoformat(row["recorded_at"]),
+            source=row["source"],
+            external_ref=row["external_ref"],
+            payload=deserialize_ledger_payload(entry_type, row["payload_json"], entry_id=entry_id),
+        )
+    except PortfolioDataError:
+        raise
+    except (TypeError, ValueError) as exc:
+        raise PortfolioDataError(
+            f"invalid persisted Ledger entry {entry_id} ({entry_type_value}) for Portfolio {portfolio_id}: {exc}"
+        ) from exc
+
+
+def _insert_ledger_entries(connection: sqlite3.Connection, entries: tuple[LedgerEntry, ...]) -> None:
+    connection.executemany(
+        """
+        INSERT INTO portfolio_ledger (
+            entry_id, portfolio_id, operation_id, sequence, entry_type,
+            effective_at, recorded_at, source, external_ref, payload_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        [
+            (
+                entry.entry_id,
+                entry.portfolio_id,
+                entry.operation_id,
+                entry.sequence,
+                entry.entry_type.value,
+                entry.effective_at.isoformat(),
+                entry.recorded_at.isoformat(),
+                entry.source,
+                entry.external_ref,
+                serialize_ledger_payload(entry.payload),
+            )
+            for entry in entries
+        ],
+    )
+
+
+def _replace_projection(connection: sqlite3.Connection, state: PortfolioState) -> None:
+    connection.execute("DELETE FROM portfolio_holdings WHERE portfolio_id = ?", (state.portfolio_id,))
+    connection.executemany(
+        """
+        INSERT INTO portfolio_holdings (
+            portfolio_id, instrument_code, market, quantity, total_cost
+        ) VALUES (?, ?, ?, ?, ?)
+        """,
+        [
+            (
+                state.portfolio_id,
+                instrument.code,
+                instrument.market,
+                str(holding.quantity),
+                None if holding.total_cost is None else str(holding.total_cost),
+            )
+            for instrument, holding in sorted(state.holdings.items(), key=lambda item: (item[0].code, item[0].market))
+        ],
+    )
+    connection.execute("DELETE FROM portfolio_cash WHERE portfolio_id = ?", (state.portfolio_id,))
+    connection.executemany(
+        "INSERT INTO portfolio_cash (portfolio_id, currency, amount) VALUES (?, ?, ?)",
+        [(state.portfolio_id, currency, str(amount)) for currency, amount in sorted(state.cash.items())],
+    )
 
 
 def _row_to_portfolio(row: sqlite3.Row) -> Portfolio:

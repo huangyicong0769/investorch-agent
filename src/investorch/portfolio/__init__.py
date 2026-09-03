@@ -38,8 +38,11 @@ from investorch.portfolio.schema import (
     init_portfolio_storage,
 )
 from investorch.portfolio.storage import (
+    append_ledger_operation,
     create_portfolio,
     get_portfolio,
+    get_portfolio_state,
+    list_ledger_entries,
     list_portfolios,
     update_portfolio_metadata,
 )
@@ -78,9 +81,12 @@ __all__ = [
     "TransferDirection",
     "UnsupportedPortfolioSchemaError",
     "Void",
+    "append_ledger_operation",
     "create_portfolio",
     "get_portfolio",
+    "get_portfolio_state",
     "init_portfolio_storage",
+    "list_ledger_entries",
     "list_portfolios",
     "project_portfolio",
     "update_portfolio_metadata",
