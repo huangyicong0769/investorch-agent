@@ -86,32 +86,18 @@ def _resolve_voids(ledger: tuple[LedgerEntry, ...]) -> set[str]:
             target = entries_by_id.get(entry.payload.target_entry_id)
             if target is None:
                 raise InvalidVoidError(f"VOID {entry.entry_id} must target an existing earlier entry")
+            if target.entry_type is LedgerEntryType.VOID:
+                raise InvalidVoidError(f"VOID {entry.entry_id} cannot target another VOID")
             if target.portfolio_id != entry.portfolio_id:
                 raise InvalidVoidError(f"VOID {entry.entry_id} must target an entry in the same Portfolio")
             if target.entry_id in voided_entry_ids:
                 raise InvalidVoidError(f"entry {target.entry_id} is already voided")
-            _set_voided(target, True, entries_by_id, voided_entry_ids)
+            voided_entry_ids.add(target.entry_id)
 
         entries_by_id[entry.entry_id] = entry
         sequences.add(entry.sequence)
 
     return voided_entry_ids
-
-
-def _set_voided(
-    entry: LedgerEntry,
-    voided: bool,
-    entries_by_id: dict[str, LedgerEntry],
-    voided_entry_ids: set[str],
-) -> None:
-    if voided:
-        voided_entry_ids.add(entry.entry_id)
-    else:
-        voided_entry_ids.remove(entry.entry_id)
-
-    if isinstance(entry.payload, Void):
-        target = entries_by_id[entry.payload.target_entry_id]
-        _set_voided(target, not voided, entries_by_id, voided_entry_ids)
 
 
 def _apply_entry(

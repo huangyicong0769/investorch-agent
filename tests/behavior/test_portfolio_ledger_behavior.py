@@ -270,15 +270,14 @@ def test_void_removes_wrong_entry_and_replacement_supplies_truth() -> None:
     assert state.cash == {"CNY": Decimal("80")}
 
 
-def test_void_of_void_restores_the_original_entry() -> None:
+def test_void_cannot_target_another_void() -> None:
     portfolio = make_portfolio()
     original = make_entry(portfolio.id, 1, LedgerEntryType.OPENING_CASH, OpeningCash("CNY", Decimal("100")))
-    mistaken_void = make_entry(portfolio.id, 2, LedgerEntryType.VOID, Void(original.entry_id, "mistaken correction"))
-    correction = make_entry(portfolio.id, 3, LedgerEntryType.VOID, Void(mistaken_void.entry_id, "restore original"))
+    first = make_entry(portfolio.id, 2, LedgerEntryType.VOID, Void(original.entry_id, "wrong original"))
+    second = make_entry(portfolio.id, 3, LedgerEntryType.VOID, Void(first.entry_id, "unsupported correction"))
 
-    state = project_portfolio(portfolio, [original, mistaken_void, correction])
-
-    assert state.cash == {"CNY": Decimal("100")}
+    with pytest.raises(InvalidVoidError, match="another VOID"):
+        project_portfolio(portfolio, [original, first, second])
 
 
 def test_void_target_must_be_earlier() -> None:
@@ -307,19 +306,6 @@ def test_entry_cannot_be_voided_twice() -> None:
 
     with pytest.raises(InvalidVoidError, match="already voided"):
         project_portfolio(portfolio, [target, first, second])
-
-
-def test_later_void_cannot_make_an_earlier_double_void_valid() -> None:
-    portfolio = make_portfolio()
-    target = make_entry(portfolio.id, 1, LedgerEntryType.OPENING_CASH, OpeningCash("CNY", Decimal("100")))
-    first = make_entry(portfolio.id, 2, LedgerEntryType.VOID, Void(target.entry_id, "first correction"))
-    invalid_second = make_entry(
-        portfolio.id, 3, LedgerEntryType.VOID, Void(target.entry_id, "invalid second correction")
-    )
-    later_correction = make_entry(portfolio.id, 4, LedgerEntryType.VOID, Void(first.entry_id, "too late"))
-
-    with pytest.raises(InvalidVoidError, match="already voided"):
-        project_portfolio(portfolio, [target, first, invalid_second, later_correction])
 
 
 def test_backdated_entry_replays_by_effective_time_then_sequence() -> None:

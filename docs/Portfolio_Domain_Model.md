@@ -54,7 +54,7 @@ All financial quantities use exact `Decimal` arithmetic. Domain interfaces rejec
 
 ## VOID and ADJUSTMENT
 
-A valid `VOID` targets an existing earlier entry in the same Portfolio that has not already been voided. The VOID itself has no economic effect, and the target is excluded from replay without being edited or deleted. Correct truth is appended as an ordinary replacement entry. Invalid target, ordering, Portfolio, and double-VOID relationships are domain errors.
+A valid `VOID` targets an existing earlier economic entry in the same Portfolio that has not already been voided. In A0, a VOID cannot target another VOID. The VOID itself has no economic effect, and the target is excluded from replay without being edited or deleted. Correct truth is appended as an ordinary replacement entry. Invalid target, ordering, Portfolio, and double-VOID relationships are domain errors.
 
 `VOID` means the previous record was wrong. `ADJUSTMENT` means the previous record was correct and a newly recognized real-world state must now be asserted. An event representable as a trade, transfer, cash flow, or income is not an adjustment.
 
