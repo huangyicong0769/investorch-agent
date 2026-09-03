@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { PanelLeft } from 'lucide-react'
-import { BrowserRouter, Link, Outlet, Route, Routes, useMatch } from 'react-router-dom'
+import { BrowserRouter, Link, Outlet, Route, Routes, useLocation, useMatch } from 'react-router-dom'
 
 import { discardUnusedSession } from '../api/client'
 import { queryKeys } from '../api/queries'
@@ -17,11 +17,13 @@ import { Button } from '@/components/ui/button'
 function AppShell() {
   const webConfig = useWebConfig()
   const queryClient = useQueryClient()
+  const location = useLocation()
   const sessionMatch = useMatch('/c/:sessionId')
   const selectedSessionId = sessionMatch?.params.sessionId ?? null
   const previousSessionIdRef = useRef<string | null>(null)
   const selectedSessionIdRef = useRef(selectedSessionId)
   const sidebarButtonRef = useRef<HTMLButtonElement>(null)
+  const mainRef = useRef<HTMLElement>(null)
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
   selectedSessionIdRef.current = selectedSessionId
 
@@ -34,7 +36,9 @@ function AppShell() {
 
   useEffect(() => {
     hideMobileSidebar()
-  }, [hideMobileSidebar, selectedSessionId])
+    const focusFrame = window.requestAnimationFrame(() => mainRef.current?.focus())
+    return () => window.cancelAnimationFrame(focusFrame)
+  }, [hideMobileSidebar, location.pathname])
 
   useEffect(() => {
     if (!mobileSidebarOpen) {
@@ -121,7 +125,12 @@ function AppShell() {
         onMobileNavigate={hideMobileSidebar}
         selectedSessionId={selectedSessionId}
       />
-      <main className="min-w-0 flex-1" inert={mobileSidebarOpen ? true : undefined}>
+      <main
+        className="min-w-0 flex-1 outline-none"
+        inert={mobileSidebarOpen ? true : undefined}
+        ref={mainRef}
+        tabIndex={-1}
+      >
         <Outlet />
       </main>
     </div>

@@ -58,16 +58,20 @@ export function AskAgentControl({ portfolioId, portfolioName }: AskAgentControlP
     askMutation.mutate(text)
   }
 
+  const collapseAndRestoreFocus = () => {
+    setExpanded(false)
+    window.requestAnimationFrame(() => collapsedButtonRef.current?.focus())
+  }
+
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     submit()
   }
 
   const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.key === 'Escape' && !text) {
+    if (event.key === 'Escape' && !text.trim()) {
       event.preventDefault()
-      setExpanded(false)
-      window.requestAnimationFrame(() => collapsedButtonRef.current?.focus())
+      collapseAndRestoreFocus()
       return
     }
     if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
@@ -120,7 +124,7 @@ export function AskAgentControl({ portfolioId, portfolioName }: AskAgentControlP
         <Button
           aria-label="Close Ask Agent"
           disabled={askMutation.isPending}
-          onClick={() => setExpanded(false)}
+          onClick={collapseAndRestoreFocus}
           size="icon-sm"
           type="button"
           variant="ghost"
