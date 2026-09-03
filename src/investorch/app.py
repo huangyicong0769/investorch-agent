@@ -137,6 +137,7 @@ async def _run_configured_app(
         logger.info("Bootstrap synchronization started")
         model, model_settings = create_model(config, "bootstrap")
         agent = create_bootstrap_sync_agent(model, model_settings)
+        portfolios = PortfolioOperations(config=config)
 
         async def merge_target(target: Path, template: str, exists: bool) -> None:
             context = AgentContext(
@@ -144,7 +145,7 @@ async def _run_configured_app(
                 execution=ExecutionState(),
                 session_id="bootstrap-sync",
                 run_id="bootstrap-sync",
-                portfolios=PortfolioOperations(config=config),
+                portfolios=portfolios,
             )
             prompt = build_bootstrap_sync_prompt(target, config.workspace_dir, template, exists)
             await run_bootstrap_sync(agent, context, prompt, target)
