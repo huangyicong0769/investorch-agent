@@ -78,20 +78,25 @@ async def test_portfolio_application_distinguishes_missing_portfolio_from_empty_
 
 async def test_active_portfolio_metadata_can_be_changed_and_cleared(tmp_path) -> None:
     operations = PortfolioOperations(config=make_test_config(tmp_path))
-    portfolio = await operations.create(
-        name="Core",
-        base_currency="CNY",
-        description="Initial",
+    portfolio = await operations.create(name="Core", base_currency="CNY")
+
+    configured = await operations.update_metadata(
+        portfolio.id,
+        name="Renamed",
+        description="Long-term holdings",
         strategy_binding=StrategyBinding("strategies/value.py", {"lookback": 20}),
     )
+    assert await operations.get(portfolio.id) == configured
 
     updated = await operations.update_metadata(
         portfolio.id,
-        name="Renamed",
         description=None,
         strategy_binding=None,
     )
 
+    assert configured.name == "Renamed"
+    assert configured.description == "Long-term holdings"
+    assert configured.strategy_binding == StrategyBinding("strategies/value.py", {"lookback": 20})
     assert updated.name == "Renamed"
     assert updated.description is None
     assert updated.strategy_binding is None
@@ -280,6 +285,13 @@ async def test_position_and_cash_adjustments_assert_durable_resulting_state(tmp_
             side=TradeSide.BUY,
             quantity=Decimal("1"),
             price=Decimal("1"),
+            source="manual",
+        )
+    with pytest.raises(PortfolioArchivedError):
+        await operations.adjust_cash(
+            portfolio.id,
+            resulting_amount=Decimal("1"),
+            reason="blocked",
             source="manual",
         )
 
