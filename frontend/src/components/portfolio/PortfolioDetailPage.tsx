@@ -5,6 +5,7 @@ import { Link, useParams } from 'react-router-dom'
 import { ApiError } from '../../api/client'
 import { portfolioQueryOptions } from '../../api/queries'
 import { errorMessage } from '../../lib/errors'
+import { AskAgentControl } from './AskAgentControl'
 import { HoldingsTable } from './HoldingsTable'
 import { PortfolioLedger } from './PortfolioLedger'
 import { PortfolioOverview } from './PortfolioOverview'
@@ -82,16 +83,22 @@ export function PortfolioDetailPage() {
             <ArrowLeft aria-hidden="true" size={15} />
             Portfolios
           </Link>
-          <div className="mt-6">
-            <h1 className="break-words text-2xl font-semibold tracking-tight">{detail.portfolio.name}</h1>
-            <p className="mt-2 text-xs font-medium tracking-wide text-muted-foreground">
-              {detail.portfolio.status} · {detail.portfolio.base_currency}
-            </p>
-            {detail.portfolio.description ? (
-              <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">
-                {detail.portfolio.description}
+          <div className="mt-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <div className="min-w-0">
+              <h1 className="break-words text-2xl font-semibold tracking-tight">{detail.portfolio.name}</h1>
+              <p className="mt-2 text-xs font-medium tracking-wide text-muted-foreground">
+                {detail.portfolio.status} · {detail.portfolio.base_currency}
               </p>
-            ) : null}
+              {detail.portfolio.description ? (
+                <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">
+                  {detail.portfolio.description}
+                </p>
+              ) : null}
+            </div>
+            <AskAgentControl
+              portfolioId={detail.portfolio.portfolio_id}
+              portfolioName={detail.portfolio.name}
+            />
           </div>
         </header>
 
