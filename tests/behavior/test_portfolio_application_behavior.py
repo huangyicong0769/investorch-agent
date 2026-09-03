@@ -14,12 +14,21 @@ from investorch.application import (
     PortfolioOperations,
 )
 from investorch.portfolio import (
+    CashAdjustment,
+    Income,
     InstrumentId,
+    InsufficientPositionError,
+    LedgerEntry,
     LedgerEntryType,
+    OpeningCash,
     OpeningPosition,
     PortfolioNotFoundError,
     PortfolioStatus,
+    PositionAdjustment,
     StrategyBinding,
+    Trade,
+    TradeSide,
+    append_ledger_operation,
 )
 from tests.support.config import make_test_config
 
@@ -161,3 +170,136 @@ async def test_initialize_is_one_shot_and_rejects_empty_or_archived_portfolios(t
     with pytest.raises(PortfolioArchivedError):
         await operations.initialize(archived.id, cash=Decimal("1"), source="manual")
     assert await operations.list_ledger(archived.id) == []
+
+
+async def test_trade_cash_flow_and_income_record_supplied_business_facts(tmp_path) -> None:
+    operations = PortfolioOperations(config=make_test_config(tmp_path))
+    portfolio = await operations.create(name="Core", base_currency="CNY")
+
+    trade = await operations.record_trade(
+        portfolio.id,
+        instrument=STOCK,
+        side=TradeSide.BUY,
+        quantity=Decimal("10"),
+        price=Decimal("10"),
+        commission=Decimal("1"),
+        tax=Decimal("1"),
+        other_fee=Decimal("1"),
+        effective_at=EFFECTIVE_AT,
+        source="manual",
+        external_ref="fill-1",
+    )
+    await operations.record_cash_flow(portfolio.id, amount=Decimal("1000"), source="manual")
+    await operations.record_cash_flow(portfolio.id, amount=Decimal("-50"), source="manual")
+    income = await operations.record_income(
+        portfolio.id,
+        gross_amount=Decimal("100"),
+        tax=Decimal("10"),
+        other_fee=Decimal("2"),
+        instrument=STOCK,
+        source="import",
+    )
+
+    trade_entry = trade.entries[0]
+    income_entry = income.entries[0]
+    assert trade_entry.entry_type is LedgerEntryType.TRADE
+    assert trade_entry.payload == Trade(
+        STOCK,
+        TradeSide.BUY,
+        Decimal("10"),
+        Decimal("10"),
+        commission=Decimal("1"),
+        tax=Decimal("1"),
+        other_fee=Decimal("1"),
+    )
+    assert trade_entry.effective_at == EFFECTIVE_AT
+    assert trade_entry.source == "manual"
+    assert trade_entry.external_ref == "fill-1"
+    assert income_entry.payload == Income("CNY", Decimal("100"), Decimal("10"), Decimal("2"), STOCK)
+    state = await operations.get_state(portfolio.id)
+    assert state.holdings[STOCK].quantity == Decimal("10")
+    assert state.holdings[STOCK].total_cost == Decimal("103")
+    assert state.cash == {"CNY": Decimal("935")}
+
+    ledger_before = await operations.list_ledger(portfolio.id)
+    with pytest.raises(InsufficientPositionError):
+        await operations.record_trade(
+            portfolio.id,
+            instrument=STOCK,
+            side=TradeSide.SELL,
+            quantity=Decimal("11"),
+            price=Decimal("10"),
+            source="manual",
+        )
+    assert await operations.list_ledger(portfolio.id) == ledger_before
+
+
+async def test_position_and_cash_adjustments_assert_durable_resulting_state(tmp_path) -> None:
+    operations = PortfolioOperations(config=make_test_config(tmp_path))
+    portfolio = await operations.create(name="Core", base_currency="CNY")
+    await operations.initialize(
+        portfolio.id,
+        cash=Decimal("100"),
+        positions=(OpeningPosition(STOCK, Decimal("10"), Decimal("100")),),
+        source="import",
+    )
+
+    position = await operations.adjust_position(
+        portfolio.id,
+        instrument=STOCK,
+        resulting_quantity=Decimal("8"),
+        resulting_total_cost=Decimal("80"),
+        reason="statement",
+        source="manual",
+    )
+    cash = await operations.adjust_cash(
+        portfolio.id,
+        resulting_amount=Decimal("90"),
+        reason="statement",
+        source="manual",
+    )
+
+    assert position.entries[0].payload == PositionAdjustment(STOCK, Decimal("8"), Decimal("80"), "statement")
+    assert cash.entries[0].payload == CashAdjustment("CNY", Decimal("90"), "statement")
+    state = await operations.get_state(portfolio.id)
+    assert state.holdings[STOCK].quantity == Decimal("8")
+    assert state.holdings[STOCK].total_cost == Decimal("80")
+    assert state.cash == {"CNY": Decimal("90")}
+
+    await operations.archive(portfolio.id)
+    with pytest.raises(PortfolioArchivedError):
+        await operations.record_trade(
+            portfolio.id,
+            instrument=STOCK,
+            side=TradeSide.BUY,
+            quantity=Decimal("1"),
+            price=Decimal("1"),
+            source="manual",
+        )
+
+
+async def test_application_sequence_advances_after_persisted_audit_tail(tmp_path) -> None:
+    config = make_test_config(tmp_path)
+    operations = PortfolioOperations(config=config)
+    portfolio = await operations.create(name="Core", base_currency="CNY")
+    append_ledger_operation(
+        config.portfolio_db,
+        [
+            LedgerEntry(
+                entry_id="opening",
+                operation_id="existing-operation",
+                portfolio_id=portfolio.id,
+                sequence=10,
+                entry_type=LedgerEntryType.OPENING_CASH,
+                effective_at=EFFECTIVE_AT,
+                recorded_at=EFFECTIVE_AT,
+                source="import",
+                payload=OpeningCash("CNY", Decimal("10")),
+            )
+        ],
+    )
+
+    result = await operations.record_cash_flow(portfolio.id, amount=Decimal("1"), source="manual")
+
+    assert result.entries[0].sequence == 11
+    assert [entry.sequence for entry in await operations.list_ledger(portfolio.id)] == [10, 11]

@@ -10,6 +10,10 @@ from decimal import Decimal
 
 from investorch.config import AppConfig
 from investorch.portfolio import (
+    CashAdjustment,
+    CashFlow,
+    Income,
+    InstrumentId,
     LedgerEntry,
     LedgerEntryType,
     OpeningCash,
@@ -19,7 +23,10 @@ from investorch.portfolio import (
     PortfolioSequenceConflictError,
     PortfolioState,
     PortfolioStatus,
+    PositionAdjustment,
     StrategyBinding,
+    Trade,
+    TradeSide,
     append_ledger_operation,
     create_portfolio,
     get_portfolio,
@@ -229,6 +236,175 @@ class PortfolioOperations:
                 validate=validate,
             )
         logger.info("Initialized Portfolio operation %s for %s", operation_id, portfolio_id)
+        return result
+
+    async def record_trade(
+        self,
+        portfolio_id: str,
+        *,
+        instrument: InstrumentId,
+        side: TradeSide,
+        quantity: Decimal,
+        price: Decimal,
+        commission: Decimal = Decimal(0),
+        tax: Decimal = Decimal(0),
+        other_fee: Decimal = Decimal(0),
+        effective_at: datetime | None = None,
+        source: str,
+        external_ref: str | None = None,
+    ) -> PortfolioMutationResult:
+        return await self._record_single(
+            portfolio_id=portfolio_id,
+            entry_type=LedgerEntryType.TRADE,
+            payload_factory=lambda _portfolio: Trade(
+                instrument,
+                side,
+                quantity,
+                price,
+                commission,
+                tax,
+                other_fee,
+            ),
+            effective_at=effective_at,
+            source=source,
+            external_ref=external_ref,
+        )
+
+    async def record_cash_flow(
+        self,
+        portfolio_id: str,
+        *,
+        amount: Decimal,
+        effective_at: datetime | None = None,
+        source: str,
+        external_ref: str | None = None,
+    ) -> PortfolioMutationResult:
+        return await self._record_single(
+            portfolio_id=portfolio_id,
+            entry_type=LedgerEntryType.CASH_FLOW,
+            payload_factory=lambda portfolio: CashFlow(portfolio.base_currency, amount),
+            effective_at=effective_at,
+            source=source,
+            external_ref=external_ref,
+        )
+
+    async def record_income(
+        self,
+        portfolio_id: str,
+        *,
+        gross_amount: Decimal,
+        tax: Decimal = Decimal(0),
+        other_fee: Decimal = Decimal(0),
+        instrument: InstrumentId | None = None,
+        effective_at: datetime | None = None,
+        source: str,
+        external_ref: str | None = None,
+    ) -> PortfolioMutationResult:
+        return await self._record_single(
+            portfolio_id=portfolio_id,
+            entry_type=LedgerEntryType.INCOME,
+            payload_factory=lambda portfolio: Income(
+                portfolio.base_currency,
+                gross_amount,
+                tax,
+                other_fee,
+                instrument,
+            ),
+            effective_at=effective_at,
+            source=source,
+            external_ref=external_ref,
+        )
+
+    async def adjust_position(
+        self,
+        portfolio_id: str,
+        *,
+        instrument: InstrumentId,
+        resulting_quantity: Decimal,
+        resulting_total_cost: Decimal | None,
+        reason: str,
+        effective_at: datetime | None = None,
+        source: str,
+        external_ref: str | None = None,
+    ) -> PortfolioMutationResult:
+        return await self._record_single(
+            portfolio_id=portfolio_id,
+            entry_type=LedgerEntryType.ADJUSTMENT,
+            payload_factory=lambda _portfolio: PositionAdjustment(
+                instrument,
+                resulting_quantity,
+                resulting_total_cost,
+                reason,
+            ),
+            effective_at=effective_at,
+            source=source,
+            external_ref=external_ref,
+        )
+
+    async def adjust_cash(
+        self,
+        portfolio_id: str,
+        *,
+        resulting_amount: Decimal,
+        reason: str,
+        effective_at: datetime | None = None,
+        source: str,
+        external_ref: str | None = None,
+    ) -> PortfolioMutationResult:
+        return await self._record_single(
+            portfolio_id=portfolio_id,
+            entry_type=LedgerEntryType.ADJUSTMENT,
+            payload_factory=lambda portfolio: CashAdjustment(
+                portfolio.base_currency,
+                resulting_amount,
+                reason,
+            ),
+            effective_at=effective_at,
+            source=source,
+            external_ref=external_ref,
+        )
+
+    async def _record_single(
+        self,
+        *,
+        portfolio_id: str,
+        entry_type: LedgerEntryType,
+        payload_factory: Callable[[Portfolio], LedgerPayload],
+        effective_at: datetime | None,
+        source: str,
+        external_ref: str | None,
+    ) -> PortfolioMutationResult:
+        recorded_at = datetime.now(UTC)
+        effective_at = recorded_at if effective_at is None else effective_at
+        operation_id = uuid.uuid4().hex
+        async with self._mutation_lock:
+            portfolio = await self.get(portfolio_id)
+            _require_active(portfolio)
+            drafts = (
+                _EntryDraft(
+                    entry_id=uuid.uuid4().hex,
+                    portfolio_id=portfolio_id,
+                    entry_type=entry_type,
+                    effective_at=effective_at,
+                    payload=payload_factory(portfolio),
+                ),
+            )
+
+            def validate(
+                portfolios: dict[str, Portfolio],
+                _ledgers: dict[str, list[LedgerEntry]],
+            ) -> None:
+                _require_active(portfolios[portfolio_id])
+
+            result = await self._append_operation(
+                operation_id=operation_id,
+                recorded_at=recorded_at,
+                source=source,
+                external_ref=external_ref,
+                drafts=drafts,
+                validate=validate,
+            )
+        logger.info("Recorded Portfolio operation %s for %s", operation_id, portfolio_id)
         return result
 
     async def _append_operation(
