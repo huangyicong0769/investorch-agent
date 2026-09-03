@@ -23,6 +23,7 @@ from investorch.tools import (
     adjust_portfolio_cash,
     adjust_portfolio_position,
     archive_portfolio,
+    correct_portfolio_entry,
     create_portfolio,
     get_portfolio,
     get_portfolio_ledger,
@@ -339,3 +340,71 @@ async def test_economic_tools_reject_ambiguous_or_inexact_inputs(tmp_path: Path)
     assert isinstance(naive_time, str)
     assert "timezone-aware" in naive_time
     assert await context.context.portfolios.list_ledger(portfolio.id) == []
+
+
+async def test_correction_tool_uses_a_strict_discriminated_replacement(tmp_path: Path) -> None:
+    context = make_tool_context(tmp_path)
+    portfolio = await context.context.portfolios.create(name="Core", base_currency="CNY")
+    original = await context.context.portfolios.record_cash_flow(
+        portfolio.id,
+        amount=Decimal("10.03"),
+        source="import",
+    )
+
+    result = await invoke(
+        correct_portfolio_entry,
+        context,
+        portfolio_id=portfolio.id,
+        target_entry_id=original.entries[0].entry_id,
+        reason="amount was wrong",
+        replacement={"type": "cash_flow", "amount": "12.03"},
+    )
+
+    replacement_schema = correct_portfolio_entry.params_json_schema["properties"]["replacement"]
+    assert correct_portfolio_entry.needs_approval is True
+    assert correct_portfolio_entry.strict_json_schema is True
+    assert "discriminator" in replacement_schema
+    assert isinstance(result, dict)
+    ledger = await context.context.portfolios.list_ledger(portfolio.id)
+    assert [entry.entry_type.value for entry in ledger] == ["CASH_FLOW", "VOID", "CASH_FLOW"]
+    assert ledger[-1].payload == CashFlow("CNY", Decimal("12.03"))
+    assert {entry.source for entry in ledger[1:]} == {"agent"}
+    assert {entry.external_ref for entry in ledger[1:]} == {None}
+
+    invalid = await invoke(
+        correct_portfolio_entry,
+        context,
+        portfolio_id=portfolio.id,
+        target_entry_id=ledger[-1].entry_id,
+        reason="invalid shape",
+        replacement={"type": "cash_flow", "amount": "1", "unexpected": "field"},
+    )
+    assert isinstance(invalid, str)
+    assert "Invalid JSON input" in invalid
+
+
+async def test_correction_tool_rejects_one_sided_transfer_correction(tmp_path: Path) -> None:
+    context = make_tool_context(tmp_path)
+    source = await context.context.portfolios.create(name="Source", base_currency="CNY")
+    destination = await context.context.portfolios.create(name="Destination", base_currency="CNY")
+    await context.context.portfolios.initialize(source.id, cash=Decimal("100"), source="import")
+    transfer = await context.context.portfolios.transfer_cash(
+        source_portfolio_id=source.id,
+        destination_portfolio_id=destination.id,
+        amount=Decimal("10"),
+        source="import",
+    )
+
+    result = await invoke(
+        correct_portfolio_entry,
+        context,
+        portfolio_id=source.id,
+        target_entry_id=next(entry.entry_id for entry in transfer.entries if entry.portfolio_id == source.id),
+        reason="wrong transfer",
+        replacement={"type": "cash_flow", "amount": "10"},
+    )
+
+    assert isinstance(result, str)
+    assert "Direct Agent correction of Portfolio TRANSFER entries is not supported" in result
+    assert len(await context.context.portfolios.list_ledger(source.id)) == 2
+    assert len(await context.context.portfolios.list_ledger(destination.id)) == 1

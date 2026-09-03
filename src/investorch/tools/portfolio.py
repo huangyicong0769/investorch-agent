@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from agents import RunContextWrapper
 from agents.decorators import tool
@@ -18,6 +18,7 @@ from investorch.portfolio import (
     Income,
     InstrumentId,
     LedgerEntry,
+    LedgerEntryType,
     OpeningCash,
     OpeningPosition,
     Portfolio,
@@ -29,6 +30,7 @@ from investorch.portfolio import (
     TradeSide,
     Void,
 )
+from investorch.portfolio.domain import LedgerPayload
 
 
 class OpeningPositionInput(BaseModel):
@@ -42,6 +44,100 @@ class OpeningPositionInput(BaseModel):
     total_cost: str | None = Field(
         description="Non-negative total cost as an exact decimal string, or null if unknown."
     )
+
+
+class OpeningCashReplacementInput(BaseModel):
+    """Strict replacement for opening cash."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["opening_cash"] = Field(description="Replacement payload type.")
+    amount: str = Field(description="Opening cash as an exact decimal string.")
+
+
+class OpeningPositionReplacementInput(BaseModel):
+    """Strict replacement for an opening position."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["opening_position"] = Field(description="Replacement payload type.")
+    code: str = Field(description="Instrument code.")
+    market: str = Field(description="Instrument market identifier.")
+    quantity: str = Field(description="Positive opening quantity as an exact decimal string.")
+    total_cost: str | None = Field(description="Non-negative total cost, or null if unknown.")
+
+
+class TradeReplacementInput(BaseModel):
+    """Strict replacement for a realized trade."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["trade"] = Field(description="Replacement payload type.")
+    code: str = Field(description="Instrument code.")
+    market: str = Field(description="Instrument market identifier.")
+    side: Literal["BUY", "SELL"] = Field(description="Realized trade side.")
+    quantity: str = Field(description="Positive traded quantity as an exact decimal string.")
+    price: str = Field(description="Positive unit price as an exact decimal string.")
+    commission: str = Field(default="0", description="Non-negative commission as an exact decimal string.")
+    tax: str = Field(default="0", description="Non-negative tax as an exact decimal string.")
+    other_fee: str = Field(default="0", description="Non-negative other fee as an exact decimal string.")
+
+
+class CashFlowReplacementInput(BaseModel):
+    """Strict replacement for an external cash flow."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["cash_flow"] = Field(description="Replacement payload type.")
+    amount: str = Field(description="Signed cash flow as an exact decimal string.")
+
+
+class IncomeReplacementInput(BaseModel):
+    """Strict replacement for realized income."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["income"] = Field(description="Replacement payload type.")
+    gross_amount: str = Field(description="Non-negative gross income as an exact decimal string.")
+    tax: str = Field(default="0", description="Non-negative tax as an exact decimal string.")
+    other_fee: str = Field(default="0", description="Non-negative other fee as an exact decimal string.")
+    code: str | None = Field(default=None, description="Optional instrument code; supply with market.")
+    market: str | None = Field(default=None, description="Optional instrument market; supply with code.")
+
+
+class PositionAdjustmentReplacementInput(BaseModel):
+    """Strict replacement for a position assertion."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["position_adjustment"] = Field(description="Replacement payload type.")
+    code: str = Field(description="Instrument code.")
+    market: str = Field(description="Instrument market identifier.")
+    resulting_quantity: str = Field(description="Asserted non-negative quantity as an exact decimal string.")
+    resulting_total_cost: str | None = Field(description="Asserted non-negative total cost, or null if unknown.")
+    reason: str = Field(description="Reason for the replacement state assertion.")
+
+
+class CashAdjustmentReplacementInput(BaseModel):
+    """Strict replacement for a cash assertion."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["cash_adjustment"] = Field(description="Replacement payload type.")
+    resulting_amount: str = Field(description="Asserted cash amount as an exact decimal string.")
+    reason: str = Field(description="Reason for the replacement state assertion.")
+
+
+CorrectionReplacement = Annotated[
+    OpeningCashReplacementInput
+    | OpeningPositionReplacementInput
+    | TradeReplacementInput
+    | CashFlowReplacementInput
+    | IncomeReplacementInput
+    | PositionAdjustmentReplacementInput
+    | CashAdjustmentReplacementInput,
+    Field(discriminator="type"),
+]
 
 
 @tool
@@ -438,6 +534,47 @@ async def adjust_portfolio_cash(
     return _serialize_mutation_result(result)
 
 
+@tool(needs_approval=True)
+async def correct_portfolio_entry(
+    context: RunContextWrapper[AgentContext],
+    portfolio_id: str,
+    target_entry_id: str,
+    reason: str,
+    replacement: CorrectionReplacement,
+    effective_at: str | None = None,
+) -> dict[str, Any]:
+    """Void one historically wrong Ledger entry and append its corrected replacement.
+
+    Args:
+        portfolio_id: Durable Portfolio identifier.
+        target_entry_id: Ledger entry to void and replace; TRANSFER entries are not supported.
+        reason: Human-readable reason for correcting the historical fact.
+        replacement: Strictly typed ordinary Ledger payload to append after the VOID entry.
+        effective_at: Optional timezone-aware ISO-8601 timestamp for the replacement; null preserves the target time.
+
+    Returns:
+        Operation identifier, VOID and replacement entry summaries, and the resulting Portfolio state.
+    """
+    portfolio = await context.context.portfolios.get(portfolio_id)
+    ledger = await context.context.portfolios.list_ledger(portfolio_id)
+    target = next((entry for entry in ledger if entry.entry_id == target_entry_id), None)
+    if target is not None and target.entry_type is LedgerEntryType.TRANSFER:
+        raise ValueError(
+            "Direct Agent correction of Portfolio TRANSFER entries is not supported; "
+            "use a dedicated transfer correction workflow when available."
+        )
+    result = await context.context.portfolios.correct_entry(
+        portfolio_id,
+        target_entry_id=target_entry_id,
+        replacement_payload=_parse_correction_replacement(replacement, portfolio.base_currency),
+        effective_at=_parse_effective_at(effective_at),
+        reason=reason,
+        source="agent",
+        external_ref=None,
+    )
+    return _serialize_mutation_result(result)
+
+
 def _serialize_portfolio(portfolio: Portfolio, *, include_timestamps: bool) -> dict[str, Any]:
     result = {
         "portfolio_id": portfolio.id,
@@ -607,6 +744,51 @@ def _optional_instrument(code: str | None, market: str | None) -> InstrumentId |
     if code is None or market is None:
         raise ValueError("code and market must be supplied together")
     return _instrument(code, market)
+
+
+def _parse_correction_replacement(replacement: CorrectionReplacement, base_currency: str) -> LedgerPayload:
+    if isinstance(replacement, OpeningCashReplacementInput):
+        return OpeningCash(base_currency, _parse_decimal(replacement.amount, "replacement.amount"))
+    if isinstance(replacement, OpeningPositionReplacementInput):
+        return OpeningPosition(
+            _instrument(replacement.code, replacement.market),
+            _parse_decimal(replacement.quantity, "replacement.quantity"),
+            _parse_optional_decimal(replacement.total_cost, "replacement.total_cost"),
+        )
+    if isinstance(replacement, TradeReplacementInput):
+        return Trade(
+            _instrument(replacement.code, replacement.market),
+            TradeSide(replacement.side),
+            _parse_decimal(replacement.quantity, "replacement.quantity"),
+            _parse_decimal(replacement.price, "replacement.price"),
+            _parse_decimal(replacement.commission, "replacement.commission"),
+            _parse_decimal(replacement.tax, "replacement.tax"),
+            _parse_decimal(replacement.other_fee, "replacement.other_fee"),
+        )
+    if isinstance(replacement, CashFlowReplacementInput):
+        return CashFlow(base_currency, _parse_decimal(replacement.amount, "replacement.amount"))
+    if isinstance(replacement, IncomeReplacementInput):
+        return Income(
+            base_currency,
+            _parse_decimal(replacement.gross_amount, "replacement.gross_amount"),
+            _parse_decimal(replacement.tax, "replacement.tax"),
+            _parse_decimal(replacement.other_fee, "replacement.other_fee"),
+            _optional_instrument(replacement.code, replacement.market),
+        )
+    if isinstance(replacement, PositionAdjustmentReplacementInput):
+        return PositionAdjustment(
+            _instrument(replacement.code, replacement.market),
+            _parse_decimal(replacement.resulting_quantity, "replacement.resulting_quantity"),
+            _parse_optional_decimal(replacement.resulting_total_cost, "replacement.resulting_total_cost"),
+            replacement.reason,
+        )
+    if isinstance(replacement, CashAdjustmentReplacementInput):
+        return CashAdjustment(
+            base_currency,
+            _parse_decimal(replacement.resulting_amount, "replacement.resulting_amount"),
+            replacement.reason,
+        )
+    raise TypeError(f"unsupported correction replacement: {type(replacement).__name__}")
 
 
 def _parse_effective_at(value: str | None) -> datetime | None:
