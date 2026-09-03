@@ -4,9 +4,13 @@ import {
   getArchivedSessions,
   getBootstrap,
   getDefaults,
+  getPortfolio,
+  getPortfolioLedger,
+  getPortfolios,
   getProcesses,
   getSession,
   getSessionHistory,
+  getSessionRelatedPortfolios,
   getSessionState,
   getSessions,
 } from './client'
@@ -17,12 +21,17 @@ export const queryKeys = {
   bootstrap: () => [...queryKeys.all, 'bootstrap'] as const,
   defaults: () => [...queryKeys.all, 'defaults'] as const,
   processes: () => [...queryKeys.all, 'processes'] as const,
+  portfolio: (portfolioId: string) => [...queryKeys.all, 'portfolio', portfolioId] as const,
+  portfolioLedger: (portfolioId: string) => [...queryKeys.all, 'portfolio', portfolioId, 'ledger'] as const,
+  portfolios: () => [...queryKeys.all, 'portfolios'] as const,
   session: (sessionId: string) => [...queryKeys.all, 'session', sessionId] as const,
   sessionHistory: (sessionId: string, beforeSeq?: number, limit?: number) =>
     [...queryKeys.all, 'session', sessionId, 'history', { beforeSeq, limit }] as const,
   sessionHistoryPages: (sessionId: string) =>
     [...queryKeys.all, 'session', sessionId, 'history-pages'] as const,
   sessionState: (sessionId: string) => [...queryKeys.all, 'session', sessionId, 'state'] as const,
+  sessionRelatedPortfolios: (sessionId: string) =>
+    [...queryKeys.all, 'session', sessionId, 'related-portfolios'] as const,
   sessions: () => [...queryKeys.all, 'sessions'] as const,
 }
 
@@ -42,6 +51,30 @@ export const archivedSessionsQueryOptions = () =>
   queryOptions({
     queryKey: queryKeys.archivedSessions(),
     queryFn: ({ signal }) => getArchivedSessions({ signal }),
+  })
+
+export const portfoliosQueryOptions = () =>
+  queryOptions({
+    queryKey: queryKeys.portfolios(),
+    queryFn: ({ signal }) => getPortfolios({ signal }),
+  })
+
+export const portfolioQueryOptions = (portfolioId: string) =>
+  queryOptions({
+    queryKey: queryKeys.portfolio(portfolioId),
+    queryFn: ({ signal }) => getPortfolio(portfolioId, { signal }),
+  })
+
+export const portfolioLedgerQueryOptions = (portfolioId: string) =>
+  queryOptions({
+    queryKey: queryKeys.portfolioLedger(portfolioId),
+    queryFn: ({ signal }) => getPortfolioLedger(portfolioId, { limit: 50, signal }),
+  })
+
+export const sessionRelatedPortfoliosQueryOptions = (sessionId: string) =>
+  queryOptions({
+    queryKey: queryKeys.sessionRelatedPortfolios(sessionId),
+    queryFn: ({ signal }) => getSessionRelatedPortfolios(sessionId, { signal }),
   })
 
 export const sessionQueryOptions = (sessionId: string) =>

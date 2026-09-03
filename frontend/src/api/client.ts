@@ -13,6 +13,9 @@ import type {
   HealthResponse,
   HistoryResponse,
   JsonValue,
+  PortfolioDetailResponse,
+  PortfolioLedgerResponse,
+  PortfolioListResponse,
   ProcessListResponse,
   QueueMutationResponse,
   RemovedQueueItemResponse,
@@ -146,6 +149,46 @@ export function getSessions(options: RequestOverrides = {}): Promise<SessionList
 
 export function getArchivedSessions(options: RequestOverrides = {}): Promise<SessionListResponse> {
   return request<SessionListResponse>('/api/sessions/archived', { ...options, method: 'GET' })
+}
+
+export function getPortfolios(options: RequestOverrides = {}): Promise<PortfolioListResponse> {
+  return request<PortfolioListResponse>('/api/portfolios', { ...options, method: 'GET' })
+}
+
+export function getPortfolio(
+  portfolioId: string,
+  options: RequestOverrides = {},
+): Promise<PortfolioDetailResponse> {
+  return request<PortfolioDetailResponse>(`/api/portfolios/${encodePathPart(portfolioId)}`, {
+    ...options,
+    method: 'GET',
+  })
+}
+
+export interface PortfolioLedgerOptions extends RequestOverrides {
+  limit?: number
+}
+
+export function getPortfolioLedger(
+  portfolioId: string,
+  options: PortfolioLedgerOptions = {},
+): Promise<PortfolioLedgerResponse> {
+  const { limit, ...requestOptions } = options
+  const suffix = limit === undefined ? '' : `?limit=${encodeURIComponent(String(limit))}`
+  return request<PortfolioLedgerResponse>(`/api/portfolios/${encodePathPart(portfolioId)}/ledger${suffix}`, {
+    ...requestOptions,
+    method: 'GET',
+  })
+}
+
+export function getSessionRelatedPortfolios(
+  sessionId: string,
+  options: RequestOverrides = {},
+): Promise<PortfolioListResponse> {
+  return request<PortfolioListResponse>(`/api/sessions/${encodePathPart(sessionId)}/related-portfolios`, {
+    ...options,
+    method: 'GET',
+  })
 }
 
 export function createSession(options: RequestOverrides = {}): Promise<SessionResponse> {
@@ -327,8 +370,12 @@ export const api = {
   getDefaults,
   getHealth,
   getProcesses,
+  getPortfolio,
+  getPortfolioLedger,
+  getPortfolios,
   getSession,
   getSessionHistory,
+  getSessionRelatedPortfolios,
   getSessionState,
   getSessions,
   removeQueuedInput,
