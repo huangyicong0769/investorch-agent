@@ -14,6 +14,7 @@ from investorch.portfolio import (
     CashTransfer,
     Income,
     InstrumentId,
+    InsufficientPositionError,
     LedgerEntry,
     LedgerEntryType,
     OpeningCash,
@@ -300,3 +301,72 @@ def test_void_and_replacement_preserve_history_but_replace_economic_effect(tmp_p
     assert persisted == [original, *correction]
     assert get_portfolio_state(db_path, portfolio.id) == project_portfolio(portfolio, persisted)
     assert get_portfolio_state(db_path, portfolio.id).cash == {"CNY": Decimal("120")}
+
+
+def test_multi_portfolio_ledger_operation_commits_or_rolls_back_as_one_unit(tmp_path: Path) -> None:
+    db_path = make_db(tmp_path)
+    source = Portfolio("source", "Source", "CNY", NOW, NOW)
+    destination = Portfolio("destination", "Destination", "CNY", NOW, NOW)
+    create_portfolio(db_path, source)
+    create_portfolio(db_path, destination)
+    opening = make_entry(
+        source.id,
+        1,
+        LedgerEntryType.OPENING_POSITION,
+        OpeningPosition(STOCK, Decimal("10"), Decimal("100")),
+        operation_id="opening",
+    )
+    append_ledger_operation(db_path, [opening])
+    transfer = [
+        make_entry(
+            source.id,
+            2,
+            LedgerEntryType.TRANSFER,
+            PositionTransfer(STOCK, TransferDirection.OUT, Decimal("4"), Decimal("40")),
+            operation_id="transfer",
+        ),
+        make_entry(
+            destination.id,
+            1,
+            LedgerEntryType.TRANSFER,
+            PositionTransfer(STOCK, TransferDirection.IN, Decimal("4"), Decimal("40")),
+            operation_id="transfer",
+        ),
+    ]
+
+    committed_states = append_ledger_operation(db_path, transfer)
+
+    assert committed_states[source.id].holdings[STOCK].quantity == Decimal("6")
+    assert committed_states[destination.id].holdings[STOCK].quantity == Decimal("4")
+    ledger_before_failure = {
+        source.id: list_ledger_entries(db_path, source.id),
+        destination.id: list_ledger_entries(db_path, destination.id),
+    }
+    states_before_failure = {
+        source.id: get_portfolio_state(db_path, source.id),
+        destination.id: get_portfolio_state(db_path, destination.id),
+    }
+    invalid_transfer = [
+        make_entry(
+            source.id,
+            3,
+            LedgerEntryType.TRANSFER,
+            PositionTransfer(STOCK, TransferDirection.OUT, Decimal("7"), Decimal("70")),
+            operation_id="invalid-transfer",
+        ),
+        make_entry(
+            destination.id,
+            2,
+            LedgerEntryType.TRANSFER,
+            PositionTransfer(STOCK, TransferDirection.IN, Decimal("7"), Decimal("70")),
+            operation_id="invalid-transfer",
+        ),
+    ]
+
+    with pytest.raises(InsufficientPositionError, match="insufficient position"):
+        append_ledger_operation(db_path, invalid_transfer)
+
+    assert list_ledger_entries(db_path, source.id) == ledger_before_failure[source.id]
+    assert list_ledger_entries(db_path, destination.id) == ledger_before_failure[destination.id]
+    assert get_portfolio_state(db_path, source.id) == states_before_failure[source.id]
+    assert get_portfolio_state(db_path, destination.id) == states_before_failure[destination.id]
