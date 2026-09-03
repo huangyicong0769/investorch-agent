@@ -10,11 +10,13 @@ from investorch.application import (
     PortfolioAlreadyArchivedError,
     PortfolioAlreadyInitializedError,
     PortfolioArchivedError,
+    PortfolioCorrectionError,
     PortfolioOperationError,
     PortfolioOperations,
 )
 from investorch.portfolio import (
     CashAdjustment,
+    CashFlow,
     Income,
     InstrumentId,
     InsufficientPositionError,
@@ -28,6 +30,7 @@ from investorch.portfolio import (
     StrategyBinding,
     Trade,
     TradeSide,
+    Void,
     append_ledger_operation,
 )
 from tests.support.config import make_test_config
@@ -303,3 +306,104 @@ async def test_application_sequence_advances_after_persisted_audit_tail(tmp_path
 
     assert result.entries[0].sequence == 11
     assert [entry.sequence for entry in await operations.list_ledger(portfolio.id)] == [10, 11]
+
+
+async def test_correction_appends_void_and_replacement_without_editing_history(tmp_path) -> None:
+    operations = PortfolioOperations(config=make_test_config(tmp_path))
+    portfolio = await operations.create(name="Core", base_currency="CNY")
+    wrong = await operations.record_cash_flow(
+        portfolio.id,
+        amount=Decimal("100"),
+        effective_at=EFFECTIVE_AT,
+        source="manual",
+    )
+
+    correction = await operations.correct_entry(
+        portfolio.id,
+        target_entry_id=wrong.entries[0].entry_id,
+        replacement_payload=CashFlow("CNY", Decimal("40")),
+        reason="wrong amount",
+        source="manual",
+    )
+
+    original, void_entry, replacement = await operations.list_ledger(portfolio.id)
+    assert original == wrong.entries[0]
+    assert tuple(correction.entries) == (void_entry, replacement)
+    assert void_entry.payload == Void(original.entry_id, "wrong amount")
+    assert replacement.payload == CashFlow("CNY", Decimal("40"))
+    assert [void_entry.sequence, replacement.sequence] == [2, 3]
+    assert void_entry.operation_id == replacement.operation_id == correction.operation_id
+    assert void_entry.effective_at == replacement.effective_at == EFFECTIVE_AT
+    assert correction.states[portfolio.id].cash == {"CNY": Decimal("40")}
+
+
+async def test_correction_preserves_explicit_time_and_rejects_invalid_use_cases(tmp_path) -> None:
+    operations = PortfolioOperations(config=make_test_config(tmp_path))
+    portfolio = await operations.create(name="Core", base_currency="CNY")
+    wrong = await operations.record_cash_flow(
+        portfolio.id,
+        amount=Decimal("10"),
+        effective_at=EFFECTIVE_AT,
+        source="manual",
+    )
+    corrected_at = datetime(2026, 1, 2, tzinfo=UTC)
+
+    correction = await operations.correct_entry(
+        portfolio.id,
+        target_entry_id=wrong.entries[0].entry_id,
+        replacement_payload=CashFlow("CNY", Decimal("5")),
+        effective_at=corrected_at,
+        reason="wrong amount",
+        source="manual",
+    )
+
+    assert correction.entries[0].effective_at == EFFECTIVE_AT
+    assert correction.entries[1].effective_at == corrected_at
+    ledger_before = await operations.list_ledger(portfolio.id)
+    with pytest.raises(PortfolioCorrectionError, match="not found"):
+        await operations.correct_entry(
+            portfolio.id,
+            target_entry_id="missing",
+            replacement_payload=CashFlow("CNY", Decimal("1")),
+            reason="missing",
+            source="manual",
+        )
+    with pytest.raises(PortfolioCorrectionError, match="VOID target"):
+        await operations.correct_entry(
+            portfolio.id,
+            target_entry_id=correction.entries[0].entry_id,
+            replacement_payload=CashFlow("CNY", Decimal("1")),
+            reason="invalid",
+            source="manual",
+        )
+    with pytest.raises(PortfolioCorrectionError, match="replacement"):
+        await operations.correct_entry(
+            portfolio.id,
+            target_entry_id=wrong.entries[0].entry_id,
+            replacement_payload=Void(wrong.entries[0].entry_id, "invalid"),
+            reason="invalid",
+            source="manual",
+        )
+    assert await operations.list_ledger(portfolio.id) == ledger_before
+
+    invalid_target = await operations.record_cash_flow(portfolio.id, amount=Decimal("1"), source="manual")
+    ledger_before = await operations.list_ledger(portfolio.id)
+    with pytest.raises(InsufficientPositionError):
+        await operations.correct_entry(
+            portfolio.id,
+            target_entry_id=invalid_target.entries[0].entry_id,
+            replacement_payload=Trade(STOCK, TradeSide.SELL, Decimal("1"), Decimal("1")),
+            reason="invalid replacement",
+            source="manual",
+        )
+    assert await operations.list_ledger(portfolio.id) == ledger_before
+
+    await operations.archive(portfolio.id)
+    with pytest.raises(PortfolioArchivedError):
+        await operations.correct_entry(
+            portfolio.id,
+            target_entry_id=wrong.entries[0].entry_id,
+            replacement_payload=CashFlow("CNY", Decimal("1")),
+            reason="blocked",
+            source="manual",
+        )

@@ -12,6 +12,7 @@ from investorch.config import AppConfig
 from investorch.portfolio import (
     CashAdjustment,
     CashFlow,
+    CashTransfer,
     Income,
     InstrumentId,
     LedgerEntry,
@@ -24,9 +25,11 @@ from investorch.portfolio import (
     PortfolioState,
     PortfolioStatus,
     PositionAdjustment,
+    PositionTransfer,
     StrategyBinding,
     Trade,
     TradeSide,
+    Void,
     append_ledger_operation,
     create_portfolio,
     get_portfolio,
@@ -62,6 +65,10 @@ class PortfolioAlreadyInitializedError(PortfolioOperationError):
 
 class PortfolioSequenceRetryExhaustedError(PortfolioOperationError):
     """Raised when Ledger append sequence conflicts exhaust their retry limit."""
+
+
+class PortfolioCorrectionError(PortfolioOperationError):
+    """Raised when a requested Ledger correction is not valid."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -364,6 +371,63 @@ class PortfolioOperations:
             external_ref=external_ref,
         )
 
+    async def correct_entry(
+        self,
+        portfolio_id: str,
+        *,
+        target_entry_id: str,
+        replacement_payload: LedgerPayload,
+        effective_at: datetime | None = None,
+        reason: str,
+        source: str,
+        external_ref: str | None = None,
+    ) -> PortfolioMutationResult:
+        recorded_at = datetime.now(UTC)
+        operation_id = uuid.uuid4().hex
+        async with self._mutation_lock:
+            portfolio = await self.get(portfolio_id)
+            _require_active(portfolio)
+            ledger = await asyncio.to_thread(list_ledger_entries, self._config.portfolio_db, portfolio_id)
+            target = _correction_target(ledger, target_entry_id)
+            if isinstance(replacement_payload, Void):
+                raise PortfolioCorrectionError("correction replacement cannot be VOID")
+            replacement_type = _entry_type_for_payload(replacement_payload)
+            replacement_effective_at = target.effective_at if effective_at is None else effective_at
+            drafts = (
+                _EntryDraft(
+                    entry_id=uuid.uuid4().hex,
+                    portfolio_id=portfolio_id,
+                    entry_type=LedgerEntryType.VOID,
+                    effective_at=target.effective_at,
+                    payload=Void(target_entry_id, reason),
+                ),
+                _EntryDraft(
+                    entry_id=uuid.uuid4().hex,
+                    portfolio_id=portfolio_id,
+                    entry_type=replacement_type,
+                    effective_at=replacement_effective_at,
+                    payload=replacement_payload,
+                ),
+            )
+
+            def validate(
+                portfolios: dict[str, Portfolio],
+                ledgers: dict[str, list[LedgerEntry]],
+            ) -> None:
+                _require_active(portfolios[portfolio_id])
+                _correction_target(ledgers[portfolio_id], target_entry_id)
+
+            result = await self._append_operation(
+                operation_id=operation_id,
+                recorded_at=recorded_at,
+                source=source,
+                external_ref=external_ref,
+                drafts=drafts,
+                validate=validate,
+            )
+        logger.info("Corrected Portfolio entry operation %s for %s", operation_id, portfolio_id)
+        return result
+
     async def _record_single(
         self,
         *,
@@ -491,3 +555,32 @@ def _assign_sequences(
         )
         next_sequences[draft.portfolio_id] += 1
     return tuple(assigned)
+
+
+_PAYLOAD_ENTRY_TYPES: dict[type, LedgerEntryType] = {
+    OpeningPosition: LedgerEntryType.OPENING_POSITION,
+    OpeningCash: LedgerEntryType.OPENING_CASH,
+    Trade: LedgerEntryType.TRADE,
+    CashFlow: LedgerEntryType.CASH_FLOW,
+    Income: LedgerEntryType.INCOME,
+    PositionTransfer: LedgerEntryType.TRANSFER,
+    CashTransfer: LedgerEntryType.TRANSFER,
+    PositionAdjustment: LedgerEntryType.ADJUSTMENT,
+    CashAdjustment: LedgerEntryType.ADJUSTMENT,
+}
+
+
+def _entry_type_for_payload(payload: LedgerPayload) -> LedgerEntryType:
+    try:
+        return _PAYLOAD_ENTRY_TYPES[type(payload)]
+    except KeyError as exc:
+        raise PortfolioCorrectionError("correction replacement must be an ordinary Ledger payload") from exc
+
+
+def _correction_target(ledger: list[LedgerEntry], target_entry_id: str) -> LedgerEntry:
+    target = next((entry for entry in ledger if entry.entry_id == target_entry_id), None)
+    if target is None:
+        raise PortfolioCorrectionError(f"correction target not found: {target_entry_id}")
+    if target.entry_type is LedgerEntryType.VOID:
+        raise PortfolioCorrectionError(f"correction cannot use a VOID target: {target_entry_id}")
+    return target
