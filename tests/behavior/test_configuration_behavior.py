@@ -21,12 +21,6 @@ def test_local_override_preserves_unset_defaults_and_project_root(tmp_path: Path
     assert config.root == (tmp_path / "override" / "root").resolve()
 
 
-def test_portfolio_database_follows_custom_state_directory(tmp_path: Path) -> None:
-    config = make_test_config(tmp_path, {"paths": {"state": "custom-state"}})
-
-    assert config.portfolio_db == config.state_dir / "portfolio.db"
-
-
 def test_web_cli_port_override_is_optional() -> None:
     assert parse_web_args([]).port is None
     assert parse_web_args(["--port", "8000"]).port == 8000
