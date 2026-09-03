@@ -183,6 +183,7 @@ def make_runtime_harness(
         record_user_message or journal.record_user_message,
         record_user_steer or journal.record_user_steer,
         journal.record_user_steers_activated,
+        journal.record_user_steers_discarded,
         state_handler=handle_state,
         run_ended_handler=handle_run_ended,
         follow_up_handler=handle_follow_up,

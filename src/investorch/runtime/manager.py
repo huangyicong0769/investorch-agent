@@ -43,6 +43,7 @@ RuntimeApprovalHandler = Callable[[ApprovalRequest], Awaitable[ApprovalOutcome]]
 RecordUserMessage = Callable[[str, str], Awaitable[int]]
 RecordUserSteer = Callable[[str, str, str], Awaitable[int]]
 RecordUserSteersActivated = Callable[[str, str, tuple[int, ...]], Awaitable[int]]
+RecordUserSteersDiscarded = Callable[[str, str, tuple[int, ...]], Awaitable[int]]
 RuntimeStateHandler = Callable[[RuntimeSessionSnapshot], None]
 RunEndedHandler = Callable[[RuntimeRunEnded], Awaitable[None]]
 RuntimeFollowUpHandler = Callable[[RuntimeFollowUpEvent], Awaitable[None]]
@@ -96,6 +97,7 @@ class AgentRuntime:
         record_user_message: RecordUserMessage,
         record_user_steer: RecordUserSteer,
         record_user_steers_activated: RecordUserSteersActivated,
+        record_user_steers_discarded: RecordUserSteersDiscarded,
         state_handler: RuntimeStateHandler | None = None,
         run_ended_handler: RunEndedHandler | None = None,
         follow_up_handler: RuntimeFollowUpHandler | None = None,
@@ -110,6 +112,7 @@ class AgentRuntime:
         self._run_ended_handler = run_ended_handler
         self._record_user_steer = record_user_steer
         self._record_user_steers_activated = record_user_steers_activated
+        self._record_user_steers_discarded = record_user_steers_discarded
         self._follow_up_handler = follow_up_handler
         self._active_by_session: dict[str, ActiveRun] = {}
         self._active_by_run: dict[str, ActiveRun] = {}
@@ -625,8 +628,29 @@ class AgentRuntime:
                             "Steer terminal fallback session=%s run=%s count=%d", session_id, run_id, len(fallbacks)
                         )
                 else:
-                    discarded_steer_count = run_control.discard()
+                    discarded_steers = run_control.discard()
+                    discarded_steer_count = len(discarded_steers)
                     if discarded_steer_count:
+                        discarded_steer_seqs = tuple(
+                            steer.journal_seq for steer in discarded_steers if steer.journal_seq is not None
+                        )
+                        if len(discarded_steer_seqs) != discarded_steer_count:
+                            logger.error(
+                                "Cannot record discarded Steer inputs without journal sequences session=%s run=%s",
+                                session_id,
+                                run_id,
+                            )
+                        else:
+                            try:
+                                await _await_journal_write(
+                                    self._record_user_steers_discarded(session_id, run_id, discarded_steer_seqs)
+                                )
+                            except Exception:
+                                logger.exception(
+                                    "Failed to record discarded Steer inputs session=%s run=%s",
+                                    session_id,
+                                    run_id,
+                                )
                         logger.info(
                             "Discarded unconsumed Steer input session=%s run=%s status=%s count=%d",
                             session_id,

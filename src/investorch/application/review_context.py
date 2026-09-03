@@ -80,6 +80,7 @@ def _prepare_records(records: list[dict[str, object]], instruction_head_seq: int
     instructions: list[tuple[int, str, str]] = []
     steers: dict[int, str] = {}
     activated: set[int] = set()
+    discarded: set[int] = set()
     for record in records:
         seq = record["seq"]
         assert isinstance(seq, int)
@@ -91,12 +92,14 @@ def _prepare_records(records: list[dict[str, object]], instruction_head_seq: int
                 raise ReviewContextError("Durable user Steer is missing its Run identity")
             steers[seq] = _instruction_text(record)
         elif event_type == "user_steers_activated":
-            _apply_activation(record, steers, activated)
+            _apply_disposition(record, steers, activated, discarded, label="activation")
+        elif event_type == "user_steers_discarded":
+            _apply_disposition(record, steers, discarded, activated, label="discard")
 
-    unproven = set(steers) - activated
+    unproven = set(steers) - activated - discarded
     if unproven:
-        raise ReviewContextError("Durable user Steer activation cannot be proven at the review boundary")
-    instructions.extend((seq, "user_steer", text) for seq, text in steers.items())
+        raise ReviewContextError("Durable user Steer activation or discard cannot be proven at the review boundary")
+    instructions.extend((seq, "user_steer", steers[seq]) for seq in activated)
     instructions.sort(key=lambda item: item[0])
     text = "\n\n".join(f"[{event_type} seq={seq}]\n{value}" for seq, event_type, value in instructions)
     return PreparedReviewContext(
@@ -115,15 +118,22 @@ def _instruction_text(record: dict[str, object]) -> str:
     return text
 
 
-def _apply_activation(record: dict[str, object], steers: dict[int, str], activated: set[int]) -> None:
+def _apply_disposition(
+    record: dict[str, object],
+    steers: dict[int, str],
+    target: set[int],
+    conflicting: set[int],
+    *,
+    label: str,
+) -> None:
     if not isinstance(record.get("run_id"), str) or not record["run_id"]:
-        raise ReviewContextError("Durable user Steer activation is missing its Run identity")
+        raise ReviewContextError(f"Durable user Steer {label} is missing its Run identity")
     raw_seqs = record.get("user_steer_seqs")
     if not isinstance(raw_seqs, list) or not raw_seqs:
-        raise ReviewContextError("Durable user Steer activation has no target sequences")
+        raise ReviewContextError(f"Durable user Steer {label} has no target sequences")
     if any(type(seq) is not int or seq < 1 for seq in raw_seqs) or len(set(raw_seqs)) != len(raw_seqs):
-        raise ReviewContextError("Durable user Steer activation has invalid target sequences")
+        raise ReviewContextError(f"Durable user Steer {label} has invalid target sequences")
     for seq in raw_seqs:
-        if seq not in steers or seq in activated:
-            raise ReviewContextError("Durable user Steer activation does not match pending instruction history")
-        activated.add(seq)
+        if seq not in steers or seq in target or seq in conflicting:
+            raise ReviewContextError(f"Durable user Steer {label} does not match pending instruction history")
+        target.add(seq)

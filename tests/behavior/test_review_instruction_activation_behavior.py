@@ -9,14 +9,14 @@ from agents import Agent
 from agents.testing import ModelStep, ScriptedModel, assistant_message, function_call
 
 from investorch.agents import AgentLoop, ApprovalOutcome, TokenUsage
-from investorch.application import PortfolioOperations
+from investorch.application import PortfolioOperations, ReviewContext
 from investorch.context import AgentContext, ExecutionState
 from investorch.journal import SessionJournal, read_session_journal
 from investorch.runtime import AgentRuntime, ApprovalRequest, RuntimeOutput, RuntimeRunEnded
 from investorch.storage import create_session, set_session_title
 from investorch.tools import create_portfolio
 from tests.support.config import make_test_config
-from tests.support.runtime import run_options
+from tests.support.runtime import make_runtime_harness, run_options
 
 
 @pytest.mark.asyncio
@@ -69,6 +69,7 @@ async def test_activated_steer_advances_the_next_approval_instruction_boundary(t
         journal.record_user_message,
         journal.record_user_steer,
         journal.record_user_steers_activated,
+        journal.record_user_steers_discarded,
         run_ended_handler=run_ended_handler,
     )
     runtime.start_run("session-a", "initial instruction", run_options("steer"))
@@ -86,3 +87,48 @@ async def test_activated_steer_advances_the_next_approval_instruction_boundary(t
     assert activation["user_steer_seqs"] == [steer["seq"]]
     assert [event.status for event in run_ended] == ["completed", "completed"]
     model.assert_complete()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("terminal_status", ["cancelled", "failed"])
+async def test_unsuccessful_run_discards_unactivated_steer_from_later_review_context(
+    tmp_path: Path,
+    terminal_status: str,
+) -> None:
+    harness = make_runtime_harness(tmp_path)
+    active = harness.runtime.start_run("session-a", "initial instruction", run_options("steer"))
+    await harness.agent_loop.wait_until_started("session-a")
+    await harness.runtime.submit_follow_up("session-a", "abandoned instruction", run_options())
+
+    if terminal_status == "cancelled":
+        harness.runtime.cancel_run("session-a")
+    else:
+        harness.agent_loop.fail_input("initial instruction")
+        harness.agent_loop.complete("session-a")
+    assert (await harness.wait_for_run_ended("session-a")).status == terminal_status
+    if terminal_status == "failed":
+        with pytest.raises(RuntimeError, match="controlled Agent failure"):
+            await active.task
+
+    harness.runtime.start_run("session-a", "later instruction", run_options("steer"))
+    await harness.agent_loop.wait_until_started("session-a", occurrence=2)
+    records = read_session_journal(harness.config.session_journal_dir, "session-a")
+    later_head_seq = next(
+        record["seq"]
+        for record in reversed(records)
+        if record["type"] == "user_message" and record["text"] == "later instruction"
+    )
+
+    prepared = await ReviewContext(config=harness.config).prepare("session-a", later_head_seq)
+
+    discarded = next(record for record in records if record["type"] == "user_steers_discarded")
+    abandoned = next(record for record in records if record["type"] == "user_steer")
+    assert discarded["user_steer_seqs"] == [abandoned["seq"]]
+    assert prepared.instruction_count == 2
+    assert "initial instruction" in prepared.text
+    assert "later instruction" in prepared.text
+    assert "abandoned instruction" not in prepared.text
+
+    harness.agent_loop.complete("session-a")
+    await harness.wait_for_run_ended("session-a", occurrence=2)
+    await harness.runtime.aclose()

@@ -59,6 +59,34 @@ class SessionJournal:
         run_id: str,
         user_steer_seqs: tuple[int, ...],
     ) -> int:
+        return await self._record_user_steer_disposition(
+            session_id,
+            run_id,
+            user_steer_seqs,
+            event_type="user_steers_activated",
+        )
+
+    async def record_user_steers_discarded(
+        self,
+        session_id: str,
+        run_id: str,
+        user_steer_seqs: tuple[int, ...],
+    ) -> int:
+        return await self._record_user_steer_disposition(
+            session_id,
+            run_id,
+            user_steer_seqs,
+            event_type="user_steers_discarded",
+        )
+
+    async def _record_user_steer_disposition(
+        self,
+        session_id: str,
+        run_id: str,
+        user_steer_seqs: tuple[int, ...],
+        *,
+        event_type: Literal["user_steers_activated", "user_steers_discarded"],
+    ) -> int:
         if not user_steer_seqs:
             raise ValueError("user_steer_seqs must not be empty")
         if any(type(seq) is not int or seq < 1 for seq in user_steer_seqs):
@@ -68,7 +96,7 @@ class SessionJournal:
         return await self._record(
             session_id,
             {
-                "type": "user_steers_activated",
+                "type": event_type,
                 "run_id": run_id,
                 "user_steer_seqs": list(user_steer_seqs),
             },

@@ -183,6 +183,9 @@ async def open_application_host(
     async def record_user_steers_activated(session_id: str, run_id: str, steer_seqs: tuple[int, ...]) -> int:
         return await journal.record_user_steers_activated(session_id, run_id, steer_seqs)
 
+    async def record_user_steers_discarded(session_id: str, run_id: str, steer_seqs: tuple[int, ...]) -> int:
+        return await journal.record_user_steers_discarded(session_id, run_id, steer_seqs)
+
     async def handle_output(output: RuntimeOutput) -> None:
         journal_seq = None
         try:
@@ -268,6 +271,7 @@ async def open_application_host(
                     record_user_message,
                     record_user_steer,
                     record_user_steers_activated,
+                    record_user_steers_discarded,
                     state_handler=handle_runtime_state,
                     run_ended_handler=handle_run_ended,
                     follow_up_handler=callbacks.handle_follow_up,
