@@ -72,7 +72,8 @@ async def test_oversized_auto_review_input_escalates_without_model_usage(
         tmp_path,
         {
             "permission": {
-                "max_user_message_chars": 3,
+                "max_user_instruction_chars": 3,
+                "max_compacted_instruction_chars": 3,
                 "max_tool_arguments_chars": 3,
                 "max_reason_chars": 32,
             }

@@ -104,6 +104,14 @@ def test_invalid_update_leaves_memory_and_disk_unchanged(tmp_path: Path) -> None
     assert load_config(config.project_config_path)["interaction.follow_up_behavior"] == original_value
 
 
+def test_review_compaction_budget_cannot_exceed_raw_instruction_budget(tmp_path: Path) -> None:
+    config = make_test_config(tmp_path)
+    invalid_limit = config["permission.max_user_instruction_chars"] + 1
+
+    with pytest.raises(ConfigError, match=r"permission\.max_compacted_instruction_chars"):
+        config.update("permission.max_compacted_instruction_chars", invalid_limit, persist=True)
+
+
 @pytest.mark.parametrize(
     ("key", "value", "message"),
     [

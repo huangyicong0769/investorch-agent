@@ -3,6 +3,9 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 
+from agents import Agent
+
+from investorch.agents import TokenUsage, compact_review_instructions
 from investorch.config import AppConfig
 from investorch.journal import read_session_journal
 
@@ -16,17 +19,27 @@ class PreparedReviewContext:
     text: str
     instruction_count: int
     instruction_head_seq: int | None
+    compacted: bool
+    usage: TokenUsage
 
 
 class ReviewContext:
     """Reconstruct effective user-authored instructions at a frozen journal boundary."""
 
-    def __init__(self, *, config: AppConfig) -> None:
+    def __init__(self, *, config: AppConfig, compaction_agent: Agent | None = None) -> None:
+        self._config = config
         self._journal_dir = config.session_journal_dir
+        self._compaction_agent = compaction_agent
 
     async def prepare(self, session_id: str, instruction_head_seq: int | None) -> PreparedReviewContext:
         if instruction_head_seq is None:
-            return PreparedReviewContext(text="", instruction_count=0, instruction_head_seq=None)
+            return PreparedReviewContext(
+                text="",
+                instruction_count=0,
+                instruction_head_seq=None,
+                compacted=False,
+                usage=TokenUsage(),
+            )
         if type(instruction_head_seq) is not int or instruction_head_seq < 1:
             raise ReviewContextError("Review instruction boundary must be a positive journal sequence")
         try:
@@ -36,11 +49,26 @@ class ReviewContext:
                 session_id,
                 through_seq=instruction_head_seq,
             )
-            return _prepare_records(records, instruction_head_seq)
+            prepared = _prepare_records(records, instruction_head_seq)
         except ReviewContextError:
             raise
         except (FileNotFoundError, RuntimeError, ValueError) as exc:
             raise ReviewContextError("Durable user instruction history is unavailable or invalid") from exc
+        if len(prepared.text) <= self._config["permission.max_user_instruction_chars"]:
+            return prepared
+        if self._compaction_agent is None:
+            raise ReviewContextError("Review instruction history requires compaction, but no compactor is available")
+        try:
+            compacted = await compact_review_instructions(self._compaction_agent, self._config, prepared.text)
+        except Exception as exc:
+            raise ReviewContextError("Review instruction history could not be compacted safely") from exc
+        return PreparedReviewContext(
+            text=compacted.text,
+            instruction_count=prepared.instruction_count,
+            instruction_head_seq=prepared.instruction_head_seq,
+            compacted=True,
+            usage=compacted.usage,
+        )
 
 
 def _prepare_records(records: list[dict[str, object]], instruction_head_seq: int) -> PreparedReviewContext:
@@ -75,6 +103,8 @@ def _prepare_records(records: list[dict[str, object]], instruction_head_seq: int
         text=text,
         instruction_count=len(instructions),
         instruction_head_seq=instruction_head_seq,
+        compacted=False,
+        usage=TokenUsage(),
     )
 
 

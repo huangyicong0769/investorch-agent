@@ -19,6 +19,7 @@ from investorch.agents import (
     create_agent,
     create_compaction_agent,
     create_permission_agent,
+    create_review_instruction_compactor,
     create_title_agent,
 )
 from investorch.config import AppConfig
@@ -240,6 +241,10 @@ async def open_application_host(
                 approvals = ApprovalCoordinator(
                     config=config,
                     permission_agent=create_permission_agent(permission_model, permission_model_settings),
+                    review_compaction_agent=create_review_instruction_compactor(
+                        permission_model,
+                        permission_model_settings,
+                    ),
                     journal=journal,
                     manual_handler=manual_approval_handler,
                     resolved_handler=callbacks.handle_approval_resolved,

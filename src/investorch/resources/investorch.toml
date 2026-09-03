@@ -56,7 +56,8 @@ max_label_chars = 120
 
 [permission]
 mode = "review"
-max_user_message_chars = 16000
+max_user_instruction_chars = 16000
+max_compacted_instruction_chars = 12000
 max_tool_arguments_chars = 32000
 max_reason_chars = 1000
 

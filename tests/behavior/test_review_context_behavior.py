@@ -133,3 +133,169 @@ async def test_unprovable_review_context_falls_back_to_manual_ask(tmp_path: Path
     assert outcome.approved is False
     assert manual_reasons == ["AutoReview is unavailable; manual approval is required."]
     assert model.calls == ()
+
+
+@pytest.mark.asyncio
+async def test_oversized_review_history_is_compacted_before_independent_review(tmp_path: Path) -> None:
+    config = make_test_config(
+        tmp_path,
+        {
+            "permission": {
+                "max_user_instruction_chars": 80,
+                "max_compacted_instruction_chars": 70,
+            }
+        },
+    )
+    journal = SessionJournal(config.session_journal_dir, ZoneInfo("UTC"))
+    earlier = "Portfolio abc123 commission was 5 CNY. " + "old context " * 8
+    later = "Correction: Portfolio abc123 commission is 3 CNY."
+    await journal.record_user_message("session-a", earlier)
+    head_seq = await journal.record_user_message("session-a", later)
+    compacted = "Portfolio abc123 commission is 3 CNY; 5 CNY was superseded."
+    compaction_model = ScriptedModel(((assistant_message(compacted),),))
+    review_model = ScriptedModel(((assistant_message('{"decision":"approve","reason":"grounded"}'),),))
+
+    async def unexpected_manual(_request: ApprovalRequest, _reason: str | None) -> bool:
+        raise AssertionError("valid compacted review context should not require manual approval")
+
+    coordinator = ApprovalCoordinator(
+        config=config,
+        permission_agent=Agent(
+            name="Permission Agent",
+            instructions="review",
+            model=review_model,
+            output_type=PermissionReview,
+        ),
+        review_compaction_agent=Agent(
+            name="Review Instruction Compactor",
+            instructions="compact",
+            model=compaction_model,
+        ),
+        journal=journal,
+        manual_handler=unexpected_manual,
+    )
+    outcome = await coordinator.handle(
+        ApprovalRequest(
+            approval_id="approval-a",
+            run_id="run-a",
+            session_id="session-a",
+            user_input=later,
+            permission_mode="review",
+            tool_name="record_portfolio_trade",
+            arguments='{"portfolio_id":"abc123","commission":"3"}',
+            instruction_head_seq=head_seq,
+        )
+    )
+
+    assert outcome.approved is True
+    assert outcome.usage.requests == 2
+    assert compaction_model.first_call is not None
+    compaction_input = str(compaction_model.first_call.input)
+    assert earlier in compaction_input
+    assert later in compaction_input
+    assert review_model.first_call is not None
+    review_input = str(review_model.first_call.input)
+    assert compacted in review_input
+    assert "abc123" in review_input
+    assert "3" in review_input
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("compacted", ["   ", "result remains much too long"])
+async def test_invalid_review_compaction_fails_safe_to_manual_ask(tmp_path: Path, compacted: str) -> None:
+    config = make_test_config(
+        tmp_path,
+        {
+            "permission": {
+                "max_user_instruction_chars": 10,
+                "max_compacted_instruction_chars": 5,
+            }
+        },
+    )
+    journal = SessionJournal(config.session_journal_dir, ZoneInfo("UTC"))
+    head_seq = await journal.record_user_message("session-a", "instruction exceeds raw budget")
+    compaction_model = ScriptedModel(((assistant_message(compacted),),))
+    review_model = ScriptedModel()
+    manual_reasons: list[str | None] = []
+
+    async def manual_handler(_request: ApprovalRequest, reason: str | None) -> bool:
+        manual_reasons.append(reason)
+        return False
+
+    coordinator = ApprovalCoordinator(
+        config=config,
+        permission_agent=Agent(name="Unreachable reviewer", instructions="test", model=review_model),
+        review_compaction_agent=Agent(
+            name="Review Instruction Compactor",
+            instructions="compact",
+            model=compaction_model,
+        ),
+        journal=journal,
+        manual_handler=manual_handler,
+    )
+    outcome = await coordinator.handle(
+        ApprovalRequest(
+            approval_id="approval-a",
+            run_id="run-a",
+            session_id="session-a",
+            user_input="instruction exceeds raw budget",
+            permission_mode="review",
+            tool_name="edit",
+            arguments="{}",
+            instruction_head_seq=head_seq,
+        )
+    )
+
+    assert outcome.approved is False
+    assert manual_reasons == ["AutoReview is unavailable; manual approval is required."]
+    assert review_model.calls == ()
+
+
+@pytest.mark.asyncio
+async def test_review_compaction_failure_falls_back_without_running_reviewer(tmp_path: Path) -> None:
+    config = make_test_config(
+        tmp_path,
+        {
+            "permission": {
+                "max_user_instruction_chars": 10,
+                "max_compacted_instruction_chars": 5,
+            }
+        },
+    )
+    journal = SessionJournal(config.session_journal_dir, ZoneInfo("UTC"))
+    head_seq = await journal.record_user_message("session-a", "instruction exceeds raw budget")
+    compaction_model = ScriptedModel((RuntimeError("compactor unavailable"),))
+    review_model = ScriptedModel()
+    manual_reasons: list[str | None] = []
+
+    async def manual_handler(_request: ApprovalRequest, reason: str | None) -> bool:
+        manual_reasons.append(reason)
+        return False
+
+    coordinator = ApprovalCoordinator(
+        config=config,
+        permission_agent=Agent(name="Unreachable reviewer", instructions="test", model=review_model),
+        review_compaction_agent=Agent(
+            name="Review Instruction Compactor",
+            instructions="compact",
+            model=compaction_model,
+        ),
+        journal=journal,
+        manual_handler=manual_handler,
+    )
+    outcome = await coordinator.handle(
+        ApprovalRequest(
+            approval_id="approval-a",
+            run_id="run-a",
+            session_id="session-a",
+            user_input="instruction exceeds raw budget",
+            permission_mode="review",
+            tool_name="edit",
+            arguments="{}",
+            instruction_head_seq=head_seq,
+        )
+    )
+
+    assert outcome.approved is False
+    assert manual_reasons == ["AutoReview is unavailable; manual approval is required."]
+    assert review_model.calls == ()

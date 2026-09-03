@@ -45,7 +45,7 @@ async def review_permission(
     arguments: str | None,
 ) -> PermissionReviewResult:
     raw_arguments = arguments or ""
-    if len(user_instructions) > config["permission.max_user_message_chars"]:
+    if len(user_instructions) > config["permission.max_user_instruction_chars"]:
         return _ask_without_usage(
             config, "The user instruction history exceeds the AutoReview input limit; manual approval is required."
         )
