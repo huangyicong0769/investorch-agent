@@ -4,9 +4,11 @@ import json
 from decimal import Decimal
 from pathlib import Path
 
+from agents import ModelSettings
 from agents.tool import FunctionTool
 from agents.tool_context import ToolContext
 
+from investorch.agents.main import create_agent
 from investorch.application import PortfolioOperations
 from investorch.context import AgentContext, ExecutionState
 from investorch.portfolio import (
@@ -474,3 +476,32 @@ async def test_cash_transfer_rejects_cross_currency_without_partial_ledger_write
     assert "base currency" in result
     assert await context.context.portfolios.list_ledger(source.id) == []
     assert await context.context.portfolios.list_ledger(destination.id) == []
+
+
+def test_main_agent_registers_complete_portfolio_tool_surface(tmp_path: Path) -> None:
+    agent = create_agent(None, ModelSettings(), make_test_config(tmp_path))  # type: ignore[arg-type]
+    portfolio_tools = {
+        tool.name: tool
+        for tool in agent.tools
+        if isinstance(tool, FunctionTool) and ("portfolio" in tool.name or tool.name == "list_portfolios")
+    }
+    read_names = {"list_portfolios", "get_portfolio", "get_portfolio_ledger"}
+    mutation_names = {
+        "create_portfolio",
+        "update_portfolio",
+        "archive_portfolio",
+        "restore_portfolio",
+        "initialize_portfolio",
+        "record_portfolio_trade",
+        "record_portfolio_cash_flow",
+        "record_portfolio_income",
+        "adjust_portfolio_position",
+        "adjust_portfolio_cash",
+        "correct_portfolio_entry",
+        "transfer_portfolio_position",
+        "transfer_portfolio_cash",
+    }
+
+    assert set(portfolio_tools) == read_names | mutation_names
+    assert all(portfolio_tools[name].needs_approval is False for name in read_names)
+    assert all(portfolio_tools[name].needs_approval is True for name in mutation_names)
