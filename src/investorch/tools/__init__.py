@@ -17,12 +17,17 @@ from .mcp import (
     remove_mcp_server,
 )
 from .portfolio import (
+    adjust_portfolio_cash,
+    adjust_portfolio_position,
     archive_portfolio,
     create_portfolio,
     get_portfolio,
     get_portfolio_ledger,
     initialize_portfolio,
     list_portfolios,
+    record_portfolio_cash_flow,
+    record_portfolio_income,
+    record_portfolio_trade,
     restore_portfolio,
     update_portfolio,
 )
@@ -30,6 +35,8 @@ from .quant import inspect_rqalpha_data, run_backtest
 from .todo import write_todos
 
 __all__ = (
+    "adjust_portfolio_cash",
+    "adjust_portfolio_position",
     "archive_portfolio",
     "calculate",
     "close_execution",
@@ -49,6 +56,9 @@ __all__ = (
     "list_background_jobs",
     "list_mcp_servers",
     "list_portfolios",
+    "record_portfolio_cash_flow",
+    "record_portfolio_income",
+    "record_portfolio_trade",
     "remove_mcp_server",
     "restore_portfolio",
     "run_backtest",

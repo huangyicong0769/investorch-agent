@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
-from typing import Any
+from typing import Any, Literal
 
 from agents import RunContextWrapper
 from agents.decorators import tool
@@ -26,6 +26,7 @@ from investorch.portfolio import (
     PositionTransfer,
     StrategyBinding,
     Trade,
+    TradeSide,
     Void,
 )
 
@@ -178,6 +179,125 @@ async def initialize_portfolio(
         portfolio_id,
         cash=_parse_optional_decimal(cash, "cash"),
         positions=opening_positions,
+        effective_at=_parse_effective_at(effective_at),
+        source="agent",
+        external_ref=None,
+    )
+    return _serialize_mutation_result(result)
+
+
+@tool(needs_approval=True)
+async def record_portfolio_trade(
+    context: RunContextWrapper[AgentContext],
+    portfolio_id: str,
+    code: str,
+    market: str,
+    side: Literal["BUY", "SELL"],
+    quantity: str,
+    price: str,
+    commission: str = "0",
+    tax: str = "0",
+    other_fee: str = "0",
+    effective_at: str | None = None,
+) -> dict[str, Any]:
+    """Record an already-realized trade fact; this does not place a Broker order."""
+    result = await context.context.portfolios.record_trade(
+        portfolio_id,
+        instrument=_instrument(code, market),
+        side=TradeSide(side),
+        quantity=_parse_decimal(quantity, "quantity"),
+        price=_parse_decimal(price, "price"),
+        commission=_parse_decimal(commission, "commission"),
+        tax=_parse_decimal(tax, "tax"),
+        other_fee=_parse_decimal(other_fee, "other_fee"),
+        effective_at=_parse_effective_at(effective_at),
+        source="agent",
+        external_ref=None,
+    )
+    return _serialize_mutation_result(result)
+
+
+@tool(needs_approval=True)
+async def record_portfolio_cash_flow(
+    context: RunContextWrapper[AgentContext],
+    portfolio_id: str,
+    amount: str,
+    effective_at: str | None = None,
+) -> dict[str, Any]:
+    """Record external capital: a positive amount enters the Portfolio and a negative amount leaves it."""
+    result = await context.context.portfolios.record_cash_flow(
+        portfolio_id,
+        amount=_parse_decimal(amount, "amount"),
+        effective_at=_parse_effective_at(effective_at),
+        source="agent",
+        external_ref=None,
+    )
+    return _serialize_mutation_result(result)
+
+
+@tool(needs_approval=True)
+async def record_portfolio_income(
+    context: RunContextWrapper[AgentContext],
+    portfolio_id: str,
+    gross_amount: str,
+    tax: str = "0",
+    other_fee: str = "0",
+    code: str | None = None,
+    market: str | None = None,
+    effective_at: str | None = None,
+) -> dict[str, Any]:
+    """Record realized income, optionally attributed to one instrument."""
+    result = await context.context.portfolios.record_income(
+        portfolio_id,
+        gross_amount=_parse_decimal(gross_amount, "gross_amount"),
+        tax=_parse_decimal(tax, "tax"),
+        other_fee=_parse_decimal(other_fee, "other_fee"),
+        instrument=_optional_instrument(code, market),
+        effective_at=_parse_effective_at(effective_at),
+        source="agent",
+        external_ref=None,
+    )
+    return _serialize_mutation_result(result)
+
+
+@tool(needs_approval=True)
+async def adjust_portfolio_position(
+    context: RunContextWrapper[AgentContext],
+    portfolio_id: str,
+    code: str,
+    market: str,
+    resulting_quantity: str,
+    resulting_total_cost: str | None,
+    reason: str,
+    effective_at: str | None = None,
+) -> dict[str, Any]:
+    """Assert newly recognized position state; do not use this to erase a historically wrong Ledger entry."""
+    result = await context.context.portfolios.adjust_position(
+        portfolio_id,
+        instrument=_instrument(code, market),
+        resulting_quantity=_parse_decimal(resulting_quantity, "resulting_quantity"),
+        resulting_total_cost=_parse_optional_decimal(resulting_total_cost, "resulting_total_cost"),
+        reason=reason,
+        effective_at=_parse_effective_at(effective_at),
+        source="agent",
+        external_ref=None,
+    )
+    return _serialize_mutation_result(result)
+
+
+@tool(needs_approval=True)
+async def adjust_portfolio_cash(
+    context: RunContextWrapper[AgentContext],
+    portfolio_id: str,
+    resulting_amount: str,
+    reason: str,
+    effective_at: str | None = None,
+) -> dict[str, Any]:
+    """Assert newly recognized logical cash state in the Portfolio base currency."""
+    result = await context.context.portfolios.adjust_cash(
+        portfolio_id,
+        resulting_amount=_parse_decimal(resulting_amount, "resulting_amount"),
+        reason=reason,
         effective_at=_parse_effective_at(effective_at),
         source="agent",
         external_ref=None,
@@ -346,6 +466,14 @@ def _parse_optional_decimal(value: str | None, field: str) -> Decimal | None:
 
 def _instrument(code: str, market: str) -> InstrumentId:
     return InstrumentId(code, market)
+
+
+def _optional_instrument(code: str | None, market: str | None) -> InstrumentId | None:
+    if code is None and market is None:
+        return None
+    if code is None or market is None:
+        raise ValueError("code and market must be supplied together")
+    return _instrument(code, market)
 
 
 def _parse_effective_at(value: str | None) -> datetime | None:
