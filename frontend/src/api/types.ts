@@ -107,6 +107,11 @@ export interface SessionResponse {
   session: SessionRecord
 }
 
+export interface PortfolioSessionResponse extends SessionResponse {
+  run_id: string | null
+  started: boolean
+}
+
 export interface SessionStateResponse {
   session: SessionRecord
   runtime: RuntimeSnapshot
@@ -501,6 +506,15 @@ export interface ApiErrorEnvelope {
 
 export interface SendMessageBody {
   text: string
+}
+
+export interface AskPortfolioBody {
+  request_id: string
+  text: string
+}
+
+export interface StartPortfolioSessionBody {
+  request_id: string
 }
 
 export interface RenameSessionBody {

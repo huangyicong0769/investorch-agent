@@ -1,6 +1,7 @@
 import type {
   ApiErrorDetails,
   ApiErrorEnvelope,
+  AskPortfolioBody,
   BackgroundJob,
   BootstrapResponse,
   ClearQueueResponse,
@@ -16,6 +17,7 @@ import type {
   PortfolioDetailResponse,
   PortfolioLedgerResponse,
   PortfolioListResponse,
+  PortfolioSessionResponse,
   ProcessListResponse,
   QueueMutationResponse,
   RemovedQueueItemResponse,
@@ -27,6 +29,7 @@ import type {
   SessionResponse,
   SessionStateResponse,
   StopResponse,
+  StartPortfolioSessionBody,
   UpdateDefaultsBody,
   UserInputSubmission,
 } from './types'
@@ -188,6 +191,29 @@ export function getSessionRelatedPortfolios(
   return request<PortfolioListResponse>(`/api/sessions/${encodePathPart(sessionId)}/related-portfolios`, {
     ...options,
     method: 'GET',
+  })
+}
+
+export function askPortfolioAgent(
+  portfolioId: string,
+  body: AskPortfolioBody,
+  options: RequestOverrides = {},
+): Promise<PortfolioSessionResponse> {
+  return request<PortfolioSessionResponse>(`/api/portfolios/${encodePathPart(portfolioId)}/ask`, {
+    ...options,
+    body,
+    method: 'POST',
+  })
+}
+
+export function startPortfolioSession(
+  body: StartPortfolioSessionBody,
+  options: RequestOverrides = {},
+): Promise<PortfolioSessionResponse> {
+  return request<PortfolioSessionResponse>('/api/portfolio-sessions', {
+    ...options,
+    body,
+    method: 'POST',
   })
 }
 
@@ -358,6 +384,7 @@ export function getProcesses(options: RequestOverrides = {}): Promise<ProcessLis
 
 export const api = {
   archiveSession,
+  askPortfolioAgent,
   clearSession,
   clearSessionQueue,
   compactSession,
@@ -385,6 +412,7 @@ export const api = {
   resumeSessionQueue,
   sendMessage,
   stopSession,
+  startPortfolioSession,
   unarchiveSession,
   updateDefaults,
 }
