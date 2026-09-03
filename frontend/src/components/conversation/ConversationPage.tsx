@@ -8,6 +8,7 @@ import { ApprovalCard } from '../approval/ApprovalCard'
 import { Composer } from '../composer/Composer'
 import { PlanCard } from '../plan/PlanCard'
 import { QueueStrip } from '../queue/QueueStrip'
+import { RelatedPortfolios } from '../portfolio/RelatedPortfolios'
 import { ConversationTimeline } from '../timeline/ConversationTimeline'
 import { ConversationHeader } from './ConversationHeader'
 import type { PendingDirectMessage } from './interaction'
@@ -89,6 +90,7 @@ export function ConversationPage() {
   return (
     <section className="flex h-dvh min-w-0 flex-col bg-background">
       <ConversationHeader session={stateQuery.data.session} />
+      <RelatedPortfolios sessionId={sessionId} />
       <ConversationTimeline
         onPendingMessageCanonical={() => {
           if (pendingMessage) {

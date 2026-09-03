@@ -570,6 +570,9 @@ export function LiveWebSocketProvider({ children }: PropsWithChildren) {
     void queryClient.invalidateQueries({ queryKey: queryKeys.sessions() })
     void queryClient.invalidateQueries({ exact: true, queryKey: queryKeys.session(sessionId) })
     void queryClient.invalidateQueries({ exact: true, queryKey: queryKeys.sessionState(sessionId) })
+    void queryClient.invalidateQueries({ queryKey: queryKeys.portfolios() })
+    void queryClient.invalidateQueries({ queryKey: queryKeys.portfolioRecords() })
+    void queryClient.invalidateQueries({ exact: true, queryKey: queryKeys.sessionRelatedPortfolios(sessionId) })
     void queryClient.invalidateQueries({ queryKey: queryKeys.bootstrap() })
   }
 
