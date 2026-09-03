@@ -39,6 +39,7 @@ from investorch.tools import close_execution, start_execution
 from .activity import ActivityCoordinator, ActivityLabelEvent, ActivityLabelHandler, _ignore_activity_label
 from .approval import ApprovalCoordinator, ApprovalResolvedHandler, ManualApprovalHandler, _ignore_approval_resolved
 from .portfolio_context import PortfolioContextOperations
+from .portfolio_sessions import PortfolioSessionWorkflows
 from .portfolios import PortfolioOperations
 from .presentation_state import SessionPresentationStore
 from .sessions import SessionOperations
@@ -86,6 +87,7 @@ class ApplicationHost:
     runtime: AgentRuntime
     sessions: SessionOperations
     portfolios: PortfolioOperations
+    portfolio_sessions: PortfolioSessionWorkflows
     approvals: ApprovalCoordinator
     activity: ActivityCoordinator | None
     presentation_state: SessionPresentationStore
@@ -277,6 +279,12 @@ async def open_application_host(
                     journal=journal,
                     presentation_state=presentation_state,
                 )
+                portfolio_sessions = PortfolioSessionWorkflows(
+                    state=state,
+                    runtime=runtime,
+                    sessions=sessions,
+                    portfolios=portfolios,
+                )
                 yield ApplicationHost(
                     config=config,
                     state=state,
@@ -285,6 +293,7 @@ async def open_application_host(
                     runtime=runtime,
                     sessions=sessions,
                     portfolios=portfolios,
+                    portfolio_sessions=portfolio_sessions,
                     approvals=approvals,
                     activity=activity,
                     presentation_state=presentation_state,

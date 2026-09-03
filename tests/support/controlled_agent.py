@@ -12,6 +12,7 @@ class _ControlledRun:
     session_id: str
     run_id: str
     user_input: str
+    application_instruction: str | None
     release: asyncio.Event = field(default_factory=asyncio.Event)
 
 
@@ -28,6 +29,9 @@ class ControlledAgentLoop:
             session_id=str(kwargs["session_id"]),
             run_id=str(kwargs["run_id"]),
             user_input=user_input,
+            application_instruction=(
+                str(kwargs["application_instruction"]) if kwargs.get("application_instruction") is not None else None
+            ),
         )
         async with self._condition:
             self._runs.append(run)
@@ -57,6 +61,12 @@ class ControlledAgentLoop:
         if not runs:
             raise AssertionError(f"No controlled run has started for {session_id}")
         runs[occurrence].release.set()
+
+    def input_for(self, session_id: str, occurrence: int = -1) -> _ControlledRun:
+        runs = self._matching_runs(session_id)
+        if not runs:
+            raise AssertionError(f"No controlled run has started for {session_id}")
+        return runs[occurrence]
 
     def _matching_runs(self, session_id: str) -> list[_ControlledRun]:
         return [run for run in self._runs if run.session_id == session_id]

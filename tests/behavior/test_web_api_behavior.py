@@ -5,7 +5,9 @@ from pathlib import Path
 
 import pytest
 
+from investorch.journal import read_session_journal
 from investorch.portfolio import CashFlow, InstrumentId, OpeningPosition
+from investorch.storage import list_sessions
 from tests.support.web import open_test_web
 
 
@@ -188,6 +190,108 @@ async def test_session_related_portfolios_resolve_current_summaries_in_relation_
         assert [item["portfolio_id"] for item in response.json()["portfolios"]] == [first.id, second.id]
         assert [item["status"] for item in response.json()["portfolios"]] == ["ARCHIVED", "ACTIVE"]
         assert all(item["holdings_count"] == 0 for item in response.json()["portfolios"])
+
+
+@pytest.mark.asyncio
+async def test_ask_agent_creates_a_fresh_contextual_session_and_is_idempotent(tmp_path: Path) -> None:
+    async with open_test_web(tmp_path) as web:
+        existing = await web.client.post("/api/sessions")
+        existing_session_id = existing.json()["session"]["session_id"]
+        portfolio = await web.host.portfolios.create(name="Archived", base_currency="CNY")
+        await web.host.portfolios.archive(portfolio.id)
+        body = {"request_id": "ask-request-a", "text": "Why is this cost unknown?"}
+
+        response = await web.client.post(f"/api/portfolios/{portfolio.id}/ask", json=body)
+
+        assert response.status_code == 200
+        payload = response.json()
+        session_id = payload["session"]["session_id"]
+        assert session_id != existing_session_id
+        assert payload["started"] is True
+        assert payload["run_id"]
+        await web.runtime.agent_loop.wait_until_started(session_id)
+        run_input = web.runtime.agent_loop.input_for(session_id)
+        records = read_session_journal(web.runtime.config.session_journal_dir, session_id)
+        assert run_input.user_input == body["text"]
+        assert portfolio.id in (run_input.application_instruction or "")
+        assert body["text"] not in (run_input.application_instruction or "")
+        assert [(record["type"], record.get("text")) for record in records] == [("user_message", body["text"])]
+        assert await web.host.sessions.get_related_portfolio_ids(session_id) == (portfolio.id,)
+
+        retry = await web.client.post(f"/api/portfolios/{portfolio.id}/ask", json=body)
+
+        assert retry.status_code == 200
+        assert retry.json()["session"]["session_id"] == session_id
+        assert retry.json()["started"] is False
+        assert retry.json()["run_id"] == payload["run_id"]
+        assert len(list_sessions(web.runtime.config.sessions_db, include_archived=True)) == 2
+
+        web.runtime.agent_loop.complete(session_id)
+        await web.runtime.wait_for_run_ended(session_id)
+
+
+@pytest.mark.asyncio
+async def test_failed_ask_run_keeps_relation_and_missing_portfolio_creates_no_session(tmp_path: Path) -> None:
+    async with open_test_web(tmp_path) as web:
+        portfolio = await web.host.portfolios.create(name="Core", base_currency="CNY")
+        web.runtime.agent_loop.fail_input("Explain this Portfolio")
+
+        submitted = await web.client.post(
+            f"/api/portfolios/{portfolio.id}/ask",
+            json={"request_id": "ask-failure", "text": "Explain this Portfolio"},
+        )
+        session_id = submitted.json()["session"]["session_id"]
+        await web.runtime.agent_loop.wait_until_started(session_id)
+        web.runtime.agent_loop.complete(session_id)
+        ended = await web.runtime.wait_for_run_ended(session_id)
+        missing = await web.client.post(
+            "/api/portfolios/missing/ask",
+            json={"request_id": "ask-missing", "text": "Explain this Portfolio"},
+        )
+
+        assert submitted.status_code == 200
+        assert ended.status == "failed"
+        assert await web.host.sessions.get_related_portfolio_ids(session_id) == (portfolio.id,)
+        assert missing.status_code == 404
+        assert missing.json()["error"]["code"] == "portfolio_not_found"
+        assert len(list_sessions(web.runtime.config.sessions_db, include_archived=True)) == 1
+
+
+@pytest.mark.asyncio
+async def test_new_portfolio_starter_is_application_authored_idempotent_and_allows_future_user_input(
+    tmp_path: Path,
+) -> None:
+    async with open_test_web(tmp_path) as web:
+        body = {"request_id": "new-portfolio-a"}
+
+        response = await web.client.post("/api/portfolio-sessions", json=body)
+
+        assert response.status_code == 200
+        payload = response.json()
+        session_id = payload["session"]["session_id"]
+        assert payload["started"] is True
+        await web.runtime.agent_loop.wait_until_started(session_id)
+        run_input = web.runtime.agent_loop.input_for(session_id)
+        assert run_input.user_input == ""
+        assert "creating a new Portfolio" in (run_input.application_instruction or "")
+        assert await web.runtime.journal.session_exists(session_id) is False
+
+        web.runtime.agent_loop.complete(session_id)
+        await web.runtime.wait_for_run_ended(session_id)
+        retry = await web.client.post("/api/portfolio-sessions", json=body)
+        assert retry.status_code == 200
+        assert retry.json()["session"]["session_id"] == session_id
+        assert retry.json()["started"] is False
+        assert len(list_sessions(web.runtime.config.sessions_db, include_archived=True)) == 1
+
+        message = await web.client.post(f"/api/sessions/{session_id}/messages", json={"text": "Call it Core"})
+        await web.runtime.agent_loop.wait_until_started(session_id, occurrence=2)
+        records = read_session_journal(web.runtime.config.session_journal_dir, session_id)
+        assert message.status_code == 200
+        assert [(record["type"], record.get("text")) for record in records] == [("user_message", "Call it Core")]
+
+        web.runtime.agent_loop.complete(session_id)
+        await web.runtime.wait_for_run_ended(session_id, occurrence=2)
 
 
 @pytest.mark.asyncio

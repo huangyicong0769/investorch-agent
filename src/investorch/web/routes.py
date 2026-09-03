@@ -51,6 +51,19 @@ class SendMessageRequest(BaseModel):
     text: str
 
 
+class AskPortfolioRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    request_id: str
+    text: str
+
+
+class StartPortfolioSessionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    request_id: str
+
+
 class RenameSessionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -242,6 +255,55 @@ async def get_portfolio_ledger(
         "returned": len(selected),
         "total": len(ledger),
         "has_older": len(selected) < len(ledger),
+    }
+
+
+@router.post("/portfolios/{portfolio_id}/ask")
+async def ask_portfolio_agent(
+    portfolio_id: str,
+    request: AskPortfolioRequest,
+    host: Host,
+) -> dict[str, object]:
+    if not request.request_id.strip():
+        raise APIError(400, "invalid_request_id", "Request ID must not be empty.")
+    if not request.text.strip():
+        raise APIError(400, "invalid_message", "Message text must not be empty.")
+    try:
+        result = await host.portfolio_sessions.ask_agent(
+            portfolio_id=portfolio_id,
+            text=request.text,
+            request_id=request.request_id,
+        )
+    except PortfolioNotFoundError as error:
+        raise _portfolio_not_found(portfolio_id) from error
+    except Exception as error:
+        raise_application_error(error)
+    record = await asyncio.to_thread(get_session, host.config.sessions_db, result.session_id)
+    assert record is not None
+    return {
+        "session": serialize_session_record(record),
+        "run_id": result.run_id,
+        "started": result.started,
+    }
+
+
+@router.post("/portfolio-sessions")
+async def start_new_portfolio_session(
+    request: StartPortfolioSessionRequest,
+    host: Host,
+) -> dict[str, object]:
+    if not request.request_id.strip():
+        raise APIError(400, "invalid_request_id", "Request ID must not be empty.")
+    try:
+        result = await host.portfolio_sessions.start_new_portfolio(request_id=request.request_id)
+    except Exception as error:
+        raise_application_error(error)
+    record = await asyncio.to_thread(get_session, host.config.sessions_db, result.session_id)
+    assert record is not None
+    return {
+        "session": serialize_session_record(record),
+        "run_id": result.run_id,
+        "started": result.started,
     }
 
 

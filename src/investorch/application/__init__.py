@@ -9,9 +9,11 @@ from .interaction import (
     SteerPromotionPendingError,
     UserInputRejected,
     UserInputSubmission,
+    current_run_options,
     submit_user_input,
 )
 from .portfolio_context import PortfolioContextOperations
+from .portfolio_sessions import PortfolioSessionResult, PortfolioSessionWorkflows
 from .portfolios import (
     PortfolioAlreadyActiveError,
     PortfolioAlreadyArchivedError,
@@ -57,6 +59,8 @@ __all__ = [
     "PortfolioOperationError",
     "PortfolioOperations",
     "PortfolioSequenceRetryExhaustedError",
+    "PortfolioSessionResult",
+    "PortfolioSessionWorkflows",
     "PortfolioTransferCurrencyError",
     "PreparedReviewContext",
     "QueuedFollowUpsPendingError",
@@ -75,6 +79,7 @@ __all__ = [
     "UserInputRejected",
     "UserInputSubmission",
     "create_model",
+    "current_run_options",
     "open_application_host",
     "submit_user_input",
 ]

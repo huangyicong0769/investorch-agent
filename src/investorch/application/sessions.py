@@ -111,6 +111,18 @@ class SessionOperations:
         logger.info("Started session %s", session_id)
         return session_id
 
+    async def create_for_request(self, workflow: str, request_id: str) -> tuple[str, bool]:
+        if not workflow.strip() or not request_id.strip():
+            raise ValueError("workflow and request_id must not be empty")
+        session_id = uuid.uuid5(
+            uuid.NAMESPACE_URL,
+            f"urn:investorch:session-request:{workflow.strip()}:{request_id.strip()}",
+        ).hex
+        created = await asyncio.to_thread(create_session, self._config.sessions_db, session_id)
+        if created:
+            logger.info("Started idempotent session %s for workflow %s", session_id, workflow)
+        return session_id, created
+
     async def get_related_portfolio_ids(self, session_id: str) -> tuple[str, ...]:
         try:
             return await asyncio.to_thread(

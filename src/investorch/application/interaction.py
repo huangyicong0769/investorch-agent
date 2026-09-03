@@ -43,7 +43,7 @@ class FollowUpSubmissionError(UserInputRejected):
     pass
 
 
-def _current_run_options(state: AppState) -> RunOptions:
+def current_run_options(state: AppState) -> RunOptions:
     return RunOptions(
         reasoning_effort=state.main_reasoning_effort,
         permission_mode=state.permission_mode,
@@ -65,7 +65,7 @@ async def submit_user_input(
 
     if runtime.is_session_active(session_id):
         try:
-            submission = await runtime.submit_follow_up(session_id, text, _current_run_options(state))
+            submission = await runtime.submit_follow_up(session_id, text, current_run_options(state))
         except SessionBusyError as exc:
             raise ActiveRunChangedError(follow_up=True) from exc
         except Exception as exc:
@@ -84,7 +84,7 @@ async def submit_user_input(
         raise QueuedFollowUpsPendingError(paused=snapshot.queue_paused)
 
     try:
-        active_run = runtime.start_run(session_id, text, _current_run_options(state))
+        active_run = runtime.start_run(session_id, text, current_run_options(state))
     except SessionBusyError as exc:
         raise ActiveRunChangedError(follow_up=False) from exc
     return UserInputSubmission(session_id=session_id, disposition="run_started", run_id=active_run.run_id)

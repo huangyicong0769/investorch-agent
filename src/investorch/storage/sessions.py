@@ -26,12 +26,13 @@ class SessionMetadataError(RuntimeError):
     pass
 
 
-def create_session(db_path: str | Path, session_id: str) -> None:
+def create_session(db_path: str | Path, session_id: str) -> bool:
     session = SQLiteSession(session_id, db_path)
     session.close()
     with closing(sqlite3.connect(db_path)) as connection:
-        connection.execute("INSERT OR IGNORE INTO agent_sessions (session_id) VALUES (?)", (session_id,))
+        cursor = connection.execute("INSERT OR IGNORE INTO agent_sessions (session_id) VALUES (?)", (session_id,))
         connection.commit()
+    return cursor.rowcount == 1
 
 
 def session_exists(db_path: str | Path, session_id: str) -> bool:
