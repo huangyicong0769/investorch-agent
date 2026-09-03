@@ -280,6 +280,12 @@ async def test_approved_economic_tools_record_exact_agent_facts(tmp_path: Path) 
         code="600519",
         market="XSHG",
     )
+    unattributed_income = await invoke(
+        record_portfolio_income,
+        context,
+        portfolio_id=portfolio.id,
+        gross_amount="0.03",
+    )
     position = await invoke(
         adjust_portfolio_position,
         context,
@@ -299,7 +305,7 @@ async def test_approved_economic_tools_record_exact_agent_facts(tmp_path: Path) 
         effective_at="2026-09-03T15:00:00+08:00",
     )
 
-    assert all(isinstance(result, dict) for result in (trade, cash_flow, income, position, cash))
+    assert all(isinstance(result, dict) for result in (trade, cash_flow, income, unattributed_income, position, cash))
     ledger = await context.context.portfolios.list_ledger(portfolio.id)
     assert {entry.source for entry in ledger} == {"agent"}
     assert {entry.external_ref for entry in ledger} == {None}
@@ -307,6 +313,7 @@ async def test_approved_economic_tools_record_exact_agent_facts(tmp_path: Path) 
         Trade(STOCK, TradeSide.BUY, Decimal("0.03"), Decimal("1523.45"), Decimal("0.01")),
         CashFlow("CNY", Decimal("2000.03")),
         Income("CNY", Decimal("10.03"), Decimal("0.01"), Decimal("0"), STOCK),
+        Income("CNY", Decimal("0.03"), Decimal("0"), Decimal("0"), None),
         PositionAdjustment(STOCK, Decimal("0.03"), None, "broker reconciliation"),
         CashAdjustment("CNY", Decimal("1964.3255"), "broker reconciliation"),
     ]
@@ -329,6 +336,13 @@ async def test_economic_tools_reject_ambiguous_or_inexact_inputs(tmp_path: Path)
         portfolio_id=portfolio.id,
         amount="not-a-decimal",
     )
+    malformed_time = await invoke(
+        record_portfolio_cash_flow,
+        context,
+        portfolio_id=portfolio.id,
+        amount="1",
+        effective_at="not-a-timestamp",
+    )
     naive_time = await invoke(
         adjust_portfolio_cash,
         context,
@@ -342,6 +356,8 @@ async def test_economic_tools_reject_ambiguous_or_inexact_inputs(tmp_path: Path)
     assert "code and market" in partial_instrument
     assert isinstance(malformed_decimal, str)
     assert "valid decimal string" in malformed_decimal
+    assert isinstance(malformed_time, str)
+    assert "timezone-aware" in malformed_time
     assert isinstance(naive_time, str)
     assert "timezone-aware" in naive_time
     assert await context.context.portfolios.list_ledger(portfolio.id) == []
@@ -370,6 +386,7 @@ async def test_correction_tool_uses_a_strict_discriminated_replacement(tmp_path:
     assert correct_portfolio_entry.strict_json_schema is True
     assert "discriminator" in replacement_schema
     assert isinstance(result, dict)
+    assert result["states"][portfolio.id]["cash"] == {"CNY": "12.03"}
     ledger = await context.context.portfolios.list_ledger(portfolio.id)
     assert [entry.entry_type.value for entry in ledger] == ["CASH_FLOW", "VOID", "CASH_FLOW"]
     assert ledger[-1].payload == CashFlow("CNY", Decimal("12.03"))
@@ -386,6 +403,16 @@ async def test_correction_tool_uses_a_strict_discriminated_replacement(tmp_path:
     )
     assert isinstance(invalid, str)
     assert "Invalid JSON input" in invalid
+    invalid_type = await invoke(
+        correct_portfolio_entry,
+        context,
+        portfolio_id=portfolio.id,
+        target_entry_id=ledger[-1].entry_id,
+        reason="invalid type",
+        replacement={"type": "transfer", "amount": "1"},
+    )
+    assert isinstance(invalid_type, str)
+    assert "Invalid JSON input" in invalid_type
 
 
 async def test_correction_tool_rejects_one_sided_transfer_correction(tmp_path: Path) -> None:
@@ -422,17 +449,30 @@ async def test_approved_transfer_tools_mutate_both_portfolios_atomically(tmp_pat
     await context.context.portfolios.initialize(
         source.id,
         cash=Decimal("100.03"),
-        positions=(OpeningPosition(STOCK, Decimal("10"), None),),
+        positions=(
+            OpeningPosition(STOCK, Decimal("10"), Decimal("15234.50")),
+            OpeningPosition(UNKNOWN_STOCK, Decimal("1"), None),
+        ),
         source="import",
     )
 
-    position = await invoke(
+    known_cost_position = await invoke(
         transfer_portfolio_position,
         context,
         source_portfolio_id=source.id,
         destination_portfolio_id=destination.id,
         code="600519",
         market="XSHG",
+        quantity="0.03",
+        transferred_cost="45.7035",
+    )
+    unknown_cost_position = await invoke(
+        transfer_portfolio_position,
+        context,
+        source_portfolio_id=source.id,
+        destination_portfolio_id=destination.id,
+        code="000001",
+        market="XSHE",
         quantity="0.03",
         transferred_cost=None,
     )
@@ -447,16 +487,19 @@ async def test_approved_transfer_tools_mutate_both_portfolios_atomically(tmp_pat
 
     assert transfer_portfolio_position.needs_approval is True
     assert transfer_portfolio_cash.needs_approval is True
-    assert isinstance(position, dict)
-    assert {entry["portfolio_id"] for entry in position["entries"]} == {source.id, destination.id}
+    assert isinstance(known_cost_position, dict)
+    assert {entry["portfolio_id"] for entry in known_cost_position["entries"]} == {source.id, destination.id}
+    assert isinstance(unknown_cost_position, dict)
     assert isinstance(cash, dict)
     assert cash["states"][source.id]["cash"] == {"CNY": "90.00"}
     assert cash["states"][destination.id]["cash"] == {"CNY": "10.03"}
     source_ledger = await context.context.portfolios.list_ledger(source.id)
     destination_ledger = await context.context.portfolios.list_ledger(destination.id)
-    assert source_ledger[-2].operation_id == destination_ledger[0].operation_id == position["operation_id"]
+    assert source_ledger[-3].operation_id == destination_ledger[0].operation_id == known_cost_position["operation_id"]
+    assert source_ledger[-2].operation_id == destination_ledger[1].operation_id == unknown_cost_position["operation_id"]
     assert source_ledger[-1].operation_id == destination_ledger[-1].operation_id == cash["operation_id"]
-    assert destination_ledger[0].payload.transferred_cost is None
+    assert destination_ledger[0].payload.transferred_cost == Decimal("45.7035")
+    assert destination_ledger[1].payload.transferred_cost is None
     assert {entry.source for entry in destination_ledger} == {"agent"}
 
 
