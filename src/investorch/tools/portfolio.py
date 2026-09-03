@@ -147,7 +147,7 @@ async def list_portfolios(
     context: RunContextWrapper[AgentContext],
     include_archived: bool = False,
 ) -> dict[str, Any]:
-    """List logical Portfolio metadata without loading holdings or Ledger history.
+    """List logical Portfolio metadata without holdings or Ledger history; returns metadata summaries.
 
     Args:
         include_archived: Include archived Portfolios when true. Defaults to false.
@@ -164,7 +164,7 @@ async def get_portfolio(
     context: RunContextWrapper[AgentContext],
     portfolio_id: str,
 ) -> dict[str, Any]:
-    """Get one logical Portfolio's metadata and current projected holdings and cash.
+    """Get one Portfolio; returns its metadata and current projected holdings and cash.
 
     Args:
         portfolio_id: Durable Portfolio identifier.
@@ -186,7 +186,7 @@ async def get_portfolio_ledger(
     portfolio_id: str,
     limit: int = 50,
 ) -> dict[str, Any]:
-    """Get the newest bounded Portfolio Ledger entries in ascending append/audit order.
+    """Get recent Ledger history; returns newest entries in audit order with truncation metadata.
 
     Args:
         portfolio_id: Durable Portfolio identifier.
@@ -217,7 +217,7 @@ async def create_portfolio(
     strategy_source_path: str | None = None,
     strategy_parameters_json: str | None = None,
 ) -> dict[str, Any]:
-    """Create durable logical Portfolio metadata; this does not add opening state.
+    """Create durable Portfolio metadata without opening state; returns the created metadata.
 
     Args:
         name: Human-readable Portfolio name.
@@ -249,7 +249,7 @@ async def update_portfolio(
     strategy_parameters_json: str | None = None,
     clear_strategy_binding: bool = False,
 ) -> dict[str, Any]:
-    """Update durable active Portfolio metadata without changing currency or lifecycle status.
+    """Update active Portfolio metadata without currency/status changes; returns the updated metadata.
 
     Args:
         portfolio_id: Durable Portfolio identifier.
@@ -289,7 +289,7 @@ async def archive_portfolio(
     context: RunContextWrapper[AgentContext],
     portfolio_id: str,
 ) -> dict[str, Any]:
-    """Archive and freeze a durable Portfolio until it is explicitly restored.
+    """Archive and freeze a durable Portfolio; returns the archived metadata.
 
     Args:
         portfolio_id: Durable Portfolio identifier.
@@ -306,7 +306,7 @@ async def restore_portfolio(
     context: RunContextWrapper[AgentContext],
     portfolio_id: str,
 ) -> dict[str, Any]:
-    """Restore an archived Portfolio so durable metadata and economic facts can change again.
+    """Restore an archived Portfolio for further mutation; returns the restored metadata.
 
     Args:
         portfolio_id: Durable Portfolio identifier.
@@ -326,7 +326,7 @@ async def initialize_portfolio(
     positions: list[OpeningPositionInput] | None = None,
     effective_at: str | None = None,
 ) -> dict[str, Any]:
-    """Initialize one empty active Portfolio with durable opening cash and positions exactly once.
+    """Initialize one empty Portfolio once; returns operation, entry, and resulting-state details.
 
     Args:
         portfolio_id: Durable Portfolio identifier.
@@ -370,7 +370,7 @@ async def record_portfolio_trade(
     other_fee: str = "0",
     effective_at: str | None = None,
 ) -> dict[str, Any]:
-    """Record an already-realized trade fact; this does not place a Broker order.
+    """Record a realized trade, not a Broker order; returns operation, entry, and resulting-state details.
 
     Args:
         portfolio_id: Durable Portfolio identifier.
@@ -410,7 +410,9 @@ async def record_portfolio_cash_flow(
     amount: str,
     effective_at: str | None = None,
 ) -> dict[str, Any]:
-    """Record external capital: a positive amount enters the Portfolio and a negative amount leaves it.
+    """Record external capital, not investment income; returns operation, entry, and resulting-state details.
+
+    A positive amount enters the Portfolio and a negative amount leaves it.
 
     Args:
         portfolio_id: Durable Portfolio identifier.
@@ -441,7 +443,9 @@ async def record_portfolio_income(
     market: str | None = None,
     effective_at: str | None = None,
 ) -> dict[str, Any]:
-    """Record realized income, optionally attributed to one instrument.
+    """Record investment-generated cash, not external capital; returns operation, entry, and state details.
+
+    Income may optionally be attributed to one instrument.
 
     Args:
         portfolio_id: Durable Portfolio identifier.
@@ -479,7 +483,9 @@ async def adjust_portfolio_position(
     reason: str,
     effective_at: str | None = None,
 ) -> dict[str, Any]:
-    """Assert newly recognized position state; do not use this to erase a historically wrong Ledger entry.
+    """Assert newly recognized position state; returns operation, entry, and resulting-state details.
+
+    Do not use adjustment to erase a historically wrong Ledger entry; use correction instead.
 
     Args:
         portfolio_id: Durable Portfolio identifier.
@@ -514,7 +520,9 @@ async def adjust_portfolio_cash(
     reason: str,
     effective_at: str | None = None,
 ) -> dict[str, Any]:
-    """Assert newly recognized logical cash state in the Portfolio base currency.
+    """Assert newly recognized cash state; returns operation, entry, and resulting-state details.
+
+    The amount uses the Portfolio base currency. Use correction, not adjustment, for a wrong historical entry.
 
     Args:
         portfolio_id: Durable Portfolio identifier.
@@ -545,7 +553,7 @@ async def correct_portfolio_entry(
     replacement: CorrectionReplacement,
     effective_at: str | None = None,
 ) -> dict[str, Any]:
-    """Void one historically wrong Ledger entry and append its corrected replacement.
+    """Append a VOID and replacement for a wrong entry; returns operation, entries, and resulting state.
 
     Args:
         portfolio_id: Durable Portfolio identifier.
@@ -588,7 +596,7 @@ async def transfer_portfolio_position(
     transferred_cost: str | None,
     effective_at: str | None = None,
 ) -> dict[str, Any]:
-    """Atomically transfer an actual position between two logical Portfolios without inferring cost.
+    """Atomically transfer a position without inferring cost; returns paired entries and both states.
 
     Args:
         source_portfolio_id: Durable identifier of the Portfolio giving the position.
@@ -623,7 +631,7 @@ async def transfer_portfolio_cash(
     amount: str,
     effective_at: str | None = None,
 ) -> dict[str, Any]:
-    """Atomically transfer logical cash between same-currency Portfolios; this does not perform FX.
+    """Atomically transfer same-currency cash without FX; returns paired entries and both states.
 
     Args:
         source_portfolio_id: Durable identifier of the Portfolio giving cash.
