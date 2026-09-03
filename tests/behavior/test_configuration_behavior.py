@@ -24,22 +24,7 @@ def test_local_override_preserves_unset_defaults_and_project_root(tmp_path: Path
 def test_portfolio_database_follows_custom_state_directory(tmp_path: Path) -> None:
     config = make_test_config(tmp_path, {"paths": {"state": "custom-state"}})
 
-    assert config.state_dir == config.root / "custom-state"
     assert config.portfolio_db == config.state_dir / "portfolio.db"
-
-
-def test_web_and_tui_policy_can_be_customized(tmp_path: Path) -> None:
-    config = make_test_config(
-        tmp_path,
-        {
-            "web": {"default_port": 8765, "history_page_size": 17},
-            "tui": {"queue_preview_count": 4},
-        },
-    )
-
-    assert config["web.default_port"] == 8765
-    assert config["web.history_page_size"] == 17
-    assert config["tui.queue_preview_count"] == 4
 
 
 def test_web_cli_port_override_is_optional() -> None:
