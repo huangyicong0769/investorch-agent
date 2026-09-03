@@ -10,6 +10,13 @@ from pydantic import BaseModel, ConfigDict, StrictBool
 
 from investorch.application import ApplicationHost, submit_user_input
 from investorch.journal import JournalPage, read_session_journal_page
+from investorch.portfolio import PortfolioNotFoundError
+from investorch.portfolio_presentation import (
+    serialize_ledger_entry,
+    serialize_portfolio,
+    serialize_portfolio_state,
+    serialize_portfolio_summary,
+)
 from investorch.presentation import (
     serialize_approval_request,
     serialize_background_job,
@@ -107,6 +114,15 @@ def _require_confirmation(request: ConfirmRequest, action: str) -> None:
         raise APIError(400, "confirmation_required", f"Explicit confirmation is required to {action}.")
 
 
+def _portfolio_not_found(portfolio_id: str) -> APIError:
+    return APIError(
+        404,
+        "portfolio_not_found",
+        "The requested Portfolio does not exist.",
+        details={"portfolio_id": portfolio_id},
+    )
+
+
 def _serialize_defaults(host: ApplicationHost) -> dict[str, str]:
     return {
         "reasoning_effort": host.state.main_reasoning_effort,
@@ -185,6 +201,50 @@ async def get_archived_sessions(host: Host) -> dict[str, object]:
     return {"sessions": [serialize_session_record(record) for record in records]}
 
 
+@router.get("/portfolios")
+async def get_portfolios(host: Host) -> dict[str, object]:
+    portfolios = await host.portfolios.list(include_archived=True)
+    states = await asyncio.gather(*(host.portfolios.get_state(portfolio.id) for portfolio in portfolios))
+    return {
+        "portfolios": [
+            serialize_portfolio_summary(portfolio, state) for portfolio, state in zip(portfolios, states, strict=True)
+        ]
+    }
+
+
+@router.get("/portfolios/{portfolio_id}")
+async def get_portfolio_by_id(portfolio_id: str, host: Host) -> dict[str, object]:
+    try:
+        portfolio = await host.portfolios.get(portfolio_id)
+        state = await host.portfolios.get_state(portfolio_id)
+    except PortfolioNotFoundError as error:
+        raise _portfolio_not_found(portfolio_id) from error
+    return {
+        "portfolio": serialize_portfolio(portfolio, include_timestamps=True),
+        "state": serialize_portfolio_state(state),
+    }
+
+
+@router.get("/portfolios/{portfolio_id}/ledger")
+async def get_portfolio_ledger(
+    portfolio_id: str,
+    host: Host,
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+) -> dict[str, object]:
+    try:
+        ledger = await host.portfolios.list_ledger(portfolio_id)
+    except PortfolioNotFoundError as error:
+        raise _portfolio_not_found(portfolio_id) from error
+    selected = ledger[-limit:]
+    return {
+        "portfolio_id": portfolio_id,
+        "entries": [serialize_ledger_entry(entry) for entry in selected],
+        "returned": len(selected),
+        "total": len(ledger),
+        "has_older": len(selected) < len(ledger),
+    }
+
+
 @router.post("/sessions")
 async def create_session(host: Host) -> dict[str, object]:
     session_id = await host.sessions.create()
@@ -208,6 +268,25 @@ async def get_session_state(session: Session, host: Host, broker: Broker) -> dic
         "queue": [serialize_queue_item(item) for item in host.runtime.list_queued_inputs(session_id)],
         "pending_approvals": _serialize_pending_approvals(broker, session_id=session_id),
     }
+
+
+@router.get("/sessions/{session_id}/related-portfolios")
+async def get_session_related_portfolios(session: Session, host: Host) -> dict[str, object]:
+    related_ids = await host.sessions.get_related_portfolio_ids(session.session_id)
+    portfolios = []
+    for portfolio_id in related_ids:
+        try:
+            portfolio = await host.portfolios.get(portfolio_id)
+            state = await host.portfolios.get_state(portfolio_id)
+        except PortfolioNotFoundError:
+            logger.warning(
+                "Omitting unavailable related Portfolio session=%s portfolio=%s",
+                session.session_id,
+                portfolio_id,
+            )
+            continue
+        portfolios.append(serialize_portfolio_summary(portfolio, state))
+    return {"portfolios": portfolios}
 
 
 @router.get("/sessions/{session_id}/history")

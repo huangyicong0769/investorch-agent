@@ -63,6 +63,13 @@ def serialize_portfolio_state(state: PortfolioState) -> dict[str, Any]:
     }
 
 
+def serialize_portfolio_summary(portfolio: Portfolio, state: PortfolioState) -> dict[str, Any]:
+    result = serialize_portfolio(portfolio, include_timestamps=False)
+    result["logical_cash"] = {currency: str(state.cash[currency]) for currency in sorted(state.cash)}
+    result["holdings_count"] = len(state.holdings)
+    return result
+
+
 def serialize_ledger_entry(entry: LedgerEntry) -> dict[str, Any]:
     return {
         "entry_id": entry.entry_id,
