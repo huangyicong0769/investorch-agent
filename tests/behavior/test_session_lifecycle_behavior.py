@@ -1,15 +1,19 @@
 from __future__ import annotations
 
+import sqlite3
 from pathlib import Path
 
 import pytest
 from agents import SQLiteSession
 
 from investorch.application.interaction import ArchivedSessionInputError, submit_user_input
+from investorch.application.presentation_state import SessionPresentationStore
 from investorch.application.sessions import (
     SessionArchivedError,
     SessionHasChildrenError,
     SessionHasQueuedInputsError,
+    SessionNotFoundError,
+    SessionOperations,
 )
 from investorch.context import AppState
 from investorch.journal import read_session_journal
@@ -45,6 +49,73 @@ async def test_create_persists_a_normal_unarchived_session(tmp_path: Path) -> No
     assert record is not None
     assert record.archived_at is None
     assert session_id in {item.session_id for item in list_sessions(harness.runtime.config.sessions_db)}
+    await harness.runtime.runtime.aclose()
+
+
+@pytest.mark.asyncio
+async def test_related_portfolios_are_ordered_deduplicated_and_durable(tmp_path: Path) -> None:
+    harness = make_session_harness(tmp_path)
+    session_id = await harness.operations.create()
+
+    assert await harness.operations.get_related_portfolio_ids(session_id) == ()
+    assert await harness.operations.add_related_portfolio_ids(
+        session_id,
+        ("core", "growth", "core"),
+    ) == ("core", "growth")
+    assert await harness.operations.add_related_portfolio_ids(
+        session_id,
+        ("income", "growth"),
+    ) == ("core", "growth", "income")
+
+    reopened = SessionOperations(
+        config=harness.runtime.config,
+        runtime=harness.runtime.runtime,
+        journal=harness.runtime.journal,
+        presentation_state=SessionPresentationStore(),
+    )
+    assert await reopened.get_related_portfolio_ids(session_id) == ("core", "growth", "income")
+    fresh_session_id = await reopened.create()
+    assert await reopened.get_related_portfolio_ids(fresh_session_id) == ()
+    await harness.runtime.runtime.aclose()
+
+
+@pytest.mark.asyncio
+async def test_related_portfolios_follow_session_lifecycle(tmp_path: Path) -> None:
+    harness = make_session_harness(tmp_path)
+    source_id = await harness.operations.create()
+    await harness.operations.add_related_portfolio_ids(source_id, ("core", "growth"))
+
+    await harness.operations.archive(source_id)
+    assert await harness.operations.get_related_portfolio_ids(source_id) == ("core", "growth")
+    await harness.operations.unarchive(source_id)
+    assert await harness.operations.get_related_portfolio_ids(source_id) == ("core", "growth")
+
+    target_id = await harness.operations.fork(source_id)
+    assert await harness.operations.get_related_portfolio_ids(target_id) == ("core", "growth")
+    await harness.operations.add_related_portfolio_ids(source_id, ("source-only",))
+    await harness.operations.add_related_portfolio_ids(target_id, ("target-only",))
+    assert await harness.operations.get_related_portfolio_ids(source_id) == ("core", "growth", "source-only")
+    assert await harness.operations.get_related_portfolio_ids(target_id) == ("core", "growth", "target-only")
+
+    await harness.operations.delete(target_id)
+    with pytest.raises(SessionNotFoundError):
+        await harness.operations.get_related_portfolio_ids(target_id)
+    await harness.runtime.runtime.aclose()
+
+
+@pytest.mark.asyncio
+async def test_malformed_related_portfolio_metadata_fails_clearly(tmp_path: Path) -> None:
+    harness = make_session_harness(tmp_path)
+    session_id = await harness.operations.create()
+    await harness.operations.add_related_portfolio_ids(session_id, ("core",))
+    with sqlite3.connect(harness.runtime.config.sessions_db) as connection:
+        connection.execute(
+            "UPDATE extra_session_metadata SET related_portfolio_ids_json = ? WHERE session_id = ?",
+            ("not-json", session_id),
+        )
+
+    with pytest.raises(RuntimeError, match="related Portfolio metadata"):
+        await harness.operations.get_related_portfolio_ids(session_id)
     await harness.runtime.runtime.aclose()
 
 
@@ -298,17 +369,19 @@ async def test_discard_unused_deletes_only_unowned_empty_session(tmp_path: Path)
     titled_id = await harness.operations.create()
     parent_id = await harness.operations.create()
     child_id = await harness.operations.fork(parent_id)
+    related_id = await harness.operations.create()
     queued_id = await harness.operations.create()
 
     await add_sdk_item(harness, sdk_id, "used")
     await harness.runtime.journal.record_user_message(journal_id, "used")
     await harness.operations.set_title(titled_id, "Used")
+    await harness.operations.add_related_portfolio_ids(related_id, ("core",))
     harness.runtime.runtime.start_run(queued_id, "running", run_options("queue"))
     await harness.runtime.agent_loop.wait_until_started(queued_id)
     await harness.runtime.runtime.submit_follow_up(queued_id, "future", run_options())
 
     assert await harness.operations.discard_if_unused(empty_id) is True
-    for retained_id in (sdk_id, journal_id, titled_id, parent_id, child_id, queued_id):
+    for retained_id in (sdk_id, journal_id, titled_id, parent_id, child_id, related_id, queued_id):
         assert await harness.operations.discard_if_unused(retained_id) is False
         assert get_session(harness.runtime.config.sessions_db, retained_id) is not None
     assert get_session(harness.runtime.config.sessions_db, empty_id) is None

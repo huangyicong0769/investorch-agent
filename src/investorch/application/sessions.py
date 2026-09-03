@@ -4,7 +4,7 @@ import asyncio
 import logging
 import threading
 import uuid
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Iterable
 
 from agents import SQLiteSession
 
@@ -14,6 +14,7 @@ from investorch.journal import SessionJournal
 from investorch.runtime import AgentRuntime, SessionBusyError
 from investorch.storage import (
     SessionRecord,
+    add_session_related_portfolio_ids,
     archive_session,
     create_session,
     delete_session_metadata,
@@ -21,6 +22,7 @@ from investorch.storage import (
     delete_unused_session,
     fork_session,
     get_session,
+    get_session_related_portfolio_ids,
     is_session_archived,
     session_has_children,
     set_session_title,
@@ -108,6 +110,31 @@ class SessionOperations:
         await asyncio.to_thread(create_session, self._config.sessions_db, session_id)
         logger.info("Started session %s", session_id)
         return session_id
+
+    async def get_related_portfolio_ids(self, session_id: str) -> tuple[str, ...]:
+        try:
+            return await asyncio.to_thread(
+                get_session_related_portfolio_ids,
+                self._config.sessions_db,
+                session_id,
+            )
+        except KeyError:
+            raise SessionNotFoundError(session_id) from None
+
+    async def add_related_portfolio_ids(
+        self,
+        session_id: str,
+        portfolio_ids: Iterable[str],
+    ) -> tuple[str, ...]:
+        try:
+            return await asyncio.to_thread(
+                add_session_related_portfolio_ids,
+                self._config.sessions_db,
+                session_id,
+                tuple(portfolio_ids),
+            )
+        except KeyError:
+            raise SessionNotFoundError(session_id) from None
 
     async def discard_if_unused(self, session_id: str) -> bool:
         if self._runtime.has_queued_inputs(session_id):

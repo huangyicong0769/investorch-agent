@@ -11,6 +11,7 @@ from agents import SQLiteSession
 from investorch.journal import SessionJournal
 
 from .sessions import (
+    copy_session_related_portfolio_ids,
     create_session,
     delete_session_metadata,
     get_session_branch_from,
@@ -78,6 +79,14 @@ async def fork_session(
         target = SQLiteSession(target_session_id, sessions_db)
         await target.add_items(source_items)
         await journal.clone_session(source_session_id, target_session_id)
+        await _await_mutation(
+            asyncio.to_thread(
+                copy_session_related_portfolio_ids,
+                sessions_db,
+                source_session_id,
+                target_session_id,
+            )
+        )
 
         title = _fork_title(source_title)
         if title is not None:
