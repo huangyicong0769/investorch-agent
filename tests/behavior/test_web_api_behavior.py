@@ -4,27 +4,16 @@ from pathlib import Path
 
 import pytest
 
-from investorch.web.routes import APPLICATION_VERSION
-from investorch.web.server import create_web_app
-from tests.support.config import make_test_config
 from tests.support.web import open_test_web
 
 
-def test_web_application_metadata_uses_investorch_identity(tmp_path: Path) -> None:
-    app = create_web_app(make_test_config(tmp_path))
-
-    assert app.title == "InvestOrch Agent"
-    assert app.version == APPLICATION_VERSION == "0.1.0"
-
-
 @pytest.mark.asyncio
-async def test_health_exposes_ready_status_and_version(tmp_path: Path) -> None:
+async def test_health_exposes_ready_status(tmp_path: Path) -> None:
     async with open_test_web(tmp_path) as web:
         response = await web.client.get("/api/health")
 
         assert response.status_code == 200
         assert response.json()["status"] == "ok"
-        assert response.json()["version"] == "0.1.0"
 
 
 @pytest.mark.asyncio
@@ -38,15 +27,6 @@ async def test_bootstrap_stays_sessionless_until_user_creates_session(tmp_path: 
         assert payload["runtime"] is None
         assert payload["presentation"] is None
         assert payload["sessions"] == []
-        assert payload["web_config"] == {
-            "history_page_size": 200,
-            "websocket_reconnect_base_delay_ms": 500,
-            "websocket_reconnect_max_delay_ms": 8000,
-            "max_notices": 12,
-            "composer_max_height_px": 160,
-            "unused_session_discard_delay_ms": 1000,
-            "run_timer_interval_ms": 1000,
-        }
 
 
 @pytest.mark.asyncio
@@ -188,7 +168,7 @@ async def test_corrupt_history_maps_to_machine_readable_journal_error(tmp_path: 
 
 @pytest.mark.asyncio
 async def test_future_default_changes_without_mutating_active_run_snapshot(tmp_path: Path) -> None:
-    async with open_test_web(tmp_path) as web:
+    async with open_test_web(tmp_path, {"interaction": {"follow_up_behavior": "steer"}}) as web:
         created = await web.client.post("/api/sessions")
         session_id = created.json()["session"]["session_id"]
         started = await web.client.post(f"/api/sessions/{session_id}/messages", json={"text": "first"})

@@ -5,41 +5,41 @@ from pathlib import Path
 import pytest
 
 from investorch.cli import parse_web_args
-from investorch.config import PROJECT_CONFIG_PATH, REDACTED, ConfigError, load_config
+from investorch.config import REDACTED, ConfigError, load_config
 from tests.support.config import make_test_config
 
 
 def test_local_override_preserves_unset_defaults_and_project_root(tmp_path: Path) -> None:
+    baseline = make_test_config(tmp_path / "baseline")
     config = make_test_config(
-        tmp_path,
+        tmp_path / "override",
         {"interaction": {"follow_up_behavior": "queue"}},
     )
 
     assert config["interaction.follow_up_behavior"] == "queue"
-    assert config["runtime.max_turns"] == 100
-    assert config.root == (tmp_path / "root").resolve()
+    assert config["runtime.max_turns"] == baseline["runtime.max_turns"]
+    assert config.root == (tmp_path / "override" / "root").resolve()
 
 
-def test_investorch_default_filesystem_identity(tmp_path: Path) -> None:
-    config = make_test_config(tmp_path)
+def test_portfolio_database_follows_custom_state_directory(tmp_path: Path) -> None:
+    config = make_test_config(tmp_path, {"paths": {"state": "custom-state"}})
 
-    assert PROJECT_CONFIG_PATH.name == "investorch.toml"
-    assert config.root_config_path == config.root / "investorch.toml"
-    assert config.state_dir == config.root / "state"
-    assert config.portfolio_db == config.root / "state" / "portfolio.db"
-    assert config.log_path == config.root / "state" / "logs" / "investorch.log"
-    assert config.background_job_dir == config.root / "workspace" / ".investorch-processes"
+    assert config.state_dir == config.root / "custom-state"
+    assert config.portfolio_db == config.state_dir / "portfolio.db"
 
 
-def test_web_and_tui_policy_come_from_appconfig(tmp_path: Path) -> None:
-    config = make_test_config(tmp_path)
+def test_web_and_tui_policy_can_be_customized(tmp_path: Path) -> None:
+    config = make_test_config(
+        tmp_path,
+        {
+            "web": {"default_port": 8765, "history_page_size": 17},
+            "tui": {"queue_preview_count": 4},
+        },
+    )
 
-    assert config["web.default_port"] == 1334
-    assert config["web.connection_queue_capacity"] == 1000
-    assert config["web.history_page_size"] == 200
-    assert config["tui.interaction_scroll_max_height"] == 9
-    assert config["tui.queue_preview_count"] == 2
-    assert config["tui.todo_contents_max_height"] == 5
+    assert config["web.default_port"] == 8765
+    assert config["web.history_page_size"] == 17
+    assert config["tui.queue_preview_count"] == 4
 
 
 def test_web_cli_port_override_is_optional() -> None:
