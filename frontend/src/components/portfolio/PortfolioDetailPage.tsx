@@ -6,6 +6,7 @@ import { ApiError } from '../../api/client'
 import { portfolioQueryOptions } from '../../api/queries'
 import { errorMessage } from '../../lib/errors'
 import { HoldingsTable } from './HoldingsTable'
+import { PortfolioLedger } from './PortfolioLedger'
 import { PortfolioOverview } from './PortfolioOverview'
 import { Button } from '@/components/ui/button'
 
@@ -97,6 +98,7 @@ export function PortfolioDetailPage() {
         <div className="mt-8 space-y-6">
           <PortfolioOverview detail={detail} />
           <HoldingsTable holdings={detail.state.holdings} />
+          <PortfolioLedger portfolioId={detail.portfolio.portfolio_id} />
         </div>
       </div>
     </div>
