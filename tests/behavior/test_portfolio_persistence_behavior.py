@@ -408,6 +408,124 @@ def test_projection_rebuild_rejects_missing_portfolio(tmp_path: Path) -> None:
         rebuild_portfolio_projection(db_path, "missing")
 
 
+def test_ledger_sequence_cannot_move_behind_persisted_audit_order(tmp_path: Path) -> None:
+    db_path = make_db(tmp_path)
+    portfolio = Portfolio("portfolio-1", "Core", "CNY", NOW, NOW)
+    create_portfolio(db_path, portfolio)
+    opening = make_entry(
+        portfolio.id,
+        10,
+        LedgerEntryType.OPENING_CASH,
+        OpeningCash("CNY", Decimal("10")),
+        operation_id="opening",
+    )
+    append_ledger_operation(db_path, [opening])
+    state_before = get_portfolio_state(db_path, portfolio.id)
+
+    with pytest.raises(PortfolioConflictError, match="sequence"):
+        append_ledger_operation(
+            db_path,
+            [
+                make_entry(
+                    portfolio.id,
+                    5,
+                    LedgerEntryType.CASH_FLOW,
+                    CashFlow("CNY", Decimal("5")),
+                    operation_id="late-write",
+                )
+            ],
+        )
+
+    assert list_ledger_entries(db_path, portfolio.id) == [opening]
+    assert get_portfolio_state(db_path, portfolio.id) == state_before
+
+
+@pytest.mark.parametrize(
+    ("new_sequences", "expected_cash"),
+    [
+        ((11,), Decimal("11")),
+        ((15, 11), Decimal("12")),
+    ],
+)
+def test_ledger_sequence_can_advance_without_being_contiguous_or_input_sorted(
+    tmp_path: Path,
+    new_sequences: tuple[int, ...],
+    expected_cash: Decimal,
+) -> None:
+    db_path = make_db(tmp_path)
+    portfolio = Portfolio("portfolio-1", "Core", "CNY", NOW, NOW)
+    create_portfolio(db_path, portfolio)
+    opening = make_entry(
+        portfolio.id,
+        10,
+        LedgerEntryType.OPENING_CASH,
+        OpeningCash("CNY", Decimal("10")),
+        operation_id="opening",
+    )
+    append_ledger_operation(db_path, [opening])
+
+    append_ledger_operation(
+        db_path,
+        [
+            make_entry(
+                portfolio.id,
+                sequence,
+                LedgerEntryType.CASH_FLOW,
+                CashFlow("CNY", Decimal("1")),
+                operation_id="next-operation",
+            )
+            for sequence in new_sequences
+        ],
+    )
+
+    assert [entry.sequence for entry in list_ledger_entries(db_path, portfolio.id)] == [10, *sorted(new_sequences)]
+    assert get_portfolio_state(db_path, portfolio.id).cash == {"CNY": expected_cash}
+
+
+def test_invalid_sequence_rolls_back_entire_multi_portfolio_operation(tmp_path: Path) -> None:
+    db_path = make_db(tmp_path)
+    first = Portfolio("portfolio-a", "First", "CNY", NOW, NOW)
+    second = Portfolio("portfolio-b", "Second", "CNY", NOW, NOW)
+    create_portfolio(db_path, first)
+    create_portfolio(db_path, second)
+    openings = [
+        make_entry(
+            portfolio.id,
+            10,
+            LedgerEntryType.OPENING_CASH,
+            OpeningCash("CNY", Decimal("10")),
+            operation_id="opening",
+        )
+        for portfolio in (first, second)
+    ]
+    append_ledger_operation(db_path, openings)
+    states_before = {portfolio.id: get_portfolio_state(db_path, portfolio.id) for portfolio in (first, second)}
+    proposed = [
+        make_entry(
+            first.id,
+            11,
+            LedgerEntryType.CASH_FLOW,
+            CashFlow("CNY", Decimal("1")),
+            operation_id="multi-write",
+        ),
+        make_entry(
+            second.id,
+            5,
+            LedgerEntryType.CASH_FLOW,
+            CashFlow("CNY", Decimal("1")),
+            operation_id="multi-write",
+        ),
+    ]
+
+    with pytest.raises(PortfolioConflictError, match="sequence"):
+        append_ledger_operation(db_path, proposed)
+
+    assert list_ledger_entries(db_path, first.id) == [openings[0]]
+    assert list_ledger_entries(db_path, second.id) == [openings[1]]
+    assert get_portfolio_state(db_path, first.id) == states_before[first.id]
+    assert get_portfolio_state(db_path, second.id) == states_before[second.id]
+
+
 def test_ledger_operation_rejects_invalid_grouping_and_missing_portfolios(tmp_path: Path) -> None:
     db_path = make_db(tmp_path)
     portfolio = Portfolio("portfolio-1", "Core", "CNY", NOW, NOW)

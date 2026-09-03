@@ -313,9 +313,13 @@ def _validate_sequence_conflicts(existing: list[LedgerEntry], additions: list[Le
     addition_sequences = [entry.sequence for entry in additions]
     if len(set(addition_sequences)) != len(addition_sequences):
         raise PortfolioConflictError("duplicate sequence within Portfolio Ledger operation")
-    conflict = existing_sequences.intersection(addition_sequences)
-    if conflict:
-        raise PortfolioConflictError(f"sequence already exists: {min(conflict)}")
+    if existing_sequences:
+        maximum = max(existing_sequences)
+        invalid = [sequence for sequence in addition_sequences if sequence <= maximum]
+        if invalid:
+            raise PortfolioConflictError(
+                f"Ledger sequence must be greater than persisted maximum {maximum}: {min(invalid)}"
+            )
 
 
 def _replace_projection(connection: sqlite3.Connection, state: PortfolioState) -> None:
