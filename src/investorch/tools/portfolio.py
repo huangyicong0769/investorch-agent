@@ -332,7 +332,7 @@ async def initialize_portfolio(
         portfolio_id: Durable Portfolio identifier.
         cash: Opening cash in the Portfolio base currency as an exact decimal string, or null to omit cash.
         positions: Opening positions with exact decimal strings, or null to omit positions.
-        effective_at: Optional timezone-aware ISO-8601 economic timestamp; null uses the operation time.
+        effective_at: Optional timezone-aware ISO-8601 economic timestamp; null is only for current initialization.
 
     Returns:
         Operation identifier, appended entry summaries, and the resulting Portfolio state.
@@ -417,7 +417,7 @@ async def record_portfolio_cash_flow(
     Args:
         portfolio_id: Durable Portfolio identifier.
         amount: Signed amount in the Portfolio base currency as an exact decimal string.
-        effective_at: Optional timezone-aware ISO-8601 economic timestamp; null uses the operation time.
+        effective_at: Optional timezone-aware ISO-8601 economic timestamp; null is only for a current cash flow.
 
     Returns:
         Operation identifier, appended entry summaries, and the resulting Portfolio state.
@@ -494,7 +494,7 @@ async def adjust_portfolio_position(
         resulting_quantity: Asserted non-negative quantity as an exact decimal string.
         resulting_total_cost: Asserted non-negative total cost as an exact decimal string, or null if unknown.
         reason: Human-readable reason for the state assertion.
-        effective_at: Optional timezone-aware ISO-8601 economic timestamp; null uses the operation time.
+        effective_at: Optional timezone-aware ISO-8601 economic timestamp; null is only for a current state assertion.
 
     Returns:
         Operation identifier, appended entry summaries, and the resulting Portfolio state.
@@ -528,7 +528,7 @@ async def adjust_portfolio_cash(
         portfolio_id: Durable Portfolio identifier.
         resulting_amount: Asserted cash amount as an exact decimal string.
         reason: Human-readable reason for the state assertion.
-        effective_at: Optional timezone-aware ISO-8601 economic timestamp; null uses the operation time.
+        effective_at: Optional timezone-aware ISO-8601 economic timestamp; null is only for a current state assertion.
 
     Returns:
         Operation identifier, appended entry summaries, and the resulting Portfolio state.
@@ -605,7 +605,7 @@ async def transfer_portfolio_position(
         market: Instrument market identifier.
         quantity: Positive transferred quantity as an exact decimal string.
         transferred_cost: Non-negative transferred total cost as an exact decimal string, or null if unknown.
-        effective_at: Optional timezone-aware ISO-8601 economic timestamp; null uses the operation time.
+        effective_at: Optional timezone-aware ISO-8601 economic timestamp; null is only for a current transfer.
 
     Returns:
         One operation identifier, paired transfer entry summaries, and both resulting Portfolio states.
@@ -637,7 +637,7 @@ async def transfer_portfolio_cash(
         source_portfolio_id: Durable identifier of the Portfolio giving cash.
         destination_portfolio_id: Durable identifier of the Portfolio receiving cash.
         amount: Positive transfer amount in the shared base currency as an exact decimal string.
-        effective_at: Optional timezone-aware ISO-8601 economic timestamp; null uses the operation time.
+        effective_at: Optional timezone-aware ISO-8601 economic timestamp; null is only for a current transfer.
 
     Returns:
         One operation identifier, paired transfer entry summaries, and both resulting Portfolio states.
