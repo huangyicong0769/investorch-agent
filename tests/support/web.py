@@ -34,7 +34,10 @@ class WebHarness:
 
 @asynccontextmanager
 async def open_test_web(
-    tmp_path: Path, config_overrides: dict[str, dict[str, object]] | None = None
+    tmp_path: Path,
+    config_overrides: dict[str, dict[str, object]] | None = None,
+    *,
+    raise_app_exceptions: bool = True,
 ) -> AsyncIterator[WebHarness]:
     runtime = make_runtime_harness(tmp_path, config_overrides=config_overrides)
     presentation_state = SessionPresentationStore()
@@ -88,7 +91,10 @@ async def open_test_web(
     app.state.host = host
     app.state.approval_broker = broker
     app.state.connections = connections
-    client = httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test")
+    client = httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app, raise_app_exceptions=raise_app_exceptions),
+        base_url="http://test",
+    )
     try:
         yield WebHarness(runtime=runtime, host=host, client=client)
     finally:

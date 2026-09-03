@@ -107,7 +107,8 @@ def init_session_metadata(db_path: str | Path) -> None:
                 session_id TEXT PRIMARY KEY,
                 title TEXT NOT NULL,
                 archived_at TEXT,
-                related_portfolio_ids_json TEXT
+                related_portfolio_ids_json TEXT,
+                application_workflow_started INTEGER NOT NULL DEFAULT 0
             )
             """
         )
@@ -116,6 +117,10 @@ def init_session_metadata(db_path: str | Path) -> None:
             connection.execute("ALTER TABLE extra_session_metadata ADD COLUMN archived_at TEXT")
         if "related_portfolio_ids_json" not in columns:
             connection.execute("ALTER TABLE extra_session_metadata ADD COLUMN related_portfolio_ids_json TEXT")
+        if "application_workflow_started" not in columns:
+            connection.execute(
+                "ALTER TABLE extra_session_metadata ADD COLUMN application_workflow_started INTEGER NOT NULL DEFAULT 0"
+            )
         connection.execute(
             """
             CREATE TABLE IF NOT EXISTS session_lineage (
@@ -300,6 +305,39 @@ def get_session_related_portfolio_ids(db_path: str | Path, session_id: str) -> t
     if row is None:
         raise KeyError(session_id)
     return _decode_related_portfolio_ids(row[0])
+
+
+def is_application_workflow_started(db_path: str | Path, session_id: str) -> bool:
+    with closing(sqlite3.connect(db_path)) as connection:
+        row = connection.execute(
+            """
+            SELECT metadata.application_workflow_started
+            FROM agent_sessions AS sessions
+            LEFT JOIN extra_session_metadata AS metadata
+                ON metadata.session_id = sessions.session_id
+            WHERE sessions.session_id = ?
+            """,
+            (session_id,),
+        ).fetchone()
+    if row is None:
+        raise KeyError(session_id)
+    return row[0] == 1
+
+
+def mark_application_workflow_started(db_path: str | Path, session_id: str) -> None:
+    with closing(sqlite3.connect(db_path)) as connection:
+        if connection.execute("SELECT 1 FROM agent_sessions WHERE session_id = ?", (session_id,)).fetchone() is None:
+            raise KeyError(session_id)
+        connection.execute(
+            """
+            INSERT INTO extra_session_metadata (session_id, title, application_workflow_started)
+            VALUES (?, '', 1)
+            ON CONFLICT(session_id) DO UPDATE
+            SET application_workflow_started = 1
+            """,
+            (session_id,),
+        )
+        connection.commit()
 
 
 def add_session_related_portfolio_ids(

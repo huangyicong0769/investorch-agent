@@ -229,6 +229,25 @@ async def test_ask_agent_creates_a_fresh_contextual_session_and_is_idempotent(tm
         web.runtime.agent_loop.complete(session_id)
         await web.runtime.wait_for_run_ended(session_id)
 
+        second = await web.client.post(
+            f"/api/portfolios/{portfolio.id}/ask",
+            json={"request_id": "ask-request-b", "text": "Explain the archived status"},
+        )
+        second_session_id = second.json()["session"]["session_id"]
+        await web.runtime.agent_loop.wait_until_started(second_session_id)
+        second_input = web.runtime.agent_loop.input_for(second_session_id)
+        second_records = read_session_journal(web.runtime.config.session_journal_dir, second_session_id)
+        assert second.status_code == 200
+        assert second_session_id not in {existing_session_id, session_id}
+        assert second_input.user_input == "Explain the archived status"
+        assert portfolio.id in (second_input.application_instruction or "")
+        assert [(record["type"], record.get("text")) for record in second_records] == [
+            ("user_message", "Explain the archived status")
+        ]
+        assert await web.host.sessions.get_related_portfolio_ids(second_session_id) == (portfolio.id,)
+        web.runtime.agent_loop.complete(second_session_id)
+        await web.runtime.wait_for_run_ended(second_session_id)
+
 
 @pytest.mark.asyncio
 async def test_failed_ask_run_keeps_relation_and_missing_portfolio_creates_no_session(tmp_path: Path) -> None:
@@ -292,6 +311,72 @@ async def test_new_portfolio_starter_is_application_authored_idempotent_and_allo
 
         web.runtime.agent_loop.complete(session_id)
         await web.runtime.wait_for_run_ended(session_id, occurrence=2)
+
+
+@pytest.mark.asyncio
+async def test_ask_agent_retry_recovers_a_session_created_before_synchronous_run_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async with open_test_web(tmp_path, raise_app_exceptions=False) as web:
+        portfolio = await web.host.portfolios.create(name="Core", base_currency="CNY")
+        original_start = web.host.runtime.start_contextual_run
+        failed = False
+
+        def fail_once(*args: object, **kwargs: object):
+            nonlocal failed
+            if not failed:
+                failed = True
+                raise RuntimeError("controlled synchronous start failure")
+            return original_start(*args, **kwargs)
+
+        monkeypatch.setattr(web.host.runtime, "start_contextual_run", fail_once)
+        body = {"request_id": "ask-recover", "text": "Explain this Portfolio"}
+
+        failed_response = await web.client.post(f"/api/portfolios/{portfolio.id}/ask", json=body)
+        retry = await web.client.post(f"/api/portfolios/{portfolio.id}/ask", json=body)
+
+        assert failed_response.status_code == 500
+        assert retry.status_code == 200
+        assert retry.json()["started"] is True
+        session_id = retry.json()["session"]["session_id"]
+        await web.runtime.agent_loop.wait_until_started(session_id)
+        assert web.runtime.agent_loop.input_for(session_id).user_input == body["text"]
+        assert await web.host.sessions.get_related_portfolio_ids(session_id) == (portfolio.id,)
+        web.runtime.agent_loop.complete(session_id)
+        await web.runtime.wait_for_run_ended(session_id)
+
+
+@pytest.mark.asyncio
+async def test_new_portfolio_retry_recovers_a_session_created_before_synchronous_run_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async with open_test_web(tmp_path, raise_app_exceptions=False) as web:
+        original_start = web.host.runtime.start_application_run
+        failed = False
+
+        def fail_once(*args: object, **kwargs: object):
+            nonlocal failed
+            if not failed:
+                failed = True
+                raise RuntimeError("controlled synchronous start failure")
+            return original_start(*args, **kwargs)
+
+        monkeypatch.setattr(web.host.runtime, "start_application_run", fail_once)
+        body = {"request_id": "new-portfolio-recover"}
+
+        failed_response = await web.client.post("/api/portfolio-sessions", json=body)
+        retry = await web.client.post("/api/portfolio-sessions", json=body)
+
+        assert failed_response.status_code == 500
+        assert retry.status_code == 200
+        assert retry.json()["started"] is True
+        session_id = retry.json()["session"]["session_id"]
+        await web.runtime.agent_loop.wait_until_started(session_id)
+        assert web.runtime.agent_loop.input_for(session_id).user_input == ""
+        web.runtime.agent_loop.complete(session_id)
+        await web.runtime.wait_for_run_ended(session_id)
 
 
 @pytest.mark.asyncio

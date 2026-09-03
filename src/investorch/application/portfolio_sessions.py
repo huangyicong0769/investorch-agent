@@ -50,17 +50,20 @@ class PortfolioSessionWorkflows:
             await self._sessions.add_related_portfolio_ids(session_id, (portfolio_id,))
             if not created:
                 active_run = self._runtime.get_active_run(session_id)
-                return PortfolioSessionResult(
-                    session_id=session_id,
-                    run_id=None if active_run is None else active_run.run_id,
-                    started=False,
-                )
+                if active_run is not None:
+                    await self._sessions.mark_application_workflow_started(session_id)
+                    return PortfolioSessionResult(session_id=session_id, run_id=active_run.run_id, started=False)
+                if await self._sessions.is_application_workflow_started(
+                    session_id
+                ) or await self._sessions.has_agent_activity(session_id):
+                    return PortfolioSessionResult(session_id=session_id, run_id=None, started=False)
             active_run = self._runtime.start_contextual_run(
                 session_id,
                 text,
                 _portfolio_context_instruction(portfolio_id),
                 current_run_options(self._state),
             )
+            await self._sessions.mark_application_workflow_started(session_id)
             return PortfolioSessionResult(session_id=session_id, run_id=active_run.run_id, started=True)
 
     async def start_new_portfolio(self, *, request_id: str) -> PortfolioSessionResult:
@@ -68,16 +71,19 @@ class PortfolioSessionWorkflows:
             session_id, created = await self._sessions.create_for_request("new-portfolio", request_id)
             if not created:
                 active_run = self._runtime.get_active_run(session_id)
-                return PortfolioSessionResult(
-                    session_id=session_id,
-                    run_id=None if active_run is None else active_run.run_id,
-                    started=False,
-                )
+                if active_run is not None:
+                    await self._sessions.mark_application_workflow_started(session_id)
+                    return PortfolioSessionResult(session_id=session_id, run_id=active_run.run_id, started=False)
+                if await self._sessions.is_application_workflow_started(
+                    session_id
+                ) or await self._sessions.has_agent_activity(session_id):
+                    return PortfolioSessionResult(session_id=session_id, run_id=None, started=False)
             active_run = self._runtime.start_application_run(
                 session_id,
                 NEW_PORTFOLIO_STARTER_INSTRUCTION,
                 current_run_options(self._state),
             )
+            await self._sessions.mark_application_workflow_started(session_id)
             return PortfolioSessionResult(session_id=session_id, run_id=active_run.run_id, started=True)
 
 
