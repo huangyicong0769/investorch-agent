@@ -33,6 +33,8 @@ from investorch.tools import (
     record_portfolio_income,
     record_portfolio_trade,
     restore_portfolio,
+    transfer_portfolio_cash,
+    transfer_portfolio_position,
     update_portfolio,
 )
 from tests.support.config import make_test_config
@@ -408,3 +410,67 @@ async def test_correction_tool_rejects_one_sided_transfer_correction(tmp_path: P
     assert "Direct Agent correction of Portfolio TRANSFER entries is not supported" in result
     assert len(await context.context.portfolios.list_ledger(source.id)) == 2
     assert len(await context.context.portfolios.list_ledger(destination.id)) == 1
+
+
+async def test_approved_transfer_tools_mutate_both_portfolios_atomically(tmp_path: Path) -> None:
+    context = make_tool_context(tmp_path)
+    source = await context.context.portfolios.create(name="Source", base_currency="CNY")
+    destination = await context.context.portfolios.create(name="Destination", base_currency="CNY")
+    await context.context.portfolios.initialize(
+        source.id,
+        cash=Decimal("100.03"),
+        positions=(OpeningPosition(STOCK, Decimal("10"), None),),
+        source="import",
+    )
+
+    position = await invoke(
+        transfer_portfolio_position,
+        context,
+        source_portfolio_id=source.id,
+        destination_portfolio_id=destination.id,
+        code="600519",
+        market="XSHG",
+        quantity="0.03",
+        transferred_cost=None,
+    )
+    cash = await invoke(
+        transfer_portfolio_cash,
+        context,
+        source_portfolio_id=source.id,
+        destination_portfolio_id=destination.id,
+        amount="10.03",
+        effective_at="2026-09-03T15:00:00+08:00",
+    )
+
+    assert transfer_portfolio_position.needs_approval is True
+    assert transfer_portfolio_cash.needs_approval is True
+    assert isinstance(position, dict)
+    assert {entry["portfolio_id"] for entry in position["entries"]} == {source.id, destination.id}
+    assert isinstance(cash, dict)
+    assert cash["states"][source.id]["cash"] == {"CNY": "90.00"}
+    assert cash["states"][destination.id]["cash"] == {"CNY": "10.03"}
+    source_ledger = await context.context.portfolios.list_ledger(source.id)
+    destination_ledger = await context.context.portfolios.list_ledger(destination.id)
+    assert source_ledger[-2].operation_id == destination_ledger[0].operation_id == position["operation_id"]
+    assert source_ledger[-1].operation_id == destination_ledger[-1].operation_id == cash["operation_id"]
+    assert destination_ledger[0].payload.transferred_cost is None
+    assert {entry.source for entry in destination_ledger} == {"agent"}
+
+
+async def test_cash_transfer_rejects_cross_currency_without_partial_ledger_writes(tmp_path: Path) -> None:
+    context = make_tool_context(tmp_path)
+    source = await context.context.portfolios.create(name="Source", base_currency="CNY")
+    destination = await context.context.portfolios.create(name="Destination", base_currency="USD")
+
+    result = await invoke(
+        transfer_portfolio_cash,
+        context,
+        source_portfolio_id=source.id,
+        destination_portfolio_id=destination.id,
+        amount="10.03",
+    )
+
+    assert isinstance(result, str)
+    assert "base currency" in result
+    assert await context.context.portfolios.list_ledger(source.id) == []
+    assert await context.context.portfolios.list_ledger(destination.id) == []

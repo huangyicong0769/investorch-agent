@@ -30,6 +30,8 @@ from .portfolio import (
     record_portfolio_income,
     record_portfolio_trade,
     restore_portfolio,
+    transfer_portfolio_cash,
+    transfer_portfolio_position,
     update_portfolio,
 )
 from .quant import inspect_rqalpha_data, run_backtest
@@ -65,6 +67,8 @@ __all__ = (
     "restore_portfolio",
     "run_backtest",
     "start_execution",
+    "transfer_portfolio_cash",
+    "transfer_portfolio_position",
     "update_config",
     "update_portfolio",
     "write_todos",

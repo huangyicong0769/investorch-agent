@@ -575,6 +575,74 @@ async def correct_portfolio_entry(
     return _serialize_mutation_result(result)
 
 
+@tool(needs_approval=True)
+async def transfer_portfolio_position(
+    context: RunContextWrapper[AgentContext],
+    source_portfolio_id: str,
+    destination_portfolio_id: str,
+    code: str,
+    market: str,
+    quantity: str,
+    transferred_cost: str | None,
+    effective_at: str | None = None,
+) -> dict[str, Any]:
+    """Atomically transfer an actual position between two logical Portfolios without inferring cost.
+
+    Args:
+        source_portfolio_id: Durable identifier of the Portfolio giving the position.
+        destination_portfolio_id: Durable identifier of the Portfolio receiving the position.
+        code: Instrument code.
+        market: Instrument market identifier.
+        quantity: Positive transferred quantity as an exact decimal string.
+        transferred_cost: Non-negative transferred total cost as an exact decimal string, or null if unknown.
+        effective_at: Optional timezone-aware ISO-8601 economic timestamp; null uses the operation time.
+
+    Returns:
+        One operation identifier, paired transfer entry summaries, and both resulting Portfolio states.
+    """
+    result = await context.context.portfolios.transfer_position(
+        source_portfolio_id=source_portfolio_id,
+        destination_portfolio_id=destination_portfolio_id,
+        instrument=_instrument(code, market),
+        quantity=_parse_decimal(quantity, "quantity"),
+        transferred_cost=_parse_optional_decimal(transferred_cost, "transferred_cost"),
+        effective_at=_parse_effective_at(effective_at),
+        source="agent",
+        external_ref=None,
+    )
+    return _serialize_mutation_result(result)
+
+
+@tool(needs_approval=True)
+async def transfer_portfolio_cash(
+    context: RunContextWrapper[AgentContext],
+    source_portfolio_id: str,
+    destination_portfolio_id: str,
+    amount: str,
+    effective_at: str | None = None,
+) -> dict[str, Any]:
+    """Atomically transfer logical cash between same-currency Portfolios; this does not perform FX.
+
+    Args:
+        source_portfolio_id: Durable identifier of the Portfolio giving cash.
+        destination_portfolio_id: Durable identifier of the Portfolio receiving cash.
+        amount: Positive transfer amount in the shared base currency as an exact decimal string.
+        effective_at: Optional timezone-aware ISO-8601 economic timestamp; null uses the operation time.
+
+    Returns:
+        One operation identifier, paired transfer entry summaries, and both resulting Portfolio states.
+    """
+    result = await context.context.portfolios.transfer_cash(
+        source_portfolio_id=source_portfolio_id,
+        destination_portfolio_id=destination_portfolio_id,
+        amount=_parse_decimal(amount, "amount"),
+        effective_at=_parse_effective_at(effective_at),
+        source="agent",
+        external_ref=None,
+    )
+    return _serialize_mutation_result(result)
+
+
 def _serialize_portfolio(portfolio: Portfolio, *, include_timestamps: bool) -> dict[str, Any]:
     result = {
         "portfolio_id": portfolio.id,
