@@ -19,6 +19,10 @@ from tests.support.config import make_test_config
 from tests.support.runtime import make_runtime_harness, run_options
 
 
+class ControlledActivationAbort(BaseException):
+    pass
+
+
 @pytest.mark.asyncio
 async def test_activated_steer_advances_the_next_approval_instruction_boundary(tmp_path: Path) -> None:
     config = make_test_config(tmp_path)
@@ -328,7 +332,17 @@ async def test_activation_write_failure_stops_the_run_and_discards_the_unconsume
 
 
 @pytest.mark.asyncio
-async def test_fallback_activation_write_failure_never_starts_the_promoted_model(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "activation_error",
+    [
+        pytest.param(RuntimeError("controlled activation failure"), id="ordinary-failure"),
+        pytest.param(ControlledActivationAbort("controlled activation abort"), id="terminal-abort"),
+    ],
+)
+async def test_fallback_activation_write_failure_never_starts_the_promoted_model(
+    tmp_path: Path,
+    activation_error: BaseException,
+) -> None:
     config = make_test_config(tmp_path)
     journal = SessionJournal(config.session_journal_dir, ZoneInfo(config["runtime.default_timezone"]))
     portfolios = PortfolioOperations(config=config)
@@ -350,7 +364,7 @@ async def test_fallback_activation_write_failure_never_starts_the_promoted_model
         return (assistant_message("promoted turn"),)
 
     async def fail_activation(_session_id: str, _run_id: str, _steer_seqs: tuple[int, ...]) -> int:
-        raise RuntimeError("controlled activation failure")
+        raise activation_error
 
     async def approval_handler(_request: ApprovalRequest) -> ApprovalOutcome:
         return ApprovalOutcome(approved=True, usage=TokenUsage())
@@ -397,7 +411,11 @@ async def test_fallback_activation_write_failure_never_starts_the_promoted_model
     await runtime.submit_follow_up("session-a", "fallback instruction", run_options())
     release_first_model.set()
 
-    await active.task
+    if isinstance(activation_error, Exception):
+        await active.task
+    else:
+        with pytest.raises(ControlledActivationAbort, match="controlled activation abort"):
+            await active.task
     await asyncio.wait_for(two_runs_ended.wait(), timeout=2)
 
     later_head_seq = await journal.record_user_message("session-a", "later instruction")

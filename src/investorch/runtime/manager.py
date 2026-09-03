@@ -791,7 +791,7 @@ class AgentRuntime:
                 active_run.task.cancel()
                 start_gate.set()
                 await asyncio.gather(active_run.task, return_exceptions=True)
-                if isinstance(error, asyncio.CancelledError):
+                if not isinstance(error, Exception):
                     raise
                 if disposition_cancellation is not None:
                     raise disposition_cancellation from error
