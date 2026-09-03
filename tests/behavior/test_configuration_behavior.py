@@ -112,6 +112,11 @@ def test_review_compaction_budget_cannot_exceed_raw_instruction_budget(tmp_path:
         config.update("permission.max_compacted_instruction_chars", invalid_limit, persist=True)
 
 
+def test_renamed_permission_instruction_limit_is_not_silently_ignored(tmp_path: Path) -> None:
+    with pytest.raises(ConfigError, match=r"permission\.max_user_message_chars.*renamed"):
+        make_test_config(tmp_path, {"permission": {"max_user_message_chars": 123}})
+
+
 @pytest.mark.parametrize(
     ("key", "value", "message"),
     [

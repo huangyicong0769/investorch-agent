@@ -566,6 +566,9 @@ def _validate_config_data(data: dict[str, Any], root: Path) -> None:
     _require_ratio(data, "compaction.trigger_ratio")
     _require_int(data, "compaction.max_output_tokens", minimum=1)
 
+    permission = data.get("permission")
+    if isinstance(permission, dict) and "max_user_message_chars" in permission:
+        raise ConfigError("permission.max_user_message_chars was renamed to permission.max_user_instruction_chars")
     permission_mode = _require_string(data, "permission.mode")
     if permission_mode not in PERMISSION_MODES:
         raise ConfigError(f"permission.mode must be one of {', '.join(PERMISSION_MODES)}")
