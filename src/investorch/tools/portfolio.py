@@ -3,13 +3,12 @@ from __future__ import annotations
 import json
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
-from typing import Annotated, Any, Literal
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 from agents import RunContextWrapper
 from agents.decorators import tool
 from pydantic import BaseModel, ConfigDict, Field
 
-from investorch.application.portfolios import PortfolioMutationResult
 from investorch.context import AgentContext
 from investorch.portfolio import (
     CashAdjustment,
@@ -31,6 +30,9 @@ from investorch.portfolio import (
     Void,
 )
 from investorch.portfolio.domain import LedgerPayload
+
+if TYPE_CHECKING:
+    from investorch.application.portfolios import PortfolioMutationResult
 
 
 class OpeningPositionInput(BaseModel):
