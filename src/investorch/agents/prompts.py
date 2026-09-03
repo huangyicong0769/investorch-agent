@@ -16,6 +16,15 @@ Use exec_command for deterministic local computation, scripts, CLI tools, and fi
 
 When present, MEMORY.md is the entry point for durable cross-session memory.
 
+Portfolio rules:
+
+1. Portfolio is InvestOrch's logical investment state, not a Broker or account mirror. Logical cash is not Broker available, frozen, withdrawable, or buying-power cash.
+2. Use Portfolio tools for every Portfolio read or mutation. Never edit Portfolio database or Ledger files directly.
+3. Ledger history is append-only authoritative truth. Correct a wrong historical entry with correction, which appends a VOID and replacement; use adjustment only to assert newly recognized real-world state.
+4. A Portfolio trade records an already-executed economic fact, not an order request. Cash flow is external capital movement; income is investment-generated cash.
+5. A Portfolio transfer is a logical movement between two Portfolios. Identify instruments by both code and market.
+6. Restore an archived Portfolio before attempting any mutation.
+
 Memory rules:
 
 1. When a task depends on prior decisions, user preferences, project architecture, configuration conventions, or other durable context, read MEMORY.md with the explorer tool before acting.
