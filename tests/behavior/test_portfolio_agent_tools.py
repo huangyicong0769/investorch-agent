@@ -271,6 +271,8 @@ async def test_approved_economic_tools_record_exact_agent_facts(tmp_path: Path) 
         quantity="0.03",
         price="1523.45",
         commission="0.01",
+        tax="0",
+        other_fee="0",
     )
     cash_flow = await invoke(record_portfolio_cash_flow, context, portfolio_id=portfolio.id, amount="2000.03")
     income = await invoke(
@@ -279,6 +281,7 @@ async def test_approved_economic_tools_record_exact_agent_facts(tmp_path: Path) 
         portfolio_id=portfolio.id,
         gross_amount="10.03",
         tax="0.01",
+        other_fee="0",
         code="600519",
         market="XSHG",
     )
@@ -287,6 +290,8 @@ async def test_approved_economic_tools_record_exact_agent_facts(tmp_path: Path) 
         context,
         portfolio_id=portfolio.id,
         gross_amount="0.03",
+        tax="0",
+        other_fee="0",
     )
     position = await invoke(
         adjust_portfolio_position,
@@ -321,6 +326,110 @@ async def test_approved_economic_tools_record_exact_agent_facts(tmp_path: Path) 
     ]
 
 
+async def test_material_portfolio_fees_must_be_explicit_at_the_agent_boundary(tmp_path: Path) -> None:
+    context = make_tool_context(tmp_path)
+    portfolio = await context.context.portfolios.create(name="Core", base_currency="CNY")
+    original = await context.context.portfolios.record_cash_flow(
+        portfolio.id,
+        amount=Decimal("10"),
+        source="import",
+    )
+
+    missing_trade_fees = await invoke(
+        record_portfolio_trade,
+        context,
+        portfolio_id=portfolio.id,
+        code="600519",
+        market="XSHG",
+        side="BUY",
+        quantity="1",
+        price="100",
+    )
+    missing_income_fees = await invoke(
+        record_portfolio_income,
+        context,
+        portfolio_id=portfolio.id,
+        gross_amount="10",
+    )
+    missing_correction_fees = await invoke(
+        correct_portfolio_entry,
+        context,
+        portfolio_id=portfolio.id,
+        target_entry_id=original.entries[0].entry_id,
+        reason="wrong entry type",
+        replacement={
+            "type": "trade",
+            "code": "600519",
+            "market": "XSHG",
+            "side": "BUY",
+            "quantity": "1",
+            "price": "100",
+        },
+    )
+    missing_income_correction_fees = await invoke(
+        correct_portfolio_entry,
+        context,
+        portfolio_id=portfolio.id,
+        target_entry_id=original.entries[0].entry_id,
+        reason="wrong entry type",
+        replacement={
+            "type": "income",
+            "gross_amount": "10",
+        },
+    )
+
+    assert isinstance(missing_trade_fees, str)
+    assert "Invalid JSON input" in missing_trade_fees
+    assert isinstance(missing_income_fees, str)
+    assert "Invalid JSON input" in missing_income_fees
+    assert isinstance(missing_correction_fees, str)
+    assert "Invalid JSON input" in missing_correction_fees
+    assert isinstance(missing_income_correction_fees, str)
+    assert "Invalid JSON input" in missing_income_correction_fees
+    assert await context.context.portfolios.list_ledger(portfolio.id) == list(original.entries)
+
+
+async def test_explicit_zero_portfolio_fees_remain_exact(tmp_path: Path) -> None:
+    context = make_tool_context(tmp_path)
+    portfolio = await context.context.portfolios.create(name="Core", base_currency="CNY")
+
+    trade = await invoke(
+        record_portfolio_trade,
+        context,
+        portfolio_id=portfolio.id,
+        code="600519",
+        market="XSHG",
+        side="BUY",
+        quantity="1",
+        price="100",
+        commission="0",
+        tax="0",
+        other_fee="0",
+    )
+    income = await invoke(
+        record_portfolio_income,
+        context,
+        portfolio_id=portfolio.id,
+        gross_amount="10",
+        tax="0",
+        other_fee="0",
+    )
+
+    assert isinstance(trade, dict)
+    assert isinstance(income, dict)
+    ledger = await context.context.portfolios.list_ledger(portfolio.id)
+    assert ledger[0].payload == Trade(
+        STOCK,
+        TradeSide.BUY,
+        Decimal("1"),
+        Decimal("100"),
+        Decimal("0"),
+        Decimal("0"),
+        Decimal("0"),
+    )
+    assert ledger[1].payload == Income("CNY", Decimal("10"), Decimal("0"), Decimal("0"), None)
+
+
 async def test_economic_tools_reject_ambiguous_or_inexact_inputs(tmp_path: Path) -> None:
     context = make_tool_context(tmp_path)
     portfolio = await context.context.portfolios.create(name="Core", base_currency="CNY")
@@ -330,6 +439,8 @@ async def test_economic_tools_reject_ambiguous_or_inexact_inputs(tmp_path: Path)
         context,
         portfolio_id=portfolio.id,
         gross_amount="1",
+        tax="0",
+        other_fee="0",
         code="600519",
     )
     malformed_decimal = await invoke(

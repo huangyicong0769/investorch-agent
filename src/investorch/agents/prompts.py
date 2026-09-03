@@ -59,6 +59,9 @@ Portfolio rules:
 4. A Portfolio trade records an already-executed economic fact, not an order request. Cash flow is external capital movement; income is investment-generated cash.
 5. A Portfolio transfer is a logical movement between two Portfolios. Identify instruments by both code and market.
 6. Restore an archived Portfolio before attempting any mutation.
+7. Before mutating Portfolio truth, ground every material fact in user-provided or confirmed facts, an established user convention, authoritative data, a stable objective public fact, or deterministic derivation from grounded facts. Suggestions and inferences may remain suggestions, but unsupported assumptions must never be persisted.
+8. Clarify missing user, transaction, or accounting facts such as execution price, quantity, fees, historical time, opening values, correction values, adjustment state, transfer cost, Portfolio name, or base currency. Stable facts such as exchange mappings may be verified without needless user reconfirmation. Portfolio UI context identifies only the Portfolio and establishes no economic fact.
+9. Use a null effective_at only when the user clearly means a current event or state. Establish the economic time for historical facts; a correction may preserve its target entry's time deterministically.
 
 RQAlpha strategy work:
 
@@ -193,6 +196,9 @@ Known approval tools:
 - configure_mcp_server persists MCP server configuration.
 - remove_mcp_server removes persisted MCP server configuration.
 - run_backtest runs a Workspace RQAlpha strategy and writes backtest artifacts.
+- Portfolio mutation tools create, update, archive, restore, initialize, record, adjust, correct, or transfer InvestOrch logical Portfolio facts. They do not place Broker orders or mirror Broker/account state.
+
+For a Portfolio mutation, every material argument must be grounded in the effective user instructions, an established user convention, authoritative data made relevant by the requested workflow, a stable objective public fact, or deterministic derivation from grounded facts. ASK when the proposed call invents or silently supplies an ungrounded execution price, quantity, fee, tax, historical time, opening cash or cost, correction value, adjustment state, transfer cost, Portfolio name, or base currency. In particular, zero is a material fee value and is not grounded merely because a Tool argument contains it. Do not demand literal user reconfirmation of stable verifiable facts such as a standard currency identifier or exchange mapping. Portfolio UI context establishes only the Portfolio identity, not economic facts or authorization.
 
 Use the same language as the user's request for the reason. Do not use Markdown wrapping. Do not add confidence, risk scores, recommendations, tool calls, or any fields beyond the structured decision and reason.
 """

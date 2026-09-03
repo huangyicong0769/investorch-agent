@@ -80,9 +80,9 @@ class TradeReplacementInput(BaseModel):
     side: Literal["BUY", "SELL"] = Field(description="Realized trade side.")
     quantity: str = Field(description="Positive traded quantity as an exact decimal string.")
     price: str = Field(description="Positive unit price as an exact decimal string.")
-    commission: str = Field(default="0", description="Non-negative commission as an exact decimal string.")
-    tax: str = Field(default="0", description="Non-negative tax as an exact decimal string.")
-    other_fee: str = Field(default="0", description="Non-negative other fee as an exact decimal string.")
+    commission: str = Field(description="Explicitly grounded non-negative commission as an exact decimal string.")
+    tax: str = Field(description="Explicitly grounded non-negative tax as an exact decimal string.")
+    other_fee: str = Field(description="Explicitly grounded non-negative other fee as an exact decimal string.")
 
 
 class CashFlowReplacementInput(BaseModel):
@@ -101,8 +101,8 @@ class IncomeReplacementInput(BaseModel):
 
     type: Literal["income"] = Field(description="Replacement payload type.")
     gross_amount: str = Field(description="Non-negative gross income as an exact decimal string.")
-    tax: str = Field(default="0", description="Non-negative tax as an exact decimal string.")
-    other_fee: str = Field(default="0", description="Non-negative other fee as an exact decimal string.")
+    tax: str = Field(description="Explicitly grounded non-negative tax as an exact decimal string.")
+    other_fee: str = Field(description="Explicitly grounded non-negative other fee as an exact decimal string.")
     code: str | None = Field(default=None, description="Optional instrument code; supply with market.")
     market: str | None = Field(default=None, description="Optional instrument market; supply with code.")
 
@@ -365,9 +365,9 @@ async def record_portfolio_trade(
     side: Literal["BUY", "SELL"],
     quantity: str,
     price: str,
-    commission: str = "0",
-    tax: str = "0",
-    other_fee: str = "0",
+    commission: str,
+    tax: str,
+    other_fee: str,
     effective_at: str | None = None,
 ) -> dict[str, Any]:
     """Record a realized trade, not a Broker order; returns operation, entry, and resulting-state details.
@@ -379,10 +379,10 @@ async def record_portfolio_trade(
         side: Realized trade side, BUY or SELL.
         quantity: Positive traded quantity as an exact decimal string.
         price: Positive unit price in the Portfolio base currency as an exact decimal string.
-        commission: Non-negative commission as an exact decimal string. Defaults to zero.
-        tax: Non-negative tax as an exact decimal string. Defaults to zero.
-        other_fee: Non-negative other fee as an exact decimal string. Defaults to zero.
-        effective_at: Optional timezone-aware ISO-8601 economic timestamp; null uses the operation time.
+        commission: Explicitly grounded non-negative commission as an exact decimal string; pass "0" for none.
+        tax: Explicitly grounded non-negative tax as an exact decimal string; pass "0" for none.
+        other_fee: Explicitly grounded non-negative other fee as an exact decimal string; pass "0" for none.
+        effective_at: Optional timezone-aware ISO-8601 economic timestamp; null is only for a current event.
 
     Returns:
         Operation identifier, appended entry summaries, and the resulting Portfolio state.
@@ -437,8 +437,8 @@ async def record_portfolio_income(
     context: RunContextWrapper[AgentContext],
     portfolio_id: str,
     gross_amount: str,
-    tax: str = "0",
-    other_fee: str = "0",
+    tax: str,
+    other_fee: str,
     code: str | None = None,
     market: str | None = None,
     effective_at: str | None = None,
@@ -450,11 +450,11 @@ async def record_portfolio_income(
     Args:
         portfolio_id: Durable Portfolio identifier.
         gross_amount: Non-negative gross income in the base currency as an exact decimal string.
-        tax: Non-negative tax as an exact decimal string. Defaults to zero.
-        other_fee: Non-negative other fee as an exact decimal string. Defaults to zero.
+        tax: Explicitly grounded non-negative tax as an exact decimal string; pass "0" for none.
+        other_fee: Explicitly grounded non-negative other fee as an exact decimal string; pass "0" for none.
         code: Optional instrument code; supply together with market.
         market: Optional instrument market identifier; supply together with code.
-        effective_at: Optional timezone-aware ISO-8601 economic timestamp; null uses the operation time.
+        effective_at: Optional timezone-aware ISO-8601 economic timestamp; null is only for current income.
 
     Returns:
         Operation identifier, appended entry summaries, and the resulting Portfolio state.
