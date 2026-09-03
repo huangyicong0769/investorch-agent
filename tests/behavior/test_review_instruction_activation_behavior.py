@@ -244,3 +244,175 @@ async def test_failed_discard_write_recovers_from_durable_unsuccessful_run_end(t
     harness.agent_loop.complete("session-a")
     await harness.wait_for_run_ended("session-a", occurrence=2)
     await harness.runtime.aclose()
+
+
+@pytest.mark.asyncio
+async def test_activation_write_failure_stops_the_run_and_discards_the_unconsumed_steer(tmp_path: Path) -> None:
+    config = make_test_config(tmp_path)
+    journal = SessionJournal(config.session_journal_dir, ZoneInfo(config["runtime.default_timezone"]))
+    portfolios = PortfolioOperations(config=config)
+    create_session(config.sessions_db, "session-a")
+    set_session_title(config.sessions_db, "session-a", "Test")
+    approval_started = asyncio.Event()
+    release_approval = asyncio.Event()
+    run_ended: list[RuntimeRunEnded] = []
+
+    async def fail_activation(_session_id: str, _run_id: str, _steer_seqs: tuple[int, ...]) -> int:
+        raise RuntimeError("controlled activation failure")
+
+    async def approval_handler(_request: ApprovalRequest) -> ApprovalOutcome:
+        approval_started.set()
+        await release_approval.wait()
+        return ApprovalOutcome(approved=True, usage=TokenUsage())
+
+    async def output_handler(_output: RuntimeOutput) -> None:
+        pass
+
+    async def run_ended_handler(event: RuntimeRunEnded) -> None:
+        run_ended.append(event)
+        await journal.record_run_ended(
+            event.session_id,
+            event.run_id,
+            event.status,
+            event.started_at,
+            event.ended_at,
+            discarded_user_steer_seqs=event.discarded_steer_seqs,
+        )
+
+    model = ScriptedModel(
+        ((function_call("create_portfolio", {"name": "Core", "base_currency": "CNY"}, call_id="call-a"),),)
+    )
+    unused_agent = Agent(name="Unused", instructions="test", model=ScriptedModel())
+    loop = AgentLoop(
+        Agent[AgentContext](name="Main", instructions="test", model=model, tools=[create_portfolio]),
+        unused_agent,
+        unused_agent,
+        config,
+        portfolios,
+    )
+    runtime = AgentRuntime(
+        loop,
+        ExecutionState(workspace_root=config.workspace_dir),
+        config.sessions_db,
+        output_handler,
+        approval_handler,
+        journal.record_user_message,
+        journal.record_user_steer,
+        fail_activation,
+        journal.record_user_steers_discarded,
+        run_ended_handler=run_ended_handler,
+    )
+    active = runtime.start_run("session-a", "initial instruction", run_options("steer"))
+    await approval_started.wait()
+    await runtime.submit_follow_up("session-a", "do not mutate any Portfolio", run_options())
+    release_approval.set()
+
+    with pytest.raises(RuntimeError, match="controlled activation failure"):
+        await active.task
+
+    later_head_seq = await journal.record_user_message("session-a", "later instruction")
+    prepared = await ReviewContext(config=config).prepare("session-a", later_head_seq)
+    records = read_session_journal(config.session_journal_dir, "session-a")
+    steer = next(record for record in records if record["type"] == "user_steer")
+    discarded = next(record for record in records if record["type"] == "user_steers_discarded")
+    assert all(record["type"] != "user_steers_activated" for record in records)
+    assert discarded["run_id"] == active.run_id
+    assert discarded["user_steer_seqs"] == [steer["seq"]]
+    assert run_ended[0].status == "failed"
+    assert run_ended[0].discarded_steer_seqs == (steer["seq"],)
+    assert "initial instruction" in prepared.text
+    assert "later instruction" in prepared.text
+    assert "do not mutate any Portfolio" not in prepared.text
+    model.assert_complete()
+    await runtime.aclose()
+
+
+@pytest.mark.asyncio
+async def test_fallback_activation_write_failure_never_starts_the_promoted_model(tmp_path: Path) -> None:
+    config = make_test_config(tmp_path)
+    journal = SessionJournal(config.session_journal_dir, ZoneInfo(config["runtime.default_timezone"]))
+    portfolios = PortfolioOperations(config=config)
+    create_session(config.sessions_db, "session-a")
+    set_session_title(config.sessions_db, "session-a", "Test")
+    first_model_started = asyncio.Event()
+    release_first_model = asyncio.Event()
+    promoted_model_started = asyncio.Event()
+    two_runs_ended = asyncio.Event()
+    run_ended: list[RuntimeRunEnded] = []
+
+    async def first_step(_call: object) -> tuple[object, ...]:
+        first_model_started.set()
+        await release_first_model.wait()
+        return (assistant_message("first turn"),)
+
+    async def promoted_step(_call: object) -> tuple[object, ...]:
+        promoted_model_started.set()
+        return (assistant_message("promoted turn"),)
+
+    async def fail_activation(_session_id: str, _run_id: str, _steer_seqs: tuple[int, ...]) -> int:
+        raise RuntimeError("controlled activation failure")
+
+    async def approval_handler(_request: ApprovalRequest) -> ApprovalOutcome:
+        return ApprovalOutcome(approved=True, usage=TokenUsage())
+
+    async def output_handler(_output: RuntimeOutput) -> None:
+        pass
+
+    async def run_ended_handler(event: RuntimeRunEnded) -> None:
+        run_ended.append(event)
+        await journal.record_run_ended(
+            event.session_id,
+            event.run_id,
+            event.status,
+            event.started_at,
+            event.ended_at,
+            discarded_user_steer_seqs=event.discarded_steer_seqs,
+        )
+        if len(run_ended) == 2:
+            two_runs_ended.set()
+
+    model = ScriptedModel((ModelStep.respond(first_step), ModelStep.respond(promoted_step)))
+    unused_agent = Agent(name="Unused", instructions="test", model=ScriptedModel())
+    loop = AgentLoop(
+        Agent[AgentContext](name="Main", instructions="test", model=model),
+        unused_agent,
+        unused_agent,
+        config,
+        portfolios,
+    )
+    runtime = AgentRuntime(
+        loop,
+        ExecutionState(workspace_root=config.workspace_dir),
+        config.sessions_db,
+        output_handler,
+        approval_handler,
+        journal.record_user_message,
+        journal.record_user_steer,
+        fail_activation,
+        journal.record_user_steers_discarded,
+        run_ended_handler=run_ended_handler,
+    )
+    active = runtime.start_run("session-a", "initial instruction", run_options("steer"))
+    await first_model_started.wait()
+    await runtime.submit_follow_up("session-a", "fallback instruction", run_options())
+    release_first_model.set()
+
+    await active.task
+    await asyncio.wait_for(two_runs_ended.wait(), timeout=2)
+
+    later_head_seq = await journal.record_user_message("session-a", "later instruction")
+    prepared = await ReviewContext(config=config).prepare("session-a", later_head_seq)
+    records = read_session_journal(config.session_journal_dir, "session-a")
+    steer = next(record for record in records if record["type"] == "user_steer")
+    discarded = next(record for record in records if record["type"] == "user_steers_discarded")
+    assert [event.status for event in run_ended] == ["completed", "cancelled"]
+    assert promoted_model_started.is_set() is False
+    assert runtime.is_session_active("session-a") is False
+    assert runtime.session_snapshot("session-a").pending_steer_count == 0
+    assert all(record["type"] != "user_steers_activated" for record in records)
+    assert discarded["run_id"] == active.run_id
+    assert discarded["user_steer_seqs"] == [steer["seq"]]
+    assert "initial instruction" in prepared.text
+    assert "later instruction" in prepared.text
+    assert "fallback instruction" not in prepared.text
+    await runtime.aclose()

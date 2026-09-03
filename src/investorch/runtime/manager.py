@@ -577,7 +577,7 @@ class AgentRuntime:
                     session_id,
                     run_id,
                 )
-                return max(steer_seqs), None
+                raise
             return activation_seq, cancellation
 
         try:
@@ -764,15 +764,38 @@ class AgentRuntime:
                 activation_seq, cancellation = await _await_journal_write(
                     self._record_user_steers_activated(session_id, active_run.run_id, (steer.journal_seq,))
                 )
-            except Exception:
+            except BaseException as error:
                 logger.exception(
                     "Failed to record promoted Steer activation session=%s run=%s steer=%s",
                     session_id,
                     active_run.run_id,
                     steer.steer_id,
                 )
-                activation_seq = steer.journal_seq
-                cancellation = None
+                input_journal.fail(error)
+                disposition_cancellation: asyncio.CancelledError | None = None
+                try:
+                    _, disposition_cancellation = await _await_journal_write(
+                        self._record_user_steers_discarded(
+                            session_id,
+                            steer.source_run_id,
+                            (steer.journal_seq,),
+                        )
+                    )
+                except Exception:
+                    logger.exception(
+                        "Failed to record abandoned Steer fallback session=%s source_run=%s steer=%s",
+                        session_id,
+                        steer.source_run_id,
+                        steer.steer_id,
+                    )
+                active_run.task.cancel()
+                start_gate.set()
+                await asyncio.gather(active_run.task, return_exceptions=True)
+                if isinstance(error, asyncio.CancelledError):
+                    raise
+                if disposition_cancellation is not None:
+                    raise disposition_cancellation from error
+                return
             input_journal.succeed(activation_seq)
             await self._notify_follow_up(
                 RuntimeFollowUpEvent(
