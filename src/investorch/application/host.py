@@ -201,7 +201,12 @@ async def open_application_host(
             activity.finish_run(event.run_id)
         try:
             await journal.record_run_ended(
-                event.session_id, event.run_id, event.status, event.started_at, event.ended_at
+                event.session_id,
+                event.run_id,
+                event.status,
+                event.started_at,
+                event.ended_at,
+                discarded_user_steer_seqs=event.discarded_steer_seqs,
             )
         except Exception:
             logger.exception(

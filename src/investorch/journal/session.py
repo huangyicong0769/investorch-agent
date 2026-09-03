@@ -109,6 +109,8 @@ class SessionJournal:
         status: Literal["completed", "cancelled", "failed"],
         started_at: datetime,
         ended_at: datetime,
+        *,
+        discarded_user_steer_seqs: tuple[int, ...] = (),
     ) -> int:
         if status not in {"completed", "cancelled", "failed"}:
             raise ValueError("run-ended status must be completed, cancelled, or failed")
@@ -118,18 +120,27 @@ class SessionJournal:
             raise ValueError("ended_at must be timezone-aware")
         if ended_at < started_at:
             raise ValueError("ended_at must not be earlier than started_at")
+        if any(type(seq) is not int or seq < 1 for seq in discarded_user_steer_seqs):
+            raise ValueError("discarded_user_steer_seqs must contain positive integers")
+        if len(set(discarded_user_steer_seqs)) != len(discarded_user_steer_seqs):
+            raise ValueError("discarded_user_steer_seqs must be unique")
+        if status == "completed" and discarded_user_steer_seqs:
+            raise ValueError("completed Run cannot discard user Steers")
 
         duration_ms = max(0, round((ended_at - started_at).total_seconds() * 1000))
+        record: dict[str, object] = {
+            "type": "run_ended",
+            "run_id": run_id,
+            "status": status,
+            "started_at": started_at.isoformat(),
+            "ended_at": ended_at.isoformat(),
+            "duration_ms": duration_ms,
+        }
+        if discarded_user_steer_seqs:
+            record["discarded_user_steer_seqs"] = list(discarded_user_steer_seqs)
         return await self._record(
             session_id,
-            {
-                "type": "run_ended",
-                "run_id": run_id,
-                "status": status,
-                "started_at": started_at.isoformat(),
-                "ended_at": ended_at.isoformat(),
-                "duration_ms": duration_ms,
-            },
+            record,
         )
 
     async def record_output(self, session_id: str, event: OutputEvent) -> int:

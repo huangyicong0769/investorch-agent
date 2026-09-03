@@ -18,6 +18,7 @@ from tests.support.controlled_agent import ControlledAgentLoop
 
 RecordUserMessage = Callable[[str, str], Awaitable[int]]
 RecordUserSteer = Callable[[str, str, str], Awaitable[int]]
+RecordUserSteerDisposition = Callable[[str, str, tuple[int, ...]], Awaitable[int]]
 
 
 def run_options(follow_up_behavior: FollowUpBehavior = "steer") -> RunOptions:
@@ -146,6 +147,9 @@ def make_runtime_harness(
     config_overrides: dict[str, dict[str, object]] | None = None,
     record_user_message: RecordUserMessage | None = None,
     record_user_steer: RecordUserSteer | None = None,
+    record_user_steers_activated: RecordUserSteerDisposition | None = None,
+    record_user_steers_discarded: RecordUserSteerDisposition | None = None,
+    journal_run_ended: bool = False,
 ) -> RuntimeHarness:
     config = make_test_config(tmp_path, config_overrides)
     journal = SessionJournal(config.session_journal_dir, ZoneInfo("UTC"))
@@ -161,6 +165,15 @@ def make_runtime_harness(
         return ApprovalOutcome(approved=True, usage=TokenUsage())
 
     async def handle_run_ended(event: RuntimeRunEnded) -> None:
+        if journal_run_ended:
+            await journal.record_run_ended(
+                event.session_id,
+                event.run_id,
+                event.status,
+                event.started_at,
+                event.ended_at,
+                discarded_user_steer_seqs=event.discarded_steer_seqs,
+            )
         async with harness._condition:
             harness.run_ended.append(event)
             harness._condition.notify_all()
@@ -182,8 +195,8 @@ def make_runtime_harness(
         handle_approval,
         record_user_message or journal.record_user_message,
         record_user_steer or journal.record_user_steer,
-        journal.record_user_steers_activated,
-        journal.record_user_steers_discarded,
+        record_user_steers_activated or journal.record_user_steers_activated,
+        record_user_steers_discarded or journal.record_user_steers_discarded,
         state_handler=handle_state,
         run_ended_handler=handle_run_ended,
         follow_up_handler=handle_follow_up,

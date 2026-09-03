@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import math
 from collections.abc import Awaitable, Callable
@@ -33,7 +34,10 @@ class ApprovalOutcome:
 
 ApprovalHandler = Callable[[int | None, str, str | None], Awaitable[ApprovalOutcome]]
 SuccessfulToolHandler = Callable[[str, str, str, object], Awaitable[None]]
-SteerActivatedHandler = Callable[[tuple[int, ...]], Awaitable[int]]
+SteerActivatedHandler = Callable[
+    [tuple[int, ...]],
+    Awaitable[tuple[int, asyncio.CancelledError | None]],
+]
 
 
 async def _ignore_successful_tool(_session_id: str, _run_id: str, _tool_name: str, _result: object) -> None:
@@ -197,10 +201,12 @@ class AgentLoop:
                         raise RuntimeError("Steer input reached the Agent boundary without durable journal sequence")
                     if steer_activated_handler is None:
                         raise RuntimeError("Steer input reached the Agent boundary without an activation recorder")
-                    instruction_head_seq = await steer_activated_handler(
+                    instruction_head_seq, activation_cancellation = await steer_activated_handler(
                         tuple(seq for seq in steer_seqs if seq is not None)
                     )
                     run_control.mark_staged(staged_ids)
+                    if activation_cancellation is not None:
+                        raise activation_cancellation
                     logger.info("Steer staged session=%s run=%s count=%d", session_id, run_id, len(staged_ids))
 
             if sdk_state is not None and (result.interruptions or staged_ids):

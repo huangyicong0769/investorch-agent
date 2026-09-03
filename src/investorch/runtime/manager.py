@@ -515,6 +515,7 @@ class AgentRuntime:
         result: AgentRunResult | None = None
         status: Literal["completed", "cancelled", "failed"] = "failed"
         discarded_steer_count = 0
+        discarded_steer_seqs: tuple[int, ...] = ()
 
         async def handle_output(event: OutputEvent) -> None:
             await self._output_handler(RuntimeOutput(run_id=run_id, session_id=session_id, event=event))
@@ -563,16 +564,21 @@ class AgentRuntime:
             self._notify_state(session_id)
             logger.info("Todo updated session=%s run=%s count=%d", session_id, run_id, len(todos))
 
-        async def handle_steers_activated(steer_seqs: tuple[int, ...]) -> int:
+        async def handle_steers_activated(
+            steer_seqs: tuple[int, ...],
+        ) -> tuple[int, asyncio.CancelledError | None]:
             try:
-                return await self._record_user_steers_activated(session_id, run_id, steer_seqs)
+                activation_seq, cancellation = await _await_journal_write(
+                    self._record_user_steers_activated(session_id, run_id, steer_seqs)
+                )
             except Exception:
                 logger.exception(
                     "Failed to record activated Steer inputs session=%s run=%s",
                     session_id,
                     run_id,
                 )
-                return max(steer_seqs)
+                return max(steer_seqs), None
+            return activation_seq, cancellation
 
         try:
             if start_gate is not None:
@@ -676,6 +682,7 @@ class AgentRuntime:
                         ended_at=ended_at,
                         result=result,
                         discarded_steer_count=discarded_steer_count,
+                        discarded_steer_seqs=discarded_steer_seqs,
                     )
                 )
                 await self._try_promote_steer_fallback(session_id)

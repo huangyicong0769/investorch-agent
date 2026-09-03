@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -49,6 +50,27 @@ async def test_review_context_fails_closed_for_an_unproven_active_steer(tmp_path
 
     with pytest.raises(ReviewContextError, match="activation"):
         await ReviewContext(config=config).prepare("session-a", steer_seq)
+
+
+@pytest.mark.asyncio
+async def test_review_context_rejects_run_end_discard_from_a_different_source_run(tmp_path: Path) -> None:
+    config = make_test_config(tmp_path)
+    journal = SessionJournal(config.session_journal_dir, ZoneInfo("UTC"))
+    await journal.record_user_message("session-a", "initial")
+    steer_seq = await journal.record_user_steer("session-a", "run-a", "active restriction")
+    now = datetime.now(UTC)
+    await journal.record_run_ended(
+        "session-a",
+        "run-b",
+        "cancelled",
+        now,
+        now,
+        discarded_user_steer_seqs=(steer_seq,),
+    )
+    head_seq = await journal.record_user_message("session-a", "later")
+
+    with pytest.raises(ReviewContextError, match="run-end discard"):
+        await ReviewContext(config=config).prepare("session-a", head_seq)
 
 
 @pytest.mark.asyncio
