@@ -11,6 +11,13 @@ from .interaction import (
     UserInputSubmission,
     submit_user_input,
 )
+from .portfolios import (
+    PortfolioAlreadyActiveError,
+    PortfolioAlreadyArchivedError,
+    PortfolioArchivedError,
+    PortfolioOperationError,
+    PortfolioOperations,
+)
 from .presentation_state import SessionPresentationState, SessionPresentationStore
 from .sessions import (
     SessionAlreadyArchivedError,
@@ -33,6 +40,11 @@ __all__ = [
     "ArchivedSessionInputError",
     "FollowUpSubmissionError",
     "ManualApprovalHandler",
+    "PortfolioAlreadyActiveError",
+    "PortfolioAlreadyArchivedError",
+    "PortfolioArchivedError",
+    "PortfolioOperationError",
+    "PortfolioOperations",
     "QueuedFollowUpsPendingError",
     "SessionAlreadyArchivedError",
     "SessionArchivedError",
