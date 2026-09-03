@@ -243,7 +243,7 @@ export function SessionSidebar({
             isActive ? 'bg-muted font-medium text-foreground' : 'text-muted-foreground',
           )
         }
-        onClick={onMobileNavigate}
+        onClick={onMobileClose}
         to="/portfolios"
       >
         <BriefcaseBusiness aria-hidden="true" size={16} />
