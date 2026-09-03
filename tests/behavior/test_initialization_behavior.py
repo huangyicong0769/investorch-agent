@@ -20,6 +20,7 @@ def test_first_initialization_creates_the_user_instance(tmp_path: Path) -> None:
     assert config.workspace_dir.is_dir()
     assert config.state_dir.is_dir()
     assert config.sessions_db.is_file()
+    assert config.portfolio_db.is_file()
     assert (config.workspace_dir / "MEMORY.md").is_file()
     assert (config.workspace_dir / "memory" / "configuration.md").is_file()
     assert (config.workspace_dir / "memory" / "rqalpha.md").is_file()

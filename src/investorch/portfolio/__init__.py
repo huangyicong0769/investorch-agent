@@ -26,8 +26,20 @@ from investorch.portfolio.domain import (
     Void,
 )
 from investorch.portfolio.ledger import project_portfolio
+from investorch.portfolio.schema import (
+    LATEST_SCHEMA_VERSION,
+    PortfolioAlreadyExistsError,
+    PortfolioConflictError,
+    PortfolioDataError,
+    PortfolioNotFoundError,
+    PortfolioSchemaError,
+    PortfolioStorageError,
+    UnsupportedPortfolioSchemaError,
+    init_portfolio_storage,
+)
 
 __all__ = [
+    "LATEST_SCHEMA_VERSION",
     "CashAdjustment",
     "CashFlow",
     "CashTransfer",
@@ -43,15 +55,23 @@ __all__ = [
     "OpeningCash",
     "OpeningPosition",
     "Portfolio",
+    "PortfolioAlreadyExistsError",
+    "PortfolioConflictError",
+    "PortfolioDataError",
     "PortfolioDomainError",
+    "PortfolioNotFoundError",
+    "PortfolioSchemaError",
     "PortfolioState",
     "PortfolioStatus",
+    "PortfolioStorageError",
     "PositionAdjustment",
     "PositionTransfer",
     "StrategyBinding",
     "Trade",
     "TradeSide",
     "TransferDirection",
+    "UnsupportedPortfolioSchemaError",
     "Void",
+    "init_portfolio_storage",
     "project_portfolio",
 ]

@@ -113,6 +113,10 @@ class AppConfig:
         return self.state_dir / "sessions.db"
 
     @property
+    def portfolio_db(self) -> Path:
+        return self.state_dir / "portfolio.db"
+
+    @property
     def log_dir(self) -> Path:
         return self.state_dir / "logs"
 

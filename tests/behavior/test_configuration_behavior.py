@@ -26,6 +26,7 @@ def test_investorch_default_filesystem_identity(tmp_path: Path) -> None:
     assert PROJECT_CONFIG_PATH.name == "investorch.toml"
     assert config.root_config_path == config.root / "investorch.toml"
     assert config.state_dir == config.root / "state"
+    assert config.portfolio_db == config.root / "state" / "portfolio.db"
     assert config.log_path == config.root / "state" / "logs" / "investorch.log"
     assert config.background_job_dir == config.root / "workspace" / ".investorch-processes"
 
