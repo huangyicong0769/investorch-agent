@@ -3,17 +3,24 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
-from dataclasses import replace
+from collections.abc import Callable, Iterable
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
+from decimal import Decimal
 
 from investorch.config import AppConfig
 from investorch.portfolio import (
     LedgerEntry,
+    LedgerEntryType,
+    OpeningCash,
+    OpeningPosition,
     Portfolio,
     PortfolioNotFoundError,
+    PortfolioSequenceConflictError,
     PortfolioState,
     PortfolioStatus,
     StrategyBinding,
+    append_ledger_operation,
     create_portfolio,
     get_portfolio,
     get_portfolio_state,
@@ -21,6 +28,7 @@ from investorch.portfolio import (
     list_portfolios,
     update_portfolio_metadata,
 )
+from investorch.portfolio.domain import LedgerPayload
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +47,30 @@ class PortfolioAlreadyArchivedError(PortfolioOperationError):
 
 class PortfolioAlreadyActiveError(PortfolioOperationError):
     """Raised when an active Portfolio is restored."""
+
+
+class PortfolioAlreadyInitializedError(PortfolioOperationError):
+    """Raised when opening state is requested after Ledger history exists."""
+
+
+class PortfolioSequenceRetryExhaustedError(PortfolioOperationError):
+    """Raised when Ledger append sequence conflicts exhaust their retry limit."""
+
+
+@dataclass(frozen=True, slots=True)
+class PortfolioMutationResult:
+    operation_id: str
+    entries: tuple[LedgerEntry, ...]
+    states: dict[str, PortfolioState]
+
+
+@dataclass(frozen=True, slots=True)
+class _EntryDraft:
+    entry_id: str
+    portfolio_id: str
+    entry_type: LedgerEntryType
+    effective_at: datetime
+    payload: LedgerPayload
 
 
 class _Unset:
@@ -145,7 +177,141 @@ class PortfolioOperations:
         logger.info("Restored Portfolio %s", portfolio_id)
         return restored
 
+    async def initialize(
+        self,
+        portfolio_id: str,
+        *,
+        cash: Decimal | None = None,
+        positions: Iterable[OpeningPosition] = (),
+        effective_at: datetime | None = None,
+        source: str,
+        external_ref: str | None = None,
+    ) -> PortfolioMutationResult:
+        positions = tuple(positions)
+        if cash is None and not positions:
+            raise PortfolioOperationError("Portfolio initialization requires opening state")
+        recorded_at = datetime.now(UTC)
+        effective_at = recorded_at if effective_at is None else effective_at
+        operation_id = uuid.uuid4().hex
+
+        async with self._mutation_lock:
+            portfolio = await self.get(portfolio_id)
+            _require_active(portfolio)
+            payloads: list[tuple[LedgerEntryType, LedgerPayload]] = []
+            if cash is not None:
+                payloads.append((LedgerEntryType.OPENING_CASH, OpeningCash(portfolio.base_currency, cash)))
+            payloads.extend((LedgerEntryType.OPENING_POSITION, position) for position in positions)
+            drafts = tuple(
+                _EntryDraft(
+                    entry_id=uuid.uuid4().hex,
+                    portfolio_id=portfolio_id,
+                    entry_type=entry_type,
+                    effective_at=effective_at,
+                    payload=payload,
+                )
+                for entry_type, payload in payloads
+            )
+
+            def validate(
+                portfolios: dict[str, Portfolio],
+                ledgers: dict[str, list[LedgerEntry]],
+            ) -> None:
+                _require_active(portfolios[portfolio_id])
+                if ledgers[portfolio_id]:
+                    raise PortfolioAlreadyInitializedError(f"Portfolio is already initialized: {portfolio_id}")
+
+            result = await self._append_operation(
+                operation_id=operation_id,
+                recorded_at=recorded_at,
+                source=source,
+                external_ref=external_ref,
+                drafts=drafts,
+                validate=validate,
+            )
+        logger.info("Initialized Portfolio operation %s for %s", operation_id, portfolio_id)
+        return result
+
+    async def _append_operation(
+        self,
+        *,
+        operation_id: str,
+        recorded_at: datetime,
+        source: str,
+        external_ref: str | None,
+        drafts: tuple[_EntryDraft, ...],
+        validate: Callable[[dict[str, Portfolio], dict[str, list[LedgerEntry]]], None] | None = None,
+    ) -> PortfolioMutationResult:
+        portfolio_ids = tuple(dict.fromkeys(draft.portfolio_id for draft in drafts))
+        for attempt in range(3):
+            portfolios = {portfolio_id: await self.get(portfolio_id) for portfolio_id in portfolio_ids}
+            ledgers = {
+                portfolio_id: await asyncio.to_thread(
+                    list_ledger_entries,
+                    self._config.portfolio_db,
+                    portfolio_id,
+                )
+                for portfolio_id in portfolio_ids
+            }
+            if validate is not None:
+                validate(portfolios, ledgers)
+            entries = _assign_sequences(
+                operation_id=operation_id,
+                recorded_at=recorded_at,
+                source=source,
+                external_ref=external_ref,
+                drafts=drafts,
+                ledgers=ledgers,
+            )
+            try:
+                states = await asyncio.to_thread(
+                    append_ledger_operation,
+                    self._config.portfolio_db,
+                    entries,
+                )
+            except PortfolioSequenceConflictError as exc:
+                if attempt == 2:
+                    raise PortfolioSequenceRetryExhaustedError(
+                        f"Portfolio Ledger sequence retry exhausted for operation {operation_id}"
+                    ) from exc
+                continue
+            return PortfolioMutationResult(operation_id, entries, states)
+        raise AssertionError("unreachable")
+
 
 def _require_active(portfolio: Portfolio) -> None:
     if portfolio.status is PortfolioStatus.ARCHIVED:
         raise PortfolioArchivedError(f"Portfolio is archived: {portfolio.id}")
+
+
+def _assign_sequences(
+    *,
+    operation_id: str,
+    recorded_at: datetime,
+    source: str,
+    external_ref: str | None,
+    drafts: tuple[_EntryDraft, ...],
+    ledgers: dict[str, list[LedgerEntry]],
+) -> tuple[LedgerEntry, ...]:
+    next_sequences = {
+        portfolio_id: max((entry.sequence for entry in entries), default=0) + 1
+        for portfolio_id, entries in ledgers.items()
+    }
+    assigned: list[LedgerEntry] = []
+    for draft in drafts:
+        sequence = next_sequences[draft.portfolio_id]
+        assigned.append(
+            LedgerEntry(
+                entry_id=draft.entry_id,
+                operation_id=operation_id,
+                portfolio_id=draft.portfolio_id,
+                sequence=sequence,
+                entry_type=draft.entry_type,
+                effective_at=draft.effective_at,
+                recorded_at=recorded_at,
+                source=source,
+                external_ref=external_ref,
+                payload=draft.payload,
+            )
+        )
+        next_sequences[draft.portfolio_id] += 1
+    return tuple(assigned)

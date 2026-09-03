@@ -14,9 +14,12 @@ from .interaction import (
 from .portfolios import (
     PortfolioAlreadyActiveError,
     PortfolioAlreadyArchivedError,
+    PortfolioAlreadyInitializedError,
     PortfolioArchivedError,
+    PortfolioMutationResult,
     PortfolioOperationError,
     PortfolioOperations,
+    PortfolioSequenceRetryExhaustedError,
 )
 from .presentation_state import SessionPresentationState, SessionPresentationStore
 from .sessions import (
@@ -42,9 +45,12 @@ __all__ = [
     "ManualApprovalHandler",
     "PortfolioAlreadyActiveError",
     "PortfolioAlreadyArchivedError",
+    "PortfolioAlreadyInitializedError",
     "PortfolioArchivedError",
+    "PortfolioMutationResult",
     "PortfolioOperationError",
     "PortfolioOperations",
+    "PortfolioSequenceRetryExhaustedError",
     "QueuedFollowUpsPendingError",
     "SessionAlreadyArchivedError",
     "SessionArchivedError",

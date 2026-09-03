@@ -1,19 +1,31 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
+from decimal import Decimal
+
 import pytest
 
 from investorch.application import (
     PortfolioAlreadyActiveError,
     PortfolioAlreadyArchivedError,
+    PortfolioAlreadyInitializedError,
     PortfolioArchivedError,
+    PortfolioOperationError,
     PortfolioOperations,
 )
 from investorch.portfolio import (
+    InstrumentId,
+    LedgerEntryType,
+    OpeningPosition,
     PortfolioNotFoundError,
     PortfolioStatus,
     StrategyBinding,
 )
 from tests.support.config import make_test_config
+
+STOCK = InstrumentId("600519", "XSHG")
+UNKNOWN_STOCK = InstrumentId("000001", "XSHE")
+EFFECTIVE_AT = datetime(2025, 12, 31, tzinfo=UTC)
 
 
 async def test_portfolio_application_creates_and_reads_durable_portfolios(tmp_path) -> None:
@@ -95,3 +107,57 @@ async def test_archive_freezes_metadata_until_restore(tmp_path) -> None:
     assert await operations.list() == [restored]
     with pytest.raises(PortfolioAlreadyActiveError):
         await operations.restore(portfolio.id)
+
+
+async def test_initialize_persists_one_atomic_opening_state(tmp_path) -> None:
+    operations = PortfolioOperations(config=make_test_config(tmp_path))
+    portfolio = await operations.create(name="Core", base_currency="CNY")
+
+    result = await operations.initialize(
+        portfolio.id,
+        cash=Decimal("1000"),
+        positions=(
+            OpeningPosition(STOCK, Decimal("10"), Decimal("100")),
+            OpeningPosition(UNKNOWN_STOCK, Decimal("2"), None),
+        ),
+        effective_at=EFFECTIVE_AT,
+        source="import",
+        external_ref="opening-statement",
+    )
+
+    assert [entry.entry_type for entry in result.entries] == [
+        LedgerEntryType.OPENING_CASH,
+        LedgerEntryType.OPENING_POSITION,
+        LedgerEntryType.OPENING_POSITION,
+    ]
+    assert [entry.sequence for entry in result.entries] == [1, 2, 3]
+    assert {entry.operation_id for entry in result.entries} == {result.operation_id}
+    assert {entry.recorded_at for entry in result.entries} == {result.entries[0].recorded_at}
+    assert {entry.effective_at for entry in result.entries} == {EFFECTIVE_AT}
+    assert {entry.source for entry in result.entries} == {"import"}
+    assert {entry.external_ref for entry in result.entries} == {"opening-statement"}
+    assert await operations.list_ledger(portfolio.id) == list(result.entries)
+    assert await operations.get_state(portfolio.id) == result.states[portfolio.id]
+    assert result.states[portfolio.id].cash == {"CNY": Decimal("1000")}
+    assert result.states[portfolio.id].holdings[STOCK].total_cost == Decimal("100")
+    assert result.states[portfolio.id].holdings[UNKNOWN_STOCK].total_cost is None
+
+
+async def test_initialize_is_one_shot_and_rejects_empty_or_archived_portfolios(tmp_path) -> None:
+    operations = PortfolioOperations(config=make_test_config(tmp_path))
+    empty = await operations.create(name="Empty", base_currency="CNY")
+    archived = await operations.create(name="Archived", base_currency="CNY")
+
+    with pytest.raises(PortfolioOperationError):
+        await operations.initialize(empty.id, source="manual")
+    assert await operations.list_ledger(empty.id) == []
+
+    await operations.initialize(empty.id, cash=Decimal("1"), source="manual")
+    with pytest.raises(PortfolioAlreadyInitializedError):
+        await operations.initialize(empty.id, cash=Decimal("2"), source="manual")
+    assert len(await operations.list_ledger(empty.id)) == 1
+
+    await operations.archive(archived.id)
+    with pytest.raises(PortfolioArchivedError):
+        await operations.initialize(archived.id, cash=Decimal("1"), source="manual")
+    assert await operations.list_ledger(archived.id) == []
