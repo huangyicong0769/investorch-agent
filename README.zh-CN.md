@@ -25,6 +25,8 @@ InvestOrch Agent 是面向个人投资者的本地优先、human-in-the-loop 投
 
 核心应用目前在 macOS 本机和 Ubuntu CI 中得到验证，运行目标为 macOS 和 Linux 环境。未来通过运行在 Windows/QMT 环境中的 Gateway 连接 QMT。
 
+独立的 Windows [InvestOrch QMT companion](packages/investorch-qmt/README.md) 已提供带认证的 MCP 基础边界。B0 package 无需安装 QMT 即可部署，但尚未连接 QMT。
+
 ## 环境要求
 
 - Python 3.12 或更高版本

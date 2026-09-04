@@ -25,6 +25,8 @@ Portfolio/account access, a QMT gateway, live trading, a unified investment data
 
 The core is currently validated on macOS locally and Ubuntu in CI, and targets macOS and Linux environments. Future QMT connectivity will use a gateway running with QMT on Windows.
 
+The independent Windows [InvestOrch QMT companion](packages/investorch-qmt/README.md) now provides the authenticated MCP foundation. The B0 package is deployable without QMT but does not connect to QMT yet.
+
 ## Requirements
 
 - Python 3.12 or newer
