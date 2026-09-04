@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import os
+import secrets
+import tempfile
 import tomllib
 from copy import deepcopy
 from dataclasses import dataclass
@@ -7,6 +10,7 @@ from importlib.resources import files
 from pathlib import Path
 from typing import Any
 
+import tomlkit
 from platformdirs import PlatformDirs
 
 _ROOT_KEYS = {"server", "auth", "logging"}
@@ -81,14 +85,66 @@ def load_config(path: Path | None = None) -> QMTConfig:
     return _build_config(effective)
 
 
-def _read_bundled_defaults() -> dict[str, Any]:
-    resource = files("investorch_qmt.resources").joinpath("investorch-qmt.toml")
+def initialize_config(paths: AppPaths | None = None) -> QMTConfig:
+    resolved_paths = paths or default_paths()
+    if resolved_paths.config.exists():
+        raise ConfigError(f"InvestOrch QMT is already initialized at {resolved_paths.config}")
+
     try:
-        document = tomllib.loads(resource.read_text(encoding="utf-8"))
+        resolved_paths.root.mkdir(parents=True, exist_ok=True)
+        resolved_paths.log.parent.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        raise ConfigError(f"Cannot create InvestOrch QMT directories: {exc}") from exc
+
+    document = tomlkit.parse(_bundled_defaults_text())
+    auth = tomlkit.table()
+    auth["token"] = secrets.token_urlsafe(32)
+    document["auth"] = auth
+    _write_new_config(resolved_paths.config, tomlkit.dumps(document))
+    return load_config(resolved_paths.config)
+
+
+def _read_bundled_defaults() -> dict[str, Any]:
+    try:
+        document = tomllib.loads(_bundled_defaults_text())
     except tomllib.TOMLDecodeError as exc:  # pragma: no cover - packaged invariant
         raise ConfigError(f"Bundled configuration is invalid: {exc}") from exc
     _validate_document(document, allowed_root_keys={"server", "logging"})
     return document
+
+
+def _bundled_defaults_text() -> str:
+    return files("investorch_qmt.resources").joinpath("investorch-qmt.toml").read_text(encoding="utf-8")
+
+
+def _write_new_config(path: Path, content: str) -> None:
+    temporary_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            newline="",
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            dir=path.parent,
+            delete=False,
+        ) as temporary:
+            temporary_path = Path(temporary.name)
+            temporary.write(content)
+            temporary.flush()
+            os.fsync(temporary.fileno())
+
+        if path.exists():
+            raise ConfigError(f"InvestOrch QMT is already initialized at {path}")
+        os.replace(temporary_path, path)
+        temporary_path = None
+    except ConfigError:
+        raise
+    except OSError as exc:
+        raise ConfigError(f"Cannot write configuration at {path}: {exc}") from exc
+    finally:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
 
 
 def _read_toml(path: Path) -> dict[str, Any]:
