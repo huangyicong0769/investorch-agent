@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import signal
 from importlib.metadata import version
-from types import FrameType
 
 import uvicorn
 from mcp.server import MCPServer
@@ -102,7 +101,7 @@ def run_service(config: QMTConfig, paths: AppPaths) -> None:
     )
     previous_break_handler = None
     if hasattr(signal, "SIGBREAK"):
-        previous_break_handler = signal.signal(signal.SIGBREAK, _raise_keyboard_interrupt)
+        previous_break_handler = signal.signal(signal.SIGBREAK, signal.default_int_handler)
     try:
         server.run()
     except KeyboardInterrupt:
@@ -135,7 +134,3 @@ def _transport_security(config: QMTConfig) -> TransportSecuritySettings:
         allowed_hosts=allowed_hosts,
         allowed_origins=[origin for host in allowed_hosts for origin in (f"http://{host}", f"https://{host}")],
     )
-
-
-def _raise_keyboard_interrupt(_: int, __: FrameType | None) -> None:
-    raise KeyboardInterrupt
