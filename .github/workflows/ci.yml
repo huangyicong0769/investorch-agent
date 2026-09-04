@@ -35,8 +35,6 @@ jobs:
           enable-cache: true
       - name: Sync locked environment
         run: uv sync --locked --dev
-      - name: Sync QMT companion integration environment
-        run: uv sync --project packages/investorch-qmt --locked --dev
       - name: Check Python formatting
         run: uv run --locked ruff format --check .
       - name: Lint Python
