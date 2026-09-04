@@ -16,7 +16,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="version",
         version=f"%(prog)s {version('investorch-qmt')}",
     )
-    subparsers = parser.add_subparsers(dest="command")
+    subparsers = parser.add_subparsers(dest="command", required=True)
     subparsers.add_parser("init", help="Initialize local configuration")
     subparsers.add_parser("serve", help="Serve the authenticated MCP endpoint")
     token_parser = subparsers.add_parser("token", help="Manage the bearer token")
@@ -29,9 +29,6 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     arguments = parser.parse_args(argv)
-    if arguments.command is None:
-        parser.print_help()
-        return 0
 
     try:
         if arguments.command == "init":

@@ -32,3 +32,16 @@ def test_version_command_uses_installed_metadata() -> None:
 
     assert completed.stdout == "investorch-qmt 0.1.0\n"
     assert completed.stderr == ""
+
+
+def test_missing_command_is_a_cli_syntax_error() -> None:
+    completed = subprocess.run(
+        ["investorch-qmt"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 2
+    assert completed.stdout == ""
+    assert "required" in completed.stderr
