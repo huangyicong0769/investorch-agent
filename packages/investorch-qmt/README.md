@@ -2,7 +2,7 @@
 
 `investorch-qmt` is the independently installable Windows companion MCP server for InvestOrch. It exposes an authenticated Streamable HTTP boundary that the Core application can use without importing either distribution into the other.
 
-Version 0.1.0 is the InvestOrch 0.2.0.B0 foundation. It does not connect to QMT, inspect accounts, read positions, or place orders yet. A healthy B0 service truthfully reports QMT as `not_connected`.
+Version 0.1.0 provides the initial companion service foundation. It does not connect to QMT, inspect accounts, read positions, or place orders yet. A healthy service truthfully reports QMT as `not_connected`.
 
 ## Requirements
 
@@ -10,7 +10,7 @@ Version 0.1.0 is the InvestOrch 0.2.0.B0 foundation. It does not connect to QMT,
 - Python 3.12 or newer
 - [uv](https://docs.astral.sh/uv/)
 
-Neither InvestOrch Core nor QMT/xtquant is required to install and run the B0 companion.
+Neither InvestOrch Core nor QMT/xtquant is required to install and run the companion.
 
 ## Install or develop
 
@@ -85,7 +85,7 @@ allowed_hosts = [
 ]
 ```
 
-Wildcards are rejected. LAN mode is intended only for a trusted local network or private VPN. Do not expose the B0 HTTP endpoint directly to the public Internet; it does not provision TLS, OAuth, or mTLS.
+Wildcards are rejected. LAN mode is intended only for a trusted local network or private VPN. Do not expose the HTTP endpoint directly to the public Internet; it does not provision TLS, OAuth, or mTLS.
 
 ## Configure InvestOrch Core
 
@@ -126,8 +126,8 @@ All public service routes require `Authorization: Bearer <token>`.
 
 - `GET /healthz` reports only that the companion HTTP/MCP process is ready. QMT can be absent while this returns HTTP 200.
 - MCP server information reports the installed `investorch-qmt` name and version.
-- The sole B0 MCP Tool, `get_status`, is read-only and returns `service.status = "ready"` with `qmt.status = "not_connected"` as a successful observation.
+- The currently available MCP Tool, `get_status`, is read-only and returns `service.status = "ready"` with `qmt.status = "not_connected"` as a successful observation.
 
 Operational logs rotate under `%LOCALAPPDATA%\InvestOrch\QMT\logs`. Authorization headers and bearer tokens are not logged.
 
-These surfaces intentionally do not claim that QMT is installed, logged in, connected, or ready to trade. Real Big QMT connectivity belongs to B1.
+These surfaces intentionally do not claim that QMT is installed, logged in, connected, or ready to trade. Real Big QMT connectivity is outside the current release.
