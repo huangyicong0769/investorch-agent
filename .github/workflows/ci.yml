@@ -35,6 +35,8 @@ jobs:
           enable-cache: true
       - name: Sync locked environment
         run: uv sync --locked --dev
+      - name: Sync QMT companion integration environment
+        run: uv sync --project packages/investorch-qmt --locked --dev
       - name: Check Python formatting
         run: uv run --locked ruff format --check .
       - name: Lint Python
@@ -114,6 +116,68 @@ jobs:
           uv run --isolated --no-project --with "${wheel[0]}" python package_smoke.py
           uv run --isolated --no-project --with "${sdist[0]}" python package_smoke.py
 
+  qmt:
+    name: QMT Companion / Windows
+    runs-on: windows-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: packages/investorch-qmt
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version-file: packages/investorch-qmt/.python-version
+      - name: Set up uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.12.8"
+          enable-cache: true
+      - name: Sync locked environment
+        run: uv sync --locked --dev
+      - name: Check Python formatting
+        run: uv run --locked ruff format --check .
+      - name: Lint Python
+        run: uv run --locked ruff check .
+      - name: Run companion tests
+        run: uv run --locked pytest
+      - name: Build companion distributions
+        run: uv build --no-sources
+      - name: Smoke test companion wheel and source distribution
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $wheel = @(Get-ChildItem dist -Filter *.whl)
+          $sdist = @(Get-ChildItem dist -Filter *.tar.gz)
+          if ($wheel.Count -ne 1 -or $sdist.Count -ne 1) {
+            throw "Expected one wheel and one source distribution"
+          }
+          foreach ($artifact in @($wheel[0], $sdist[0])) {
+            $smokeDir = Join-Path $env:RUNNER_TEMP ([guid]::NewGuid().ToString("N"))
+            New-Item -ItemType Directory -Path $smokeDir | Out-Null
+            Copy-Item scripts/package_smoke.py $smokeDir
+            Push-Location $smokeDir
+            try {
+              uv run --isolated --no-project --with $artifact.FullName python package_smoke.py
+              if ($LASTEXITCODE -ne 0) {
+                throw "Companion artifact smoke failed with exit code $LASTEXITCODE"
+              }
+            } finally {
+              Pop-Location
+              Remove-Item -Recurse -Force $smokeDir
+            }
+          }
+      - name: Upload companion distributions
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: investorch-qmt-${{ github.sha }}
+          path: packages/investorch-qmt/dist/*
+          if-no-files-found: error
+
   gate:
     name: CI / Gate
     if: always()
@@ -121,6 +185,7 @@ jobs:
       - python
       - frontend
       - package
+      - qmt
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -129,7 +194,9 @@ jobs:
           PYTHON_RESULT: ${{ needs.python.result }}
           FRONTEND_RESULT: ${{ needs.frontend.result }}
           PACKAGE_RESULT: ${{ needs.package.result }}
+          QMT_RESULT: ${{ needs.qmt.result }}
         run: |
           test "$PYTHON_RESULT" = "success"
           test "$FRONTEND_RESULT" = "success"
           test "$PACKAGE_RESULT" = "success"
+          test "$QMT_RESULT" = "success"
