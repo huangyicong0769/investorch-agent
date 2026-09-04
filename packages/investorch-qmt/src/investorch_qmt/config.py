@@ -100,8 +100,22 @@ def initialize_config(paths: AppPaths | None = None) -> QMTConfig:
     auth = tomlkit.table()
     auth["token"] = secrets.token_urlsafe(32)
     document["auth"] = auth
-    _write_new_config(resolved_paths.config, tomlkit.dumps(document))
+    _atomic_write_config(resolved_paths.config, tomlkit.dumps(document), refuse_existing=True)
     return load_config(resolved_paths.config)
+
+
+def rotate_token(path: Path | None = None) -> str:
+    config_path = path or default_paths().config
+    load_config(config_path)
+    try:
+        document = tomlkit.parse(config_path.read_text(encoding="utf-8"))
+    except OSError as exc:
+        raise ConfigError(f"Cannot read configuration at {config_path}: {exc}") from exc
+
+    token = secrets.token_urlsafe(32)
+    document["auth"]["token"] = token
+    _atomic_write_config(config_path, tomlkit.dumps(document), refuse_existing=False)
+    return token
 
 
 def _read_bundled_defaults() -> dict[str, Any]:
@@ -117,7 +131,7 @@ def _bundled_defaults_text() -> str:
     return files("investorch_qmt.resources").joinpath("investorch-qmt.toml").read_text(encoding="utf-8")
 
 
-def _write_new_config(path: Path, content: str) -> None:
+def _atomic_write_config(path: Path, content: str, *, refuse_existing: bool) -> None:
     temporary_path: Path | None = None
     try:
         with tempfile.NamedTemporaryFile(
@@ -134,7 +148,7 @@ def _write_new_config(path: Path, content: str) -> None:
             temporary.flush()
             os.fsync(temporary.fileno())
 
-        if path.exists():
+        if refuse_existing and path.exists():
             raise ConfigError(f"InvestOrch QMT is already initialized at {path}")
         os.replace(temporary_path, path)
         temporary_path = None
