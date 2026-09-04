@@ -1,0 +1,9 @@
+[server]
+host = "127.0.0.1"
+port = 8765
+allowed_hosts = []
+
+[logging]
+level = "INFO"
+max_bytes = 10485760
+backup_count = 5
