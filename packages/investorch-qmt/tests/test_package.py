@@ -19,6 +19,7 @@ def test_distribution_exposes_package_metadata_and_cli() -> None:
         "THIRD_PARTY_NOTICES.md",
     }
     assert {entry.name for entry in package.entry_points if entry.group == "console_scripts"} == {"investorch-qmt"}
+    assert any(requirement.lower().startswith("mcp-types") for requirement in package.requires or [])
 
 
 def test_version_command_uses_installed_metadata() -> None:
