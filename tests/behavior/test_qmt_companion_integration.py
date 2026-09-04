@@ -10,6 +10,7 @@ from pathlib import Path
 import httpx
 import pytest
 import tomlkit
+from agents.mcp import MCPServerStreamableHttp
 
 from investorch.mcp import load_mcp_servers
 
@@ -119,6 +120,21 @@ Authorization = "Bearer ${{QMT_MCP_TOKEN}}"
         )
         servers = load_mcp_servers(mcp_config, {"QMT_MCP_TOKEN": token}, default_timeout_seconds=5)
         assert len(servers) == 1
+        wrong_secret_servers = load_mcp_servers(
+            mcp_config,
+            {"QMT_MCP_TOKEN": "definitely-wrong-token-value"},
+            default_timeout_seconds=5,
+        )
+        assert len(wrong_secret_servers) == 1
+        wrong_secret_server = wrong_secret_servers[0]
+        assert isinstance(wrong_secret_server, MCPServerStreamableHttp)
+        with httpx.Client(trust_env=False) as client:
+            rejected = client.get(
+                wrong_secret_server.params["url"],
+                headers=wrong_secret_server.params["headers"],
+            )
+        assert rejected.status_code == 401
+
         async with servers[0] as server:
             tools = await server.list_tools()
             result = await server.call_tool("get_status", {})
