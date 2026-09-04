@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
+import tempfile
 from importlib.metadata import PackageNotFoundError, distribution
 from pathlib import Path
 
@@ -54,6 +56,35 @@ def main() -> None:
     )
     assert completed.stdout == "investorch-qmt 0.1.0\n"
     assert completed.stderr == ""
+
+    with tempfile.TemporaryDirectory(prefix="investorch-qmt-package-smoke-") as temp_dir:
+        data_root = Path(temp_dir) / "data"
+        env = os.environ.copy()
+        env["XDG_DATA_HOME"] = str(data_root)
+        env["WIN_PD_OVERRIDE_LOCAL_APPDATA"] = str(data_root)
+        initialized = subprocess.run(
+            [executable, "init"],
+            check=True,
+            capture_output=True,
+            env=env,
+            text=True,
+            timeout=30,
+        )
+        shown = subprocess.run(
+            [executable, "token", "show"],
+            check=True,
+            capture_output=True,
+            env=env,
+            text=True,
+            timeout=30,
+        )
+        config_paths = list(data_root.rglob("investorch-qmt.toml"))
+        assert len(config_paths) == 1
+        token = shown.stdout.strip()
+        assert len(token) >= 32
+        assert token not in initialized.stdout
+        assert initialized.stderr == ""
+        assert shown.stderr == ""
 
 
 if __name__ == "__main__":
