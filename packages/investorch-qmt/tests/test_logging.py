@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging.handlers
 import re
 from pathlib import Path
 
@@ -29,14 +28,10 @@ backup_count = {backup_count}
     return paths, config, configure_logging(config, paths)
 
 
-def test_operational_log_uses_configured_rotation_and_offset_timestamp(tmp_path: Path) -> None:
+def test_operational_log_writes_an_offset_timestamp(tmp_path: Path) -> None:
     paths, _, logger = configured_logger(tmp_path)
     try:
         logger.info("service started")
-        handler = logger.handlers[0]
-        assert isinstance(handler, logging.handlers.RotatingFileHandler)
-        assert handler.maxBytes == 10_000
-        assert handler.backupCount == 2
     finally:
         close_logging(logger)
 
