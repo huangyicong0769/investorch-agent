@@ -6,6 +6,7 @@ from collections.abc import Sequence
 from importlib.metadata import version
 
 from investorch_qmt.config import ConfigError, default_paths, initialize_config, load_config, rotate_token
+from investorch_qmt.server import ServiceError, run_service
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -17,6 +18,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     subparsers = parser.add_subparsers(dest="command")
     subparsers.add_parser("init", help="Initialize local configuration")
+    subparsers.add_parser("serve", help="Serve the authenticated MCP endpoint")
     token_parser = subparsers.add_parser("token", help="Manage the bearer token")
     token_subparsers = token_parser.add_subparsers(dest="token_command", required=True)
     token_subparsers.add_parser("show", help="Show the configured token")
@@ -45,7 +47,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             print("Token rotated.")
             print("Restart investorch-qmt for the new token to take effect.")
             print("Update the corresponding InvestOrch MCP secret after restarting.")
-    except ConfigError as exc:
+        elif arguments.command == "serve":
+            paths = default_paths()
+            run_service(load_config(paths.config), paths)
+    except (ConfigError, ServiceError) as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 1
 
