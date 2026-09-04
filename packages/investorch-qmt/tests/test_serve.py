@@ -63,7 +63,7 @@ def start_server(local_app_data: Path) -> subprocess.Popen[str]:
     )
 
 
-def wait_until_healthy(process: subprocess.Popen[str], port: int) -> None:
+def wait_until_healthy(process: subprocess.Popen[str], port: int, token: str = TOKEN) -> None:
     with httpx.Client(trust_env=False) as client:
         for _ in range(100):
             if process.poll() is not None:
@@ -72,7 +72,7 @@ def wait_until_healthy(process: subprocess.Popen[str], port: int) -> None:
             try:
                 response = client.get(
                     f"http://127.0.0.1:{port}/healthz",
-                    headers={"Authorization": f"Bearer {TOKEN}"},
+                    headers={"Authorization": f"Bearer {token}"},
                     timeout=0.2,
                 )
             except httpx.TransportError:
@@ -87,6 +87,15 @@ def wait_until_healthy(process: subprocess.Popen[str], port: int) -> None:
 def stop_server(process: subprocess.Popen[str]) -> tuple[str, str]:
     process.send_signal(signal.CTRL_BREAK_EVENT)
     return process.communicate(timeout=10)
+
+
+def health_status(port: int, token: str) -> int:
+    with httpx.Client(trust_env=False) as client:
+        return client.get(
+            f"http://127.0.0.1:{port}/healthz",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=2,
+        ).status_code
 
 
 def test_serve_starts_authenticated_service_and_stops_cleanly(tmp_path: Path) -> None:
@@ -163,3 +172,40 @@ def test_lan_serve_warns_against_public_internet_exposure(tmp_path: Path) -> Non
     assert process.returncode == 0
     assert "trusted local network or private VPN" in stdout
     assert "Do not expose this endpoint directly to the public Internet." in stdout
+
+
+def test_token_rotation_takes_effect_only_after_restart(tmp_path: Path) -> None:
+    local_app_data = tmp_path / "LocalAppData"
+    port = available_port()
+    write_config(local_app_data, port)
+    first_process = start_server(local_app_data)
+    try:
+        wait_until_healthy(first_process, port)
+        rotated = subprocess.run(
+            ["investorch-qmt", "token", "rotate"],
+            check=True,
+            capture_output=True,
+            env=environment(local_app_data),
+            text=True,
+            timeout=30,
+        )
+        new_token = rotated.stdout.splitlines()[0]
+        assert health_status(port, TOKEN) == 200
+        assert health_status(port, new_token) == 401
+        stop_server(first_process)
+    finally:
+        if first_process.poll() is None:
+            first_process.kill()
+
+    second_process = start_server(local_app_data)
+    try:
+        wait_until_healthy(second_process, port, new_token)
+        assert health_status(port, new_token) == 200
+        assert health_status(port, TOKEN) == 401
+        stop_server(second_process)
+    finally:
+        if second_process.poll() is None:
+            second_process.kill()
+
+    assert first_process.returncode == 0
+    assert second_process.returncode == 0
