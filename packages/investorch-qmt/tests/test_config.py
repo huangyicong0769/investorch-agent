@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-from dataclasses import FrozenInstanceError
 from pathlib import Path
 
 import pytest
@@ -37,7 +36,7 @@ token = "{VALID_TOKEN}"
     assert config.logging.level == "INFO"
     assert config.logging.max_bytes == 10_485_760
     assert config.logging.backup_count == 5
-    with pytest.raises(FrozenInstanceError):
+    with pytest.raises(AttributeError):
         config.server.port = 9124  # type: ignore[misc]
 
 
