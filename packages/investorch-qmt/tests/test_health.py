@@ -22,7 +22,7 @@ def service_config(tmp_path: Path):
 async def test_authenticated_health_reports_only_ready_service_truth(tmp_path: Path) -> None:
     app = create_app(service_config(tmp_path))
     transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://localhost") as client:
+    async with httpx.AsyncClient(transport=transport, base_url="http://localhost:8765") as client:
         response = await client.get("/healthz", headers={"Authorization": f"Bearer {TOKEN}"})
 
     assert response.status_code == 200
