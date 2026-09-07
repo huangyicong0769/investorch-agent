@@ -151,6 +151,7 @@ def append_ledger_operation(
                 portfolio = _get_portfolio(connection, portfolio_id)
                 if portfolio is None:
                     raise PortfolioNotFoundError(f"Portfolio not found: {portfolio_id}")
+                _require_no_active_live_deployment(connection, portfolio_id)
                 portfolios[portfolio_id] = portfolio
 
             _validate_entry_id_conflicts(connection, proposed)
@@ -582,3 +583,14 @@ def get_broker_account_portfolio_state(
 ) -> PortfolioAccountState:
     state = get_portfolio_state_with_attribution(db_path, portfolio_id)
     return state.accounts.get(broker_account_id, PortfolioAccountState(portfolio_id, broker_account_id, {}, {}))
+
+
+def _require_no_active_live_deployment(connection: sqlite3.Connection, portfolio_id: str) -> None:
+    if (
+        connection.execute(
+            "SELECT 1 FROM live_deployments WHERE portfolio_id = ? AND status = 'ACTIVE'",
+            (portfolio_id,),
+        ).fetchone()
+        is not None
+    ):
+        raise PortfolioConflictError("Portfolio economic mutation is blocked by ACTIVE live deployment")

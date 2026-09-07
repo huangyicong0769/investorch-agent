@@ -4,7 +4,7 @@ import sqlite3
 from contextlib import closing
 from pathlib import Path
 
-LATEST_SCHEMA_VERSION = 3
+LATEST_SCHEMA_VERSION = 4
 
 
 class PortfolioStorageError(Exception):
@@ -213,10 +213,7 @@ def _migrate_v1_to_v2(connection: sqlite3.Connection, from_version: int) -> None
         raise
 
 
-def _migrate_to_latest(connection: sqlite3.Connection, from_version: int) -> None:
-    if from_version == 1:
-        _migrate_v1_to_v2(connection, from_version)
-        from_version = 2
+def _migrate_v2_to_v3(connection: sqlite3.Connection, from_version: int) -> None:
     if from_version != 2:
         raise UnsupportedPortfolioSchemaError(f"No migration from Portfolio schema {from_version}")
     try:
@@ -240,6 +237,26 @@ def _migrate_to_latest(connection: sqlite3.Connection, from_version: int) -> Non
             );
         """)
         connection.execute("PRAGMA user_version = 3")
+        connection.commit()
+    except BaseException:
+        connection.rollback()
+        raise
+
+
+def _migrate_to_latest(connection: sqlite3.Connection, from_version: int) -> None:
+    if from_version == 1:
+        _migrate_v1_to_v2(connection, from_version)
+        from_version = 2
+    if from_version == 2:
+        _migrate_v2_to_v3(connection, from_version)
+        from_version = 3
+    if from_version != 3:
+        raise UnsupportedPortfolioSchemaError(f"No migration from Portfolio schema {from_version}")
+    try:
+        connection.execute("BEGIN IMMEDIATE")
+        connection.execute("""CREATE UNIQUE INDEX live_deployment_active_portfolio
+            ON live_deployments(portfolio_id) WHERE status = 'ACTIVE'""")
+        connection.execute("PRAGMA user_version = 4")
         connection.commit()
     except BaseException:
         connection.rollback()

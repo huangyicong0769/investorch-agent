@@ -86,3 +86,70 @@ def list_live_deployments(db_path: str | Path, portfolio_id: str | None = None) 
     query += " ORDER BY created_at, deployment_id"
     with closing(_connect(db_path)) as connection:
         return [_row_to_deployment(row) for row in connection.execute(query, parameters)]
+
+
+def transition_live_deployment(
+    db_path: str | Path,
+    deployment_id: str,
+    status: LiveDeploymentStatus,
+    *,
+    failure_reason: str | None = None,
+) -> LiveDeployment:
+    from datetime import UTC
+
+    transitions = {
+        LiveDeploymentStatus.PREPARED: {LiveDeploymentStatus.ACTIVE, LiveDeploymentStatus.FAILED},
+        LiveDeploymentStatus.ACTIVE: {LiveDeploymentStatus.STOPPED, LiveDeploymentStatus.FAILED},
+    }
+    with closing(_connect(db_path)) as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        try:
+            row = connection.execute(
+                "SELECT * FROM live_deployments WHERE deployment_id = ?", (deployment_id,)
+            ).fetchone()
+            if row is None:
+                raise LiveExecutionError(f"Deployment not found: {deployment_id}")
+            deployment = _row_to_deployment(row)
+            if status not in transitions.get(deployment.status, set()):
+                raise LiveExecutionError(f"Invalid deployment transition: {deployment.status} -> {status}")
+            now = datetime.now(UTC).isoformat()
+            if status is LiveDeploymentStatus.ACTIVE:
+                require_live_eligible(connection, deployment.portfolio_id, deployment.broker_account_id)
+                head = connection.execute(
+                    "SELECT COALESCE(MAX(sequence), 0) FROM portfolio_ledger WHERE portfolio_id = ?",
+                    (deployment.portfolio_id,),
+                ).fetchone()[0]
+                connection.execute(
+                    "UPDATE live_deployments SET status = ?, started_at = ?, bootstrap_ledger_sequence = ? WHERE deployment_id = ?",
+                    (status.value, now, head, deployment_id),
+                )
+            else:
+                if status is LiveDeploymentStatus.FAILED and (
+                    not isinstance(failure_reason, str) or not failure_reason.strip()
+                ):
+                    raise LiveExecutionError("Failed deployment requires a failure reason")
+                connection.execute(
+                    "UPDATE live_deployments SET status = ?, ended_at = ?, failure_reason = ? WHERE deployment_id = ?",
+                    (status.value, now, failure_reason, deployment_id),
+                )
+            result = _row_to_deployment(
+                connection.execute(
+                    "SELECT * FROM live_deployments WHERE deployment_id = ?", (deployment_id,)
+                ).fetchone()
+            )
+            connection.commit()
+            return result
+        except sqlite3.IntegrityError as exc:
+            connection.rollback()
+            raise LiveExecutionError("Portfolio already has an ACTIVE live deployment") from exc
+        except BaseException:
+            connection.rollback()
+            raise
+
+
+def get_active_live_deployment(db_path: str | Path, portfolio_id: str) -> LiveDeployment | None:
+    with closing(_connect(db_path)) as connection:
+        row = connection.execute(
+            "SELECT * FROM live_deployments WHERE portfolio_id = ? AND status = 'ACTIVE'", (portfolio_id,)
+        ).fetchone()
+        return None if row is None else _row_to_deployment(row)

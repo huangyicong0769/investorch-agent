@@ -78,3 +78,28 @@ class LiveExecutionOperations:
 
     async def list_deployments(self, portfolio_id: str | None = None) -> list[LiveDeployment]:
         return await asyncio.to_thread(list_live_deployments, self._config.portfolio_db, portfolio_id)
+
+    async def activate_deployment(self, deployment_id: str) -> LiveDeployment:
+        from investorch.portfolio.live_storage import transition_live_deployment
+
+        return await asyncio.to_thread(
+            transition_live_deployment, self._config.portfolio_db, deployment_id, LiveDeploymentStatus.ACTIVE
+        )
+
+    async def stop_deployment(self, deployment_id: str) -> LiveDeployment:
+        from investorch.portfolio.live_storage import transition_live_deployment
+
+        return await asyncio.to_thread(
+            transition_live_deployment, self._config.portfolio_db, deployment_id, LiveDeploymentStatus.STOPPED
+        )
+
+    async def fail_deployment(self, deployment_id: str, reason: str) -> LiveDeployment:
+        from investorch.portfolio.live_storage import transition_live_deployment
+
+        return await asyncio.to_thread(
+            transition_live_deployment,
+            self._config.portfolio_db,
+            deployment_id,
+            LiveDeploymentStatus.FAILED,
+            failure_reason=reason,
+        )
