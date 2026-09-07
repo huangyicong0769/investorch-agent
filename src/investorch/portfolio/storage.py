@@ -596,3 +596,15 @@ def _require_no_active_live_deployment(connection: sqlite3.Connection, portfolio
         is not None
     ):
         raise PortfolioConflictError("Portfolio economic mutation is blocked by ACTIVE live deployment")
+
+
+def get_portfolio_mutation_states(
+    db_path: str | Path, portfolio_ids: Iterable[str]
+) -> dict[str, PortfolioStateWithAttribution]:
+    """Check every owner before returning locations for an ordinary mutation."""
+    identifiers = tuple(portfolio_ids)
+    with closing(_connect(db_path)) as connection:
+        connection.execute("BEGIN")
+        for identifier in identifiers:
+            _require_no_active_live_deployment(connection, identifier)
+        return {identifier: _get_portfolio_state_with_attribution(connection, identifier) for identifier in identifiers}
