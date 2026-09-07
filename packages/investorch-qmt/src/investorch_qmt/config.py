@@ -33,6 +33,14 @@ class AppPaths:
     config: Path
     log: Path
 
+    @property
+    def runtime_db(self) -> Path:
+        return self.root / "runtime.db"
+
+    @property
+    def deployments(self) -> Path:
+        return self.root / "deployments"
+
 
 @dataclass(frozen=True)
 class ServerConfig:
