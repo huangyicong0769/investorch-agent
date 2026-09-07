@@ -1,10 +1,13 @@
+import json
 import math
 from datetime import date
 from pathlib import Path
+from typing import Any
 
 from rqalpha import run_file
 
 from investorch.config import AppConfig
+from investorch.strategy_source import copy_strategy_parameters
 
 from .bundle import validate_rqalpha_bundle
 
@@ -60,8 +63,12 @@ def _build_rqalpha_config(
     initial_cash: float,
     benchmark: str | None,
     use_cnequity: bool,
+    strategy_parameters: dict[str, Any],
 ) -> dict:
     return {
+        # JSON is decoded after RQAlpha wraps engine config in RqAttrDict,
+        # preserving nested strategy objects as ordinary dictionaries.
+        "extra": {"context_vars": json.dumps({"investorch_parameters": strategy_parameters}, allow_nan=False)},
         "base": {
             "data_bundle_path": str(rqalpha_bundle_path),
             "start_date": start_date,
@@ -120,7 +127,9 @@ def run_backtest(
     end_date: date,
     initial_cash: float,
     benchmark: str | None,
+    strategy_parameters: dict[str, Any] | None = None,
 ) -> dict:
+    parameters = copy_strategy_parameters(strategy_parameters)
     strategy_file = _validate_input(strategy_file, start_date, end_date, initial_cash)
     use_cnequity = config["backtest.use_cnequity"]
     cnequity_config_path = config.cnequity_config_path
@@ -139,5 +148,6 @@ def run_backtest(
             initial_cash,
             benchmark,
             use_cnequity,
+            parameters,
         ),
     )

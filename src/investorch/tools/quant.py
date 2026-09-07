@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import math
 import uuid
@@ -22,6 +21,7 @@ from investorch.backtest import (
 )
 from investorch.config import AppConfig
 from investorch.context import AgentContext
+from investorch.strategy_source import copy_strategy_parameters, load_strategy_source
 
 _TABULAR_RESULTS = (
     "portfolio",
@@ -61,7 +61,7 @@ def _inspect_rqalpha_data(
     return inspect_rqalpha_bundle(config.rqalpha_bundle_dir, symbols)
 
 
-@tool(needs_approval=True)
+@tool(needs_approval=True, strict_mode=False)
 def run_backtest(
     context: RunContextWrapper[AgentContext],
     strategy_path: str,
@@ -69,6 +69,7 @@ def run_backtest(
     end_date: str,
     initial_cash: float | None = None,
     benchmark: str | None = None,
+    strategy_parameters: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """
     Run a Workspace RQAlpha Python strategy after user approval.
@@ -86,6 +87,8 @@ def run_backtest(
 
         benchmark: Optional canonical RQAlpha benchmark order-book ID.
 
+        strategy_parameters: Optional JSON strategy configuration available as context.investorch_parameters; defaults to {}.
+
     Returns:
         A compact dictionary containing engine metadata, scalar summary, and Workspace-relative artifact paths.
     """
@@ -96,6 +99,7 @@ def run_backtest(
         end_date=end_date,
         initial_cash=initial_cash,
         benchmark=benchmark,
+        strategy_parameters=strategy_parameters,
     )
 
 
@@ -106,25 +110,29 @@ def _run_backtest(
     end_date: str,
     initial_cash: float | None = None,
     benchmark: str | None = None,
+    strategy_parameters: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     config = config.snapshot()
     workspace = config.workspace_dir
-    strategy_file, relative_strategy = _resolve_strategy_path(workspace, strategy_path)
+    strategy = load_strategy_source(workspace, strategy_path)
+    relative_strategy = strategy.relative_path
+    parameters = copy_strategy_parameters(strategy_parameters)
     start = _parse_date(start_date, "start_date")
     end = _parse_date(end_date, "end_date")
     cash = _validate_initial_cash(config["backtest.default_initial_cash"] if initial_cash is None else initial_cash)
     if benchmark is not None and not benchmark.strip():
         raise ValueError("benchmark must be a canonical RQAlpha order-book ID or null")
 
-    source = strategy_file.read_bytes()
-    strategy_sha256 = hashlib.sha256(source).hexdigest()
+    source = strategy.source
+    strategy_sha256 = strategy.sha256
     raw_result = run_rqalpha_backtest(
         config=config,
-        strategy_file=strategy_file,
+        strategy_file=strategy.path,
         start_date=start,
         end_date=end,
         initial_cash=cash,
         benchmark=benchmark,
+        strategy_parameters=parameters,
     )
 
     analyser = raw_result.get("sys_analyser")
@@ -152,6 +160,7 @@ def _run_backtest(
         "data_source": ("cnequity_overlay" if config["backtest.use_cnequity"] else "rqalpha_bundle"),
         "strategy_path": relative_strategy,
         "strategy_sha256": strategy_sha256,
+        "strategy_parameters": parameters,
         "start_date": start.isoformat(),
         "end_date": end.isoformat(),
         "initial_cash": cash,
@@ -243,28 +252,6 @@ def _write_json(path: Path, value: Any) -> None:
         json.dumps(value, ensure_ascii=False, allow_nan=False, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
-
-
-def _resolve_strategy_path(workspace: Path, strategy_path: str) -> tuple[Path, str]:
-    if not strategy_path.strip():
-        raise ValueError("strategy_path cannot be empty")
-
-    relative = Path(strategy_path)
-    if relative.is_absolute():
-        raise ValueError("strategy_path must be relative to the Workspace")
-
-    root = workspace.expanduser().resolve()
-    resolved = (root / relative).resolve()
-    if not resolved.is_relative_to(root):
-        raise ValueError("strategy_path must remain inside the Workspace")
-    if not resolved.exists():
-        raise FileNotFoundError(f"strategy file not found: {strategy_path}")
-    if not resolved.is_file():
-        raise ValueError(f"strategy_path is not a regular file: {strategy_path}")
-    if resolved.suffix != ".py":
-        raise ValueError("strategy_path must reference a .py file")
-
-    return resolved, resolved.relative_to(root).as_posix()
 
 
 def _parse_date(value: str, name: str) -> date:

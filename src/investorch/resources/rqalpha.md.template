@@ -17,6 +17,18 @@
 
 Daily frequency and the stock account are capability contracts. T+1, matching, price/volume/inactive limits, slippage, commission, dividend handling, and tax are application policy. Use `get_config` when the effective backtest execution policy matters. These settings belong to the runner; a strategy should contain trading logic, not runtime configuration.
 
+## Strategy parameters
+
+`StrategyBinding.parameters` is external JSON-compatible strategy configuration. Read it through
+`context.investorch_parameters`, which always exists and defaults to `{}`. It is not callback arguments,
+Python keyword arguments, broker configuration, or engine configuration. Do not read InvestOrch config
+files from strategy code. Pass the desired parameters explicitly to `run_backtest(strategy_parameters=...)`;
+the run records their exact snapshot in `request.json`.
+
+Backtest and the live foundation use the same `context.investorch_parameters` namespace; keep one strategy
+source for both. The B1 foundation does not make MiniQMT live execution available. Existing InvestOrch
+position cost basis is not guaranteed to reconstruct RQAlpha `Position.avg_price` on a cold start.
+
 ## Market-data ownership
 
 The process configuration snapshot selects one of two backtest data paths.
@@ -108,30 +120,35 @@ def handle_bar(context, bar_dict):
         order_target_percent(context.stock, 1.0)
 ```
 
-### 2. Moving-average crossover
+### 2. Configurable moving-average crossover
 
 ```python
 from rqalpha.api import get_position, history_bars, order_target_percent, update_universe
 
 
 def init(context):
-    context.stock = "002808.XSHE"
+    params = context.investorch_parameters
+    context.stock = params.get("stock", "002808.XSHE")
+    context.short_window = int(params.get("short_window", 20))
+    context.long_window = int(params.get("long_window", 60))
+    if not 0 < context.short_window < context.long_window:
+        raise ValueError("Require 0 < short_window < long_window")
     update_universe([context.stock])
 
 
 def handle_bar(context, bar_dict):
     closes = history_bars(
         context.stock,
-        60,
+        context.long_window,
         "1d",
         "close",
         include_now=False,
         adjust_type="pre",
     )
-    if len(closes) < 60:
+    if len(closes) < context.long_window:
         return
     position = get_position(context.stock)
-    bullish = closes[-20:].mean() > closes.mean()
+    bullish = closes[-context.short_window:].mean() > closes.mean()
     if bullish and position.quantity == 0:
         order_target_percent(context.stock, 1.0)
     elif not bullish and position.quantity > 0:
