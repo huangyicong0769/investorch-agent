@@ -39,6 +39,7 @@ from investorch.portfolio import (
     list_portfolios,
     update_portfolio_metadata,
 )
+from investorch.portfolio.allocation import assign_unallocated_assets
 from investorch.portfolio.domain import LedgerPayload
 
 logger = logging.getLogger(__name__)
@@ -195,6 +196,18 @@ class PortfolioOperations:
             await asyncio.to_thread(update_portfolio_metadata, self._config.portfolio_db, restored)
         logger.info("Restored Portfolio %s", portfolio_id)
         return restored
+
+    async def assign_unallocated_assets(
+        self,
+        portfolio_id: str,
+        broker_account_id: str,
+    ) -> PortfolioMutationResult:
+        """Attribute existing unallocated assets without changing aggregate economics."""
+        async with self._mutation_lock:
+            operation_id, entries, state = await asyncio.to_thread(
+                assign_unallocated_assets, self._config.portfolio_db, portfolio_id, broker_account_id
+            )
+        return PortfolioMutationResult(operation_id, entries, {portfolio_id: state})
 
     async def initialize(
         self,
