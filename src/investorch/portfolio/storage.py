@@ -104,6 +104,8 @@ def update_portfolio_metadata(db_path: str | Path, portfolio: Portfolio) -> None
                 raise PortfolioConflictError("base_currency cannot be changed by metadata update")
             if existing.created_at != portfolio.created_at:
                 raise PortfolioConflictError("created_at cannot be changed by metadata update")
+            if existing.status is PortfolioStatus.ACTIVE and portfolio.status is PortfolioStatus.ARCHIVED:
+                _require_no_active_live_deployment(connection, portfolio.id)
 
             connection.execute(
                 """
