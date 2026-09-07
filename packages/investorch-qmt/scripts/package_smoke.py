@@ -28,11 +28,18 @@ def main() -> None:
     assert not (Path.cwd() / "src").exists()
 
     requirements = [requirement.lower() for requirement in package.requires or []]
+    assert "rqalpha==6.3.0" in requirements
+    assert distribution("rqalpha").version == "6.3.0"
+    from rqalpha.portfolio import Portfolio
+
+    from investorch_qmt.rqalpha_live.mod import InvestOrchLiveMod
+
+    assert callable(Portfolio)
+    assert not InvestOrchLiveMod().state.can_submit_new_order
     for prohibited in (
         "cnequity",
         "investorch",
         "openai-agents",
-        "rqalpha",
         "textual",
         "xtquant",
         "xtquant-big-convert",
