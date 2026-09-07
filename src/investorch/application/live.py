@@ -5,11 +5,19 @@ import json
 import shutil
 import uuid
 from datetime import UTC, datetime
+from decimal import Decimal
 from pathlib import Path
 
 from investorch.config import AppConfig
 from investorch.live.domain import LiveDeployment, LiveDeploymentStatus, LiveExecutionError
-from investorch.portfolio.live_storage import create_live_deployment, get_live_deployment, list_live_deployments
+from investorch.portfolio.domain import InstrumentId, LedgerEntry, Trade, TradeSide
+from investorch.portfolio.live_ingestion import append_live_trade_idempotently
+from investorch.portfolio.live_storage import (
+    create_live_deployment,
+    get_live_deployment,
+    list_live_deployments,
+    transition_live_deployment,
+)
 from investorch.portfolio.storage import get_portfolio
 from investorch.strategy_source import copy_strategy_parameters, load_strategy_source
 
@@ -80,22 +88,16 @@ class LiveExecutionOperations:
         return await asyncio.to_thread(list_live_deployments, self._config.portfolio_db, portfolio_id)
 
     async def activate_deployment(self, deployment_id: str) -> LiveDeployment:
-        from investorch.portfolio.live_storage import transition_live_deployment
-
         return await asyncio.to_thread(
             transition_live_deployment, self._config.portfolio_db, deployment_id, LiveDeploymentStatus.ACTIVE
         )
 
     async def stop_deployment(self, deployment_id: str) -> LiveDeployment:
-        from investorch.portfolio.live_storage import transition_live_deployment
-
         return await asyncio.to_thread(
             transition_live_deployment, self._config.portfolio_db, deployment_id, LiveDeploymentStatus.STOPPED
         )
 
     async def fail_deployment(self, deployment_id: str, reason: str) -> LiveDeployment:
-        from investorch.portfolio.live_storage import transition_live_deployment
-
         return await asyncio.to_thread(
             transition_live_deployment,
             self._config.portfolio_db,
@@ -103,3 +105,32 @@ class LiveExecutionOperations:
             LiveDeploymentStatus.FAILED,
             failure_reason=reason,
         )
+
+    async def ingest_live_trade(
+        self,
+        deployment_id: str,
+        *,
+        broker_trade_id: str,
+        instrument: InstrumentId,
+        side: TradeSide,
+        quantity: Decimal,
+        price: Decimal,
+        effective_at: datetime,
+        commission: Decimal = Decimal(0),
+        tax: Decimal = Decimal(0),
+        other_fee: Decimal = Decimal(0),
+    ) -> LedgerEntry:
+        trade = Trade(instrument, side, quantity, price, commission, tax, other_fee)
+        return await asyncio.to_thread(
+            append_live_trade_idempotently,
+            self._config.portfolio_db,
+            deployment_id,
+            broker_trade_id,
+            trade,
+            effective_at,
+        )
+
+    async def build_bootstrap_snapshot(self, deployment_id: str):
+        from investorch.portfolio.bootstrap import build_bootstrap_snapshot
+
+        return await asyncio.to_thread(build_bootstrap_snapshot, self._config.portfolio_db, deployment_id)

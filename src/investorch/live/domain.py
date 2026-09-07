@@ -39,3 +39,7 @@ class LiveDeployment:
     @property
     def strategy_parameters(self) -> dict:
         return json.loads(self.strategy_parameters_json)
+
+
+class LiveTradeIdempotencyConflict(LiveExecutionError):
+    """A stable broker trade identity was reused for another economic fact."""

@@ -141,6 +141,8 @@ def append_ledger_operation(
     if len({entry.operation_id for entry in proposed}) != 1:
         raise PortfolioConflictError("Ledger operation entries must share one operation_id")
 
+    if any(entry.source == "live_execution" for entry in proposed):
+        raise PortfolioConflictError("live_execution source requires dedicated live trade ingestion")
     portfolio_ids = sorted({entry.portfolio_id for entry in proposed})
     with closing(_connect(db_path)) as connection:
         connection.execute("BEGIN IMMEDIATE")
