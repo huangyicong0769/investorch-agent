@@ -31,6 +31,7 @@ RESTART_REQUIRED_KEYS = {
     "mcp.include_server_in_tool_names",
     "observability.sdk_tracing_enabled",
     "paths.state",
+    "qmt.mcp_server",
     "paths.workspace",
     "tui.activity_detail_max_height",
     "tui.activity_panel_max_height",
@@ -633,6 +634,10 @@ def _validate_config_data(data: dict[str, Any], root: Path) -> None:
     _require_bool(data, "backtest.volume_limit")
     _require_bool(data, "backtest.inactive_limit")
     _require_bool(data, "backtest.pit_tax")
+    qmt_server = _config_value(data, ["qmt", "mcp_server"], "qmt.mcp_server")
+    if not isinstance(qmt_server, str) or qmt_server != qmt_server.strip():
+        raise ConfigError("qmt.mcp_server must be a trimmed string (empty means unconfigured)")
+
     _require_bool(data, "mcp.drop_failed_servers")
     _require_bool(data, "mcp.include_server_in_tool_names")
     _require_bool(data, "cnequity.mcp_cache_tools_list")

@@ -148,6 +148,9 @@ default_timeout_seconds = 5.0
 drop_failed_servers = true
 include_server_in_tool_names = true
 
+[qmt]
+mcp_server = ""
+
 [cnequity]
 config_path = "configs/cnequity.toml"
 mcp_cache_tools_list = true

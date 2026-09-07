@@ -131,7 +131,7 @@ def remove_mcp_server_config(path: str | Path, name: str) -> bool:
     return True
 
 
-def _expand_variables(value: Any, variables: Mapping[str, str]) -> Any:
+def expand_mcp_variables(value: Any, variables: Mapping[str, str]) -> Any:
     if isinstance(value, str):
 
         def replace(match: re.Match[str]) -> str:
@@ -145,10 +145,10 @@ def _expand_variables(value: Any, variables: Mapping[str, str]) -> Any:
         return _VARIABLE_PATTERN.sub(replace, value)
 
     if isinstance(value, list):
-        return [_expand_variables(item, variables) for item in value]
+        return [expand_mcp_variables(item, variables) for item in value]
 
     if isinstance(value, dict):
-        return {key: _expand_variables(item, variables) for key, item in value.items()}
+        return {key: expand_mcp_variables(item, variables) for key, item in value.items()}
 
     return value
 
@@ -164,7 +164,7 @@ def load_mcp_servers(
         if not raw_server.get("enabled", True):
             continue
 
-        server = _expand_variables(raw_server, variables or {})
+        server = expand_mcp_variables(raw_server, variables or {})
 
         transport = server["transport"]
 
