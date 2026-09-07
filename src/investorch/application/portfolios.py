@@ -91,6 +91,7 @@ class _EntryDraft:
     entry_type: LedgerEntryType
     effective_at: datetime
     payload: LedgerPayload
+    broker_account_id: str | None = None
 
 
 class _Unset:
@@ -418,6 +419,7 @@ class PortfolioOperations:
                     entry_type=LedgerEntryType.VOID,
                     effective_at=target.effective_at,
                     payload=Void(target_entry_id, reason),
+                    broker_account_id=target.broker_account_id,
                 ),
                 _EntryDraft(
                     entry_id=uuid.uuid4().hex,
@@ -425,6 +427,7 @@ class PortfolioOperations:
                     entry_type=replacement_type,
                     effective_at=replacement_effective_at,
                     payload=replacement_payload,
+                    broker_account_id=target.broker_account_id,
                 ),
             )
 
@@ -696,6 +699,7 @@ def _assign_sequences(
                 source=source,
                 external_ref=external_ref,
                 payload=draft.payload,
+                broker_account_id=draft.broker_account_id,
             )
         )
         next_sequences[draft.portfolio_id] += 1

@@ -171,3 +171,35 @@ async def test_manual_source_cannot_impersonate_live_ingestion_but_refs_remain_n
     await portfolios.record_cash_flow(p.id, amount=Decimal(10), source="manual", external_ref="id")
     await portfolios.record_cash_flow(p.id, amount=Decimal(10), source="manual", external_ref="id")
     assert (await portfolios.get_state(p.id)).cash == {"CNY": Decimal(20)}
+
+
+async def test_stopped_live_trade_can_be_corrected_at_its_original_account(tmp_path):
+    from investorch.portfolio.domain import Trade
+    from investorch.portfolio.storage import get_broker_account_portfolio_state
+
+    config, portfolios, p, live = await setup_live(tmp_path)
+    deployment = await live.prepare_deployment(p.id, "account")
+    await live.activate_deployment(deployment.deployment_id)
+    stock = InstrumentId("600519", "XSHG")
+    first = await live.ingest_live_trade(
+        deployment.deployment_id,
+        broker_trade_id="correctable",
+        instrument=stock,
+        side=TradeSide.BUY,
+        quantity=Decimal(10),
+        price=Decimal(10),
+        effective_at=datetime.now(UTC),
+    )
+    await live.stop_deployment(deployment.deployment_id)
+    corrected = await portfolios.correct_entry(
+        p.id,
+        target_entry_id=first.entry_id,
+        replacement_payload=Trade(stock, TradeSide.BUY, Decimal(10), Decimal(12)),
+        reason="price correction",
+        source="manual",
+    )
+    assert all(entry.broker_account_id == "account" for entry in corrected.entries)
+    state = get_broker_account_portfolio_state(config.portfolio_db, p.id, "account")
+    assert state.cash == {"CNY": Decimal(-120)}
+    assert state.holdings[stock].total_cost == Decimal(120)
+    assert (await portfolios.list_ledger(p.id))[0] == first
