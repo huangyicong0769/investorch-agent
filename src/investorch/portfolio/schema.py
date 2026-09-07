@@ -4,7 +4,7 @@ import sqlite3
 from contextlib import closing
 from pathlib import Path
 
-LATEST_SCHEMA_VERSION = 2
+LATEST_SCHEMA_VERSION = 3
 
 
 class PortfolioStorageError(Exception):
@@ -145,7 +145,7 @@ def _create_v1_schema(connection: sqlite3.Connection) -> None:
         raise
 
 
-def _migrate_to_latest(connection: sqlite3.Connection, from_version: int) -> None:
+def _migrate_v1_to_v2(connection: sqlite3.Connection, from_version: int) -> None:
     if from_version != 1:
         raise UnsupportedPortfolioSchemaError(
             f"Portfolio schema version {from_version} has no supported migration to version {LATEST_SCHEMA_VERSION}"
@@ -207,6 +207,39 @@ def _migrate_to_latest(connection: sqlite3.Connection, from_version: int) -> Non
                 SELECT portfolio_id, NULL, currency, amount FROM portfolio_cash;
         """)
         connection.execute("PRAGMA user_version = 2")
+        connection.commit()
+    except BaseException:
+        connection.rollback()
+        raise
+
+
+def _migrate_to_latest(connection: sqlite3.Connection, from_version: int) -> None:
+    if from_version == 1:
+        _migrate_v1_to_v2(connection, from_version)
+        from_version = 2
+    if from_version != 2:
+        raise UnsupportedPortfolioSchemaError(f"No migration from Portfolio schema {from_version}")
+    try:
+        connection.executescript("""
+            BEGIN IMMEDIATE;
+            CREATE TABLE live_deployments (
+                deployment_id TEXT PRIMARY KEY,
+                portfolio_id TEXT NOT NULL REFERENCES portfolios(portfolio_id),
+                broker_account_id TEXT NOT NULL REFERENCES broker_accounts(broker_account_id),
+                strategy_source_path TEXT NOT NULL,
+                strategy_sha256 TEXT NOT NULL,
+                strategy_parameters_json TEXT NOT NULL,
+                strategy_artifact_relpath TEXT NOT NULL,
+                rqalpha_version TEXT NOT NULL,
+                status TEXT NOT NULL CHECK (status IN ('PREPARED','ACTIVE','STOPPED','FAILED')),
+                bootstrap_ledger_sequence INTEGER,
+                created_at TEXT NOT NULL,
+                started_at TEXT,
+                ended_at TEXT,
+                failure_reason TEXT
+            );
+        """)
+        connection.execute("PRAGMA user_version = 3")
         connection.commit()
     except BaseException:
         connection.rollback()
