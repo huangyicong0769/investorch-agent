@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from investorch.config import load_config
+from investorch.portfolio.live_storage import list_live_deployments
 from investorch.tools.quant import run_backtest
 from tests.behavior.test_portfolio_agent_tools import make_tool_context
 
@@ -50,6 +51,7 @@ async def test_real_backtest_parameters_are_visible_and_canonical_portfolio_is_u
     assert request["strategy_parameters"] == (parameters or {})
     assert await operations.get_state(portfolio.id) == before_state
     assert await operations.list_ledger(portfolio.id) == before_ledger
+    assert list_live_deployments(context.context.config.portfolio_db) == []
 
 
 @pytest.mark.parametrize(
