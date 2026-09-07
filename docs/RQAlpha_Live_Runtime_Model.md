@@ -177,6 +177,6 @@ TRADE is only the first bridge. Dividends, splits, delisting, share transformati
 | 4 | One ACTIVE deployment per Portfolio via partial unique index. |
 | 5 | Broker-account-namespaced live trade identity uniqueness. |
 
-Forward migration retains all legacy attribution as NULL and preserves aggregate projection data. It does not guess a QMT account.
+The table records when each feature entered the schema; it is not a sequence of committed upgrade steps. Fresh databases are created directly with canonical v5 tables and indexes. Each supported existing version (1, 2, 3, or 4) upgrades directly to v5 in one `BEGIN IMMEDIATE` transaction. A failure in any late DDL step rolls back the entire upgrade, including its schema version and projection copies. Migration retains all legacy attribution as NULL and preserves aggregate projection data. It does not guess a QMT account.
 
 B2 adds remote transport, artifact verification after transfer, reliable event delivery, and runtime coordination. B3 adds real realtime/event-source support. B4 adds the actual QMT broker, order identities, and callbacks. B5 addresses parity, reconciliation, corporate actions, interruptions, durable uncommitted events, and resume. B1 deliberately leaves `get_status` truthful as QMT `not_connected`.
