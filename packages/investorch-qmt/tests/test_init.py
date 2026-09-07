@@ -57,16 +57,63 @@ def test_init_accepts_existing_directory_but_refuses_existing_config(tmp_path: P
     assert (root / "investorch-qmt.toml").read_bytes() == original
 
 
-def test_failed_atomic_replace_leaves_no_partial_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_failed_atomic_publish_leaves_no_partial_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     paths = default_paths(tmp_path / "QMT")
 
-    def fail_replace(source: str | Path, target: str | Path) -> None:
-        raise OSError("simulated replace failure")
+    def fail_publish(source: str | Path, target: str | Path) -> None:
+        raise OSError("simulated publication failure")
 
-    monkeypatch.setattr("investorch_qmt.config.os.replace", fail_replace)
+    monkeypatch.setattr("investorch_qmt.config.os.link", fail_publish)
 
     with pytest.raises(ConfigError, match="Cannot write configuration"):
         initialize_config(paths)
 
     assert not paths.config.exists()
     assert list(paths.root.glob("*.tmp")) == []
+
+
+def _initialize_concurrently(root, ready, results):
+    # Synchronize completed file writes at the filesystem boundary so all
+    # processes have entered first-time initialization before publication.
+    original_fsync = os.fsync
+
+    def synchronized_fsync(fd):
+        original_fsync(fd)
+        ready.wait(timeout=30)
+
+    os.fsync = synchronized_fsync
+    try:
+        config = initialize_config(default_paths(Path(root)))
+        results.put(("ok", config.auth.token))
+    except ConfigError as exc:
+        results.put(("error", str(exc)))
+
+
+def test_concurrent_initialization_publishes_exactly_one_complete_config(tmp_path: Path) -> None:
+    import multiprocessing
+
+    context = multiprocessing.get_context("spawn")
+    ready = context.Barrier(8)
+    results = context.Queue()
+    root = tmp_path / "QMT"
+    processes = [context.Process(target=_initialize_concurrently, args=(str(root), ready, results)) for _ in range(8)]
+    try:
+        for process in processes:
+            process.start()
+        outcomes = [results.get(timeout=40) for _ in processes]
+        for process in processes:
+            process.join(timeout=10)
+            assert process.exitcode == 0
+    finally:
+        for process in processes:
+            if process.is_alive():
+                process.terminate()
+                process.join(timeout=10)
+        results.close()
+        results.join_thread()
+
+    winners = [value for status, value in outcomes if status == "ok"]
+    assert len(winners) == 1
+    assert all("already initialized" in value for status, value in outcomes if status == "error")
+    assert load_config(default_paths(root).config).auth.token == winners[0]
+    assert list(root.glob("*.tmp")) == []

@@ -148,10 +148,15 @@ def _atomic_write_config(path: Path, content: str, *, refuse_existing: bool) -> 
             temporary.flush()
             os.fsync(temporary.fileno())
 
-        if refuse_existing and path.exists():
-            raise ConfigError(f"InvestOrch QMT is already initialized at {path}")
-        os.replace(temporary_path, path)
-        temporary_path = None
+        if refuse_existing:
+            try:
+                # Publish the complete file atomically without replacing a winner.
+                os.link(temporary_path, path)
+            except FileExistsError as exc:
+                raise ConfigError(f"InvestOrch QMT is already initialized at {path}") from exc
+        else:
+            os.replace(temporary_path, path)
+            temporary_path = None
     except ConfigError:
         raise
     except OSError as exc:
