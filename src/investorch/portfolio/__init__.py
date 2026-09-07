@@ -1,4 +1,6 @@
 from investorch.portfolio.domain import (
+    Broker,
+    BrokerAccount,
     CashAdjustment,
     CashFlow,
     CashTransfer,
@@ -14,8 +16,10 @@ from investorch.portfolio.domain import (
     OpeningCash,
     OpeningPosition,
     Portfolio,
+    PortfolioAccountState,
     PortfolioDomainError,
     PortfolioState,
+    PortfolioStateWithAttribution,
     PortfolioStatus,
     PositionAdjustment,
     PositionTransfer,
@@ -25,7 +29,7 @@ from investorch.portfolio.domain import (
     TransferDirection,
     Void,
 )
-from investorch.portfolio.ledger import project_portfolio
+from investorch.portfolio.ledger import project_portfolio, project_portfolio_with_attribution
 from investorch.portfolio.schema import (
     LATEST_SCHEMA_VERSION,
     PortfolioAlreadyExistsError,
@@ -40,9 +44,17 @@ from investorch.portfolio.schema import (
 )
 from investorch.portfolio.storage import (
     append_ledger_operation,
+    create_broker,
+    create_broker_account,
     create_portfolio,
+    get_broker,
+    get_broker_account,
+    get_broker_account_portfolio_state,
     get_portfolio,
     get_portfolio_state,
+    get_portfolio_state_with_attribution,
+    list_broker_accounts,
+    list_brokers,
     list_ledger_entries,
     list_portfolios,
     rebuild_portfolio_projection,
@@ -51,6 +63,8 @@ from investorch.portfolio.storage import (
 
 __all__ = [
     "LATEST_SCHEMA_VERSION",
+    "Broker",
+    "BrokerAccount",
     "CashAdjustment",
     "CashFlow",
     "CashTransfer",
@@ -66,6 +80,7 @@ __all__ = [
     "OpeningCash",
     "OpeningPosition",
     "Portfolio",
+    "PortfolioAccountState",
     "PortfolioAlreadyExistsError",
     "PortfolioConflictError",
     "PortfolioDataError",
@@ -74,6 +89,7 @@ __all__ = [
     "PortfolioSchemaError",
     "PortfolioSequenceConflictError",
     "PortfolioState",
+    "PortfolioStateWithAttribution",
     "PortfolioStatus",
     "PortfolioStorageError",
     "PositionAdjustment",
@@ -85,13 +101,22 @@ __all__ = [
     "UnsupportedPortfolioSchemaError",
     "Void",
     "append_ledger_operation",
+    "create_broker",
+    "create_broker_account",
     "create_portfolio",
+    "get_broker",
+    "get_broker_account",
+    "get_broker_account_portfolio_state",
     "get_portfolio",
     "get_portfolio_state",
+    "get_portfolio_state_with_attribution",
     "init_portfolio_storage",
+    "list_broker_accounts",
+    "list_brokers",
     "list_ledger_entries",
     "list_portfolios",
     "project_portfolio",
+    "project_portfolio_with_attribution",
     "rebuild_portfolio_projection",
     "update_portfolio_metadata",
 ]

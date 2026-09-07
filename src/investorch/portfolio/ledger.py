@@ -18,7 +18,9 @@ from investorch.portfolio.domain import (
     OpeningCash,
     OpeningPosition,
     Portfolio,
+    PortfolioAccountState,
     PortfolioState,
+    PortfolioStateWithAttribution,
     PositionAdjustment,
     PositionTransfer,
     Trade,
@@ -29,7 +31,18 @@ from investorch.portfolio.domain import (
 
 
 def project_portfolio(portfolio: Portfolio, entries: Iterable[LedgerEntry]) -> PortfolioState:
-    """Rebuild a Portfolio's current Holdings and logical Cash from its Ledger."""
+    """Return aggregate state, preserving legacy unallocated accounting."""
+    return project_portfolio_with_attribution(portfolio, entries).aggregate
+
+
+def project_portfolio_with_attribution(
+    portfolio: Portfolio, entries: Iterable[LedgerEntry]
+) -> PortfolioStateWithAttribution:
+    """Evaluate each execution location once and sum its assets into aggregate state.
+
+    Cost is local to an account: a sale never consumes another account's basis.
+    Unknown cost in any remaining slice makes aggregate cost unknown.
+    """
     ledger = tuple(entries)
     _validate_entry_types(ledger)
     voided_entry_ids = _resolve_voids(ledger)
@@ -43,12 +56,23 @@ def project_portfolio(portfolio: Portfolio, entries: Iterable[LedgerEntry]) -> P
         key=lambda entry: (entry.effective_at, entry.sequence),
     )
 
-    holdings: dict = {}
-    cash: dict[str, Decimal] = {}
+    slices: dict[str | None, tuple[dict, dict[str, Decimal]]] = {}
     for entry in active_entries:
+        holdings, cash = slices.setdefault(entry.broker_account_id, ({}, {}))
         _apply_entry(portfolio, entry, holdings, cash)
 
-    return PortfolioState(portfolio_id=portfolio.id, holdings=dict(holdings), cash=dict(cash))
+    accounts = {
+        account_id: PortfolioAccountState(portfolio.id, account_id, holdings, cash)
+        for account_id, (holdings, cash) in slices.items()
+    }
+    aggregate_holdings: dict = {}
+    aggregate_cash: dict[str, Decimal] = {}
+    for state in accounts.values():
+        for instrument, holding in state.holdings.items():
+            _add_position(aggregate_holdings, instrument, holding.quantity, holding.total_cost)
+        for currency, amount in state.cash.items():
+            _add_cash(aggregate_cash, currency, amount)
+    return PortfolioStateWithAttribution(PortfolioState(portfolio.id, aggregate_holdings, aggregate_cash), accounts)
 
 
 def _validate_entry_types(ledger: tuple[LedgerEntry, ...]) -> None:
@@ -94,6 +118,8 @@ def _resolve_voids(ledger: tuple[LedgerEntry, ...]) -> set[str]:
                 raise InvalidVoidError(f"VOID {entry.entry_id} cannot target another VOID")
             if target.portfolio_id != entry.portfolio_id:
                 raise InvalidVoidError(f"VOID {entry.entry_id} must target an entry in the same Portfolio")
+            if target.broker_account_id != entry.broker_account_id:
+                raise InvalidVoidError(f"VOID {entry.entry_id} must target the same BrokerAccount location")
             if target.entry_id in voided_entry_ids:
                 raise InvalidVoidError(f"entry {target.entry_id} is already voided")
             voided_entry_ids.add(target.entry_id)

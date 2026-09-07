@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 from collections.abc import Iterable
 from contextlib import closing
@@ -8,16 +9,20 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 from investorch.portfolio.domain import (
+    Broker,
+    BrokerAccount,
     HoldingState,
     InstrumentId,
     LedgerEntry,
     LedgerEntryType,
     Portfolio,
+    PortfolioAccountState,
     PortfolioState,
+    PortfolioStateWithAttribution,
     PortfolioStatus,
     StrategyBinding,
 )
-from investorch.portfolio.ledger import project_portfolio
+from investorch.portfolio.ledger import project_portfolio_with_attribution
 from investorch.portfolio.schema import (
     PortfolioAlreadyExistsError,
     PortfolioConflictError,
@@ -141,7 +146,7 @@ def append_ledger_operation(
         connection.execute("BEGIN IMMEDIATE")
         try:
             portfolios: dict[str, Portfolio] = {}
-            projected_states: dict[str, PortfolioState] = {}
+            projected_states: dict[str, PortfolioStateWithAttribution] = {}
             for portfolio_id in portfolio_ids:
                 portfolio = _get_portfolio(connection, portfolio_id)
                 if portfolio is None:
@@ -153,11 +158,11 @@ def append_ledger_operation(
                 existing = _list_ledger_entries(connection, portfolio_id)
                 additions = [entry for entry in proposed if entry.portfolio_id == portfolio_id]
                 _validate_sequence_conflicts(existing, additions)
-                projected_states[portfolio_id] = project_portfolio(portfolio, [*existing, *additions])
+                projected_states[portfolio_id] = project_portfolio_with_attribution(portfolio, [*existing, *additions])
 
             _insert_ledger_entries(connection, proposed)
             for state in projected_states.values():
-                _replace_projection(connection, state)
+                _replace_attributed_projection(connection, state)
             connection.commit()
         except sqlite3.IntegrityError as exc:
             connection.rollback()
@@ -166,7 +171,7 @@ def append_ledger_operation(
             connection.rollback()
             raise
 
-    return projected_states
+    return {portfolio_id: state.aggregate for portfolio_id, state in projected_states.items()}
 
 
 def list_ledger_entries(db_path: str | Path, portfolio_id: str) -> list[LedgerEntry]:
@@ -176,37 +181,42 @@ def list_ledger_entries(db_path: str | Path, portfolio_id: str) -> list[LedgerEn
 
 
 def get_portfolio_state(db_path: str | Path, portfolio_id: str) -> PortfolioState:
-    """Read a Portfolio's materialized Holdings and logical Cash projection."""
+    """Read aggregate Holdings and Cash at one consistent SQLite point."""
     with closing(_connect(db_path)) as connection:
-        if _get_portfolio(connection, portfolio_id) is None:
-            raise PortfolioNotFoundError(f"Portfolio not found: {portfolio_id}")
-        try:
-            holdings = {}
+        connection.execute("BEGIN")
+        return _get_portfolio_state(connection, portfolio_id)
+
+
+def _get_portfolio_state(connection: sqlite3.Connection, portfolio_id: str) -> PortfolioState:
+    if _get_portfolio(connection, portfolio_id) is None:
+        raise PortfolioNotFoundError(f"Portfolio not found: {portfolio_id}")
+    try:
+        holdings = {}
+        for row in connection.execute(
+            """
+            SELECT instrument_code, market, quantity, total_cost
+            FROM portfolio_holdings
+            WHERE portfolio_id = ?
+            ORDER BY instrument_code, market
+            """,
+            (portfolio_id,),
+        ):
+            instrument = InstrumentId(row["instrument_code"], row["market"])
+            holdings[instrument] = HoldingState(
+                instrument,
+                Decimal(row["quantity"]),
+                None if row["total_cost"] is None else Decimal(row["total_cost"]),
+            )
+        cash = {
+            row["currency"]: Decimal(row["amount"])
             for row in connection.execute(
-                """
-                SELECT instrument_code, market, quantity, total_cost
-                FROM portfolio_holdings
-                WHERE portfolio_id = ?
-                ORDER BY instrument_code, market
-                """,
+                "SELECT currency, amount FROM portfolio_cash WHERE portfolio_id = ? ORDER BY currency",
                 (portfolio_id,),
-            ):
-                instrument = InstrumentId(row["instrument_code"], row["market"])
-                holdings[instrument] = HoldingState(
-                    instrument,
-                    Decimal(row["quantity"]),
-                    None if row["total_cost"] is None else Decimal(row["total_cost"]),
-                )
-            cash = {
-                row["currency"]: Decimal(row["amount"])
-                for row in connection.execute(
-                    "SELECT currency, amount FROM portfolio_cash WHERE portfolio_id = ? ORDER BY currency",
-                    (portfolio_id,),
-                )
-            }
-            return PortfolioState(portfolio_id, holdings, cash)
-        except (InvalidOperation, TypeError, ValueError) as exc:
-            raise PortfolioDataError(f"invalid persisted projection for Portfolio {portfolio_id}: {exc}") from exc
+            )
+        }
+        return PortfolioState(portfolio_id, holdings, cash)
+    except (InvalidOperation, TypeError, ValueError) as exc:
+        raise PortfolioDataError(f"invalid persisted projection for Portfolio {portfolio_id}: {exc}") from exc
 
 
 def rebuild_portfolio_projection(db_path: str | Path, portfolio_id: str) -> PortfolioState:
@@ -217,13 +227,13 @@ def rebuild_portfolio_projection(db_path: str | Path, portfolio_id: str) -> Port
             portfolio = _get_portfolio(connection, portfolio_id)
             if portfolio is None:
                 raise PortfolioNotFoundError(f"Portfolio not found: {portfolio_id}")
-            state = project_portfolio(portfolio, _list_ledger_entries(connection, portfolio_id))
-            _replace_projection(connection, state)
+            state = project_portfolio_with_attribution(portfolio, _list_ledger_entries(connection, portfolio_id))
+            _replace_attributed_projection(connection, state)
             connection.commit()
         except BaseException:
             connection.rollback()
             raise
-    return state
+    return state.aggregate
 
 
 def _connect(db_path: str | Path) -> sqlite3.Connection:
@@ -262,6 +272,7 @@ def _row_to_ledger_entry(row: sqlite3.Row) -> LedgerEntry:
             recorded_at=datetime.fromisoformat(row["recorded_at"]),
             source=row["source"],
             external_ref=row["external_ref"],
+            broker_account_id=row["broker_account_id"],
             payload=deserialize_ledger_payload(entry_type, row["payload_json"], entry_id=entry_id),
         )
     except PortfolioDataError as exc:
@@ -279,8 +290,8 @@ def _insert_ledger_entries(connection: sqlite3.Connection, entries: tuple[Ledger
         """
         INSERT INTO portfolio_ledger (
             entry_id, portfolio_id, operation_id, sequence, entry_type,
-            effective_at, recorded_at, source, external_ref, payload_json
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            effective_at, recorded_at, source, external_ref, payload_json, broker_account_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         [
             (
@@ -294,6 +305,7 @@ def _insert_ledger_entries(connection: sqlite3.Connection, entries: tuple[Ledger
                 entry.source,
                 entry.external_ref,
                 serialize_ledger_payload(entry.payload),
+                entry.broker_account_id,
             )
             for entry in entries
         ],
@@ -382,3 +394,191 @@ def _serialize_strategy_binding(binding: StrategyBinding | None) -> tuple[str | 
     if binding is None:
         return None, None
     return binding.source_path, serialize_strategy_parameters(binding.parameters)
+
+
+def create_broker(db_path: str | Path, broker: Broker) -> None:
+    """Register broker identity metadata, without mirroring broker assets."""
+    broker = Broker(
+        broker.broker_id, broker.provider, broker.display_name, broker.created_at, broker.updated_at, broker.metadata
+    )
+    with closing(_connect(db_path)) as connection:
+        try:
+            connection.execute(
+                "INSERT INTO brokers VALUES (?, ?, ?, ?, ?, ?)",
+                (
+                    broker.broker_id,
+                    broker.provider,
+                    broker.display_name,
+                    json.dumps(broker.metadata, allow_nan=False),
+                    broker.created_at.isoformat(),
+                    broker.updated_at.isoformat(),
+                ),
+            )
+        except sqlite3.IntegrityError as exc:
+            raise PortfolioConflictError(f"Broker identity conflict: {broker.broker_id}") from exc
+
+
+def get_broker(db_path: str | Path, broker_id: str) -> Broker | None:
+    with closing(_connect(db_path)) as connection:
+        row = connection.execute("SELECT * FROM brokers WHERE broker_id = ?", (broker_id,)).fetchone()
+        return None if row is None else _row_to_broker(row)
+
+
+def list_brokers(db_path: str | Path) -> list[Broker]:
+    with closing(_connect(db_path)) as connection:
+        return [_row_to_broker(row) for row in connection.execute("SELECT * FROM brokers ORDER BY broker_id")]
+
+
+def _row_to_broker(row: sqlite3.Row) -> Broker:
+    try:
+        return Broker(
+            row["broker_id"],
+            row["provider"],
+            row["display_name"],
+            datetime.fromisoformat(row["created_at"]),
+            datetime.fromisoformat(row["updated_at"]),
+            json.loads(row["metadata_json"]),
+        )
+    except (ValueError, TypeError) as exc:
+        raise PortfolioDataError(f"invalid persisted Broker {row['broker_id']}: {exc}") from exc
+
+
+def create_broker_account(db_path: str | Path, account: BrokerAccount) -> None:
+    """Register a broker-scoped external account identity."""
+    account = BrokerAccount(
+        account.broker_account_id,
+        account.broker_id,
+        account.external_account_id,
+        account.display_name,
+        account.account_type,
+        account.created_at,
+        account.updated_at,
+        account.metadata,
+    )
+    with closing(_connect(db_path)) as connection:
+        try:
+            connection.execute(
+                "INSERT INTO broker_accounts VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    account.broker_account_id,
+                    account.broker_id,
+                    account.external_account_id,
+                    account.display_name,
+                    account.account_type,
+                    json.dumps(account.metadata, allow_nan=False),
+                    account.created_at.isoformat(),
+                    account.updated_at.isoformat(),
+                ),
+            )
+        except sqlite3.IntegrityError as exc:
+            raise PortfolioConflictError(
+                f"BrokerAccount identity conflict or missing Broker: {account.broker_account_id}"
+            ) from exc
+
+
+def get_broker_account(db_path: str | Path, broker_account_id: str) -> BrokerAccount | None:
+    with closing(_connect(db_path)) as connection:
+        row = connection.execute(
+            "SELECT * FROM broker_accounts WHERE broker_account_id = ?", (broker_account_id,)
+        ).fetchone()
+        return None if row is None else _row_to_broker_account(row)
+
+
+def list_broker_accounts(db_path: str | Path, *, broker_id: str | None = None) -> list[BrokerAccount]:
+    query = "SELECT * FROM broker_accounts"
+    parameters = () if broker_id is None else (broker_id,)
+    if broker_id is not None:
+        query += " WHERE broker_id = ?"
+    with closing(_connect(db_path)) as connection:
+        return [
+            _row_to_broker_account(row) for row in connection.execute(query + " ORDER BY broker_account_id", parameters)
+        ]
+
+
+def _row_to_broker_account(row: sqlite3.Row) -> BrokerAccount:
+    try:
+        return BrokerAccount(
+            row["broker_account_id"],
+            row["broker_id"],
+            row["external_account_id"],
+            row["display_name"],
+            row["account_type"],
+            datetime.fromisoformat(row["created_at"]),
+            datetime.fromisoformat(row["updated_at"]),
+            json.loads(row["metadata_json"]),
+        )
+    except (ValueError, TypeError) as exc:
+        raise PortfolioDataError(f"invalid persisted BrokerAccount {row['broker_account_id']}: {exc}") from exc
+
+
+def _replace_attributed_projection(connection: sqlite3.Connection, state: PortfolioStateWithAttribution) -> None:
+    _replace_projection(connection, state.aggregate)
+    portfolio_id = state.aggregate.portfolio_id
+    connection.execute("DELETE FROM portfolio_account_holdings WHERE portfolio_id = ?", (portfolio_id,))
+    connection.execute("DELETE FROM portfolio_account_cash WHERE portfolio_id = ?", (portfolio_id,))
+    for account_id, account in state.accounts.items():
+        connection.executemany(
+            "INSERT INTO portfolio_account_holdings VALUES (?, ?, ?, ?, ?, ?)",
+            [
+                (
+                    portfolio_id,
+                    account_id,
+                    instrument.code,
+                    instrument.market,
+                    str(holding.quantity),
+                    None if holding.total_cost is None else str(holding.total_cost),
+                )
+                for instrument, holding in account.holdings.items()
+            ],
+        )
+        connection.executemany(
+            "INSERT INTO portfolio_account_cash VALUES (?, ?, ?, ?)",
+            [(portfolio_id, account_id, currency, str(amount)) for currency, amount in account.cash.items()],
+        )
+
+
+def get_portfolio_state_with_attribution(db_path: str | Path, portfolio_id: str) -> PortfolioStateWithAttribution:
+    """Read aggregate and every account location in one SQLite read transaction."""
+    with closing(_connect(db_path)) as connection:
+        connection.execute("BEGIN")
+        return _get_portfolio_state_with_attribution(connection, portfolio_id)
+
+
+def _get_portfolio_state_with_attribution(
+    connection: sqlite3.Connection,
+    portfolio_id: str,
+) -> PortfolioStateWithAttribution:
+    aggregate = _get_portfolio_state(connection, portfolio_id)
+    slices: dict[str | None, tuple[dict, dict]] = {}
+    try:
+        for row in connection.execute(
+            "SELECT * FROM portfolio_account_holdings WHERE portfolio_id = ? ORDER BY broker_account_id, instrument_code, market",
+            (portfolio_id,),
+        ):
+            holdings, _ = slices.setdefault(row["broker_account_id"], ({}, {}))
+            instrument = InstrumentId(row["instrument_code"], row["market"])
+            holdings[instrument] = HoldingState(
+                instrument, Decimal(row["quantity"]), None if row["total_cost"] is None else Decimal(row["total_cost"])
+            )
+        for row in connection.execute(
+            "SELECT * FROM portfolio_account_cash WHERE portfolio_id = ? ORDER BY broker_account_id, currency",
+            (portfolio_id,),
+        ):
+            _, cash = slices.setdefault(row["broker_account_id"], ({}, {}))
+            cash[row["currency"]] = Decimal(row["amount"])
+        accounts = {
+            account_id: PortfolioAccountState(portfolio_id, account_id, holdings, cash)
+            for account_id, (holdings, cash) in slices.items()
+        }
+        return PortfolioStateWithAttribution(aggregate, accounts)
+    except (InvalidOperation, ValueError, TypeError) as exc:
+        raise PortfolioDataError(f"invalid persisted account projection for Portfolio {portfolio_id}: {exc}") from exc
+
+
+def get_broker_account_portfolio_state(
+    db_path: str | Path,
+    portfolio_id: str,
+    broker_account_id: str | None,
+) -> PortfolioAccountState:
+    state = get_portfolio_state_with_attribution(db_path, portfolio_id)
+    return state.accounts.get(broker_account_id, PortfolioAccountState(portfolio_id, broker_account_id, {}, {}))

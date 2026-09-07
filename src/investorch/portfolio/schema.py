@@ -4,7 +4,7 @@ import sqlite3
 from contextlib import closing
 from pathlib import Path
 
-LATEST_SCHEMA_VERSION = 1
+LATEST_SCHEMA_VERSION = 2
 
 
 class PortfolioStorageError(Exception):
@@ -54,7 +54,8 @@ def init_portfolio_storage(db_path: str | Path) -> None:
         if version == 0:
             if _has_user_tables(connection):
                 raise PortfolioSchemaError("refusing to initialize an unversioned non-empty database")
-            _create_latest_schema(connection)
+            _create_v1_schema(connection)
+            _migrate_to_latest(connection, 1)
             return
         _migrate_to_latest(connection, version)
 
@@ -66,7 +67,7 @@ def _has_user_tables(connection: sqlite3.Connection) -> bool:
     return row is not None
 
 
-def _create_latest_schema(connection: sqlite3.Connection) -> None:
+def _create_v1_schema(connection: sqlite3.Connection) -> None:
     try:
         connection.executescript(
             """
@@ -137,7 +138,7 @@ def _create_latest_schema(connection: sqlite3.Connection) -> None:
             );
             """
         )
-        connection.execute(f"PRAGMA user_version = {LATEST_SCHEMA_VERSION}")
+        connection.execute("PRAGMA user_version = 1")
         connection.commit()
     except BaseException:
         connection.rollback()
@@ -145,7 +146,68 @@ def _create_latest_schema(connection: sqlite3.Connection) -> None:
 
 
 def _migrate_to_latest(connection: sqlite3.Connection, from_version: int) -> None:
-    del connection
-    raise UnsupportedPortfolioSchemaError(
-        f"Portfolio schema version {from_version} has no supported migration to version {LATEST_SCHEMA_VERSION}"
-    )
+    if from_version != 1:
+        raise UnsupportedPortfolioSchemaError(
+            f"Portfolio schema version {from_version} has no supported migration to version {LATEST_SCHEMA_VERSION}"
+        )
+    try:
+        connection.executescript("""
+            BEGIN IMMEDIATE;
+            CREATE TABLE brokers (
+                broker_id TEXT PRIMARY KEY,
+                provider TEXT NOT NULL,
+                display_name TEXT NOT NULL,
+                metadata_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE TABLE broker_accounts (
+                broker_account_id TEXT PRIMARY KEY,
+                broker_id TEXT NOT NULL REFERENCES brokers(broker_id),
+                external_account_id TEXT NOT NULL,
+                display_name TEXT NOT NULL,
+                account_type TEXT NOT NULL,
+                metadata_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                UNIQUE (broker_id, external_account_id)
+            );
+            ALTER TABLE portfolio_ledger ADD COLUMN broker_account_id TEXT
+                REFERENCES broker_accounts(broker_account_id);
+            CREATE TABLE portfolio_account_holdings (
+                portfolio_id TEXT NOT NULL REFERENCES portfolios(portfolio_id),
+                broker_account_id TEXT REFERENCES broker_accounts(broker_account_id),
+                instrument_code TEXT NOT NULL,
+                market TEXT NOT NULL,
+                quantity TEXT NOT NULL,
+                total_cost TEXT
+            );
+            CREATE UNIQUE INDEX portfolio_account_holdings_allocated
+                ON portfolio_account_holdings(portfolio_id, broker_account_id, instrument_code, market)
+                WHERE broker_account_id IS NOT NULL;
+            CREATE UNIQUE INDEX portfolio_account_holdings_unallocated
+                ON portfolio_account_holdings(portfolio_id, instrument_code, market)
+                WHERE broker_account_id IS NULL;
+            CREATE TABLE portfolio_account_cash (
+                portfolio_id TEXT NOT NULL REFERENCES portfolios(portfolio_id),
+                broker_account_id TEXT REFERENCES broker_accounts(broker_account_id),
+                currency TEXT NOT NULL,
+                amount TEXT NOT NULL
+            );
+            CREATE UNIQUE INDEX portfolio_account_cash_allocated
+                ON portfolio_account_cash(portfolio_id, broker_account_id, currency)
+                WHERE broker_account_id IS NOT NULL;
+            CREATE UNIQUE INDEX portfolio_account_cash_unallocated
+                ON portfolio_account_cash(portfolio_id, currency)
+                WHERE broker_account_id IS NULL;
+            INSERT INTO portfolio_account_holdings
+                SELECT portfolio_id, NULL, instrument_code, market, quantity, total_cost
+                FROM portfolio_holdings;
+            INSERT INTO portfolio_account_cash
+                SELECT portfolio_id, NULL, currency, amount FROM portfolio_cash;
+        """)
+        connection.execute("PRAGMA user_version = 2")
+        connection.commit()
+    except BaseException:
+        connection.rollback()
+        raise
