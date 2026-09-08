@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Iterable
+from contextlib import suppress
 from datetime import date, datetime, time
 from importlib.metadata import version
 from threading import Event, Thread
@@ -24,6 +26,8 @@ class XtDataAdapter:
         self._thread: Thread | None = None
         self._client: Any = None
         self._failure = ""
+        self._original_get_client = None
+        self._subscriptions: set[int] = set()
 
     def daily_bar(self, order_book_id: str, trading_date: date) -> dict[str, Any]:
         symbol = to_xt_symbol(order_book_id)
@@ -74,18 +78,29 @@ class XtDataAdapter:
         except Exception as exc:
             raise MarketDataError("MARKET_DATA_INCOMPLETE", str(exc)) from exc
 
-    def subscribe(self, instruments) -> int:
+    def subscribe(self, instruments: Iterable[str]) -> int:
         symbols = sorted(to_xt_symbol(item) for item in instruments)
         self.check_health()
-        sequence = self._api.subscribe_whole_quote(symbols, callback=self.cache.update)
-        if not isinstance(sequence, int) or isinstance(sequence, bool) or sequence <= 0:
-            raise MarketDataError("MARKET_DATA_NOT_READY", "Subscription failed", transient=True)
-        self.cache.update(self._api.get_full_tick(symbols))
-        return sequence
+        sequence = None
+        try:
+            sequence = self._api.subscribe_whole_quote(symbols, callback=self.cache.update)
+            if not isinstance(sequence, int) or isinstance(sequence, bool) or sequence <= 0:
+                raise ValueError("Subscription failed")
+            self._subscriptions.add(sequence)
+            self.cache.update(self._api.get_full_tick(symbols))
+            return sequence
+        except Exception as exc:
+            if sequence in self._subscriptions:
+                with suppress(Exception):
+                    self.unsubscribe(sequence)
+            if isinstance(exc, MarketDataError):
+                raise
+            raise MarketDataError("MARKET_DATA_NOT_READY", str(exc), transient=True) from exc
 
     def unsubscribe(self, sequence: int) -> None:
         self.check_health()
         self._api.unsubscribe_quote(sequence)
+        self._subscriptions.discard(sequence)
 
     def instrument_detail(self, instrument: str) -> dict:
         self.check_health()
@@ -127,14 +142,23 @@ class XtDataAdapter:
                 "get_instrument_detail",
                 "get_trading_period",
                 "disconnect",
+                "get_client",
             ):
                 if not callable(getattr(self._api, name, None)):
                     raise ValueError(f"Missing xtdata API: {name}")
             self._client = self._api.connect()
             if self._client is None or not self._client.is_connected():
                 raise ValueError("xtdata connection unavailable")
+            # The pinned SDK reconnects in get_client(). A worker must retain the
+            # original connection for its entire lifetime, including API-call races.
+            self._original_get_client = self._api.get_client
+            self._api.get_client = self._connected_client
         except Exception as exc:
             raise MarketDataError("MARKET_DATA_NOT_READY", str(exc), transient=True) from exc
+
+    def _connected_client(self):
+        self.check_health()
+        return self._client
 
     def start_liveness(self) -> None:
         if self._thread is not None:
@@ -162,9 +186,22 @@ class XtDataAdapter:
             raise MarketDataError("MARKET_DATA_DISCONNECTED", "Adapter is closed")
 
     def close(self) -> None:
+        if self._closed.is_set():
+            return
+        for sequence in tuple(self._subscriptions):
+            with suppress(Exception):
+                self.unsubscribe(sequence)
         self._closed.set()
-        if self._client is not None:
-            self._api.disconnect()
+        try:
+            if self._client is not None:
+                self._api.disconnect()
+        finally:
+            if self._thread is not None:
+                self._thread.join(timeout=4)
+            # Never restore reconnecting access while run() could still enter it.
+            if self._original_get_client is not None and (self._thread is None or not self._thread.is_alive()):
+                self._api.get_client = self._original_get_client
+                self._original_get_client = None
 
     def trading_periods(self, instrument: str) -> tuple[tuple[time, time], ...]:
         self.check_health()
