@@ -54,12 +54,12 @@ class LiveDeploymentCoordinator:
         if self._client is None:
             raise QMTError("QMT execution node is not configured")
         node = await self._client.get_node_status()
+        self._node = node
+        self._available = True
         if self._session_id is None:
             session = await self._client.open_control_session()
             self._session_id = session["session_id"]
             self._lease_seconds = session["lease_timeout_seconds"]
-        self._node = node
-        self._available = True
         return node
 
     async def deploy_live_strategy(self, portfolio_id: str, broker_account_id: str) -> dict:
@@ -78,7 +78,7 @@ class LiveDeploymentCoordinator:
                     await self._connect()
                 except QMTError as exc:
                     await self._live.fail_deployment(prepared.deployment_id, str(exc))
-                    self._unavailable()
+                    self._record_error(exc, [prepared])
                     return {"status": "failed", "reason": str(exc), "retry_safe": True}
                 active = await self._live.activate_deployment(prepared.deployment_id)
                 try:
@@ -168,8 +168,8 @@ class LiveDeploymentCoordinator:
         finally:
             temporary.unlink(missing_ok=True)
 
-    def _unavailable(self) -> None:
-        self._available = False
+    def _unavailable(self, *, reachable: bool = False) -> None:
+        self._available = reachable
         self._session_id = None
         for portfolio_id in self._sync:
             self._sync[portfolio_id] = "UNKNOWN"
@@ -181,7 +181,7 @@ class LiveDeploymentCoordinator:
             in {"DEPLOYMENT_CONFLICT", "PORTFOLIO_DEPLOYMENT_CONFLICT", "SEQUENCE_CONFLICT", "FACT_ACK_CONFLICT"}
         )
         if not desynced:
-            self._unavailable()
+            self._unavailable(reachable=isinstance(exc, QMTRejectedError) and exc.code == "CONTROL_SESSION_BUSY")
         for deployment in active:
             self._sync[deployment.portfolio_id] = "DESYNCED" if desynced else "UNKNOWN"
             self._reasons[deployment.portfolio_id] = str(exc)
@@ -411,6 +411,7 @@ class LiveDeploymentCoordinator:
             },
             "node": {
                 "availability": "AVAILABLE" if self._available else "UNAVAILABLE",
+                "control_authority": "AVAILABLE" if self._session_id is not None else "UNAVAILABLE",
                 "remote_status": remote["status"] if remote and self._available else None,
                 "acked_core_sequence": remote["acked_core_sequence"] if remote and self._available else None,
                 "pending_fact_count": remote["pending_fact_count"] if remote and self._available else None,

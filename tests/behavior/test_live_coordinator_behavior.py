@@ -566,3 +566,62 @@ async def test_unconfigured_host_deploy_tool_creates_no_deployment_or_artifacts(
         assert await live.list_deployments() == before == []
         assert list((config.state_dir / "live").rglob("*")) == artifacts_before == []
         await host.portfolios.record_cash_flow(portfolio.id, amount=Decimal(1), source="manual")
+
+
+async def test_busy_lease_keeps_existing_owner_and_reports_reachable_without_authority(tmp_path):
+    config, _portfolios, p, live = await setup_live(tmp_path)
+    node = WireNode()
+    original = LiveDeploymentCoordinator(config=config, client=client_for(node))
+    result = await original.deploy_live_strategy(p.id, "account")
+    await original.close()
+
+    def busy(request):
+        if request.url.path.endswith("/control-sessions"):
+            return httpx.Response(
+                409,
+                json={
+                    "code": "CONTROL_SESSION_BUSY",
+                    "message": "Another Core currently owns the execution-node control lease.",
+                    "retryable": True,
+                },
+            )
+        return node(request)
+
+    coordinator = LiveDeploymentCoordinator(config=config, client=client_for(busy))
+    try:
+        assert await coordinator.ensure_connected_now() is False
+        status = await coordinator.get_live_status(p.id)
+        assert status["node"]["availability"] == "AVAILABLE"
+        assert status["node"]["control_authority"] == "UNAVAILABLE"
+        assert status["sync"] == "UNKNOWN"
+        assert "Another Core" in status["sync_reason"]
+        assert (await live.get_deployment(result["deployment_id"])).status.value == "ACTIVE"
+    finally:
+        await coordinator.close()
+
+
+async def test_busy_preflight_fails_only_prepared_deployment(tmp_path):
+    config, portfolios, p, live = await setup_live(tmp_path)
+    node = WireNode()
+
+    def busy(request):
+        if request.url.path.endswith("/control-sessions"):
+            return httpx.Response(
+                409, json={"code": "CONTROL_SESSION_BUSY", "message": "Another Core owns the lease", "retryable": True}
+            )
+        return node(request)
+
+    coordinator = LiveDeploymentCoordinator(config=config, client=client_for(busy))
+    try:
+        result = await coordinator.deploy_live_strategy(p.id, "account")
+        assert result["status"] == "failed"
+        assert result["retry_safe"] is True
+        assert [d.status.value for d in await live.list_deployments(p.id)] == ["FAILED"]
+        assert node.stage_bodies == []
+        status = await coordinator.get_live_status(p.id)
+        assert status["node"]["availability"] == "AVAILABLE"
+        assert status["node"]["control_authority"] == "UNAVAILABLE"
+        assert status["sync"] == "UNKNOWN"
+        await portfolios.record_cash_flow(p.id, amount=Decimal(1), source="manual")
+    finally:
+        await coordinator.close()
