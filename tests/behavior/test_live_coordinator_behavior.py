@@ -625,3 +625,33 @@ async def test_busy_preflight_fails_only_prepared_deployment(tmp_path):
         await portfolios.record_cash_flow(p.id, amount=Decimal(1), source="manual")
     finally:
         await coordinator.close()
+
+
+async def test_mcp_refresh_failure_does_not_undo_rest_stage_and_idle_start_does_not_refresh(tmp_path):
+    config, _portfolios, p, live = await setup_live(tmp_path)
+    node = WireNode()
+    coordinator = LiveDeploymentCoordinator(config=config, client=client_for(node))
+    authorities = []
+
+    async def refresh():
+        authorities.append(coordinator.control_session_id)
+        raise ConnectionError("MCP is offline")
+
+    coordinator.set_mcp_refresh(refresh)
+    try:
+        await coordinator.start()
+        assert authorities == []
+        assert coordinator.control_session_id is None
+        result = await coordinator.deploy_live_strategy(p.id, "account")
+        assert result["status"] == "staged"
+        assert (await live.get_deployment(result["deployment_id"])).status.value == "ACTIVE"
+        assert authorities == [str(node.session)]
+        assert await coordinator.ensure_connected_now() is True
+        assert authorities == [str(node.session)] * 2
+        node.offline = True
+        await coordinator.get_live_status(p.id)
+        assert authorities[-1] is None
+        assert coordinator.control_session_id is None
+    finally:
+        await coordinator.close()
+    assert coordinator.control_session_id is None

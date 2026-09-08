@@ -8,6 +8,7 @@ import hashlib
 import json
 import logging
 import os
+from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from pathlib import Path
 
@@ -42,6 +43,22 @@ class LiveDeploymentCoordinator:
         self._worker: asyncio.Task | None = None
         self._heartbeat: asyncio.Task | None = None
         self._closed = False
+        self._mcp_refresh: Callable[[], Awaitable[None]] | None = None
+
+    @property
+    def control_session_id(self) -> str | None:
+        """Current transport authority; never part of Agent tool arguments."""
+        return self._session_id
+
+    def set_mcp_refresh(self, refresh: Callable[[], Awaitable[None]] | None) -> None:
+        self._mcp_refresh = refresh
+
+    async def _refresh_mcp(self) -> None:
+        if self._mcp_refresh is not None and not self._closed:
+            try:
+                await self._mcp_refresh()
+            except Exception:
+                logger.warning("QMT MCP controls could not be refreshed", exc_info=True)
 
     async def _active(self) -> list[LiveDeployment]:
         return [d for d in await self._live.list_deployments() if d.status is LiveDeploymentStatus.ACTIVE]
@@ -65,6 +82,12 @@ class LiveDeploymentCoordinator:
     async def deploy_live_strategy(self, portfolio_id: str, broker_account_id: str) -> dict:
         if self._client is None:
             return {"status": "unavailable", "code": "EXECUTION_NODE_NOT_CONFIGURED"}
+        try:
+            return await self._deploy_live_strategy(portfolio_id, broker_account_id)
+        finally:
+            await self._refresh_mcp()
+
+    async def _deploy_live_strategy(self, portfolio_id: str, broker_account_id: str) -> dict:
         async with self._lock:
             active = next((d for d in await self._active() if d.portfolio_id == portfolio_id), None)
             if active is not None:
@@ -306,6 +329,7 @@ class LiveDeploymentCoordinator:
                 await self._release_session()
         if await self._active():
             self._ensure_worker()
+        await self._refresh_mcp()
         return result
 
     async def start(self) -> None:
@@ -325,6 +349,7 @@ class LiveDeploymentCoordinator:
                 if not await self._active():
                     break
                 success = await self._recover_safely()
+            await self._refresh_mcp()
             failures = 0 if success else failures + 1
         async with self._lock:
             if not await self._active():
@@ -360,11 +385,14 @@ class LiveDeploymentCoordinator:
             latest = {d.portfolio_id: d for d in deployments}
             latest.update({d.portfolio_id: d for d in deployments if d.status is LiveDeploymentStatus.ACTIVE})
             if portfolio_id is not None:
-                return await self._status_for(portfolio_id, latest.get(portfolio_id))
-            ids = set(latest)
-            if self._node is not None:
-                ids.update(d["portfolio_id"] for d in self._node["deployments"])
-            return {"portfolios": [await self._status_for(pid, latest.get(pid)) for pid in sorted(ids)]}
+                result = await self._status_for(portfolio_id, latest.get(portfolio_id))
+            else:
+                ids = set(latest)
+                if self._node is not None:
+                    ids.update(d["portfolio_id"] for d in self._node["deployments"])
+                result = {"portfolios": [await self._status_for(pid, latest.get(pid)) for pid in sorted(ids)]}
+        await self._refresh_mcp()
+        return result
 
     async def _status_for(self, portfolio_id: str, deployment: LiveDeployment | None) -> dict:
         portfolio = await asyncio.to_thread(get_portfolio, self._config.portfolio_db, portfolio_id)
