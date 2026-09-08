@@ -97,3 +97,78 @@ async def test_application_only_run_creates_no_user_authorization_evidence(tmp_p
     harness.agent_loop.complete("session-a")
     await harness.wait_for_run_ended("session-a")
     await harness.runtime.aclose()
+
+
+@pytest.mark.asyncio
+async def test_agent_loop_snapshots_mcp_servers_for_each_run(tmp_path: Path, monkeypatch) -> None:
+    from unittest.mock import AsyncMock
+
+    from agents.mcp import MCPServerStreamableHttp
+    from mcp.types import Tool
+
+    config = make_test_config(tmp_path)
+    create_session(config.sessions_db, "session-a")
+    set_session_title(config.sessions_db, "session-a", "Test")
+    server = MCPServerStreamableHttp(params={"url": "http://unused/mcp"}, name="qmt")
+    monkeypatch.setattr(
+        server,
+        "list_tools",
+        AsyncMock(
+            return_value=[
+                Tool(name="get_status", inputSchema={"type": "object", "properties": {}}),
+            ]
+        ),
+    )
+    current_servers = []
+    captured_agents = []
+    from investorch.agents import loop as loop_module
+
+    original_run_streamed = loop_module.Runner.run_streamed
+
+    def capture_run(agent, *args, **kwargs):
+        captured_agents.append(agent)
+        return original_run_streamed(agent, *args, **kwargs)
+
+    monkeypatch.setattr(loop_module.Runner, "run_streamed", capture_run)
+    model = ScriptedModel(((assistant_message("first"),), (assistant_message("second"),)))
+    agent = Agent[AgentContext](name="Main", instructions="test", model=model)
+    unused = Agent(name="Unused", model=ScriptedModel())
+    loop = AgentLoop(
+        agent,
+        unused,
+        unused,
+        config,
+        PortfolioOperations(config=config),
+        mcp_servers_provider=lambda: current_servers,
+    )
+    session = SQLiteSession("session-a", config.sessions_db)
+
+    async def approve(*_args):
+        return ApprovalOutcome(approved=True, usage=TokenUsage())
+
+    async def output(_event):
+        pass
+
+    try:
+        for run_id in ("first", "second"):
+            await loop.run(
+                "status",
+                session,
+                ExecutionState(workspace_root=config.workspace_dir),
+                run_id=run_id,
+                session_id="session-a",
+                reasoning_effort="none",
+                approval_handler=approve,
+                output_handler=output,
+                run_control=RunControl("session-a", run_id, lambda: None),
+            )
+            if run_id == "first":
+                current_servers.append(server)
+    finally:
+        session.close()
+
+    assert captured_agents[0].mcp_servers == []
+    assert captured_agents[1].mcp_servers == [server]
+    assert agent.mcp_servers == []
+    assert [tool.name for tool in model.calls[0].tools] == []
+    assert [tool.name for tool in model.calls[1].tools] == ["get_status"]

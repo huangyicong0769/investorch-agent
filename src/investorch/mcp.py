@@ -1,15 +1,76 @@
 import os
 import re
 import tomllib
-from collections.abc import Mapping
+from collections.abc import AsyncIterator, Callable, Generator, Mapping
+from contextlib import AsyncExitStack, asynccontextmanager
 from copy import deepcopy
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import httpx2
 import tomlkit
-from agents.mcp import MCPServer, MCPServerStreamableHttp
+from agents.mcp import MCPServer, MCPServerManager, MCPServerStreamableHttp
 
 _VARIABLE_PATTERN = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
+
+
+class ControlSessionAuth(httpx2.Auth):
+    """Carry infrastructure-owned authority on each MCP HTTP request."""
+
+    def __init__(self, current_session: Callable[[], str | None]) -> None:
+        self._current_session = current_session
+
+    def auth_flow(self, request: httpx2.Request) -> Generator[httpx2.Request, httpx2.Response, None]:
+        session_id = self._current_session()
+        request.headers.pop("X-InvestOrch-Control-Session", None)
+        if session_id is not None:
+            request.headers["X-InvestOrch-Control-Session"] = session_id
+        yield request
+
+
+@dataclass(slots=True)
+class AgentMCPServers:
+    _servers: list[MCPServer]
+    _generic: MCPServerManager
+    _qmt: MCPServerManager | None
+
+    @property
+    def active_servers(self) -> list[MCPServer]:
+        active = self._generic.active_servers + (self._qmt.active_servers if self._qmt is not None else [])
+        return [server for server in self._servers if server in active]
+
+    async def refresh_qmt(self) -> None:
+        if self._qmt is not None and self._qmt.failed_servers:
+            await self._qmt.reconnect(failed_only=True)
+
+
+@asynccontextmanager
+async def open_agent_mcp_servers(
+    servers: list[MCPServer],
+    *,
+    qmt_server_name: str | None,
+    control_session_id: Callable[[], str | None],
+    drop_failed_servers: bool,
+) -> AsyncIterator[AgentMCPServers]:
+    qmt = next((server for server in servers if server.name == qmt_server_name), None)
+    async with AsyncExitStack() as stack:
+        generic = await stack.enter_async_context(
+            MCPServerManager(
+                [server for server in servers if server is not qmt], drop_failed_servers=drop_failed_servers
+            )
+        )
+        qmt_manager = None
+        if qmt is not None:
+            if not isinstance(qmt, MCPServerStreamableHttp):
+                raise TypeError("QMT requires a Streamable HTTP MCP server")
+            qmt.params["auth"] = ControlSessionAuth(control_session_id)
+            # The SDK worker owns both connect and cleanup scopes when live
+            # foreground/recovery requests originate outside the host task.
+            qmt_manager = await stack.enter_async_context(
+                MCPServerManager([qmt], connect_in_parallel=True, suppress_cancelled_error=False)
+            )
+        yield AgentMCPServers(list(servers), generic, qmt_manager)
 
 
 def read_mcp_server_configs(path: str | Path) -> list[dict[str, Any]]:

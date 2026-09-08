@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 
 from agents import Agent, RunContextWrapper, Runner, SQLiteSession, TResponseInputItem, UserError
 from agents.lifecycle import RunHooksBase
+from agents.mcp import MCPServer
 from agents.tool import Tool
 
 from investorch.config import AppConfig
@@ -95,6 +96,7 @@ class AgentLoop:
         portfolios: PortfolioOperations,
         successful_tool_handler: SuccessfulToolHandler = _ignore_successful_tool,
         live_coordinator: LiveDeploymentCoordinator | None = None,
+        mcp_servers_provider: Callable[[], list[MCPServer]] | None = None,
     ) -> None:
         self._agent = agent
         self._title_agent = title_agent
@@ -102,6 +104,7 @@ class AgentLoop:
         self._config = config
         self._portfolios = portfolios
         self._live_coordinator = live_coordinator
+        self._mcp_servers_provider = mcp_servers_provider
         self._successful_tool_handler = successful_tool_handler
 
     async def run(
@@ -122,7 +125,10 @@ class AgentLoop:
         application_instruction: str | None = None,
     ) -> AgentRunResult:
         settings = self._agent.model_settings.resolve({"reasoning": {"effort": reasoning_effort}})
-        run_agent = self._agent.clone(model_settings=settings)
+        mcp_servers = (
+            self._mcp_servers_provider() if self._mcp_servers_provider is not None else self._agent.mcp_servers
+        )
+        run_agent = self._agent.clone(model_settings=settings, mcp_servers=list(mcp_servers))
         agent_context = AgentContext(
             config=self._config,
             execution=execution,

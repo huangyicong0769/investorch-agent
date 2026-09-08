@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from zoneinfo import ZoneInfo
 
 from agents import ModelSettings, OpenAIResponsesModel
-from agents.mcp import MCPServer, MCPServerManager, MCPServerStdio
+from agents.mcp import MCPServer, MCPServerStdio
 from openai import AsyncOpenAI
 
 from investorch.agents import (
@@ -26,6 +26,7 @@ from investorch.config import AppConfig
 from investorch.context import AppState, ExecutionState
 from investorch.journal import SessionJournal
 from investorch.mcp import load_mcp_servers as load_configured_mcp_servers
+from investorch.mcp import open_agent_mcp_servers
 from investorch.qmt.client import QMTClient
 from investorch.qmt.config import resolve_qmt_connection_profile
 from investorch.runtime import (
@@ -238,8 +239,14 @@ async def open_application_host(
         await start_execution(execution, config.workspace_dir)
         mcp_servers = _load_agent_mcp_servers(config)
         logger.info("Starting MCP server manager with %d configured servers", len(mcp_servers))
-        async with MCPServerManager(mcp_servers, drop_failed_servers=config["mcp.drop_failed_servers"]) as mcp_manager:
+        async with open_agent_mcp_servers(
+            mcp_servers,
+            qmt_server_name=qmt_profile.server_name if qmt_profile else None,
+            control_session_id=lambda: live_coordinator.control_session_id,
+            drop_failed_servers=config["mcp.drop_failed_servers"],
+        ) as mcp_manager:
             try:
+                live_coordinator.set_mcp_refresh(mcp_manager.refresh_qmt)
                 logger.info("MCP server manager started with %d active servers", len(mcp_manager.active_servers))
                 main_model, main_model_settings = create_model(config, "main")
                 title_model, title_model_settings = create_model(config, "title")
@@ -263,6 +270,7 @@ async def open_application_host(
                     portfolios,
                     successful_tool_handler=portfolio_context.observe_successful_tool,
                     live_coordinator=live_coordinator,
+                    mcp_servers_provider=lambda: mcp_manager.active_servers,
                 )
                 approvals = ApprovalCoordinator(
                     config=config,
@@ -337,6 +345,8 @@ async def open_application_host(
                             await runtime.aclose()
                     finally:
                         runtime = None
+                        live_coordinator.set_mcp_refresh(None)
+                        await live_coordinator.close()
                         if execution.sandbox is not None:
                             await close_execution(execution)
     finally:

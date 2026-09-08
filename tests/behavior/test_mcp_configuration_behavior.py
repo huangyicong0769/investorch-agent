@@ -142,3 +142,84 @@ def test_mcp_update_preserves_and_can_clear_approval_policy(tmp_path: Path) -> N
     assert read_mcp_server_configs(path)[0]["require_approval"] == ["start_live_strategy"]
     configure_mcp_server_config(path, "qmt", require_approval=[])
     assert read_mcp_server_configs(path)[0]["require_approval"] == []
+
+
+@pytest.mark.asyncio
+async def test_qmt_authority_tracks_current_session_on_existing_http_client() -> None:
+    import httpx2
+
+    from investorch.mcp import ControlSessionAuth
+
+    session = None
+    observed = []
+
+    def capture(request):
+        observed.append(dict(request.headers))
+        return httpx2.Response(200, json={})
+
+    async with httpx2.AsyncClient(
+        auth=ControlSessionAuth(lambda: session),
+        headers={"Authorization": "Bearer secret", "X-InvestOrch-Control-Session": "configured-stale"},
+        transport=httpx2.MockTransport(capture),
+    ) as client:
+        for current in (None, "first", "second", None):
+            session = current
+            await client.post("http://node/mcp")
+
+    assert [headers.get("x-investorch-control-session") for headers in observed] == [None, "first", "second", None]
+    assert all(headers["authorization"] == "Bearer secret" for headers in observed)
+
+
+@pytest.mark.asyncio
+async def test_qmt_recovery_leaves_other_failed_servers_alone_and_preserves_task_affinity(monkeypatch) -> None:
+    import asyncio
+
+    from agents.mcp import MCPServerStreamableHttp
+
+    from investorch.mcp import open_agent_mcp_servers
+
+    qmt = MCPServerStreamableHttp(params={"url": "http://unused/mcp"}, name="execution")
+    research = MCPServerStreamableHttp(params={"url": "http://unused/research"}, name="research")
+    attempts = []
+    qmt_tasks = []
+    online = False
+
+    async def qmt_connect():
+        attempts.append("execution")
+        qmt_tasks.append(asyncio.current_task())
+        if not online:
+            raise ConnectionError("offline")
+
+    async def qmt_cleanup():
+        qmt_tasks.append(asyncio.current_task())
+
+    async def research_connect():
+        attempts.append("research")
+        raise ConnectionError("offline")
+
+    async def research_cleanup():
+        pass
+
+    monkeypatch.setattr(qmt, "connect", qmt_connect)
+    monkeypatch.setattr(qmt, "cleanup", qmt_cleanup)
+    monkeypatch.setattr(research, "connect", research_connect)
+    monkeypatch.setattr(research, "cleanup", research_cleanup)
+    async with open_agent_mcp_servers(
+        [research, qmt],
+        qmt_server_name="execution",
+        control_session_id=lambda: None,
+        drop_failed_servers=True,
+    ) as lifecycle:
+        assert lifecycle.active_servers == []
+        assert sorted(attempts) == ["execution", "research"]
+        online = True
+        await asyncio.create_task(lifecycle.refresh_qmt())
+        assert lifecycle.active_servers == [qmt]
+        await lifecycle.refresh_qmt()
+        assert attempts.count("execution") == 2
+        assert attempts.count("research") == 1
+
+    # Each connect's AnyIO scopes are closed by that same worker, even though
+    # the foreground reconnect runs in another task.
+    assert qmt_tasks[0] is qmt_tasks[1]
+    assert qmt_tasks[2] is qmt_tasks[3]
