@@ -7,7 +7,7 @@ from investorch_qmt.market_data.symbols import from_xt_symbol, to_xt_symbol
 def test_supported_stock_symbols_round_trip_and_other_assets_fail_closed():
     assert to_xt_symbol("600519.XSHG") == "600519.SH"
     assert from_xt_symbol("000001.SZ") == "000001.XSHE"
-    for symbol in ["510300.XSHG", "000001.XSHG", "00700.XHKG", "830001.XBEI", "IF2609", "600519.SH"]:
+    for symbol in ["510300.XSHG", "689009.XSHG", "000001.XSHG", "00700.XHKG", "830001.XBEI", "IF2609", "600519.SH"]:
         with pytest.raises(MarketDataError, match="UNSUPPORTED_INSTRUMENT"):
             to_xt_symbol(symbol)
 

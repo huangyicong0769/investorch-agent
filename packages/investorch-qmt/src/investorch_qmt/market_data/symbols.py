@@ -4,7 +4,7 @@ from .errors import MarketDataError
 
 
 def to_xt_symbol(order_book_id: str) -> str:
-    if re.fullmatch(r"(600|601|603|605|688|689)\d{3}\.XSHG", order_book_id):
+    if re.fullmatch(r"(600|601|603|605|688)\d{3}\.XSHG", order_book_id):
         return order_book_id[:6] + ".SH"
     if re.fullmatch(r"(000|001|002|003|300|301)\d{3}\.XSHE", order_book_id):
         return order_book_id[:6] + ".SZ"
