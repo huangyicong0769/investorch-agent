@@ -406,3 +406,79 @@ async def test_desynchronization_explains_the_blocking_condition(tmp_path):
         assert status["sync_reason"] == result["reason"]
     finally:
         await coordinator.close()
+
+
+async def test_application_host_opens_without_a_qmt_configuration(tmp_path):
+    from investorch.application.host import open_application_host
+    from tests.support.config import make_test_config
+
+    config = make_test_config(tmp_path, {"secrets": {"DEEPSEEK_API_KEY": "unused-test-key"}})
+
+    async def approve(_request, _reason):
+        return False
+
+    async with open_application_host(
+        config, manual_approval_handler=approve, create_initial_session=False, enable_activity=False
+    ) as host:
+        assert host.live_coordinator is not None
+        assert (await host.live_coordinator.get_live_status())["portfolios"] == []
+
+
+async def test_session_renewal_failure_keeps_active_and_foreground_recovers(tmp_path):
+    import asyncio
+
+    config, _portfolios, p, live = await setup_live(tmp_path)
+    node = WireNode()
+    failed = asyncio.Event()
+    fail_renew = False
+
+    async def handle(request):
+        nonlocal fail_renew
+        if fail_renew and request.url.path.endswith("/renew") and not request.content:
+            fail_renew = False
+            failed.set()
+            return httpx.Response(409, json={"code": "STALE_CONTROL_SESSION", "message": "expired", "retryable": True})
+        response = node(request)
+        if request.url.path.endswith("/control-sessions"):
+            return httpx.Response(200, json={**response.json(), "lease_timeout_seconds": 0.03})
+        return response
+
+    coordinator = LiveDeploymentCoordinator(config=config, client=client_for(handle))
+    try:
+        result = await coordinator.deploy_live_strategy(p.id, "account")
+        first_session = node.session
+        fail_renew = True
+        await asyncio.wait_for(failed.wait(), 1)
+        assert (await coordinator.get_live_status(p.id))["sync"] == "UNKNOWN"
+        assert (await live.get_deployment(result["deployment_id"])).status.value == "ACTIVE"
+        assert await coordinator.ensure_connected_now() is True
+        assert node.session == first_session + 1
+        assert (await coordinator.get_live_status(p.id))["sync"] == "SYNCED"
+        node.deployments[result["deployment_id"]]["status"] = "STOPPED"
+        assert await coordinator.ensure_connected_now() is True
+        assert node.closed == [str(node.session)]
+        assert (await live.get_deployment(result["deployment_id"])).status.value == "STOPPED"
+    finally:
+        await coordinator.close()
+
+
+async def test_missing_original_bootstrap_after_ingestion_cannot_be_rebuilt(tmp_path):
+    config, portfolios, p, live = await setup_live(tmp_path)
+    node = WireNode()
+    coordinator = LiveDeploymentCoordinator(config=config, client=client_for(node))
+    try:
+        result = await coordinator.deploy_live_strategy(p.id, "account")
+        node.enqueue(result["deployment_id"])
+        assert await coordinator.ensure_connected_now() is True
+        assert len(await portfolios.list_ledger(p.id)) == 1
+        deployment = await live.get_deployment(result["deployment_id"])
+        (config.state_dir / deployment.strategy_artifact_relpath).with_name("bootstrap.json").unlink()
+        node.deployments.clear()
+        assert await coordinator.ensure_connected_now() is False
+        assert len(node.stage_bodies) == 1
+        assert (await live.get_deployment(result["deployment_id"])).status.value == "ACTIVE"
+        status = await coordinator.get_live_status(p.id)
+        assert "Bootstrap is missing" in status["sync_reason"]
+        assert status["sync"] == "DESYNCED"
+    finally:
+        await coordinator.close()

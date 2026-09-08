@@ -381,7 +381,7 @@ class LiveDeploymentCoordinator:
                 sync = "COMMIT_PENDING"
             elif remote["acked_core_sequence"] != await self._head(portfolio_id):
                 sync = "DESYNCED"
-        elif deployment is not None and deployment.status is LiveDeploymentStatus.ACTIVE:
+        elif deployment is not None and deployment.status is LiveDeploymentStatus.ACTIVE and sync != "DESYNCED":
             sync = "UNKNOWN"
         if (
             sync == "SYNCED"
