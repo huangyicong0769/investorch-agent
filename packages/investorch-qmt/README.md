@@ -2,7 +2,7 @@
 
 `investorch-qmt` is the independently installable Windows companion MCP server for InvestOrch. It exposes an authenticated Streamable HTTP boundary that the Core application can use without importing either distribution into the other.
 
-The B2 companion provides remote deployment staging, control leases and durable trade-fact delivery. It does not connect to QMT, inspect accounts, read positions, or place orders yet. A healthy service truthfully reports QMT as `not_connected`.
+The companion provides remote deployment staging, control leases and durable trade-fact delivery. It does not connect to QMT, inspect accounts, read positions, or place orders yet. A healthy service truthfully reports QMT as `not_connected`.
 
 ## Requirements
 
@@ -137,7 +137,7 @@ Operational logs rotate under `%LOCALAPPDATA%\InvestOrch\QMT\logs`. Authorizatio
 These surfaces intentionally do not claim that QMT is installed, logged in, connected, or ready to trade. Real Big QMT connectivity is outside the current release.
 
 
-## B2 remote execution
+## Remote execution
 
 `serve` initializes `%LOCALAPPDATA%\InvestOrch\QMT\runtime.db` at companion schema v1. Newer schemas fail closed. Deployment metadata and a durable outbox are retained in SQLite with foreign keys, WAL and transactional writes. There is no Portfolio mirror. Core Portfolio schema remains v5 and Bootstrap remains V1.
 
@@ -169,4 +169,4 @@ The internal `ExecutionNodeService.enqueue_trade_fact(payload)` seam accepts str
 
 MCP exposes only `get_status`, `start_live_strategy(portfolio_id)` and `stop_live_strategy(portfolio_id)`. Configure approval for start and stop in Core. Start requires a STAGED deployment, control authority and reconciled sync, then truthfully returns `BACKEND_NOT_READY` without changing STAGED. Stop changes STAGED to STOPPED and retries idempotently; FAILED remains FAILED and a RUNNING stop cannot fabricate success. Core releases ACTIVE ownership only after observing the terminal state, draining and reconciling.
 
-B2 does not include a fake broker/event source, production RQAlpha loop, actual QMT order placement, broker reconciliation, WebSocket transport or TLS/PKI. QMT remains `not_connected`. Do not use this plaintext service across an untrusted LAN or public Internet.
+The companion does not include a fake broker/event source, production RQAlpha loop, actual QMT order placement, broker reconciliation, WebSocket transport or TLS/PKI. QMT remains `not_connected`. Do not use this plaintext service across an untrusted LAN or public Internet.

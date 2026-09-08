@@ -1,6 +1,6 @@
 # RQAlpha live runtime foundation
 
-This document defines the Core/Windows execution contract introduced in 0.2.0.B1 and extended by B2 remote control and reliable fact delivery. B2 stages strategies remotely and exposes approved start/stop requests. Starting a production strategy, connecting MiniQMT, and real live trading remain later work. See the [remote execution protocol](QMT_Remote_Execution_Protocol.md) for configuration and HTTP contracts.
+This document defines the Core/Windows execution contract for remote control and reliable fact delivery. The companion stages strategies remotely and exposes approved start/stop requests. Starting a production strategy, connecting MiniQMT, and real live trading remain later work. See the [remote execution protocol](QMT_Remote_Execution_Protocol.md) for configuration and HTTP contracts.
 
 ## Ownership and distribution boundaries
 
@@ -76,7 +76,7 @@ Preparation loads a Workspace-relative `.py` file through the shared Core source
 <AppConfig.state_dir>/live/deployments/<deployment_id>/
     strategy.py
     manifest.json
-    bootstrap.json  # persisted by B2 before the first staging request
+    bootstrap.json  # persisted by Core before the first staging request
 ```
 
 This directory is private Core state rather than mutable Workspace content. The deployment persists the original source path, hash, frozen JSON parameters, artifact relative path, exact Portfolio/account identity, and RQAlpha version. Later Workspace edits or StrategyBinding edits do not change an existing deployment. Manifest JSON records the same execution identity and creation evidence; the database remains the deployment registry.
@@ -96,7 +96,7 @@ STOPPED and FAILED are terminal; a new run requires a new deployment. Metadata i
 
 An ACTIVE Portfolio rejects ordinary economic mutations at the storage write boundary: initialization, manual trade/cash/income/adjustment, correction, transfers involving either Portfolio, and allocation. Metadata and StrategyBinding edits remain allowed because the active artifact is already frozen. Ordinary append cannot spoof `source="live_execution"` to bypass this boundary; live trades use the dedicated ingestion API.
 
-The reservation survives Core restart and does not expire with a network lease. B2 adds a separate node-wide, in-memory control session: opening a session fences the previous session, and expiry makes execution control unavailable. This lease does not itself end Core ownership or kill a runtime. Core releases ownership only after observing the matching remote terminal deployment, draining its pending facts, and verifying that the remote ACK cursor equals the canonical Ledger head.
+The reservation survives Core restart and does not expire with a network lease. The companion maintains a separate node-wide, in-memory control session: opening a session fences the previous session, and expiry makes execution control unavailable. This lease does not itself end Core ownership or kill a runtime. Core releases ownership only after observing the matching remote terminal deployment, draining its pending facts, and verifying that the remote ACK cursor equals the canonical Ledger head.
 
 ## Bootstrap Snapshot V1
 
@@ -134,7 +134,7 @@ The companion's `build_live_config()` accepts the wire snapshot and frozen param
 
 `InvestOrchLiveMod.start_up()` validates the snapshot and sets native account cash and initial-position constructor inputs before RQAlpha constructs its Portfolio. RQAlpha 6.3.0 calls Mod startup before data/date initialization and Portfolio construction. Replacing Portfolio at `POST_SYSTEM_INIT` would risk leaving duplicate accounting listeners, so that event only verifies the constructed cash and quantities.
 
-B1 reuses native Portfolio, Account, and Position. Cold-start positions use the native previous-close initialization baseline. Their `avg_price` is runtime statistical state, not a reconstruction of InvestOrch historical cost. Core cost is neither sent in V1 nor inverted into a historical execution price. Native `get_state()/set_state()` remains available for later checkpoint/resume work.
+The runtime adapter reuses native Portfolio, Account, and Position. Cold-start positions use the native previous-close initialization baseline. Their `avg_price` is runtime statistical state, not a reconstruction of InvestOrch historical cost. Core cost is neither sent in V1 nor inverted into a historical execution price. Native `get_state()/set_state()` remains available for later checkpoint/resume work.
 
 Restrictions live at this concrete mapping boundary: the current adapter requires CNY cash, XSHG/XSHE numeric instrument codes, and nonnegative whole-share quantities. Unsupported inputs fail instead of being dropped or relabeled. Conversion to RQAlpha's numeric cash representation occurs only after wire validation, with a finite-range check. These restrictions do not introduce a generic capability registry or claim real broker feasibility.
 
@@ -164,7 +164,7 @@ An immediate SQLite transaction resolves identity, allocates the next canonical 
 
 PREPARED cannot ingest trades. Known ACTIVE, STOPPED, and FAILED deployments may receive a late broker fact, subject to existing canonical Ledger validity. Terminal status is not proof that no real fill can arrive.
 
-The owner explicitly chose to preserve the strict Ledger constraints: an invalid late fact fails visibly and is not appended. For example, a late sale dated before a previously recorded full transfer can make replay insufficient; Core rejects it rather than permitting a negative holding or rewriting history. This rejection does not undo the real broker fill. B2 preserves the uncommitted fact in the companion durable outbox and fails synchronization closed; it does not add a second accounting engine or repair broker state. The coordinator delivers only facts matching ACTIVE Core ownership. Receiving an old deployment's late fact after a successor activates requires later broker reconciliation and must not silently attach that fact to the successor.
+The owner explicitly chose to preserve the strict Ledger constraints: an invalid late fact fails visibly and is not appended. For example, a late sale dated before a previously recorded full transfer can make replay insufficient; Core rejects it rather than permitting a negative holding or rewriting history. This rejection does not undo the real broker fill. The coordinator preserves the uncommitted fact in the companion durable outbox and fails synchronization closed; it does not add a second accounting engine or repair broker state. The coordinator delivers only facts matching ACTIVE Core ownership. Receiving an old deployment's late fact after a successor activates requires later broker reconciliation and must not silently attach that fact to the successor.
 
 TRADE is only the first bridge. Dividends, splits, delisting, share transformations, and tax can also change RQAlpha economics; their canonical bridge must be audited before real-live parity acceptance.
 
@@ -180,4 +180,4 @@ TRADE is only the first bridge. Dividends, splits, delisting, share transformati
 
 The table records when each feature entered the schema; it is not a sequence of committed upgrade steps. Fresh databases are created directly with canonical v5 tables and indexes. Each supported existing version (1, 2, 3, or 4) upgrades directly to v5 in one `BEGIN IMMEDIATE` transaction. A failure in any late DDL step rolls back the entire upgrade, including its schema version and projection copies. Migration retains all legacy attribution as NULL and preserves aggregate projection data. It does not guess a QMT account.
 
-B2 adds remote transport, artifact verification after transfer, durable TRADE_V1 delivery, and runtime coordination without changing Core schema v5 or Bootstrap V1. The companion has its own runtime.db schema v1, independent of Core migrations. B3 adds real realtime/event-source support. B4 adds the actual QMT broker, order identities, and callbacks. B5 addresses parity, reconciliation, corporate actions, interruptions, durable uncommitted events, and resume. B2 deliberately leaves `get_status` truthful as QMT `not_connected`; `start_live_strategy` returns `BACKEND_NOT_READY` without changing STAGED. No production Fake Broker, Fake EventSource, or RQAlpha live loop is installed.
+Remote transport, artifact verification after transfer, durable TRADE_V1 delivery, and runtime coordination use Core schema v5 and Bootstrap V1. The companion has its own runtime.db schema v1, independent of Core migrations. Real market events, the QMT broker, order identities and callbacks are not yet implemented. Further integration also requires accounting parity, broker reconciliation, corporate actions, interruption handling, and runtime resume. `get_status` reports QMT as `not_connected`; `start_live_strategy` returns `BACKEND_NOT_READY` without changing STAGED. No production Fake Broker, Fake EventSource, or RQAlpha live loop is installed.

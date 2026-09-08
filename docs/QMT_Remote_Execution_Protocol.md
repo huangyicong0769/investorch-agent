@@ -1,6 +1,6 @@
-# QMT remote execution protocol — 0.2.0.B2
+# QMT remote execution protocol
 
-B2 transfers a frozen Core deployment to one Windows execution node and maintains control authority and reliable TRADE_V1 delivery. It does not connect QMT or run a production RQAlpha LIVE loop. `start_live_strategy` returns `BACKEND_NOT_READY` and leaves the deployment STAGED.
+The remote execution protocol transfers a frozen Core deployment to one Windows execution node and maintains control authority and reliable TRADE_V1 delivery. It does not connect QMT or run a production RQAlpha LIVE loop. `start_live_strategy` returns `BACKEND_NOT_READY` and leaves the deployment STAGED.
 
 ## Connection configuration
 
@@ -97,17 +97,17 @@ An existing ACTIVE retry first checks BrokerAccount identity, then reuses the fr
 }
 ```
 
-The field set is exact. Version is integer 1; identifiers are nonempty trimmed strings; timestamps include a timezone. Amounts are finite decimal strings, quantity/price are positive, and fees are nonnegative. Core and companion validate independently. B2 provides internal enqueue for tests and future broker callbacks, without a public enqueue route or production fake broker.
+The field set is exact. Version is integer 1; identifiers are nonempty trimmed strings; timestamps include a timezone. Amounts are finite decimal strings, quantity/price are positive, and fees are nonnegative. Core and companion validate independently. The companion provides internal enqueue for tests and future broker callbacks, without a public enqueue route or production fake broker.
 
-The durable outbox uses node-wide FIFO. Core pulls one oldest PENDING fact, invokes B1 idempotent live ingestion, checks that the returned Ledger sequence is the deployment's remote ACK cursor plus one, and ACKs before pulling again. ACK atomically records the committed sequence and advances that deployment's cursor. Repeating the same ACK is idempotent; out-of-order ACK or a sequence jump conflicts. Lost responses are recovered through redelivery and canonical idempotency, without duplicate trades.
+The durable outbox uses node-wide FIFO. Core pulls one oldest PENDING fact, invokes canonical idempotent live ingestion, checks that the returned Ledger sequence is the deployment's remote ACK cursor plus one, and ACKs before pulling again. ACK atomically records the committed sequence and advances that deployment's cursor. Repeating the same ACK is idempotent; out-of-order ACK or a sequence jump conflicts. Lost responses are recovered through redelivery and canonical idempotency, without duplicate trades.
 
-Empty outbox plus equal canonical head and remote ACK cursor permits SYNCED. Pending delivery is COMMIT_PENDING; an unexplained sequence advance, identity conflict, or invalid economic fact fails synchronization closed. The pending fact is retained; B2 does not repair broker state or jump cursors.
+Empty outbox plus equal canonical head and remote ACK cursor permits SYNCED. Pending delivery is COMMIT_PENDING; an unexplained sequence advance, identity conflict, or invalid economic fact fails synchronization closed. The pending fact is retained; the coordinator does not repair broker state or jump cursors.
 
 ## Recovery and terminal history
 
 ApplicationHost owns the coordinator. ACTIVE work triggers recovery at startup; failures back off through 1, 2, 5, 10, and then 30 seconds. Foreground actions can retry immediately. Heartbeat failure drops local authority and triggers recovery. Recovery drains and reconciles before declaring synchronization restored; the final ACTIVE deployment ending stops recurring network work.
 
-STAGED stop becomes STOPPED; repeated stop is idempotent. FAILED remains terminal, and B2 does not pretend to stop a production RUNNING runtime it cannot manage. Core transitions to STOPPED/FAILED only after the matching remote terminal state, drained facts, and equal sequences. It never adopts another remote deployment or reactivates terminal Core ownership.
+STAGED stop becomes STOPPED; repeated stop is idempotent. FAILED remains terminal. Stopping a production RUNNING runtime is not supported and returns `BACKEND_NOT_READY`. Core transitions to STOPPED/FAILED only after the matching remote terminal state, drained facts, and equal sequences. It never adopts another remote deployment or reactivates terminal Core ownership.
 
 The companion retains terminal deployment metadata, artifacts, and ACKED facts. Historical terminal rows with no pending work coexist with a successor; they must not be mistaken for the Portfolio's current deployment. Current remote work without matching ACTIVE Core ownership, or terminal Core ownership with remote RUNNING, is DESYNCED.
 
@@ -115,6 +115,6 @@ Companion `%LOCALAPPDATA%\InvestOrch\QMT\runtime.db` uses schema version 1 with 
 
 ## Network and capability boundary
 
-Supported deployment is localhost, a trusted LAN, or a private VPN. Bearer authentication is combined with the trusted network boundary and `allowed_hosts` Host/DNS-rebinding protection; `allowed_hosts` is not a source-IP ACL. B2 does not add TLS/PKI, OAuth, mTLS, or WebSocket, and plaintext service is not intended for a hostile network or public Internet. Tokens and strategy source/Base64 must not enter ordinary logs.
+Supported deployment is localhost, a trusted LAN, or a private VPN. Bearer authentication is combined with the trusted network boundary and `allowed_hosts` Host/DNS-rebinding protection; `allowed_hosts` is not a source-IP ACL. The service does not support TLS/PKI, OAuth, mTLS, or WebSocket, and plaintext service is not intended for a hostile network or public Internet. Tokens and strategy source/Base64 must not enter ordinary logs.
 
-QMT status remains `not_connected`, and live backend capability remains unavailable. Real market events, broker submission/callbacks, and broker reconciliation belong to later stages. See the [runtime model](RQAlpha_Live_Runtime_Model.md) and [companion setup](../packages/investorch-qmt/README.md).
+QMT status remains `not_connected`, and live backend capability remains unavailable. Real market events, broker submission/callbacks, and broker reconciliation are not yet implemented. See the [runtime model](RQAlpha_Live_Runtime_Model.md) and [companion setup](../packages/investorch-qmt/README.md).
