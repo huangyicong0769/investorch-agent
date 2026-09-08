@@ -448,6 +448,23 @@ class LiveDeploymentCoordinator:
             and ((self._node or {}).get("control", {}).get("status") != "AVAILABLE" or self._session_id is None)
         ):
             sync = "UNKNOWN"
+        authority = (
+            self._available
+            and self._session_id is not None
+            and (self._node or {}).get("control", {}).get("status") == "AVAILABLE"
+            and (remote or {}).get("control_authority", "AVAILABLE") == "AVAILABLE"
+        )
+        can_start = bool(
+            authority
+            and sync == "SYNCED"
+            and deployment is not None
+            and deployment.status is LiveDeploymentStatus.ACTIVE
+            and remote is not None
+            and remote["deployment_id"] == deployment.deployment_id
+            and remote["status"] == "STAGED"
+            and remote.get("worker_phase") not in {"STARTING", "STOPPING"}
+        )
+        observed = self._node if self._available and self._node is not None else {}
         return {
             "portfolio": {"portfolio_id": portfolio_id, "name": portfolio.name if portfolio else None},
             "core": {
@@ -460,15 +477,22 @@ class LiveDeploymentCoordinator:
             },
             "node": {
                 "availability": "AVAILABLE" if self._available else "UNAVAILABLE",
-                "control_authority": "AVAILABLE" if self._session_id is not None else "UNAVAILABLE",
+                "control_authority": "AVAILABLE" if authority else "UNAVAILABLE",
+                "worker_phase": remote.get("worker_phase") if remote and self._available else None,
+                "market_data": remote.get("market_data") if remote and self._available else None,
+                "trading": remote.get("trading") if remote and self._available else None,
                 "remote_status": remote["status"] if remote and self._available else None,
                 "acked_core_sequence": remote["acked_core_sequence"] if remote and self._available else None,
                 "pending_fact_count": remote["pending_fact_count"] if remote and self._available else None,
             },
             "sync": sync,
             "sync_reason": self._reasons.get(portfolio_id),
-            "qmt": (self._node or {}).get("qmt", {"status": "not_connected"}),
-            "capabilities": {"can_start": False, "reason": "BACKEND_NOT_READY"},
+            "market_data": observed.get("market_data", {"status": "UNKNOWN"}),
+            "trading": observed.get("trading", {"status": "UNKNOWN"}),
+            "capabilities": {
+                "can_start": can_start,
+                "reason": None if can_start else "RUNTIME_START_PRECONDITIONS_NOT_MET",
+            },
         }
 
     async def _release_session(self) -> None:

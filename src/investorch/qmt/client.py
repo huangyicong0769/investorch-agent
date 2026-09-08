@@ -49,8 +49,15 @@ class QMTClient:
 
     async def get_node_status(self) -> dict:
         data = await self._request("GET", "node/status")
-        for key in ("service", "qmt"):
+        for key in ("service",):
             text_value(object_value(data.get(key)).get("status"))
+        for key in ("market_data", "trading", "qmt"):
+            if key in data:
+                text_value(object_value(data[key]).get("status"))
+        if "market_data" in data:
+            text_value(data["market_data"].get("backend"))
+            if data["market_data"].get("xtquant_version") is not None:
+                text_value(data["market_data"]["xtquant_version"])
         control = object_value(data.get("control"))
         if text_value(control.get("status")) not in {"AVAILABLE", "UNAVAILABLE"}:
             raise QMTProtocolError("Invalid control state")

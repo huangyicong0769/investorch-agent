@@ -188,8 +188,8 @@ async def test_lost_stage_response_keeps_owner_and_reuses_frozen_deployment(tmp_
         assert len(await live.list_deployments(p.id)) == 1
         assert node.stage_bodies[-1] == original
         assert (await restarted.get_live_status(p.id))["capabilities"] == {
-            "can_start": False,
-            "reason": "BACKEND_NOT_READY",
+            "can_start": True,
+            "reason": None,
         }
     finally:
         await restarted.close()
@@ -655,3 +655,45 @@ async def test_mcp_refresh_failure_does_not_undo_rest_stage_and_idle_start_does_
     finally:
         await coordinator.close()
     assert coordinator.control_session_id is None
+
+
+async def test_status_distinguishes_paused_market_runtime_from_trading_and_clears_stale_health(tmp_path):
+    config, _, portfolio, _ = await setup_live(tmp_path)
+    node = WireNode()
+
+    def market_node(request):
+        response = node(request)
+        if request.url.path.endswith("/node/status"):
+            body = response.json()
+            body["market_data"] = {"backend": "xtdata", "status": "CONNECTED", "xtquant_version": "250807.1.2"}
+            body["trading"] = {"status": "NOT_READY", "reason": "TRADING_BACKEND_NOT_READY"}
+            return httpx.Response(200, json=body)
+        return response
+
+    coordinator = LiveDeploymentCoordinator(config=config, client=client_for(market_node))
+    try:
+        deployed = await coordinator.deploy_live_strategy(portfolio.id, "account")
+        staged = await coordinator.get_live_status(portfolio.id)
+        assert staged["capabilities"]["can_start"] is True
+        node.deployments[deployed["deployment_id"]].update(
+            status="RUNNING",
+            worker_phase="PAUSED",
+            market_data="CONNECTED",
+            control_authority="UNAVAILABLE",
+            trading={"status": "NOT_READY", "reason": "TRADING_BACKEND_NOT_READY"},
+        )
+        status = await coordinator.get_live_status(portfolio.id)
+        assert status["node"]["remote_status"] == "RUNNING"
+        assert status["node"]["worker_phase"] == "PAUSED"
+        assert status["node"]["market_data"] == "CONNECTED"
+        assert status["node"]["control_authority"] == "UNAVAILABLE"
+        assert status["market_data"]["xtquant_version"] == "250807.1.2"
+        assert status["trading"] == {"status": "NOT_READY", "reason": "TRADING_BACKEND_NOT_READY"}
+        assert status["capabilities"]["can_start"] is False
+        node.offline = True
+        unavailable = await coordinator.get_live_status(portfolio.id)
+        assert unavailable["node"]["worker_phase"] is None
+        assert unavailable["market_data"]["status"] == "UNKNOWN"
+        assert unavailable["trading"]["status"] == "UNKNOWN"
+    finally:
+        await coordinator.close()

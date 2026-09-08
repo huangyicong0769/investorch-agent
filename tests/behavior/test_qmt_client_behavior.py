@@ -42,3 +42,17 @@ async def test_definitive_rejection_preserves_code_and_retryability():
             await client.get_next_fact("old")
     assert caught.value.code == "STALE_CONTROL_SESSION"
     assert caught.value.retryable is True
+
+
+async def test_status_accepts_separate_market_and_trading_health_without_legacy_qmt():
+    body = {
+        "service": {"status": "ready"},
+        "market_data": {"backend": "xtdata", "status": "CONNECTED", "xtquant_version": "250807.1.2"},
+        "trading": {"status": "NOT_READY", "reason": "TRADING_BACKEND_NOT_READY"},
+        "control": {"status": "AVAILABLE"},
+        "deployments": [],
+        "future_diagnostic": {"value": 1},
+    }
+    profile = QMTConnectionProfile("node", "http://node/mcp", "http://node/api/v1", {}, 7)
+    async with QMTClient(profile, transport=httpx.MockTransport(lambda r: httpx.Response(200, json=body))) as client:
+        assert await client.get_node_status() == body
