@@ -26,6 +26,8 @@ from investorch.config import AppConfig
 from investorch.context import AppState, ExecutionState
 from investorch.journal import SessionJournal
 from investorch.mcp import load_mcp_servers as load_configured_mcp_servers
+from investorch.qmt.client import QMTClient
+from investorch.qmt.config import resolve_qmt_connection_profile
 from investorch.runtime import (
     AgentRuntime,
     RuntimeFollowUpEvent,
@@ -38,6 +40,7 @@ from investorch.tools import close_execution, start_execution
 
 from .activity import ActivityCoordinator, ActivityLabelEvent, ActivityLabelHandler, _ignore_activity_label
 from .approval import ApprovalCoordinator, ApprovalResolvedHandler, ManualApprovalHandler, _ignore_approval_resolved
+from .live_coordinator import LiveDeploymentCoordinator
 from .portfolio_context import (
     PortfolioContextOperations,
     PortfolioToolSucceededHandler,
@@ -98,6 +101,7 @@ class ApplicationHost:
     presentation_state: SessionPresentationStore
     session_lifecycle_lock: asyncio.Lock
     initial_session_id: str | None
+    live_coordinator: LiveDeploymentCoordinator | None = None
 
 
 def create_model(config: AppConfig, agent: str) -> tuple[OpenAIResponsesModel, ModelSettings]:
@@ -154,6 +158,7 @@ async def open_application_host(
     create_initial_session: bool = True,
     enable_activity: bool = True,
 ) -> AsyncIterator[ApplicationHost]:
+    qmt_profile = resolve_qmt_connection_profile(config)
     callbacks = callbacks or ApplicationCallbacks()
     journal = SessionJournal(config.session_journal_dir, ZoneInfo(config["runtime.default_timezone"]))
     presentation_state = SessionPresentationStore()
@@ -225,9 +230,11 @@ async def open_application_host(
         presentation_state.add_usage(event.session_id, event.usage)
         await callbacks.handle_activity_label(event)
 
+    live_coordinator = LiveDeploymentCoordinator(config=config, client=QMTClient(qmt_profile) if qmt_profile else None)
     runtime: AgentRuntime | None = None
     activity: ActivityCoordinator | None = None
     try:
+        await live_coordinator.start()
         await start_execution(execution, config.workspace_dir)
         mcp_servers = _load_agent_mcp_servers(config)
         logger.info("Starting MCP server manager with %d configured servers", len(mcp_servers))
@@ -255,6 +262,7 @@ async def open_application_host(
                     config,
                     portfolios,
                     successful_tool_handler=portfolio_context.observe_successful_tool,
+                    live_coordinator=live_coordinator,
                 )
                 approvals = ApprovalCoordinator(
                     config=config,
@@ -316,6 +324,7 @@ async def open_application_host(
                     presentation_state=presentation_state,
                     session_lifecycle_lock=asyncio.Lock(),
                     initial_session_id=initial_session_id,
+                    live_coordinator=live_coordinator,
                 )
             finally:
                 try:
@@ -331,6 +340,7 @@ async def open_application_host(
                         if execution.sandbox is not None:
                             await close_execution(execution)
     finally:
+        await live_coordinator.close()
         if runtime is not None:
             await runtime.aclose()
         if execution.sandbox is not None:
