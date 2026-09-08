@@ -28,3 +28,31 @@ def load_artifacts(spec: WorkerLaunchSpec) -> RuntimeArtifacts:
     except (OSError, ValueError, TypeError, KeyError) as exc:
         raise RuntimeFailure("ARTIFACT_INVALID", str(exc)) from exc
     return RuntimeArtifacts(source, manifest, bootstrap, snapshot, directory)
+
+
+def worker_main(spec: WorkerLaunchSpec, pipe):
+    import threading
+
+    from .protocol import WorkerControl
+
+    control = WorkerControl()
+    reader = threading.Thread(target=control.receive, args=(pipe,), daemon=True, name="runtime-control")
+    reader.start()
+
+    def report(phase, reason=None, market_data=None):
+        pipe.send({"phase": phase, "reason": reason, "market_data": market_data})
+
+    try:
+        report("STARTING")
+        artifacts = load_artifacts(spec)
+        from investorch_qmt.rqalpha_live.runtime import run_live
+
+        run_live(artifacts, control, report)
+        report("STOPPED")
+    except RuntimeFailure as exc:
+        pipe.send({"phase": "FAILED", "reason": exc.code, "message": exc.message, "retryable": exc.retryable})
+    except BaseException as exc:
+        pipe.send({"phase": "FAILED", "reason": "WORKER_FAILED", "message": str(exc), "retryable": False})
+    finally:
+        control.stopped.set()
+        pipe.close()
