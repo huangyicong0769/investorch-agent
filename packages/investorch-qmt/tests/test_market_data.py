@@ -354,3 +354,16 @@ def test_terminal_without_period_metadata_uses_only_verified_stock_schedule():
         adapter.trading_periods("600519.XSHG")
     with pytest.raises(MarketDataError, match="UNSUPPORTED_INSTRUMENT"):
         adapter.trading_periods("510300.XSHG")
+
+
+def test_reference_api_connection_error_is_classified_as_market_unavailable():
+    from investorch_qmt.market_data.xtdata_adapter import XtDataAdapter
+
+    class Api:
+        def get_instrument_detail(self, symbol):
+            raise OSError("terminal unavailable")
+
+    with pytest.raises(MarketDataError) as error:
+        XtDataAdapter(Api()).instrument_detail("600519.XSHG")
+    assert error.value.code == "MARKET_DATA_NOT_READY"
+    assert error.value.transient is True

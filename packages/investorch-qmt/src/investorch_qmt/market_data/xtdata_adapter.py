@@ -127,10 +127,16 @@ class XtDataAdapter:
 
     def instrument_detail(self, instrument: str) -> dict:
         self.check_health()
-        detail = self._api.get_instrument_detail(to_xt_symbol(instrument))
-        if not detail:
-            raise MarketDataError("MARKET_DATA_NOT_READY", instrument, transient=True)
-        return detail
+        symbol = to_xt_symbol(instrument)
+        try:
+            detail = self._api.get_instrument_detail(symbol)
+            if not detail:
+                raise ValueError(f"Missing instrument detail: {instrument}")
+            return detail
+        except MarketDataError:
+            raise
+        except Exception as exc:
+            raise MarketDataError("MARKET_DATA_NOT_READY", str(exc), transient=True) from exc
 
     def last_price(self, instrument: str) -> float:
         to_xt_symbol(instrument)
