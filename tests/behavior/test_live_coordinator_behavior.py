@@ -408,11 +408,17 @@ async def test_desynchronization_explains_the_blocking_condition(tmp_path):
         await coordinator.close()
 
 
-async def test_application_host_opens_without_a_qmt_configuration(tmp_path):
+async def test_application_host_opens_without_a_qmt_configuration(tmp_path, monkeypatch):
     from investorch.application.host import open_application_host
     from tests.support.config import make_test_config
 
     config = make_test_config(tmp_path, {"secrets": {"DEEPSEEK_API_KEY": "unused-test-key"}})
+
+    async def initialize_command_sandbox(_execution, _workspace):
+        # This host contract does not execute commands or depend on the macOS sandbox.
+        pass
+
+    monkeypatch.setattr("investorch.application.host.start_execution", initialize_command_sandbox)
 
     async def approve(_request, _reason):
         return False
