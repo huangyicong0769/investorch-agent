@@ -57,6 +57,11 @@ def test_quote_subscription_preserves_holdings_and_replaces_before_unsubscribe()
             callback({"600519.SH": {"time": 1788849000000, "lastPrice": 123.5}})
             return len(self.events)
 
+        def subscribe_quote(self, symbol, **kwargs):
+            assert kwargs == dict(period="1d", start_time="", end_time="", count=1, callback=None)
+            self.events.append(("daily", symbol))
+            return len(self.events)
+
         def unsubscribe_quote(self, seq):
             self.events.append(("unsubscribe", seq))
 
@@ -71,13 +76,22 @@ def test_quote_subscription_preserves_holdings_and_replaces_before_unsubscribe()
     manager = SubscriptionManager(adapter, {"600519.XSHG"})
     manager.update({"000001.XSHE"})
     manager.update(set())
-    assert api.events == [("subscribe", ["000001.SZ", "600519.SH"]), ("subscribe", ["600519.SH"]), ("unsubscribe", 1)]
+    assert api.events == [
+        ("subscribe", ["000001.SZ", "600519.SH"]),
+        ("daily", "000001.SZ"),
+        ("daily", "600519.SH"),
+        ("subscribe", ["600519.SH"]),
+        ("daily", "600519.SH"),
+        ("unsubscribe", 1),
+        ("unsubscribe", 2),
+        ("unsubscribe", 3),
+    ]
     assert adapter.last_price("600519.XSHG") == 123.5
     assert adapter.limits("600519.XSHG") == (135, 110)
     with pytest.raises(MarketDataError, match="MARKET_PRICE_UNAVAILABLE"):
         adapter.last_price("000001.XSHE")
     manager.close()
-    assert api.events[-1] == ("unsubscribe", 2)
+    assert api.events[-2:] == [("unsubscribe", 4), ("unsubscribe", 5)]
 
 
 def test_liveness_detects_disconnect_without_waiting_for_quote_silence():
@@ -180,8 +194,13 @@ def test_subscription_failure_keeps_old_subscription_and_cleans_new_sequence():
             self.active.add(self.next)
             return self.next
 
+        def subscribe_quote(self, symbol, **kwargs):
+            self.next += 1
+            self.active.add(self.next)
+            return self.next
+
         def get_full_tick(self, symbols):
-            if self.next > 1:
+            if self.next > 2:
                 raise OSError("market not ready")
             return {}
 
@@ -193,7 +212,7 @@ def test_subscription_failure_keeps_old_subscription_and_cleans_new_sequence():
     manager.update({"600519.XSHG"})
     with pytest.raises(MarketDataError, match="MARKET_DATA_NOT_READY"):
         manager.update({"000001.XSHE"})
-    assert api.active == {1}
+    assert api.active == {1, 2}
 
 
 def test_sdk_disconnect_race_never_implicitly_reconnects_and_binding_is_restored():
@@ -231,7 +250,9 @@ def test_sdk_disconnect_race_never_implicitly_reconnects_and_binding_is_restored
         def run(self):
             pass
 
-        subscribe_whole_quote = unsubscribe_quote = get_market_data = get_full_tick = get_trading_period = run
+        subscribe_quote = subscribe_whole_quote = unsubscribe_quote = get_market_data = get_full_tick = (
+            get_trading_period
+        ) = run
 
     api = Api()
     original = api.get_client
@@ -307,3 +328,29 @@ def test_daily_fields_cannot_mix_different_date_columns():
 
     with pytest.raises(MarketDataError, match="MARKET_DATA_INCOMPLETE"):
         XtDataAdapter(Api()).daily_bar("600519.XSHG", date(2026, 9, 8))
+
+
+def test_terminal_without_period_metadata_uses_only_verified_stock_schedule():
+    from datetime import time
+
+    from investorch_qmt.market_data.xtdata_adapter import XtDataAdapter
+
+    class Api:
+        message = 'func:commonControl, error:{"error":{"ErrorID":300000,"ErrorMsg":"function not realize"}}'
+
+        def get_trading_period(self, symbol):
+            raise RuntimeError(self.message)
+
+    api = Api()
+    adapter = XtDataAdapter(api)
+    assert adapter.trading_periods("600519.XSHG") == (
+        (time(9, 15), time(9, 25)),
+        (time(9, 30), time(11, 30)),
+        (time(13), time(14, 57)),
+        (time(14, 57), time(15)),
+    )
+    api.message = "connection timed out"
+    with pytest.raises(MarketDataError, match="MARKET_DATA_NOT_READY"):
+        adapter.trading_periods("600519.XSHG")
+    with pytest.raises(MarketDataError, match="UNSUPPORTED_INSTRUMENT"):
+        adapter.trading_periods("510300.XSHG")

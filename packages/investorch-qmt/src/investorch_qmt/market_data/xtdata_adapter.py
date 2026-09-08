@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import re
 from collections.abc import Iterable
 from contextlib import suppress
 from datetime import date, datetime, time
@@ -28,6 +29,7 @@ class XtDataAdapter:
         self._failure = ""
         self._original_get_client = None
         self._subscriptions: set[int] = set()
+        self._subscription_groups: dict[int, tuple[int, ...]] = {}
 
     def daily_bar(self, order_book_id: str, trading_date: date) -> dict[str, Any]:
         symbol = to_xt_symbol(order_book_id)
@@ -85,16 +87,29 @@ class XtDataAdapter:
     def subscribe(self, instruments: Iterable[str]) -> int:
         symbols = sorted(to_xt_symbol(item) for item in instruments)
         self.check_health()
-        sequence = None
-        try:
-            sequence = self._api.subscribe_whole_quote(symbols, callback=self.cache.update)
+        allocated = []
+
+        def track(sequence):
             if not isinstance(sequence, int) or isinstance(sequence, bool) or sequence <= 0:
                 raise ValueError("Subscription failed")
+            allocated.append(sequence)
             self._subscriptions.add(sequence)
-            self.cache.update(self._api.get_full_tick(symbols))
             return sequence
+
+        try:
+            whole = track(self._api.subscribe_whole_quote(symbols, callback=self.cache.update))
+            for symbol in symbols:
+                # A whole-quote feed alone does not populate the server's daily cache.
+                # One initial row plus the ongoing daily subscription is sufficient;
+                # open start/end retain next-day updates, and queries still require exact D.
+                track(
+                    self._api.subscribe_quote(symbol, period="1d", start_time="", end_time="", count=1, callback=None)
+                )
+            self.cache.update(self._api.get_full_tick(symbols))
+            self._subscription_groups[whole] = tuple(allocated)
+            return whole
         except Exception as exc:
-            if sequence in self._subscriptions:
+            for sequence in allocated:
                 with suppress(Exception):
                     self.unsubscribe(sequence)
             if isinstance(exc, MarketDataError):
@@ -103,8 +118,12 @@ class XtDataAdapter:
 
     def unsubscribe(self, sequence: int) -> None:
         self.check_health()
-        self._api.unsubscribe_quote(sequence)
-        self._subscriptions.discard(sequence)
+        group = self._subscription_groups.get(sequence, (sequence,))
+        for member in group:
+            if member in self._subscriptions:
+                self._api.unsubscribe_quote(member)
+                self._subscriptions.discard(member)
+        self._subscription_groups.pop(sequence, None)
 
     def instrument_detail(self, instrument: str) -> dict:
         self.check_health()
@@ -140,6 +159,7 @@ class XtDataAdapter:
                 "connect",
                 "run",
                 "subscribe_whole_quote",
+                "subscribe_quote",
                 "unsubscribe_quote",
                 "get_market_data",
                 "get_full_tick",
@@ -210,7 +230,24 @@ class XtDataAdapter:
     def trading_periods(self, instrument: str) -> tuple[tuple[time, time], ...]:
         self.check_health()
         try:
-            metadata = self._api.get_trading_period(to_xt_symbol(instrument))
+            symbol = to_xt_symbol(instrument)
+            try:
+                metadata = self._api.get_trading_period(symbol)
+            except RuntimeError as exc:
+                # Broker MiniQMT may lack this newer SDK metadata endpoint (300000).
+                # Use the exchanges' stock auction schedule only for that capability error.
+                # SSE 2026 trading rules 2.4.2 and SZSE trading-time guidance:
+                # https://www.sse.com.cn/lawandrules/sselawsrules2025/stocks/exchange/c/c_20260424_10816482.shtml
+                # https://www.szse.cn/www/investor/knowledge/stock/deal/t20191204_572383.html
+                if re.search(r'"ErrorID"\s*:\s*300000\b', str(exc)) and "function not realize" in str(exc):
+                    self.check_health()
+                    return (
+                        (time(9, 15), time(9, 25)),
+                        (time(9, 30), time(11, 30)),
+                        (time(13), time(14, 57)),
+                        (time(14, 57), time(15)),
+                    )
+                raise
             periods = []
             for period in metadata["tradings"]:
                 if period["status"] not in (2, 3, 8):

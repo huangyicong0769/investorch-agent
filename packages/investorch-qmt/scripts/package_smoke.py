@@ -57,7 +57,14 @@ def main() -> None:
         assert distribution("xtquant").version == "250807.1.2"
         from xtquant import xtdata
 
-        for name in ("connect", "run", "get_market_data", "get_trading_period", "subscribe_whole_quote"):
+        for name in (
+            "connect",
+            "run",
+            "get_market_data",
+            "get_trading_period",
+            "subscribe_whole_quote",
+            "subscribe_quote",
+        ):
             assert callable(getattr(xtdata, name, None))
         from investorch_qmt.runtime import worker
 

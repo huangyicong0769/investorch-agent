@@ -13,6 +13,7 @@ def main() -> None:
         "disconnect",
         "run",
         "subscribe_whole_quote",
+        "subscribe_quote",
         "unsubscribe_quote",
         "get_market_data",
         "get_full_tick",
