@@ -1,6 +1,7 @@
 import json
 import pickle
 from datetime import datetime
+from pathlib import Path
 from types import SimpleNamespace
 
 import h5py
@@ -15,7 +16,7 @@ from investorch_qmt.rqalpha_live.runtime import run_live
 
 @pytest.fixture
 def bundle(monkeypatch, tmp_path):
-    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
     monkeypatch.chdir(tmp_path)
     path = tmp_path / ".rqalpha" / "bundle"
     path.mkdir(parents=True)
