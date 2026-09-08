@@ -1,6 +1,6 @@
 # QMT remote execution protocol
 
-The remote execution protocol transfers a frozen Core deployment to one Windows execution node and maintains control authority and reliable TRADE_V1 delivery. It does not connect QMT or run a production RQAlpha LIVE loop. `start_live_strategy` returns `BACKEND_NOT_READY` and leaves the deployment STAGED.
+The remote execution protocol transfers a frozen Core deployment to one Windows execution node and maintains control authority and reliable TRADE_V1 delivery. It does not connect QMT or run a production RQAlpha LIVE loop. With current control authority, `start_live_strategy` returns `BACKEND_NOT_READY` and leaves the deployment STAGED.
 
 ## Connection configuration
 
@@ -28,7 +28,7 @@ Authorization = "Bearer ${QMT_MCP_TOKEN}"
 
 The token uses the existing MCP secret expansion mechanism. REST reuses the expanded headers and server timeout, falling back to `mcp.default_timeout_seconds`. Do not configure a second REST URL or token. Core parses the MCP URL to derive `http://192.168.1.20:8765/api/v1`; the supported MCP path is `/mcp` or `/mcp/`, without URL credentials, query, or fragment.
 
-An empty `qmt.mcp_server` is valid and leaves research/backtesting available. A reference to an unknown or disabled server is a static configuration error. The selected QMT server must list both `start_live_strategy` and `stop_live_strategy` in `require_approval`; missing or partial approval configuration fails before connecting. Approval lists on other MCP servers remain independently configurable. Changing this setting requires a Core restart. An offline configured Windows node does not require Core startup to fail, and no ACTIVE deployment means no recurring node reconnect or heartbeat.
+An empty `qmt.mcp_server` is valid and leaves research/backtesting available. A reference to an unknown or disabled server is a static configuration error. The selected QMT server must list both `start_live_strategy` and `stop_live_strategy` in `require_approval`; missing or partial approval configuration fails before connecting. Approval lists on other MCP servers remain independently configurable. Changing this setting requires a Core restart. An unconfigured deployment returns `EXECUTION_NODE_NOT_CONFIGURED` before creating a deployment or frozen files. An offline configured Windows node does not require Core startup to fail, and no ACTIVE deployment means no recurring node reconnect or heartbeat.
 
 ## Tools and ownership
 
@@ -52,14 +52,18 @@ All routes share `/mcp`'s server, port, Bearer authentication, and Host/Origin p
 | Method | Path | Purpose |
 | --- | --- | --- |
 | GET | `/api/v1/node/status` | Observe node/control state and retained deployment summaries |
-| POST | `/api/v1/control-sessions` | Open a new node-wide session, fencing the old session |
+| POST | `/api/v1/control-sessions` | Acquire the exclusive node-wide lease when free or expired |
 | POST | `/api/v1/control-sessions/{session_id}/renew` | Renew the current lease; optionally assert reconciliation |
 | DELETE | `/api/v1/control-sessions/{session_id}` | Close that session without invalidating a newer one |
 | PUT | `/api/v1/deployments/{deployment_id}` | Validate and stage an immutable deployment |
 | GET | `/api/v1/facts/next` | Return one oldest PENDING fact, or `{"fact": null}` |
 | POST | `/api/v1/facts/{fact_id}/ack` | Acknowledge one committed canonical sequence |
 
-Stage, next-fact, and ACK require `X-InvestOrch-Control-Session`. Missing, expired, or fenced authority produces `409 STALE_CONTROL_SESSION`. Sessions live only in Windows process memory and become invalid on restart. Lease responses provide `lease_timeout_seconds`; Core renews at one third of that interval while ACTIVE work exists. Expiry fails control closed without killing a runtime or changing Core ownership.
+Stage, next-fact, and ACK require `X-InvestOrch-Control-Session`. Missing, expired, or superseded authority produces `409 STALE_CONTROL_SESSION`. Sessions live only in Windows process memory and become invalid on restart. Lease responses provide `lease_timeout_seconds`; Core renews at one third of that interval while ACTIVE work exists. Expiry fails control closed without killing a runtime or changing Core ownership.
+
+Opening a session while a current lease is valid returns HTTP 409 with `{"code":"CONTROL_SESSION_BUSY","message":"Another Core currently owns the execution-node control lease.","retryable":true}`. A successor can acquire control only after expiry or explicit close; a stale close cannot invalidate the successor. Core keeps an existing ACTIVE deployment and reports UNKNOWN with the busy reason. In `get_live_status`, node `availability` reports reachability and `control_authority` reports this Core's authority independently. A busy new preflight ends only its PREPARED deployment as FAILED.
+
+MCP `get_status` requires Bearer authentication only. MCP start and stop also require the current `X-InvestOrch-Control-Session` header, checked before deployment state or backend readiness. The Core SDK HTTP auth provider reads current coordinator authority for each request, removing the header when authority is cleared. The companion reads it from the SDK's request-local context. The Agent still supplies only `portfolio_id`; authority does not replace approval. Idle MCP connects without acquiring a lease.
 
 Ordinary renewal has an empty body. After draining and checking canonical heads, Core can send:
 
@@ -107,7 +111,9 @@ Empty outbox plus equal canonical head and remote ACK cursor permits SYNCED. Pen
 
 ApplicationHost owns the coordinator. ACTIVE work triggers recovery at startup; failures back off through 1, 2, 5, 10, and then 30 seconds. Foreground actions can retry immediately. Heartbeat failure drops local authority and triggers recovery. Recovery drains and reconciles before declaring synchronization restored; the final ACTIVE deployment ending stops recurring network work.
 
-STAGED stop becomes STOPPED; repeated stop is idempotent. FAILED remains terminal. Stopping a production RUNNING runtime is not supported and returns `BACKEND_NOT_READY`. Core transitions to STOPPED/FAILED only after the matching remote terminal state, drained facts, and equal sequences. It never adopts another remote deployment or reactivates terminal Core ownership.
+A QMT MCP connection that failed at startup is retried on foreground deployment/status, explicit connection recovery, or existing ACTIVE recovery. The selected QMT server has its own SDK manager so retries do not change generic MCP behavior. There is no idle MCP retry worker. MCP refresh happens outside REST reconciliation, and a failed refresh does not undo successful staging. Each Agent Run takes one fresh active-server snapshot; reconnect affects subsequent Runs without changing the tools of an in-flight Run. This recovery addresses failed connection attempts; it does not add general transport-health polling for previously established connections.
+
+With current control authority, STAGED stop becomes STOPPED; repeated stop is idempotent. FAILED remains terminal. Stopping a production RUNNING runtime is not supported and returns `BACKEND_NOT_READY`. Core transitions to STOPPED/FAILED only after the matching remote terminal state, drained facts, and equal sequences. It never adopts another remote deployment or reactivates terminal Core ownership.
 
 The companion retains terminal deployment metadata, artifacts, and ACKED facts. Historical terminal rows with no pending work coexist with a successor; they must not be mistaken for the Portfolio's current deployment. Current remote work without matching ACTIVE Core ownership, or terminal Core ownership with remote RUNNING, is DESYNCED.
 

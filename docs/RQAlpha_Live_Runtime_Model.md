@@ -96,7 +96,7 @@ STOPPED and FAILED are terminal; a new run requires a new deployment. Metadata i
 
 An ACTIVE Portfolio rejects ordinary economic mutations at the storage write boundary: initialization, manual trade/cash/income/adjustment, correction, transfers involving either Portfolio, and allocation. Metadata and StrategyBinding edits remain allowed because the active artifact is already frozen. Ordinary append cannot spoof `source="live_execution"` to bypass this boundary; live trades use the dedicated ingestion API.
 
-The reservation survives Core restart and does not expire with a network lease. The companion maintains a separate node-wide, in-memory control session: opening a session fences the previous session, and expiry makes execution control unavailable. This lease does not itself end Core ownership or kill a runtime. Core releases ownership only after observing the matching remote terminal deployment, draining its pending facts, and verifying that the remote ACK cursor equals the canonical Ledger head.
+The reservation survives Core restart and does not expire with a network lease. The companion maintains a separate node-wide, in-memory control session: a valid lease cannot be preempted (`CONTROL_SESSION_BUSY`); expiry or explicit close permits a successor. Expiry makes execution control unavailable. MCP state changes carry the current lease in a request-local HTTP header managed by Core infrastructure. This lease does not itself end Core ownership or kill a runtime. Core releases ownership only after observing the matching remote terminal deployment, draining its pending facts, and verifying that the remote ACK cursor equals the canonical Ledger head.
 
 ## Bootstrap Snapshot V1
 
