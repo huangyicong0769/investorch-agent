@@ -1,5 +1,6 @@
 """The sole execution-node business boundary used by REST and MCP."""
 
+import json
 import os
 import shutil
 import tempfile
@@ -180,3 +181,88 @@ class ExecutionNodeService:
             finally:
                 if temporary is not None:
                     shutil.rmtree(temporary)
+
+    @staticmethod
+    def _fact(row) -> dict:
+        return {
+            "fact_id": row["fact_id"],
+            "queue_sequence": row["queue_sequence"],
+            "deployment_id": row["deployment_id"],
+            "fact_type": row["fact_type"],
+            "external_fact_id": row["external_fact_id"],
+            "payload": json.loads(row["payload_json"]),
+        }
+
+    def enqueue_trade_fact(self, payload: dict) -> dict:
+        from .contracts import parse_trade
+
+        payload_json = parse_trade(payload)
+        with self._lock, self.storage.transaction() as db:
+            existing = db.execute(
+                "SELECT * FROM outbox WHERE deployment_id=? AND fact_type='TRADE_V1' AND external_fact_id=?",
+                (payload["deployment_id"], payload["broker_trade_id"]),
+            ).fetchone()
+            if existing is not None:
+                if existing["payload_json"] != payload_json:
+                    raise ExecutionError("FACT_ACK_CONFLICT", "Broker trade identity has different content.")
+                return self._fact(existing)
+            deployment = db.execute(
+                "SELECT * FROM remote_deployments WHERE deployment_id=?", (payload["deployment_id"],)
+            ).fetchone()
+            if deployment is None:
+                raise ExecutionError("DEPLOYMENT_NOT_FOUND", "Deployment does not exist.", status=404)
+            fact_id = str(uuid4())
+            db.execute(
+                """INSERT INTO outbox (fact_id,deployment_id,fact_type,external_fact_id,payload_json,status,created_at)
+                VALUES (?,?,'TRADE_V1',?,?,'PENDING',?)""",
+                (
+                    fact_id,
+                    payload["deployment_id"],
+                    payload["broker_trade_id"],
+                    payload_json,
+                    self._clock().isoformat(),
+                ),
+            )
+            self._sync[payload["deployment_id"]] = "COMMIT_PENDING"
+            return self._fact(db.execute("SELECT * FROM outbox WHERE fact_id=?", (fact_id,)).fetchone())
+
+    def get_next_pending_fact(self, session_id: str) -> dict | None:
+        with self._lock, self.storage.transaction() as db:
+            self._require_control(session_id)
+            row = db.execute("SELECT * FROM outbox WHERE status='PENDING' ORDER BY queue_sequence LIMIT 1").fetchone()
+            return self._fact(row) if row else None
+
+    def ack_fact(self, fact_id: str, committed_ledger_sequence: int, session_id: str) -> dict:
+        from .contracts import sequence
+
+        with self._lock, self.storage.transaction() as db:
+            self._require_control(session_id)
+            sequence(committed_ledger_sequence)
+            row = db.execute("SELECT * FROM outbox WHERE fact_id=?", (fact_id,)).fetchone()
+            if row is None:
+                raise ExecutionError("FACT_NOT_FOUND", "Fact does not exist.", status=404)
+            if row["status"] == "ACKED":
+                if row["committed_ledger_sequence"] != committed_ledger_sequence:
+                    raise ExecutionError("SEQUENCE_CONFLICT", "Acknowledged sequence cannot change.")
+            else:
+                oldest = db.execute(
+                    "SELECT fact_id FROM outbox WHERE status='PENDING' ORDER BY queue_sequence LIMIT 1"
+                ).fetchone()[0]
+                if oldest != fact_id:
+                    raise ExecutionError("FACT_ACK_CONFLICT", "Only the oldest pending fact can be acknowledged.")
+                cursor = db.execute(
+                    "SELECT acked_core_sequence FROM remote_deployments WHERE deployment_id=?", (row["deployment_id"],)
+                ).fetchone()[0]
+                if committed_ledger_sequence != cursor + 1:
+                    self._sync[row["deployment_id"]] = "DESYNCED"
+                    raise ExecutionError("SEQUENCE_CONFLICT", "Committed sequence must advance exactly by one.")
+                now = self._clock().isoformat()
+                db.execute(
+                    "UPDATE outbox SET status='ACKED',acked_at=?,committed_ledger_sequence=? WHERE fact_id=?",
+                    (now, committed_ledger_sequence, fact_id),
+                )
+                db.execute(
+                    "UPDATE remote_deployments SET acked_core_sequence=?,updated_at=? WHERE deployment_id=?",
+                    (committed_ledger_sequence, now, row["deployment_id"]),
+                )
+            return {"fact_id": fact_id, "status": "ACKED", "committed_ledger_sequence": committed_ledger_sequence}

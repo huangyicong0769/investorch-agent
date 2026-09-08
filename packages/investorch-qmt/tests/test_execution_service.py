@@ -106,3 +106,96 @@ def test_failed_database_insert_removes_installed_artifact(tmp_path):
         service.stage_deployment("deployment-a", stage_body(), session)
     assert service.get_node_status()["deployments"] == []
     assert list((tmp_path / "deployments").iterdir()) == []
+
+
+def trade(trade_id="fill-1", deployment_id="deployment-a"):
+    return {
+        "schema_version": 1,
+        "deployment_id": deployment_id,
+        "broker_trade_id": trade_id,
+        "instrument": {"code": "600519", "market": "XSHG"},
+        "side": "BUY",
+        "quantity": "100",
+        "price": "10.50",
+        "commission": "1",
+        "tax": "0",
+        "other_fee": "0",
+        "effective_at": "2026-09-08T01:23:45+08:00",
+    }
+
+
+def test_durable_fifo_ack_and_idempotent_redelivery(tmp_path):
+    service = ExecutionNodeService(default_paths(tmp_path))
+    session = service.open_control_session()["session_id"]
+    service.stage_deployment("deployment-a", stage_body(), session)
+    first = service.enqueue_trade_fact(trade())
+    second = service.enqueue_trade_fact(trade("fill-2"))
+    assert service.enqueue_trade_fact(trade()) == first
+    service = ExecutionNodeService(default_paths(tmp_path))
+    session = service.open_control_session()["session_id"]
+    assert service.get_next_pending_fact(session) == first
+    with pytest.raises(ExecutionError, match="FACT_ACK_CONFLICT"):
+        service.ack_fact(second["fact_id"], 13, session)
+    with pytest.raises(ExecutionError, match="SEQUENCE_CONFLICT"):
+        service.ack_fact(first["fact_id"], 14, session)
+    ack = service.ack_fact(first["fact_id"], 13, session)
+    assert ack == {"fact_id": first["fact_id"], "status": "ACKED", "committed_ledger_sequence": 13}
+    assert service.ack_fact(first["fact_id"], 13, session) == ack
+    assert service.get_next_pending_fact(session) == second
+    service.ack_fact(second["fact_id"], 14, session)
+    assert service.get_next_pending_fact(session) is None
+    assert service.get_node_status()["deployments"][0]["acked_core_sequence"] == 14
+    assert service.enqueue_trade_fact(trade()) == first
+
+
+def test_ack_failure_rolls_back_fact_and_cursor(tmp_path):
+    import sqlite3
+
+    service = ExecutionNodeService(default_paths(tmp_path))
+    session = service.open_control_session()["session_id"]
+    service.stage_deployment("deployment-a", stage_body(), session)
+    fact = service.enqueue_trade_fact(trade())
+    with sqlite3.connect(tmp_path / "runtime.db") as db:
+        db.execute(
+            "CREATE TRIGGER reject_cursor BEFORE UPDATE OF acked_core_sequence ON remote_deployments BEGIN SELECT RAISE(ABORT,'disk fault'); END"
+        )
+    with pytest.raises(sqlite3.IntegrityError):
+        service.ack_fact(fact["fact_id"], 13, session)
+    assert service.get_next_pending_fact(session) == fact
+    assert service.get_node_status()["deployments"][0]["acked_core_sequence"] == 12
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        lambda p: p.update(quantity="NaN"),
+        lambda p: p.update(price=1),
+        lambda p: p.update(quantity="0"),
+        lambda p: p.update(commission="-1"),
+        lambda p: p.update(schema_version=True),
+        lambda p: p.update(broker_trade_id=" fill "),
+        lambda p: p.update(effective_at="2026-09-08"),
+        lambda p: p.update(extra=1),
+        lambda p: p["instrument"].update(extra=1),
+    ],
+)
+def test_trade_contract_rejects_invalid_payload_before_persistence(tmp_path, change):
+    service = ExecutionNodeService(default_paths(tmp_path))
+    payload = trade()
+    change(payload)
+    with pytest.raises(ExecutionError):
+        service.enqueue_trade_fact(payload)
+
+
+def test_stale_authority_cannot_stage_pull_or_ack(tmp_path):
+    service = ExecutionNodeService(default_paths(tmp_path))
+    stale = service.open_control_session()["session_id"]
+    current = service.open_control_session()["session_id"]
+    for operation in (
+        lambda: service.stage_deployment("deployment-a", stage_body(), stale),
+        lambda: service.get_next_pending_fact(stale),
+        lambda: service.ack_fact("unknown", 1, stale),
+    ):
+        with pytest.raises(ExecutionError, match="STALE_CONTROL_SESSION"):
+            operation()
+    assert service.get_next_pending_fact(current) is None
