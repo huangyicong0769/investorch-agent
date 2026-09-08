@@ -1,0 +1,194 @@
+from __future__ import annotations
+
+import math
+from datetime import date, datetime, time
+from importlib.metadata import version
+from threading import Event, Thread
+from typing import Any
+from zoneinfo import ZoneInfo
+
+from .errors import MarketDataError
+from .quote_cache import QuoteCache
+from .symbols import to_xt_symbol
+
+SHANGHAI = ZoneInfo("Asia/Shanghai")
+FIELDS = ("time", "open", "high", "low", "close", "volume", "amount", "preClose", "suspendFlag")
+
+
+class XtDataAdapter:
+    def __init__(self, api: Any = None):
+        self._api = api
+        self.cache = QuoteCache()
+        self.failed = Event()
+        self._closed = Event()
+        self._thread: Thread | None = None
+        self._client: Any = None
+        self._failure = ""
+
+    def daily_bar(self, order_book_id: str, trading_date: date) -> dict[str, Any]:
+        symbol = to_xt_symbol(order_book_id)
+        day = trading_date.strftime("%Y%m%d")
+        try:
+            self.check_health()
+            data = self._api.get_market_data(
+                field_list=list(FIELDS),
+                stock_list=[symbol],
+                period="1d",
+                start_time=day,
+                end_time=day,
+                count=-1,
+                dividend_type="none",
+                fill_data=False,
+            )
+            row = {}
+            for field in FIELDS:
+                series = data[field].loc[symbol]
+                if len(series) != 1:
+                    raise ValueError("Expected exactly one current-day row")
+                row[field] = float(series.iloc[0])
+            if not all(math.isfinite(value) for value in row.values()):
+                raise ValueError("Nonfinite daily field")
+            if datetime.fromtimestamp(row["time"] / 1000, SHANGHAI).date() != trading_date:
+                raise ValueError("Daily row has a different trading date")
+            if row["suspendFlag"] not in (-1, 0, 1):
+                raise ValueError("Invalid suspension flag")
+            suspended = row["suspendFlag"] == 1
+            if row["volume"] < 0 or row["amount"] < 0 or row["preClose"] <= 0:
+                raise ValueError("Invalid volume/turnover/previous close")
+            prices = [row[field] for field in ("open", "high", "low", "close")]
+            if suspended:
+                if row["volume"] != 0 or row["amount"] != 0 or min(prices) < 0:
+                    raise ValueError("Suspended row carries trades or invalid prices")
+            elif min(prices) <= 0 or row["high"] < max(prices) or row["low"] > min(prices):
+                raise ValueError("Invalid active daily prices")
+            return {
+                "datetime": int(day) * 1000000,
+                **{field: row[field] for field in ("open", "high", "low", "close")},
+                "volume": row["volume"] * 100,
+                "total_turnover": row["amount"],
+                "prev_close": row["preClose"],
+                "suspended": suspended,
+            }
+        except MarketDataError:
+            raise
+        except Exception as exc:
+            raise MarketDataError("MARKET_DATA_INCOMPLETE", str(exc)) from exc
+
+    def subscribe(self, instruments) -> int:
+        symbols = sorted(to_xt_symbol(item) for item in instruments)
+        self.check_health()
+        sequence = self._api.subscribe_whole_quote(symbols, callback=self.cache.update)
+        if not isinstance(sequence, int) or isinstance(sequence, bool) or sequence <= 0:
+            raise MarketDataError("MARKET_DATA_NOT_READY", "Subscription failed", transient=True)
+        self.cache.update(self._api.get_full_tick(symbols))
+        return sequence
+
+    def unsubscribe(self, sequence: int) -> None:
+        self.check_health()
+        self._api.unsubscribe_quote(sequence)
+
+    def instrument_detail(self, instrument: str) -> dict:
+        self.check_health()
+        detail = self._api.get_instrument_detail(to_xt_symbol(instrument))
+        if not detail:
+            raise MarketDataError("MARKET_DATA_NOT_READY", instrument, transient=True)
+        return detail
+
+    def last_price(self, instrument: str) -> float:
+        to_xt_symbol(instrument)
+        self.check_health()
+        return self.cache.last_price(instrument)
+
+    def limits(self, instrument: str) -> tuple[float, float]:
+        detail = self.instrument_detail(instrument)
+        try:
+            up, down = float(detail["UpStopPrice"]), float(detail["DownStopPrice"])
+            if not all(math.isfinite(value) and value > 0 for value in (up, down)) or up < down:
+                raise ValueError("Invalid price limits")
+            return up, down
+        except (KeyError, TypeError, ValueError) as exc:
+            raise MarketDataError("MARKET_PRICE_UNAVAILABLE", instrument) from exc
+
+    def connect(self) -> None:
+        try:
+            if self._api is None:
+                if version("xtquant") != "250807.1.2":
+                    raise ValueError("xtquant must be exactly 250807.1.2")
+                from xtquant import xtdata
+
+                self._api = xtdata
+            for name in (
+                "connect",
+                "run",
+                "subscribe_whole_quote",
+                "unsubscribe_quote",
+                "get_market_data",
+                "get_full_tick",
+                "get_instrument_detail",
+                "get_trading_period",
+                "disconnect",
+            ):
+                if not callable(getattr(self._api, name, None)):
+                    raise ValueError(f"Missing xtdata API: {name}")
+            self._client = self._api.connect()
+            if self._client is None or not self._client.is_connected():
+                raise ValueError("xtdata connection unavailable")
+        except Exception as exc:
+            raise MarketDataError("MARKET_DATA_NOT_READY", str(exc), transient=True) from exc
+
+    def start_liveness(self) -> None:
+        if self._thread is not None:
+            return
+
+        def run():
+            try:
+                self._api.run()
+                if not self._closed.is_set():
+                    self._failure = "xtdata.run returned unexpectedly"
+                    self.failed.set()
+            except Exception as exc:
+                if not self._closed.is_set():
+                    self._failure = str(exc)
+                    self.failed.set()
+
+        self._thread = Thread(target=run, name="xtdata-liveness", daemon=True)
+        self._thread.start()
+
+    def check_health(self) -> None:
+        # Keep the original client reference: get_client() would auto-reconnect.
+        if self.failed.is_set() or (self._client is not None and not self._client.is_connected()):
+            raise MarketDataError("MARKET_DATA_DISCONNECTED", self._failure)
+        if self._closed.is_set():
+            raise MarketDataError("MARKET_DATA_DISCONNECTED", "Adapter is closed")
+
+    def close(self) -> None:
+        self._closed.set()
+        if self._client is not None:
+            self._api.disconnect()
+
+    def trading_periods(self, instrument: str) -> tuple[tuple[time, time], ...]:
+        self.check_health()
+        try:
+            metadata = self._api.get_trading_period(to_xt_symbol(instrument))
+            periods = []
+            for period in metadata["tradings"]:
+                if period["status"] not in (2, 3, 8):
+                    continue
+                offset, begin, end = period["time"]
+                if offset != 0:
+                    raise ValueError("Unexpected stock trading-day offset")
+
+                def parse(value):
+                    return time(value // 10000, (value // 100) % 100, value % 100)
+
+                start, stop = parse(begin[0]), parse(end[0])
+                if start >= stop:
+                    raise ValueError("Invalid trading period")
+                periods.append((start, stop))
+            if not periods:
+                raise ValueError("Missing stock trading periods")
+            return tuple(sorted(periods))
+        except MarketDataError:
+            raise
+        except Exception as exc:
+            raise MarketDataError("MARKET_DATA_NOT_READY", str(exc), transient=True) from exc

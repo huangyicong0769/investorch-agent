@@ -657,6 +657,7 @@ dependencies = [
     { name = "starlette" },
     { name = "tomlkit" },
     { name = "uvicorn" },
+    { name = "xtquant", marker = "sys_platform == 'win32'" },
 ]
 
 [package.dev-dependencies]
@@ -677,6 +678,7 @@ requires-dist = [
     { name = "starlette", specifier = ">=0.48,<1" },
     { name = "tomlkit", specifier = ">=0.15.1,<0.16" },
     { name = "uvicorn", specifier = ">=0.52.4,<0.53" },
+    { name = "xtquant", marker = "sys_platform == 'win32'", specifier = "==250807.1.2" },
 ]
 
 [package.metadata.requires-dev]
@@ -2090,4 +2092,12 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/09/50/4e7ef58c4eb058861ceddc0d1f94a6ed87f62e1cb27783c60b2897ef7e58/wrapt-2.4.0-cp315-cp315t-win_amd64.whl", hash = "sha256:85ed3c67fd39e8d9a36c224758cb6f2f4eb277d07ea677930caa0008c18ec002", size = 99888, upload-time = "2026-08-30T04:41:27.305Z" },
     { url = "https://files.pythonhosted.org/packages/68/64/d15740c763dd0ddea2338ad42e3bd4a84f8702e16083e7ff61674c504a13/wrapt-2.4.0-cp315-cp315t-win_arm64.whl", hash = "sha256:36b56a4fba13b34ed8ff307557325fff215de0a58b5dbaef2c50e4d8aa39dbd1", size = 96039, upload-time = "2026-08-30T04:41:29.062Z" },
     { url = "https://files.pythonhosted.org/packages/79/c8/fafe0002f572ced999c792cfe8b05d39269c63d8193d15d25bd828bcad7a/wrapt-2.4.0-py3-none-any.whl", hash = "sha256:18aabd9301d06026f5900538051773d6f87f65ae02cdc60de482df978513dc0a", size = 73713, upload-time = "2026-08-30T04:41:49.805Z" },
+]
+
+[[package]]
+name = "xtquant"
+version = "250807.1.2"
+source = { registry = "https://pypi.org/simple" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b4/bb/a5fa80e4cf880d320e6abc75bb061075824bc3c0a7f55446f90f79013159/xtquant-250807.1.2-py3-none-any.whl", hash = "sha256:91f19ff9a92971c5abe64fbd077e5212e0418f0820aa3427aef3444230f72921", size = 34370142, upload-time = "2026-07-21T04:49:19.766Z" },
 ]
