@@ -3,13 +3,14 @@ from typing import Any
 from agents import RunContextWrapper
 from agents.decorators import tool
 
-from investorch.application.brokers import BrokerOperations
 from investorch.context import AgentContext
 
 
 @tool
 async def list_broker_accounts(context: RunContextWrapper[AgentContext]) -> dict[str, Any]:
     """List registered BrokerAccount identities for live deployment; does not connect to a broker."""
+    from investorch.application.brokers import BrokerOperations
+
     operations = BrokerOperations(config=context.context.config)
     brokers = {broker.broker_id: broker for broker in await operations.list_brokers()}
     accounts = await operations.list_broker_accounts()
