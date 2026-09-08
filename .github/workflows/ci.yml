@@ -141,6 +141,8 @@ jobs:
         run: uv run --locked ruff format --check .
       - name: Lint Python
         run: uv run --locked ruff check .
+      - name: Verify pinned native xtquant API without a terminal
+        run: uv run --locked python scripts/xtquant_smoke.py
       - name: Run companion tests
         run: uv run --locked pytest
       - name: Build companion distributions

@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 from importlib.metadata import PackageNotFoundError, distribution
 from pathlib import Path
@@ -41,7 +42,6 @@ def main() -> None:
         "investorch",
         "openai-agents",
         "textual",
-        "xtquant",
         "xtquant-big-convert",
     ):
         assert not any(requirement.startswith(prohibited) for requirement in requirements)
@@ -51,6 +51,17 @@ def main() -> None:
             pass
         else:
             raise AssertionError(f"{prohibited} must not be installed")
+
+    assert any(requirement.split(";")[0].strip() == "xtquant==250807.1.2" for requirement in requirements)
+    if sys.platform == "win32":
+        assert distribution("xtquant").version == "250807.1.2"
+        from xtquant import xtdata
+
+        for name in ("connect", "run", "get_market_data", "get_trading_period", "subscribe_whole_quote"):
+            assert callable(getattr(xtdata, name, None))
+        from investorch_qmt.runtime import worker
+
+        assert worker is not None
 
     executable = shutil.which("investorch-qmt")
     assert executable is not None
@@ -76,7 +87,8 @@ def main() -> None:
         paths = default_paths(Path(temp_dir) / "runtime")
         service = ExecutionNodeService(paths)
         assert paths.runtime_db.is_file()
-        assert service.get_node_status()["qmt"]["status"] == "not_connected"
+        assert service.get_node_status()["market_data"]["status"] == "DISCONNECTED"
+        assert service.get_node_status()["trading"]["status"] == "NOT_READY"
         server = create_mcp_server(TransportSecuritySettings(), service)
         listed = asyncio.run(server.list_tools())
         assert "get_status" in [tool.name for tool in listed]

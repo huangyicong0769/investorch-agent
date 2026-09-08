@@ -242,3 +242,68 @@ def test_sdk_disconnect_race_never_implicitly_reconnects_and_binding_is_restored
     assert api.connects == 1
     adapter.close()
     assert api.get_client == original
+
+
+def test_official_native_daily_example_maps_hands_to_rqalpha_shares():
+    from datetime import date
+
+    import pandas as pd
+
+    from investorch_qmt.market_data.xtdata_adapter import XtDataAdapter
+
+    # https://dict.thinktrader.net/dictionary/stock.html, native Python daily example.
+    # 691423400 / 68469500 = 10.0983 yuan/share, within that day's 10.08-10.13 range.
+    row = dict(
+        time=1700755200000,
+        open=10.11,
+        high=10.13,
+        low=10.08,
+        close=10.10,
+        volume=684695,
+        amount=691423400,
+        preClose=10.15,
+        suspendFlag=0,
+    )
+
+    class Api:
+        def get_market_data(self, **kwargs):
+            return {
+                key: pd.DataFrame([[value]], index=["000001.SZ"], columns=["20231124"]) for key, value in row.items()
+            }
+
+    bar = XtDataAdapter(Api()).daily_bar("000001.XSHE", date(2023, 11, 24))
+    assert bar["volume"] == 68469500
+    assert bar["total_turnover"] == 691423400
+    assert bar["prev_close"] == 10.15
+    assert bar["low"] <= bar["total_turnover"] / bar["volume"] <= bar["high"]
+
+
+def test_daily_fields_cannot_mix_different_date_columns():
+    from datetime import date
+
+    import pandas as pd
+
+    from investorch_qmt.market_data.xtdata_adapter import XtDataAdapter
+
+    class Api:
+        def get_market_data(self, **kwargs):
+            row = dict(
+                time=1788796800000,
+                open=100,
+                high=105,
+                low=99,
+                close=104,
+                volume=123,
+                amount=1234500,
+                preClose=98,
+                suspendFlag=0,
+            )
+            return {
+                key: pd.DataFrame(
+                    [[value]], index=["600519.SH"], columns=["20260907" if key == "close" else "20260908"]
+                )
+                for key, value in row.items()
+            }
+
+    with pytest.raises(MarketDataError, match="MARKET_DATA_INCOMPLETE"):
+        XtDataAdapter(Api()).daily_bar("600519.XSHG", date(2026, 9, 8))

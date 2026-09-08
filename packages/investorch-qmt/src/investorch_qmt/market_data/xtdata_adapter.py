@@ -47,6 +47,8 @@ class XtDataAdapter:
             row = {}
             for field in FIELDS:
                 series = data[field].loc[symbol]
+                if not series.index.equals(data["time"].columns):
+                    raise ValueError("Daily fields have inconsistent date columns")
                 if len(series) != 1:
                     raise ValueError("Expected exactly one current-day row")
                 row[field] = float(series.iloc[0])
@@ -68,6 +70,8 @@ class XtDataAdapter:
             return {
                 "datetime": int(day) * 1000000,
                 **{field: row[field] for field in ("open", "high", "low", "close")},
+                # Official native daily example: amount/volume implies 100-share hands.
+                # https://dict.thinktrader.net/dictionary/stock.html
                 "volume": row["volume"] * 100,
                 "total_turnover": row["amount"],
                 "prev_close": row["preClose"],
