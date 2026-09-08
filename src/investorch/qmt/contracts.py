@@ -42,11 +42,11 @@ def deployment_summary(value: Any) -> dict:
     value = object_value(value)
     for key in ("deployment_id", "portfolio_id", "broker_account_id"):
         text_value(value.get(key))
-    if value.get("status") not in {"STAGED", "RUNNING", "STOPPED", "FAILED"}:
+    if text_value(value.get("status")) not in {"STAGED", "RUNNING", "STOPPED", "FAILED"}:
         raise QMTProtocolError("Invalid remote deployment status")
     for key in ("acked_core_sequence", "pending_fact_count"):
         sequence_value(value.get(key))
-    if value.get("portfolio_sync") not in {"UNKNOWN", "SYNCED", "COMMIT_PENDING", "DESYNCED"}:
+    if text_value(value.get("portfolio_sync")) not in {"UNKNOWN", "SYNCED", "COMMIT_PENDING", "DESYNCED"}:
         raise QMTProtocolError("Invalid portfolio synchronization state")
     if value.get("failure_reason") is not None:
         text_value(value["failure_reason"])

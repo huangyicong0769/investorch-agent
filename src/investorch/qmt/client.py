@@ -52,7 +52,7 @@ class QMTClient:
         for key in ("service", "qmt"):
             text_value(object_value(data.get(key)).get("status"))
         control = object_value(data.get("control"))
-        if control.get("status") not in {"AVAILABLE", "UNAVAILABLE"}:
+        if text_value(control.get("status")) not in {"AVAILABLE", "UNAVAILABLE"}:
             raise QMTProtocolError("Invalid control state")
         if control.get("lease_expires_at") is not None:
             timestamp_value(control["lease_expires_at"])
