@@ -64,7 +64,23 @@ def main() -> None:
     assert completed.stdout == "investorch-qmt 0.1.0\n"
     assert completed.stderr == ""
 
+    import asyncio
+
+    from mcp.server.transport_security import TransportSecuritySettings
+
+    from investorch_qmt.config import default_paths
+    from investorch_qmt.execution.service import ExecutionNodeService
+    from investorch_qmt.server import create_mcp_server
+
     with tempfile.TemporaryDirectory(prefix="investorch-qmt-package-smoke-") as temp_dir:
+        paths = default_paths(Path(temp_dir) / "runtime")
+        service = ExecutionNodeService(paths)
+        assert paths.runtime_db.is_file()
+        assert service.get_node_status()["qmt"]["status"] == "not_connected"
+        server = create_mcp_server(TransportSecuritySettings(), service)
+        listed = asyncio.run(server.list_tools())
+        assert "get_status" in [tool.name for tool in listed]
+
         data_root = Path(temp_dir) / "data"
         env = os.environ.copy()
         env["XDG_DATA_HOME"] = str(data_root)

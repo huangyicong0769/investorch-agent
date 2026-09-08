@@ -103,7 +103,9 @@ async def test_default_transport_security_rejects_unexpected_host(tmp_path: Path
 
 @pytest.mark.asyncio
 async def test_lan_transport_security_accepts_only_configured_host(tmp_path: Path) -> None:
-    app = create_app(service_config(tmp_path, host="0.0.0.0", allowed_hosts=("qmt-pc:8765",)))
+    app = create_app(
+        service_config(tmp_path, host="0.0.0.0", allowed_hosts=("qmt-pc:8765",)), paths=default_paths(tmp_path)
+    )
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://qmt-pc:8765") as client:
         accepted = await client.get("/healthz", headers={"Authorization": f"Bearer {TOKEN}"})
@@ -114,3 +116,28 @@ async def test_lan_transport_security_accepts_only_configured_host(tmp_path: Pat
 
     assert accepted.status_code == 200
     assert rejected.status_code == 421
+
+
+@pytest.mark.asyncio
+async def test_mcp_controls_share_the_rest_execution_state(tmp_path):
+    from test_execution_service import stage_body
+
+    from investorch_qmt.execution.service import ExecutionNodeService
+
+    service = ExecutionNodeService(default_paths(tmp_path))
+    session = service.open_control_session()["session_id"]
+    service.stage_deployment("deployment-a", stage_body(), session)
+    service.renew_control_session(session, [{"deployment_id": "deployment-a", "acked_core_sequence": 12}])
+    app = create_app(service_config(tmp_path), service=service)
+    async with (
+        running_app(app) as url,
+        httpx2.AsyncClient(headers={"Authorization": f"Bearer {TOKEN}"}, trust_env=False) as http_client,
+        Client(streamable_http_client(url, http_client=http_client), mode="legacy") as client,
+    ):
+        started = await client.call_tool("start_live_strategy", {"portfolio_id": "portfolio-a"})
+        assert started.structured_content["code"] == "BACKEND_NOT_READY"
+        assert service.get_portfolio_runtime_status("portfolio-a")["status"] == "STAGED"
+        stopped = await client.call_tool("stop_live_strategy", {"portfolio_id": "portfolio-a"})
+        assert stopped.structured_content["status"] == "STOPPED"
+        status = await client.call_tool("get_status")
+        assert status.structured_content["deployments"] == service.get_node_status()["deployments"]

@@ -221,3 +221,31 @@ def test_reconciliation_required_after_open_expiry_and_pending_delivery(tmp_path
     assert service.get_portfolio_runtime_status("portfolio-a")["portfolio_sync"] == "SYNCED"
     assert service.stop_live_strategy("portfolio-a")["status"] == "STOPPED"
     assert service.stop_live_strategy("portfolio-a")["status"] == "STOPPED"
+
+
+def test_same_broker_identity_cannot_change_payload(tmp_path):
+    service = ExecutionNodeService(default_paths(tmp_path))
+    session = service.open_control_session()["session_id"]
+    service.stage_deployment("deployment-a", stage_body(), session)
+    first = service.enqueue_trade_fact(trade())
+    changed = trade()
+    changed["price"] = "11"
+    with pytest.raises(ExecutionError, match="FACT_ACK_CONFLICT"):
+        service.enqueue_trade_fact(changed)
+    assert service.get_next_pending_fact(session) == first
+
+
+def test_terminal_failure_is_preserved_and_running_stop_cannot_fake_success(tmp_path):
+    import sqlite3
+
+    service = ExecutionNodeService(default_paths(tmp_path))
+    session = service.open_control_session()["session_id"]
+    service.stage_deployment("deployment-a", stage_body(), session)
+    with sqlite3.connect(tmp_path / "runtime.db") as db:
+        db.execute("UPDATE remote_deployments SET status='RUNNING'")
+    with pytest.raises(ExecutionError, match="BACKEND_NOT_READY"):
+        service.stop_live_strategy("portfolio-a")
+    assert service.get_portfolio_runtime_status("portfolio-a")["status"] == "RUNNING"
+    with sqlite3.connect(tmp_path / "runtime.db") as db:
+        db.execute("UPDATE remote_deployments SET status='FAILED', failure_reason='runtime failed'")
+    assert service.stop_live_strategy("portfolio-a")["status"] == "FAILED"

@@ -23,7 +23,7 @@ class BearerAuthMiddleware:
         authorization = [value for name, value in scope.get("headers", []) if name.lower() == b"authorization"]
         if len(authorization) != 1 or not self._is_authorized(authorization[0]):
             _LOGGER.warning("Bearer authentication failed for path %s", scope["path"])
-            await _send_unauthorized(send)
+            await _send_unauthorized(send, rest=scope["path"].startswith("/api/v1"))
             return
 
         await self._app(scope, receive, send)
@@ -47,7 +47,14 @@ def _is_protected(path: str) -> bool:
     )
 
 
-async def _send_unauthorized(send: Send) -> None:
+async def _send_unauthorized(send: Send, *, rest: bool = False) -> None:
+    body = (
+        json.dumps(
+            {"code": "UNAUTHORIZED", "message": "Bearer authentication is required.", "retryable": False}
+        ).encode()
+        if rest
+        else _UNAUTHORIZED_BODY
+    )
     await send(
         {
             "type": "http.response.start",
@@ -55,8 +62,8 @@ async def _send_unauthorized(send: Send) -> None:
             "headers": [
                 (b"www-authenticate", b"Bearer"),
                 (b"content-type", b"application/json"),
-                (b"content-length", str(len(_UNAUTHORIZED_BODY)).encode()),
+                (b"content-length", str(len(body)).encode()),
             ],
         }
     )
-    await send({"type": "http.response.body", "body": _UNAUTHORIZED_BODY})
+    await send({"type": "http.response.body", "body": body})
