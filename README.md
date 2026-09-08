@@ -17,7 +17,7 @@ Version 0.1.0 is an early preview of that product direction. It is not yet an en
 - Daily stock backtesting with [RQAlpha 6.3.0](https://github.com/ricequant/rqalpha), reproducibility metadata, and workspace-relative artifacts.
 - An optional [CNEquity](https://github.com/rootSunc/cnequity) extra for the existing RQAlpha data overlay and read-only MCP integration.
 
-Portfolio/account access, a QMT gateway, live trading, a unified investment data layer, and Multi-Agent orchestration remain future work. See the [Product Roadmap](docs/InvestOrch_Agent_Product_Roadmap.md) for the next directions.
+The 0.2.0 development branch adds Portfolio/account state and a remote QMT execution-control foundation. Real live trading, a unified investment data layer, and Multi-Agent orchestration remain future work. See the [Product Roadmap](docs/InvestOrch_Agent_Product_Roadmap.md) for the next directions.
 
 ## Status and compatibility
 
@@ -25,7 +25,7 @@ Portfolio/account access, a QMT gateway, live trading, a unified investment data
 
 The core is currently validated on macOS locally and Ubuntu in CI, and targets macOS and Linux environments. Future QMT connectivity will use a gateway running with QMT on Windows.
 
-The independent Windows [InvestOrch QMT companion](packages/investorch-qmt/README.md) now provides the authenticated MCP foundation. It is deployable without QMT but does not connect to QMT yet.
+The independent Windows [InvestOrch QMT companion](packages/investorch-qmt/README.md) provides authenticated MCP controls and REST deployment/fact delivery. It is deployable without Core or QMT installed, continues to report QMT `not_connected`, and rejects strategy start with `BACKEND_NOT_READY`. See [B2 remote execution configuration and protocol](docs/QMT_Remote_Execution_Protocol.md).
 
 ## Requirements
 
