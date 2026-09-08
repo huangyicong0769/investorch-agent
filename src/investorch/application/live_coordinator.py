@@ -109,6 +109,7 @@ class LiveDeploymentCoordinator:
             "deployment_id": deployment.deployment_id,
             "retry_safe": True,
             "sync": sync,
+            "reason": self._reasons.get(deployment.portfolio_id),
         }
 
     async def _stage_body(self, deployment: LiveDeployment) -> dict:
@@ -406,6 +407,7 @@ class LiveDeploymentCoordinator:
                 "pending_fact_count": remote["pending_fact_count"] if remote and self._available else None,
             },
             "sync": sync,
+            "sync_reason": self._reasons.get(portfolio_id),
             "qmt": (self._node or {}).get("qmt", {"status": "not_connected"}),
             "capabilities": {"can_start": False, "reason": "BACKEND_NOT_READY"},
         }

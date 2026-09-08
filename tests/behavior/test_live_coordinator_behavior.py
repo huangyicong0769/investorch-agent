@@ -392,3 +392,17 @@ async def test_status_does_not_reuse_synced_observation_when_node_is_offline(tmp
         assert (await live.get_deployment(result["deployment_id"])).status.value == "ACTIVE"
     finally:
         await coordinator.close()
+
+
+async def test_desynchronization_explains_the_blocking_condition(tmp_path):
+    config, _portfolios, p, _live = await setup_live(tmp_path)
+    node = WireNode()
+    node.sequence_offset = 1
+    coordinator = LiveDeploymentCoordinator(config=config, client=client_for(node))
+    try:
+        result = await coordinator.deploy_live_strategy(p.id, "account")
+        assert "cursor" in result["reason"]
+        status = await coordinator.get_live_status(p.id)
+        assert status["sync_reason"] == result["reason"]
+    finally:
+        await coordinator.close()
