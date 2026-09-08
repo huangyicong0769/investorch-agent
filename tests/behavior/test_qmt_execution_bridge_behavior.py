@@ -12,6 +12,7 @@ import pytest
 from agents.mcp import MCPServerStreamableHttp
 
 from investorch.application.live_coordinator import LiveDeploymentCoordinator
+from investorch.mcp import ControlSessionAuth
 from investorch.qmt.client import QMTClient
 from investorch.qmt.config import QMTConnectionProfile
 from tests.behavior.test_live_deployment_behavior import setup_live
@@ -96,10 +97,13 @@ async def test_real_node_stages_drains_trade_and_stops_through_mcp(tmp_path, mon
             async with httpx.AsyncClient(headers=dict(profile.headers)) as http:
                 response = await http.post(profile.mcp_url.removesuffix("/mcp") + "/__test/enqueue", json=payload)
                 assert response.status_code == 200, response.text
+            original_authority = coordinator.control_session_id
             delivered = await coordinator.ensure_connected_now()
             if lose_response == "ack":
                 assert delivered is False
+                assert coordinator.control_session_id is None
                 assert await coordinator.ensure_connected_now()
+                assert coordinator.control_session_id == original_authority
             else:
                 assert delivered is True
             ledger = await portfolios.list_ledger(portfolio.id)
@@ -113,7 +117,12 @@ async def test_real_node_stages_drains_trade_and_stops_through_mcp(tmp_path, mon
             assert node["deployments"][0]["acked_core_sequence"] == 1
             assert node["deployments"][0]["pending_fact_count"] == 0
             async with MCPServerStreamableHttp(
-                name="node", params={"url": profile.mcp_url, "headers": dict(profile.headers)}
+                name="node",
+                params={
+                    "url": profile.mcp_url,
+                    "headers": dict(profile.headers),
+                    "auth": ControlSessionAuth(lambda: coordinator.control_session_id),
+                },
             ) as mcp:
                 started = await mcp.call_tool("start_live_strategy", {"portfolio_id": portfolio.id})
                 assert started.structured_content["code"] == "BACKEND_NOT_READY"
@@ -163,6 +172,7 @@ async def test_lost_stage_response_retries_one_exact_remote_deployment(tmp_path,
         try:
             result = await coordinator.deploy_live_strategy(portfolio.id, "account")
             assert result["status"] == "unknown", result
+            assert coordinator.control_session_id is None
             active = (await live.list_deployments(portfolio.id))[0]
             assert active.status.value == "ACTIVE"
             (config.workspace_dir / "strategy.py").write_text("workspace changed")

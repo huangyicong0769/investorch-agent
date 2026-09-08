@@ -35,6 +35,7 @@ class LiveDeploymentCoordinator:
         self._live = LiveExecutionOperations(config=config)
         self._lock = asyncio.Lock()
         self._session_id: str | None = None
+        self._recovery_session_id: str | None = None
         self._lease_seconds = 10.0
         self._node: dict | None = None
         self._available = False
@@ -73,6 +74,19 @@ class LiveDeploymentCoordinator:
         node = await self._client.get_node_status()
         self._node = node
         self._available = True
+        if self._session_id is None and self._recovery_session_id is not None:
+            # An ambiguous response does not release the exclusive remote lease.
+            # Revalidate that same lease before exposing authority again.
+            try:
+                session = await self._client.renew_control_session(self._recovery_session_id)
+            except QMTRejectedError as exc:
+                if exc.code != "STALE_CONTROL_SESSION":
+                    raise
+                self._recovery_session_id = None
+            else:
+                self._session_id = session["session_id"]
+                self._lease_seconds = session["lease_timeout_seconds"]
+                self._recovery_session_id = None
         if self._session_id is None:
             session = await self._client.open_control_session()
             self._session_id = session["session_id"]
@@ -191,8 +205,9 @@ class LiveDeploymentCoordinator:
         finally:
             temporary.unlink(missing_ok=True)
 
-    def _unavailable(self, *, reachable: bool = False) -> None:
+    def _unavailable(self, *, reachable: bool = False, forget_session: bool = False) -> None:
         self._available = reachable
+        self._recovery_session_id = None if forget_session else self._session_id or self._recovery_session_id
         self._session_id = None
         for portfolio_id in self._sync:
             self._sync[portfolio_id] = "UNKNOWN"
@@ -204,7 +219,11 @@ class LiveDeploymentCoordinator:
             in {"DEPLOYMENT_CONFLICT", "PORTFOLIO_DEPLOYMENT_CONFLICT", "SEQUENCE_CONFLICT", "FACT_ACK_CONFLICT"}
         )
         if not desynced:
-            self._unavailable(reachable=isinstance(exc, QMTRejectedError) and exc.code == "CONTROL_SESSION_BUSY")
+            self._unavailable(
+                reachable=isinstance(exc, QMTRejectedError) and exc.code == "CONTROL_SESSION_BUSY",
+                forget_session=isinstance(exc, QMTRejectedError)
+                and exc.code in {"STALE_CONTROL_SESSION", "CONTROL_SESSION_BUSY"},
+            )
         for deployment in active:
             self._sync[deployment.portfolio_id] = "DESYNCED" if desynced else "UNKNOWN"
             self._reasons[deployment.portfolio_id] = str(exc)
@@ -368,9 +387,11 @@ class LiveDeploymentCoordinator:
             try:
                 assert self._client is not None
                 await self._client.renew_control_session(session_id)
-            except QMTError:
+            except QMTError as exc:
                 if session_id == self._session_id:
-                    self._unavailable()
+                    self._unavailable(
+                        forget_session=isinstance(exc, QMTRejectedError) and exc.code == "STALE_CONTROL_SESSION"
+                    )
                 return
 
     async def get_live_status(self, portfolio_id: str | None = None) -> dict:
@@ -451,8 +472,9 @@ class LiveDeploymentCoordinator:
         }
 
     async def _release_session(self) -> None:
-        session_id = self._session_id
+        session_id = self._session_id or self._recovery_session_id
         self._session_id = None
+        self._recovery_session_id = None
         if self._client is not None and session_id is not None:
             with suppress(QMTError, TimeoutError):
                 await asyncio.wait_for(self._client.close_control_session(session_id), timeout=1)
