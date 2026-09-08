@@ -47,6 +47,9 @@ class DailyEventSource(AbstractEventSource):
             self.health()
             now = self.clock.now().astimezone(SHANGHAI)
             enabled, reason = self.control.gate()
+            for paused_at, resumed_at in getattr(self.control, "pauses", lambda: ())():
+                if paused_at <= boundary <= (resumed_at or now):
+                    raise RuntimeFailure("MISSED_RUNTIME_EVENT", "Safety gate crossed an unprocessed event boundary.")
             if not enabled:
                 if not self._paused:
                     self.on_status("PAUSED", reason=reason)
@@ -76,11 +79,11 @@ class DailyEventSource(AbstractEventSource):
             if not self._wait_until(opening):
                 return
             self.freshness(day)
-            yield self._event(EVENT.BEFORE_TRADING, opening)
+            yield self._event(EVENT.BEFORE_TRADING, datetime.combine(day, time.min, SHANGHAI))
             if not self._wait_until(execution):
                 return
             self.prepare_bars(day, False)
-            yield self._event(EVENT.BAR, execution)
+            yield self._event(EVENT.BAR, datetime.combine(day, time(15), SHANGHAI))
             if not self._wait_until(closing):
                 return
             deadline = closing + timedelta(seconds=FINAL_BAR_WAIT_SECONDS)

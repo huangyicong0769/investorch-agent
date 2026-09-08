@@ -77,7 +77,7 @@ def test_mid_session_start_is_retryable():
 
 
 def test_pause_across_unexecuted_boundary_fails_without_replay():
-    event_source, clock, control, seen = source(datetime(2026, 9, 7, 9, 29, 59, tzinfo=SH))
+    event_source, _clock, control, seen = source(datetime(2026, 9, 7, 9, 29, 59, tzinfo=SH))
     control.enabled = False
     with pytest.raises(RuntimeFailure) as exc:
         next(event_source.events(date(2026, 9, 7), None, "1d"))
