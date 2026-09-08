@@ -60,3 +60,18 @@ async def test_rest_rejects_malformed_exact_requests_and_stale_sessions(tmp_path
     assert "wrong-secret" not in caplog.text
     assert "SECRET STRATEGY" not in caplog.text
     assert "U0VDUkVUIFNUUkFURUdZ" not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_renew_rejects_null_reconciliation_assertions(tmp_path):
+    service = ExecutionNodeService(default_paths(tmp_path))
+    app = create_app(service_config(tmp_path), service=service)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="http://localhost:8765",
+        headers={"Authorization": f"Bearer {TOKEN}"},
+    ) as client:
+        session = (await client.post("/api/v1/control-sessions")).json()["session_id"]
+        rejected = await client.post(f"/api/v1/control-sessions/{session}/renew", json={"reconciled_deployments": None})
+        assert rejected.status_code == 400
+        assert rejected.json()["code"] == "INVALID_REQUEST"

@@ -52,6 +52,8 @@ def register_routes(server, service: ExecutionNodeService, security: TransportSe
         value = await body(request, empty=True)
         if value:
             fields(value, {"reconciled_deployments"})
+            if type(value["reconciled_deployments"]) is not list:
+                invalid("reconciled_deployments must be an array.")
         return service.renew_control_session(request.path_params["session_id"], value.get("reconciled_deployments"))
 
     @route("/api/v1/control-sessions/{session_id}", ["DELETE"])
