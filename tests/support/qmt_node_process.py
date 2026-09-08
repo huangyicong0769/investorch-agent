@@ -56,6 +56,14 @@ async def main() -> None:
     sock = socket.socket()
     sock.bind(("127.0.0.1", 0))
     port = sock.getsockname()[1]
+    if len(sys.argv) > 4:
+        # Reserve the endpoint without listening: Core startup cannot connect.
+        start_file = Path(sys.argv[4])
+        ready_file.with_suffix(".prepared.json").write_text(
+            json.dumps({"url": f"http://127.0.0.1:{port}", "token": config.auth.token})
+        )
+        while not start_file.exists():
+            await asyncio.sleep(0.01)
     server = uvicorn.Server(uvicorn.Config(fixture_app, log_level="warning", access_log=False))
     task = asyncio.create_task(server.serve(sockets=[sock]))
     while not server.started:

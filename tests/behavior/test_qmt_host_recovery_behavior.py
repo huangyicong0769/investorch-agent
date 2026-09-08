@@ -1,11 +1,16 @@
 """Real host/SDK/companion acceptance with a controllable network availability boundary."""
 
 import asyncio
+import json
+import os
+import shutil
 import socket
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
+from pathlib import Path
 
 import httpx
+import pytest
 import uvicorn
 from agents import ModelSettings
 from agents.testing import ScriptedModel, assistant_message, function_call
@@ -18,6 +23,7 @@ from investorch.application.live import LiveExecutionOperations
 from investorch.mcp import configure_mcp_server_config
 from investorch.portfolio.domain import Broker, BrokerAccount, StrategyBinding
 from investorch.portfolio.storage import create_broker, create_broker_account
+from investorch.qmt.config import QMTConnectionProfile
 from investorch.runtime import RunOptions
 from investorch.storage import set_session_title
 from tests.behavior.test_qmt_execution_bridge_behavior import companion_node
@@ -205,3 +211,105 @@ async def test_rest_stage_survives_mcp_reconnect_failure_in_real_host(tmp_path, 
             assert len(remote_deployments) == 1
             assert remote_deployments[0]["status"] == "STAGED"
             assert remote_deployments[0]["deployment_id"] == deployments[0].deployment_id
+
+
+@asynccontextmanager
+async def delayed_companion_node(tmp_path):
+    """Prepare credentials/port in the isolated companion; start serving only on demand."""
+    tmp_path.mkdir(parents=True)
+    ready, start = tmp_path / "ready.json", tmp_path / "start"
+    prepared = ready.with_suffix(".prepared.json")
+    repo = Path(__file__).resolve().parents[2]
+    env = dict(os.environ)
+    env.pop("VIRTUAL_ENV", None)
+    env.pop("PYTHONPATH", None)
+    log_path = tmp_path / "node.log"
+    with log_path.open("wb") as log:
+        process = await asyncio.create_subprocess_exec(
+            shutil.which("uv") or "uv",
+            "run",
+            "--project",
+            str(repo / "packages/investorch-qmt"),
+            "--locked",
+            "python",
+            str(repo / "tests/support/qmt_node_process.py"),
+            str(tmp_path / "node"),
+            str(ready),
+            "",
+            str(start),
+            stdout=log,
+            stderr=log,
+            env=env,
+        )
+
+        async def wait_file(path):
+            async with asyncio.timeout(90):
+                while not path.exists():
+                    if process.returncode is not None:
+                        raise AssertionError(log_path.read_text())
+                    await asyncio.sleep(0.01)
+
+        async def start_serving():
+            start.touch()
+            await wait_file(ready)
+
+        try:
+            await wait_file(prepared)
+            data = json.loads(prepared.read_text())
+            yield (
+                QMTConnectionProfile(
+                    "node",
+                    data["url"] + "/mcp",
+                    data["url"] + "/api/v1",
+                    {"Authorization": "Bearer " + data["token"]},
+                    1,
+                ),
+                start_serving,
+            )
+        finally:
+            if process.returncode is None:
+                process.terminate()
+                try:
+                    await asyncio.wait_for(process.wait(), 10)
+                except TimeoutError:
+                    process.kill()
+                    await process.wait()
+
+
+async def test_companion_starts_listening_after_host_and_next_agent_run_calls_status(tmp_path, monkeypatch):
+    def offline_research(call):
+        assert not any(tool.name.startswith("mcp_node__") for tool in call.tools)
+        return [assistant_message("Core research available")]
+
+    def online_status(call):
+        assert {"mcp_node__get_status", "mcp_node__start_live_strategy", "mcp_node__stop_live_strategy"}.issubset(
+            tool.name for tool in call.tools
+        )
+        return [function_call("mcp_node__get_status", {}, call_id="late-node-status")]
+
+    def verify_status(call):
+        outputs = [item for item in call.input if item.get("type") == "function_call_output"]
+        assert any("not_connected" in str(item["output"]) for item in outputs)
+        return [assistant_message("Companion started")]
+
+    model = ScriptedModel([{"responder": offline_research}, {"responder": online_status}, {"responder": verify_status}])
+    external_seams(monkeypatch, model)
+    async with delayed_companion_node(tmp_path / "companion") as (profile, start_serving):
+        # No HTTP proxy in this case: the actual companion endpoint does not listen yet.
+        async with httpx.AsyncClient(trust_env=False, timeout=0.2) as http:
+            with pytest.raises((httpx.ConnectError, httpx.ConnectTimeout)):
+                await http.get(profile.rest_base_url + "/node/status")
+        config = host_config(tmp_path / "core", profile, profile.mcp_url.removesuffix("/mcp"))
+        async with open_application_host(
+            config, manual_approval_handler=reject_approval, enable_activity=False
+        ) as host:
+            session_id = host.initial_session_id
+            set_session_title(config.sessions_db, session_id, "Late startup")
+            options = RunOptions("none", "manual", "queue")
+            offline_run = host.runtime.start_run(session_id, "research while node off", options)
+            assert (await asyncio.wait_for(offline_run.task, 10)).output == "Core research available"
+            await start_serving()
+            await host.live_coordinator.get_live_status()
+            online_run = host.runtime.start_run(session_id, "check newly started node", options)
+            assert (await asyncio.wait_for(online_run.task, 10)).output == "Companion started"
+            model.assert_complete()
