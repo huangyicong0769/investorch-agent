@@ -101,3 +101,44 @@ def test_disabled_server_is_excluded_from_runtime_collection(tmp_path: Path) -> 
     servers = load_mcp_servers(path, variables={}, default_timeout_seconds=5)
 
     assert [server.name for server in servers] == ["active"]
+
+
+def test_mcp_controls_require_approval_while_status_remains_read_only(tmp_path: Path) -> None:
+    from agents.mcp.util import MCPUtil
+    from mcp.types import Tool
+
+    path = tmp_path / "mcp.toml"
+    configure_mcp_server_config(
+        path,
+        "qmt",
+        url="http://node.test/mcp",
+        require_approval=["start_live_strategy", "stop_live_strategy"],
+    )
+    server = load_mcp_servers(path, variables={}, default_timeout_seconds=5)[0]
+    for name, approval in [("get_status", False), ("start_live_strategy", True), ("stop_live_strategy", True)]:
+        tool = MCPUtil.to_function_tool(
+            Tool(name=name, inputSchema={"type": "object", "properties": {}}), server, False
+        )
+        assert tool.needs_approval is approval
+
+
+@pytest.mark.parametrize("value", ['"start"', '["start", "start"]', '[""]', '[" start "]', "[1]"])
+def test_invalid_approval_lists_are_rejected(tmp_path: Path, value: str) -> None:
+    path = tmp_path / "mcp.toml"
+    path.write_text(
+        "[ [servers] ]".replace(" ", "")
+        + '\nname="qmt"\ntransport="streamable_http"\nurl="http://node/mcp"\nrequire_approval='
+        + value
+        + "\n"
+    )
+    with pytest.raises(ValueError, match="require_approval"):
+        read_mcp_server_configs(path)
+
+
+def test_mcp_update_preserves_and_can_clear_approval_policy(tmp_path: Path) -> None:
+    path = tmp_path / "mcp.toml"
+    configure_mcp_server_config(path, "qmt", url="http://node/mcp", require_approval=["start_live_strategy"])
+    configure_mcp_server_config(path, "qmt", timeout=9)
+    assert read_mcp_server_configs(path)[0]["require_approval"] == ["start_live_strategy"]
+    configure_mcp_server_config(path, "qmt", require_approval=[])
+    assert read_mcp_server_configs(path)[0]["require_approval"] == []

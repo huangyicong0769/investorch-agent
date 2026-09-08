@@ -59,6 +59,7 @@ def configure_mcp_server_config(
     cache_tools_list: bool | None = None,
     headers: dict[str, str] | None = None,
     timeout: float | None = None,
+    require_approval: list[str] | None = None,
 ) -> dict[str, Any]:
     name = name.strip()
 
@@ -105,6 +106,9 @@ def configure_mcp_server_config(
 
     if timeout is not None:
         server["timeout"] = timeout
+
+    if require_approval is not None:
+        server["require_approval"] = list(require_approval)
 
     _validate_server_config(server)
 
@@ -188,6 +192,7 @@ def load_mcp_servers(
                     False,
                 ),
                 client_session_timeout_seconds=server.get("timeout", default_timeout_seconds),
+                require_approval={"always": {"tool_names": server.get("require_approval", [])}},
             )
         )
 
@@ -220,6 +225,14 @@ def _validate_server_config(server: dict[str, Any]) -> None:
     if not isinstance(cache_tools_list, bool):
         raise TypeError("MCP server cache_tools_list must be a bool")
 
+    approval = server.get("require_approval", [])
+    if not isinstance(approval, list) or any(
+        not isinstance(name, str) or not name.strip() or name != name.strip() for name in approval
+    ):
+        raise ValueError("MCP require_approval must be a list of nonempty trimmed tool names")
+    if len(approval) != len(set(approval)):
+        raise ValueError("MCP require_approval cannot contain duplicate tool names")
+
     headers = server.get("headers")
 
     if headers is not None:
@@ -251,6 +264,7 @@ def _write_mcp_server_configs(path: str | Path, servers: list[dict[str, Any]]) -
             "url",
             "cache_tools_list",
             "timeout",
+            "require_approval",
         ):
             if key in server:
                 table[key] = server[key]
