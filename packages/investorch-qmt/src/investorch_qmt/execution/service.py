@@ -1,8 +1,12 @@
 """The sole execution-node business boundary used by REST and MCP."""
 
+import os
+import shutil
+import tempfile
 import threading
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from uuid import uuid4
 
 from investorch_qmt.config import AppPaths
@@ -95,3 +99,84 @@ class ExecutionNodeService:
                     for row in db.execute("SELECT * FROM remote_deployments ORDER BY staged_at, deployment_id")
                 ],
             }
+
+    def stage_deployment(self, deployment_id: str, body: dict, session_id: str) -> dict:
+        from .contracts import parse_stage
+
+        with self._lock:
+            self._require_control(session_id)
+            source, manifest_json, bootstrap_json, snapshot = parse_stage(deployment_id, body)
+            installed = False
+            temporary = None
+            final = self.paths.deployments / deployment_id
+            try:
+                with self.storage.transaction() as db:
+                    existing = db.execute(
+                        "SELECT * FROM remote_deployments WHERE deployment_id=?", (deployment_id,)
+                    ).fetchone()
+                    if existing is not None:
+                        if existing["manifest_json"] != manifest_json or existing["bootstrap_json"] != bootstrap_json:
+                            raise ExecutionError(
+                                "DEPLOYMENT_CONFLICT", "Deployment identity already has different content."
+                            )
+                        if not (final / "strategy.py").is_file() or (final / "strategy.py").read_bytes() != source:
+                            raise ExecutionError("DEPLOYMENT_CONFLICT", "Persisted artifact is missing or differs.")
+                        return self._summary(db, existing)
+                    current = db.execute(
+                        "SELECT 1 FROM remote_deployments WHERE portfolio_id=? AND status IN ('STAGED','RUNNING')",
+                        (snapshot.portfolio_id,),
+                    ).fetchone()
+                    if current:
+                        raise ExecutionError(
+                            "PORTFOLIO_DEPLOYMENT_CONFLICT", "Portfolio already has a current deployment."
+                        )
+                    self.paths.deployments.mkdir(parents=True, exist_ok=True)
+                    if final.exists():
+                        raise ExecutionError("DEPLOYMENT_CONFLICT", "An unregistered artifact already exists.")
+                    temporary = Path(tempfile.mkdtemp(prefix=".stage-", dir=self.paths.deployments))
+                    for name, content in (
+                        ("strategy.py", source),
+                        ("manifest.json", manifest_json.encode()),
+                        ("bootstrap.json", bootstrap_json.encode()),
+                    ):
+                        with (temporary / name).open("wb") as file:
+                            file.write(content)
+                            file.flush()
+                            os.fsync(file.fileno())
+                    os.rename(temporary, final)
+                    temporary = None
+                    installed = True
+                    self._require_control(session_id)
+                    now = self._clock().isoformat()
+                    db.execute(
+                        """INSERT INTO remote_deployments (
+                        deployment_id,portfolio_id,broker_account_id,strategy_sha256,strategy_artifact_relpath,
+                        manifest_json,bootstrap_json,bootstrap_schema_version,bootstrap_ledger_sequence,
+                        acked_core_sequence,status,staged_at,updated_at
+                        ) VALUES (?,?,?,?,?,?,?,1,?,?,'STAGED',?,?)""",
+                        (
+                            deployment_id,
+                            snapshot.portfolio_id,
+                            snapshot.broker_account_id,
+                            body["manifest"]["strategy_sha256"],
+                            f"{deployment_id}/strategy.py",
+                            manifest_json,
+                            bootstrap_json,
+                            snapshot.ledger_sequence,
+                            snapshot.ledger_sequence,
+                            now,
+                            now,
+                        ),
+                    )
+                    row = db.execute(
+                        "SELECT * FROM remote_deployments WHERE deployment_id=?", (deployment_id,)
+                    ).fetchone()
+                    result = self._summary(db, row)
+                return result
+            except BaseException:
+                if installed:
+                    shutil.rmtree(final)
+                raise
+            finally:
+                if temporary is not None:
+                    shutil.rmtree(temporary)
