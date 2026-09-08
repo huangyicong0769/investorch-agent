@@ -7,6 +7,7 @@ import tempfile
 import threading
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from uuid import uuid4
 
@@ -177,6 +178,10 @@ class ExecutionNodeService:
     def get_node_status(self) -> dict:
         with self._lock, self.storage.transaction() as db:
             current = self._current()
+            try:
+                xtquant_version = version("xtquant")
+            except PackageNotFoundError:
+                xtquant_version = None
             deployments = [
                 self._summary(db, row)
                 for row in db.execute("SELECT * FROM remote_deployments ORDER BY staged_at, deployment_id")
@@ -188,7 +193,7 @@ class ExecutionNodeService:
                     "status": "CONNECTED"
                     if any(d["market_data"] == "CONNECTED" for d in deployments)
                     else "DISCONNECTED",
-                    "xtquant_version": "250807.1.2",
+                    "xtquant_version": xtquant_version,
                 },
                 "trading": {"status": "NOT_READY", "reason": "TRADING_BACKEND_NOT_READY"},
                 "control": {

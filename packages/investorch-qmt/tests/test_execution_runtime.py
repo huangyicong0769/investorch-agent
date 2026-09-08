@@ -71,3 +71,19 @@ def test_companion_restart_marks_ghost_running_failed(tmp_path):
         assert result["worker_phase"] == "FAILED"
     finally:
         restarted.close()
+
+
+def test_node_reports_installed_market_distribution_without_claiming_connection(tmp_path):
+    from importlib.metadata import PackageNotFoundError, version
+
+    try:
+        installed = version("xtquant")
+    except PackageNotFoundError:
+        installed = None
+    service = ExecutionNodeService(default_paths(tmp_path))
+    try:
+        market = service.get_node_status()["market_data"]
+        assert market["status"] == "DISCONNECTED"
+        assert market["xtquant_version"] == installed
+    finally:
+        service.close()

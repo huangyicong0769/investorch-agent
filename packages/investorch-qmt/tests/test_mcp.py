@@ -20,6 +20,16 @@ from investorch_qmt.server import create_app
 TOKEN = "protocol-token-with-at-least-32-characters"
 
 
+def service_market_status(tmp_path):
+    from investorch_qmt.execution.service import ExecutionNodeService
+
+    service = ExecutionNodeService(default_paths(tmp_path / "observed-version"))
+    try:
+        return service.get_node_status()["market_data"]
+    finally:
+        service.close()
+
+
 def service_config(tmp_path: Path, *, host: str = "127.0.0.1", allowed_hosts: tuple[str, ...] = ()):
     path = tmp_path / "investorch-qmt.toml"
     allowed = ", ".join(f'"{item}"' for item in allowed_hosts)
@@ -90,7 +100,7 @@ async def test_official_client_discovers_live_controls_and_truthful_status(tmp_p
     assert result.is_error is False
     assert {key: result.structured_content[key] for key in ("service", "market_data", "trading")} == {
         "service": {"name": "investorch-qmt", "version": version("investorch-qmt"), "status": "ready"},
-        "market_data": {"backend": "xtdata", "status": "DISCONNECTED", "xtquant_version": "250807.1.2"},
+        "market_data": service_market_status(tmp_path),
         "trading": {"status": "NOT_READY", "reason": "TRADING_BACKEND_NOT_READY"},
     }
 
