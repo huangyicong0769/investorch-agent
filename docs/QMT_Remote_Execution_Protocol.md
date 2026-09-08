@@ -1,6 +1,6 @@
 # QMT remote execution protocol
 
-The remote execution protocol transfers a frozen Core deployment to one Windows execution node and maintains control authority and reliable TRADE_V1 delivery. It does not connect QMT or run a production RQAlpha LIVE loop. With current control authority, `start_live_strategy` returns `BACKEND_NOT_READY` and leaves the deployment STAGED.
+The remote execution protocol transfers a frozen Core deployment to one Windows execution node and maintains control authority and reliable TRADE_V1 delivery. An approved `start_live_strategy` with current control authority starts a spawned RQAlpha `LIVE_TRADING` worker connected to MiniQMT/xtdata. The trading backend remains unavailable; orders reaching the broker receive `TRADING_BACKEND_NOT_READY` without fills.
 
 ## Connection configuration
 
@@ -113,7 +113,7 @@ ApplicationHost owns the coordinator. ACTIVE work triggers recovery at startup; 
 
 A QMT MCP connection that failed at startup is retried on foreground deployment/status, explicit connection recovery, or existing ACTIVE recovery. The selected QMT server has its own SDK manager so retries do not change generic MCP behavior. There is no idle MCP retry worker. MCP refresh happens outside REST reconciliation, and a failed refresh does not undo successful staging. Each Agent Run takes one fresh active-server snapshot; reconnect affects subsequent Runs without changing the tools of an in-flight Run. This recovery addresses failed connection attempts; it does not add general transport-health polling for previously established connections.
 
-With current control authority, STAGED stop becomes STOPPED; repeated stop is idempotent. FAILED remains terminal. Stopping a production RUNNING runtime is not supported and returns `BACKEND_NOT_READY`. Core transitions to STOPPED/FAILED only after the matching remote terminal state, drained facts, and equal sequences. It never adopts another remote deployment or reactivates terminal Core ownership.
+With current control authority, STAGED stop becomes STOPPED; repeated stop is idempotent. FAILED remains terminal. Stopping a RUNNING worker closes its safety gate, requests graceful teardown, and terminates it after a bounded timeout if needed. Core transitions to STOPPED/FAILED only after the matching remote terminal state, drained facts, and equal sequences. It never adopts another remote deployment or reactivates terminal Core ownership.
 
 The companion retains terminal deployment metadata, artifacts, and ACKED facts. Historical terminal rows with no pending work coexist with a successor; they must not be mistaken for the Portfolio's current deployment. Current remote work without matching ACTIVE Core ownership, or terminal Core ownership with remote RUNNING, is DESYNCED.
 
@@ -123,4 +123,16 @@ Companion `%LOCALAPPDATA%\InvestOrch\QMT\runtime.db` uses schema version 1 with 
 
 Supported deployment is localhost, a trusted LAN, or a private VPN. Bearer authentication is combined with the trusted network boundary and `allowed_hosts` Host/DNS-rebinding protection; `allowed_hosts` is not a source-IP ACL. The service does not support TLS/PKI, OAuth, mTLS, or WebSocket, and plaintext service is not intended for a hostile network or public Internet. Tokens and strategy source/Base64 must not enter ordinary logs.
 
-QMT status remains `not_connected`, and live backend capability remains unavailable. Real market events, broker submission/callbacks, and broker reconciliation are not yet implemented. See the [runtime model](RQAlpha_Live_Runtime_Model.md) and [companion setup](../packages/investorch-qmt/README.md).
+Market connectivity and trading availability are separate: real xtdata market events are supported, while broker submission/callbacks and broker reconciliation remain unavailable. See the [runtime model](RQAlpha_Live_Runtime_Model.md) and [companion setup](../packages/investorch-qmt/README.md).
+
+## Worker startup and truthful status
+
+Start requires STAGED, SYNCED, and current authority. The child revalidates staged artifacts, bootstraps the native Portfolio, initializes the Strategy and runtime, connects xtdata, subscribes, checks bundle/reference readiness, and verifies session eligibility before sending READY. Only READY permits durable RUNNING. A PID alone is not evidence of readiness.
+
+Non-trading-day and pre-session starts are allowed. A first start after the session begins returns retryable `SESSION_ALREADY_STARTED` and stays STAGED. `MARKET_DATA_NOT_READY` and `START_TIMEOUT` also keep STAGED after cleaning up the child. Invalid artifacts, Bootstrap, instruments, or Strategy initialization fail the deployment. Concurrent starts share startup; stop can cancel STARTING; start during STOPPING is rejected. STOPPED and FAILED require a new deployment.
+
+Node status exposes `market_data` (`backend`, `status`, `xtquant_version`), `trading` (`status`, `reason`), and `control`. Market health describes actual worker evidence, not service readiness. Per-deployment status adds `worker_phase`, `market_data`, `control_authority`, and `trading` alongside durable `status` and `portfolio_sync`. Core `get_live_status` aggregates these with ownership; its `node.remote_status` is the remote durable state. A typical worker may be remote RUNNING, phase PAUSED, market CONNECTED, control UNAVAILABLE, and trading NOT_READY at the same time. Core clears ephemeral health to unknown on a node outage.
+
+Authority or synchronization loss pauses event delivery. Crossing an unprocessed required daily boundary while paused fails with `MISSED_RUNTIME_EVENT`; no catch-up is attempted. Market disconnection or an unexpected worker exit fails the runtime. Companion restart changes orphaned durable RUNNING rows to FAILED with `RUNTIME_LOST_ON_COMPANION_RESTART`; workers are not automatically restarted.
+
+The parent alone writes runtime.db. Worker phase and market health are process-local, with no persisted PID or schema extension. Production execution produces no TRADE_V1 facts, so the outbox ordinarily remains empty. Core schema v5, Bootstrap V1, runtime.db v1, and TRADE_V1 remain unchanged.

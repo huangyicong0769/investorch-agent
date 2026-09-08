@@ -1,6 +1,6 @@
-# RQAlpha live runtime foundation
+# RQAlpha live market runtime
 
-This document defines the Core/Windows execution contract for remote control and reliable fact delivery. The companion stages strategies remotely and exposes approved start/stop requests. Starting a production strategy, connecting MiniQMT, and real live trading remain later work. See the [remote execution protocol](QMT_Remote_Execution_Protocol.md) for configuration and HTTP contracts.
+This document defines the Core/Windows execution contract for remote control and reliable fact delivery. The companion stages frozen strategies and runs approved daily stock Strategies in spawned RQAlpha workers connected to real MiniQMT data. Trading is deliberately unavailable: orders reaching its rejection-only broker become REJECTED without fills. See the [remote execution protocol](QMT_Remote_Execution_Protocol.md) for configuration and HTTP contracts.
 
 ## Ownership and distribution boundaries
 
@@ -10,8 +10,8 @@ Both distributions pin `rqalpha==6.3.0`. Each has its own `pyproject.toml`, lock
 
 ```text
 Core                                      Windows investorch-qmt
-Portfolio Ledger                          existing authenticated MCP/HTTP service
-  → account-local projections               get_status: QMT not_connected
+Portfolio Ledger                          authenticated MCP/HTTP parent service
+  → account-local projections               get_status: market / trading / control
   → aggregate PortfolioState
 LiveDeployment + private strategy         independent Bootstrap V1 parser
   → exact bootstrap wire document           → InvestOrchLiveMod
@@ -130,7 +130,7 @@ V1 carries no cost/average price, historical PnL, strategy parameters/source/has
 
 ## Native RQAlpha bootstrap
 
-The companion's `build_live_config()` accepts the wire snapshot and frozen parameters. It selects live run type, disables simulation, and enables the single `investorch_qmt.rqalpha_live.mod` entry point with native accounts support. The caller must supply session dates and, in future work, real broker/event-source backends.
+The companion's `build_live_config()` accepts the wire snapshot and frozen parameters. It selects live run type, disables simulation, and enables the single `investorch_qmt.rqalpha_live.mod` entry point with native accounts support. The production worker supplies the first complete executable trading date, the daily EventSource, live PriceBoard, and TradingUnavailableBroker; LIVE does not invent a distant end date.
 
 `InvestOrchLiveMod.start_up()` validates the snapshot and sets native account cash and initial-position constructor inputs before RQAlpha constructs its Portfolio. RQAlpha 6.3.0 calls Mod startup before data/date initialization and Portfolio construction. Replacing Portfolio at `POST_SYSTEM_INIT` would risk leaving duplicate accounting listeners, so that event only verifies the constructed cash and quantities.
 
@@ -138,7 +138,7 @@ The runtime adapter reuses native Portfolio, Account, and Position. Cold-start p
 
 Restrictions live at this concrete mapping boundary: the current adapter requires CNY cash, XSHG/XSHE numeric instrument codes, and nonnegative whole-share quantities. Unsupported inputs fail instead of being dropped or relabeled. Conversion to RQAlpha's numeric cash representation occurs only after wire validation, with a finite-range check. These restrictions do not introduce a generic capability registry or claim real broker feasibility.
 
-The accepted scenario is a clean pre-trading cold start with no outstanding broker order or pending event. Mid-session crash recovery, open/partial-order restoration, and T+1 reconciliation are not implemented. Tests construct a real RQAlpha Portfolio with test-local data/environment support; no production fake Broker or EventSource is installed. A full `LIVE_TRADING` main loop still requires the real backends.
+The accepted scenario is a clean pre-trading cold start with no outstanding broker order or pending event. Mid-session crash recovery, open/partial-order restoration, and T+1 reconciliation are not implemented. Tests construct a real RQAlpha Portfolio with test-local data/environment support; no production fake Broker or EventSource is installed. The production `LIVE_TRADING` main loop uses the real xtdata market adapter and rejection-only broker.
 
 ## Runtime safety state
 
@@ -152,7 +152,7 @@ The companion models three independent dimensions:
 
 `can_submit_new_order` is true only when lifecycle is RUNNING, Portfolio sync is SYNCED, and a nonempty set of required dependencies is entirely AVAILABLE. Empty dependency evidence fails closed. Successful bootstrap marks sync SYNCED but does not claim RUNNING or healthy dependencies. A cash/quantity mismatch marks FAILED/DESYNCED.
 
-This value object does not monitor dependencies, schedule heartbeats, reconnect, or submit orders. Real lifecycle supervision and broker-specific submission constraints remain future integrations.
+This value object does not monitor dependencies, schedule heartbeats, reconnect, or submit orders. The supervisor applies the control/sync safety gate to worker event delivery. This gate never enables trading: the production broker continues to reject orders.
 
 ## Idempotent live trades and late facts
 
@@ -180,4 +180,28 @@ TRADE is only the first bridge. Dividends, splits, delisting, share transformati
 
 The table records when each feature entered the schema; it is not a sequence of committed upgrade steps. Fresh databases are created directly with canonical v5 tables and indexes. Each supported existing version (1, 2, 3, or 4) upgrades directly to v5 in one `BEGIN IMMEDIATE` transaction. A failure in any late DDL step rolls back the entire upgrade, including its schema version and projection copies. Migration retains all legacy attribution as NULL and preserves aggregate projection data. It does not guess a QMT account.
 
-Remote transport, artifact verification after transfer, durable TRADE_V1 delivery, and runtime coordination use Core schema v5 and Bootstrap V1. The companion has its own runtime.db schema v1, independent of Core migrations. Real market events, the QMT broker, order identities and callbacks are not yet implemented. Further integration also requires accounting parity, broker reconciliation, corporate actions, interruption handling, and runtime resume. `get_status` reports QMT as `not_connected`; `start_live_strategy` with current control authority returns `BACKEND_NOT_READY` without changing STAGED. No production Fake Broker, Fake EventSource, or RQAlpha live loop is installed.
+Remote transport and runtime coordination retain Core schema v5, Bootstrap V1, and companion runtime.db v1. TRADE_V1 is unchanged and this market runtime has no production Trade producer. XtQuantTrader, broker callbacks, accounting parity, corporate-action reconciliation, open orders, checkpoint/resume, and automatic worker restart remain outside the implemented capabilities.
+
+## Spawned market worker
+
+The Windows parent owns ASGI/MCP/REST, authority, ExecutionNodeService, runtime.db, outbox, and RuntimeSupervisor. Each deployment gets one process created with `multiprocessing.get_context("spawn")`. The child owns its RQAlpha Environment, Strategy globals, xtdata connection, quote cache, subscriptions, PriceBoard, EventSource, and TradingUnavailableBroker. The child neither reads nor writes runtime.db.
+
+An immutable WorkerLaunchSpec contains deployment/Portfolio/account identity, deployment directory, and expected Strategy SHA-256. It carries no source bytes, token, lease, or full Bootstrap. The child reads and independently revalidates staged `strategy.py`, `manifest.json`, and `bootstrap.json`. Parent-to-child Pipe messages are STOP and SET_GATE; child-to-parent messages report lifecycle/status only. Ticks, quotes, bars, orders, trades, and callback payloads never cross this Pipe.
+
+READY follows actual Strategy import/init, native Portfolio bootstrap, runtime component installation, xtdata connection, subscriptions, bundle/reference preflight, and session eligibility. Transient startup failures clean up the child and preserve STAGED; intrinsic failures become FAILED. PAUSED remains durable RUNNING. Graceful stop unsubscribes and tears down RQAlpha; bounded termination is available. Crashes and orphaned RUNNING rows after companion restart become FAILED without automatic restart.
+
+## Daily data and event contract
+
+The companion pins `xtquant==250807.1.2`. Only XSHG/XSHE stocks and `1d` are supported; symbols map strictly to `.SH`/`.SZ`. Desired subscriptions are Strategy universe union nonzero Bootstrap holdings. POST_UNIVERSE_CHANGED subscribes the new set before removing the old subscription. Quote callbacks only normalize/cache data; `xtdata.run()` runs in a child liveness thread. A lack of ticks is not a disconnect signal.
+
+Native `~/.rqalpha/bundle` supplies historical/reference data and the trading calendar. xtdata supplies current execution-day state and PriceBoard. The runtime checks prior-trading-day bundle coverage before BEFORE_TRADING; stale coverage raises HISTORICAL_DATA_NOT_FRESH. There is no automatic bundle update/download, custom bundle path, or xtdata history-tail overlay. Live `current_snapshot()` raises LIVE_CURRENT_SNAPSHOT_UNSUPPORTED rather than returning native stale data.
+
+The Strategy computes and freezes D signal in BEFORE_TRADING from data ending at D−1. Daily `include_now=False` alone does not prove that cutoff; tests must observe actual data dates. `matching_type=current_bar` concerns matching price/timing, not signal timing. At 14:57 Asia/Shanghai, BAR/handle_bar executes that frozen signal using the current D live bar, which is still forming and is not completed history. A changed current bar must not change the already determined signal.
+
+Only after the last trading period ends does a bounded query wait confirm final D data before AFTER_TRADING and native SETTLEMENT. Daily requests use `period="1d"`, `fill_data=False`, `dividend_type="none"`, exact requested trading date, and finite required fields. Missing D, malformed data, and valid suspension evidence remain distinct. No last-row, previous-day, fill, or synthetic daily-bar fallback is permitted. PriceBoard uses actual quote last price and instrument limit prices; it never substitutes yesterday's close for missing live price.
+
+All orders reaching TradingUnavailableBroker follow RQAlpha's canonical rejection lifecycle with TRADING_BACKEND_NOT_READY. Normal rejection leaves the runtime running, with no Trade, no open order, and no order-induced cash/position change. Native settlement still runs; the runtime is not a broker accounting/reconciliation implementation.
+
+## Acceptance evidence boundary
+
+Deterministic tests cover runtime timing, rejection, strict data mapping, and lifecycle safety. Windows package smoke must actually import the pinned xtquant APIs without connecting. Neither proves real MiniQMT connectivity. Real-machine Level 1 (connect, metadata, subscription, tick, exact-date daily query) and Level 2 (staged Strategy init, READY/RUNNING, truthful status, graceful stop) are separate merge gates. Record their actual outcomes; this document is not evidence that they passed. A full real trading-day lifecycle is required before enabling a real broker, but is not the immediate market-runtime merge gate.

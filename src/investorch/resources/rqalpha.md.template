@@ -2,7 +2,7 @@
 
 ## Purpose and source of truth
 
-- The current engine is RQAlpha 6.3.0. This guide defines the subset approved by the current InvestOrch Agent backtest runtime; it is not the complete upstream API manual.
+- The current engine is RQAlpha 6.3.0. This guide defines the subset approved by the current InvestOrch Agent backtest and MiniQMT market runtime; it is not the complete upstream API manual.
 - Project restrictions win when broader RQAlpha features differ from this guide. Do not guess unsupported behavior.
 - Strategies are ordinary RQAlpha Python files. InvestOrch Agent supplies the runtime configuration externally; strategy code must not configure or mutate it.
 - API names and signatures below were verified against the project's pinned `rqalpha==6.3.0` installation.
@@ -11,7 +11,7 @@
 
 | Setting | Value |
 | --- | --- |
-| Engine / run type | RQAlpha 6.3.0 / backtest |
+| Engine / run type | RQAlpha 6.3.0 / backtest or Windows `LIVE_TRADING` |
 | Frequency / account | `1d` / stock |
 | Execution policy | Effective `backtest.*` values in the current `AppConfig` |
 
@@ -26,7 +26,7 @@ files from strategy code. Pass the desired parameters explicitly to `run_backtes
 the run records their exact snapshot in `request.json`.
 
 Backtest and the live foundation use the same `context.investorch_parameters` namespace; keep one strategy
-source for both. MiniQMT live execution is not yet available. Existing InvestOrch
+source for both. The Windows companion runs real MiniQMT market data and Strategy callbacks; its trading backend is not ready and orders reaching the broker are rejected with `TRADING_BACKEND_NOT_READY`. Existing InvestOrch
 position cost basis is not guaranteed to reconstruct RQAlpha `Position.avg_price` on a cold start.
 
 ## Market-data ownership
@@ -38,6 +38,14 @@ With `backtest.use_cnequity=false`, strategy API calls flow through `RQAlpha Dat
 With `backtest.use_cnequity=true`, strategy API calls flow through `RQAlpha DataProxy -> CNEquityOverlayDataSource`. For Shanghai and Shenzhen stocks, CNEquity supplies daily OHLCV, turnover, and adjustment factors, while native RQAlpha data retains instruments, calendars, limits, corporate actions, suspension evidence, and fallback market semantics. The RQAlpha inspection Tool is not exposed in this mode.
 
 Never invoke the CNEquity CLI, MCP, Python ingestion lifecycle, or RQAlpha bundle updater inside a strategy. CNEquity MCP remains an independent research/query plane in both modes; its availability does not identify the configured backtest source.
+
+## Live market runtime
+
+The Windows companion supports only `1d` XSHG/XSHE stocks. Historical/reference data comes from the standard `~/.rqalpha/bundle`; xtdata supplies current-day market state and the live PriceBoard. Before each trading day's preparation, the bundle must cover the previous trading day. Stale coverage fails closed with `HISTORICAL_DATA_NOT_FRESH`; the runtime never updates/downloads the bundle or merges an xtdata historical tail. The Core backtest data selection does not change this live boundary.
+
+Daily live order is `BEFORE_TRADING` → 14:57 `BAR` → final-day-bar confirmation after the last session period → `AFTER_TRADING` → `SETTLEMENT`, using Asia/Shanghai wall time. The 14:57 live bar is not completed history. `current_snapshot()` is unsupported in live mode and raises `LIVE_CURRENT_SNAPSHOT_UNSUPPORTED`.
+
+Use Core `get_live_status` for the combined ownership, worker, market, control, synchronization, and trading view. `RUNNING` means the Strategy runtime is operating on real MiniQMT data. It does not mean trading is enabled: `trading.status=NOT_READY`, orders are rejected, no Trade/fill is produced, and no Core Ledger mutation follows. A `PAUSED` worker still has durable remote status `RUNNING`; missing a required event while paused terminates it instead of replaying events.
 
 ## Instrument identifiers
 
@@ -52,7 +60,7 @@ Use canonical RQAlpha order-book IDs in strategy code:
 
 - `init(context)`: initialize durable in-run state and call `update_universe`. `history_bars` is not available here.
 - `before_trading(context)`: perform daily preparation before the session. In a daily backtest, daily history observed here ends at the previous trading day.
-- `handle_bar(context, bar_dict)`: read the current daily bars and place normal orders. `bar_dict[order_book_id]` is a daily bar, not an intraday snapshot.
+- `handle_bar(context, bar_dict)`: execute the signal already determined for this trading day. In live mode it runs at 14:57 Asia/Shanghai with a still-forming current-day daily bar; in backtests the daily bar can already contain the full day. Neither observation may revise the already frozen signal.
 - `after_trading(context)`: record or update end-of-day strategy state; do not place ordinary orders here.
 
 All callbacks except `handle_bar` receive only `context` in the approved form.
@@ -65,11 +73,11 @@ Pinned signature:
 
 Use `frequency="1d"`. Common stock fields are `datetime`, `open`, `high`, `low`, `close`, `volume`, and `total_turnover`. Prefer `adjust_type="pre"` unless the research question explicitly requires raw (`"none"`) or post-adjusted (`"post"`) prices. `skip_suspended=True` omits suspended days from the returned series.
 
-Build signals from completed historical bars by default:
+Form and freeze the D-day signal in `before_trading(D)` from data ending no later than D−1:
 
 `history_bars(stock, 20, "1d", "close", include_now=False, adjust_type="pre")`
 
-In daily `handle_bar`, setting `include_now=True` includes the current daily bar. Do not combine that information casually with an assumption of frictionless action at the same close. RQAlpha does not prevent every logical look-ahead error.
+`include_now=False` alone does not prove a D−1 cutoff in daily `handle_bar`. Check the actual observed dates in the calculation phase. `matching_type=current_bar` specifies matching price/timing, not the signal cutoff; do not globally change it to work around an individual Strategy look-ahead bug. RQAlpha does not prevent every logical look-ahead error.
 
 Use `bar_dict[stock]` for the current daily `open`, `high`, `low`, `close`, `volume`, and `total_turnover`. A missing normal bar from the configured backtest source is an error; it is not a zero-volume observation. Do not infer minute paths, auction detail, or tick behavior from a daily bar.
 
@@ -136,7 +144,8 @@ def init(context):
     update_universe([context.stock])
 
 
-def handle_bar(context, bar_dict):
+def before_trading(context):
+    context.target_weight = None
     closes = history_bars(
         context.stock,
         context.long_window,
@@ -147,12 +156,13 @@ def handle_bar(context, bar_dict):
     )
     if len(closes) < context.long_window:
         return
-    position = get_position(context.stock)
     bullish = closes[-context.short_window:].mean() > closes.mean()
-    if bullish and position.quantity == 0:
-        order_target_percent(context.stock, 1.0)
-    elif not bullish and position.quantity > 0:
-        order_target_percent(context.stock, 0.0)
+    context.target_weight = 1.0 if bullish else 0.0
+
+
+def handle_bar(context, bar_dict):
+    if context.target_weight is not None:
+        order_target_percent(context.stock, context.target_weight)
 ```
 
 ### 3. Monthly periodic rebalance
@@ -202,7 +212,7 @@ def handle_bar(context, bar_dict):
 | Mistake | Preferred correction |
 | --- | --- |
 | CNEquity symbol such as `600519.SH` in strategy code | Use `600519.XSHG`. |
-| History accidentally includes the current bar | Use `include_now=False` for completed-bar signals. |
+| History accidentally includes the current bar | Form D signal in `before_trading(D)` and verify dates end at D−1; `include_now=False` alone is not proof. |
 | Signal/execution timing is implicit | State the timing model and use prior completed bars by default. |
 | `open_auction` or auction-volume API | Explain that truthful auction data is unsupported; do not run it. |
 | Minute API in the daily runtime | Redesign the strategy around daily observations. |

@@ -2,7 +2,7 @@
 
 `investorch-qmt` is the independently installable Windows companion MCP server for InvestOrch. It exposes an authenticated Streamable HTTP boundary that the Core application can use without importing either distribution into the other.
 
-The companion provides remote deployment staging, control leases and durable trade-fact delivery. It does not connect to QMT, inspect accounts, read positions, or place orders yet. A healthy service truthfully reports QMT as `not_connected`.
+The companion provides remote deployment staging, control leases and durable trade-fact delivery. It runs daily stock Strategies in isolated spawned RQAlpha workers with real MiniQMT/xtdata market data. The trading backend is unavailable: orders reaching the broker are rejected with `TRADING_BACKEND_NOT_READY`, producing no fills.
 
 ## Requirements
 
@@ -10,7 +10,7 @@ The companion provides remote deployment staging, control leases and durable tra
 - Python 3.12 or newer
 - [uv](https://docs.astral.sh/uv/)
 
-Neither InvestOrch Core nor QMT/xtquant is required to install and run the companion.
+InvestOrch Core is not a dependency. Windows installation includes exact-pinned `xtquant==250807.1.2` and `rqalpha==6.3.0`. Starting the service does not require a connected MiniQMT terminal; starting a market worker requires real xtdata connectivity and a ready standard `~/.rqalpha/bundle`.
 
 ## Install or develop
 
@@ -130,11 +130,11 @@ All public service routes require `Authorization: Bearer <token>`.
 
 - `GET /healthz` reports only that the companion HTTP/MCP process is ready. QMT can be absent while this returns HTTP 200.
 - MCP server information reports the installed `investorch-qmt` name and version.
-- MCP `get_status` is read-only and returns `service.status = "ready"` with `qmt.status = "not_connected"` as a successful observation.
+- MCP `get_status` is read-only and returns `service.status = "ready"` with separate market_data and trading observations; service readiness alone does not establish market connectivity.
 
 Operational logs rotate under `%LOCALAPPDATA%\InvestOrch\QMT\logs`. Authorization headers and bearer tokens are not logged.
 
-These surfaces intentionally do not claim that QMT is installed, logged in, connected, or ready to trade. Real Big QMT connectivity is outside the current release.
+Service readiness, actual worker market connectivity, and trading readiness are reported separately. No broker account connection or real order submission is provided.
 
 
 ## Remote execution
@@ -167,6 +167,17 @@ Staging validates the exact manifest field set, RQAlpha 6.3.0, Base64-decoded by
 
 The internal `ExecutionNodeService.enqueue_trade_fact(payload)` seam accepts strict TRADE_V1 facts for a future real broker callback. There is no enqueue REST endpoint or Agent tool. Numeric fields are finite decimal strings, timestamps include a timezone, and broker trade identity deduplicates exact payloads. The outbox returns one fact, retains ACKED rows, and requires an oldest-only ACK with Core sequence exactly N+1. An identical ACK retry succeeds; a changed sequence conflicts. ACK and the deployment cursor commit in one SQLite transaction.
 
-MCP exposes only `get_status`, `start_live_strategy(portfolio_id)` and `stop_live_strategy(portfolio_id)`. Configure approval for start and stop in Core. Both writes require current authority through the infrastructure-managed `X-InvestOrch-Control-Session` HTTP header; the Agent supplies only `portfolio_id`. Missing or stale authority returns `STALE_CONTROL_SESSION` before deployment or backend validation. `get_status` requires only Bearer authentication. Start requires a STAGED deployment and reconciled sync, then truthfully returns `BACKEND_NOT_READY` without changing STAGED. Stop changes STAGED to STOPPED and retries idempotently; FAILED remains FAILED and a RUNNING stop cannot fabricate success. Core releases ACTIVE ownership only after observing the terminal state, draining and reconciling.
+MCP exposes only `get_status`, `start_live_strategy(portfolio_id)` and `stop_live_strategy(portfolio_id)`. Configure approval for start and stop in Core. Both writes require current authority through the infrastructure-managed `X-InvestOrch-Control-Session` HTTP header; the Agent supplies only `portfolio_id`. Missing or stale authority returns `STALE_CONTROL_SESSION` before deployment or backend validation. `get_status` requires only Bearer authentication. Start requires STAGED, reconciled sync, and a bounded real worker READY handshake before RUNNING. Transient readiness/timeout or mid-session first-start rejection preserves STAGED; intrinsic startup errors fail the deployment. Stop handles STAGED, STARTING, and RUNNING, requests graceful cleanup, and terminates after a bounded timeout if necessary. Repeated stop is idempotent; FAILED remains FAILED. Core releases ACTIVE ownership only after observing the terminal state, draining and reconciling.
 
-The companion does not include a fake broker/event source, production RQAlpha loop, actual QMT order placement, broker reconciliation, WebSocket transport or TLS/PKI. QMT remains `not_connected`. Do not use this plaintext service across an untrusted LAN or public Internet.
+The companion runs a production RQAlpha market loop with a rejection-only broker. It does not include actual QMT order placement, fake fills, broker reconciliation, WebSocket transport or TLS/PKI. Do not use this plaintext service across an untrusted LAN or public Internet.
+
+
+## Market operation and validation
+
+Run first start on a non-trading day or before the first trading session period. Mid-session first start returns SESSION_ALREADY_STARTED; it does not synthesize missed callbacks. Trading dates come from the native bundle calendar, and wall time is Asia/Shanghai. Form D signals from data through D−1 in before_trading; handle_bar executes at 14:57. Final D data is checked only after the last period ends, before after_trading and settlement. `include_now=False` alone is not a signal-cutoff proof.
+
+The standard bundle must cover the previous trading day before daily preparation. Stale history fails closed with HISTORICAL_DATA_NOT_FRESH; update data deliberately outside the runtime. No automatic download, history-tail overlay, or configurable bundle path exists. Live current_snapshot is unsupported. Current-day bars are exact-date xtdata queries with fill_data=False; subscriptions cover universe union Bootstrap holdings and change dynamically.
+
+Status exposes node market_data (backend/status/xtquant_version), trading (NOT_READY/TRADING_BACKEND_NOT_READY), and per-deployment worker_phase, market_data, control_authority, portfolio_sync, and trading. RUNNING indicates a real market Strategy runtime, not enabled trading. PAUSED remains durable RUNNING; a pause crossing a required event fails with MISSED_RUNTIME_EVENT. Companion restart fails orphaned RUNNING records with RUNTIME_LOST_ON_COMPANION_RESTART; no worker is resumed automatically.
+
+Before merging, capture actual Windows/MiniQMT evidence for Level 1 (connect, metadata/trading periods, known Shanghai/Shenzhen subscriptions, full ticks, strict daily queries) and Level 2 (real staged Strategy init, spawned child READY/RUNNING, status, graceful STOPPED). Wheel/sdist installation and pinned API import smoke are additional checks; CI does not prove terminal connectivity. These instructions do not claim the real-machine gates have passed. The full trading-day lifecycle remains a separate acceptance before real broker integration.
