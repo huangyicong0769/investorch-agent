@@ -26,7 +26,7 @@ files from strategy code. Pass the desired parameters explicitly to `run_backtes
 the run records their exact snapshot in `request.json`.
 
 Backtest and the live foundation use the same `context.investorch_parameters` namespace; keep one strategy
-source for both. The B1 foundation does not make MiniQMT live execution available. Existing InvestOrch
+source for both. MiniQMT live execution is not yet available. Existing InvestOrch
 position cost basis is not guaranteed to reconstruct RQAlpha `Position.avg_price` on a cold start.
 
 ## Market-data ownership

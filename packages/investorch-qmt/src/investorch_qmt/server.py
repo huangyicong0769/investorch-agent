@@ -62,7 +62,7 @@ def create_mcp_server(transport_security: TransportSecuritySettings, service: Ex
         return status
 
     @server.tool(
-        description="Start the staged live strategy for a Portfolio. B2 reports BACKEND_NOT_READY.",
+        description="Start the staged live strategy for a Portfolio. The live backend is not yet available; returns BACKEND_NOT_READY.",
         annotations=ToolAnnotations(
             readOnlyHint=False, destructiveHint=False, idempotentHint=True, openWorldHint=False
         ),

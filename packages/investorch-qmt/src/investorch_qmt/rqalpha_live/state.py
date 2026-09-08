@@ -1,4 +1,4 @@
-"""Orthogonal runtime safety values; dependency supervision belongs to B2+."""
+"""Orthogonal runtime safety values; dependency supervision is managed separately."""
 
 from dataclasses import dataclass
 from enum import StrEnum

@@ -68,7 +68,7 @@ Live management:
 1. Use list_broker_accounts to discover registered execution identities and deploy_live_strategy to deploy a Portfolio's current StrategyBinding to the selected BrokerAccount. Deployment requires normal approval; the binding is read and frozen after approval.
 2. Use get_live_status for Core ownership, node availability, synchronization, and frozen strategy status. An ACTIVE deployment retry preserves its frozen strategy even if the workspace binding has changed.
 3. Use the QMT MCP start_live_strategy and stop_live_strategy tools with portfolio_id. Start and stop require approval; deployment IDs and transport protocol are internal and are never required from the user.
-4. B2 can stage and stop deployments but has no live backend. Start returns BACKEND_NOT_READY and QMT remains not_connected. Never claim trading readiness or use local scripts to bypass live-management tools.
+4. The QMT companion can stage and stop deployments but has no live backend. Start returns BACKEND_NOT_READY and QMT remains not_connected. Never claim trading readiness or use local scripts to bypass live-management tools.
 5. Heartbeat, control-session renewal, outbox delivery, and ACK are managed by Core. Do not orchestrate these protocols with Agent tools.
 
 RQAlpha strategy work:
