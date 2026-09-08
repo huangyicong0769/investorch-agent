@@ -2,12 +2,9 @@
 
 import asyncio
 import json
-import os
-import shutil
 import socket
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
-from pathlib import Path
 
 import httpx
 import pytest
@@ -23,11 +20,10 @@ from investorch.application.live import LiveExecutionOperations
 from investorch.mcp import configure_mcp_server_config
 from investorch.portfolio.domain import Broker, BrokerAccount, StrategyBinding
 from investorch.portfolio.storage import create_broker, create_broker_account
-from investorch.qmt.config import QMTConnectionProfile
 from investorch.runtime import RunOptions
 from investorch.storage import set_session_title
-from tests.behavior.test_qmt_execution_bridge_behavior import companion_node
 from tests.support.config import make_test_config
+from tests.support.qmt_companion import companion_node, delayed_companion_node
 
 
 class AvailabilityGate:
@@ -211,69 +207,6 @@ async def test_rest_stage_survives_mcp_reconnect_failure_in_real_host(tmp_path, 
             assert len(remote_deployments) == 1
             assert remote_deployments[0]["status"] == "STAGED"
             assert remote_deployments[0]["deployment_id"] == deployments[0].deployment_id
-
-
-@asynccontextmanager
-async def delayed_companion_node(tmp_path):
-    """Prepare credentials/port in the isolated companion; start serving only on demand."""
-    tmp_path.mkdir(parents=True)
-    ready, start = tmp_path / "ready.json", tmp_path / "start"
-    prepared = ready.with_suffix(".prepared.json")
-    repo = Path(__file__).resolve().parents[2]
-    env = dict(os.environ)
-    env.pop("VIRTUAL_ENV", None)
-    env.pop("PYTHONPATH", None)
-    log_path = tmp_path / "node.log"
-    with log_path.open("wb") as log:
-        process = await asyncio.create_subprocess_exec(
-            shutil.which("uv") or "uv",
-            "run",
-            "--project",
-            str(repo / "packages/investorch-qmt"),
-            "--locked",
-            "python",
-            str(repo / "tests/support/qmt_node_process.py"),
-            str(tmp_path / "node"),
-            str(ready),
-            "",
-            str(start),
-            stdout=log,
-            stderr=log,
-            env=env,
-        )
-
-        async def wait_file(path):
-            async with asyncio.timeout(90):
-                while not path.exists():
-                    if process.returncode is not None:
-                        raise AssertionError(log_path.read_text())
-                    await asyncio.sleep(0.01)
-
-        async def start_serving():
-            start.touch()
-            await wait_file(ready)
-
-        try:
-            await wait_file(prepared)
-            data = json.loads(prepared.read_text())
-            yield (
-                QMTConnectionProfile(
-                    "node",
-                    data["url"] + "/mcp",
-                    data["url"] + "/api/v1",
-                    {"Authorization": "Bearer " + data["token"]},
-                    1,
-                ),
-                start_serving,
-            )
-        finally:
-            if process.returncode is None:
-                process.terminate()
-                try:
-                    await asyncio.wait_for(process.wait(), 10)
-                except TimeoutError:
-                    process.kill()
-                    await process.wait()
 
 
 async def test_companion_starts_listening_after_host_and_next_agent_run_calls_status(tmp_path, monkeypatch):

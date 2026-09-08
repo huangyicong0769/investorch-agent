@@ -1,11 +1,6 @@
 """Exercise the real HTTP boundary with a separately installed companion process."""
 
-import asyncio
 import json
-import os
-import shutil
-from contextlib import asynccontextmanager
-from pathlib import Path
 
 import httpx
 import pytest
@@ -14,58 +9,8 @@ from agents.mcp import MCPServerStreamableHttp
 from investorch.application.live_coordinator import LiveDeploymentCoordinator
 from investorch.mcp import ControlSessionAuth
 from investorch.qmt.client import QMTClient
-from investorch.qmt.config import QMTConnectionProfile
 from tests.behavior.test_live_deployment_behavior import setup_live
-
-_REPO = Path(__file__).resolve().parents[2]
-
-
-@asynccontextmanager
-async def companion_node(tmp_path, *, lose_response=""):
-    tmp_path.mkdir(parents=True, exist_ok=True)
-    ready = tmp_path / "ready.json"
-    log_path = tmp_path / "node.log"
-    env = dict(os.environ)
-    env.pop("VIRTUAL_ENV", None)
-    env.pop("PYTHONPATH", None)
-    with log_path.open("wb") as log:
-        process = await asyncio.create_subprocess_exec(
-            shutil.which("uv") or "uv",
-            "run",
-            "--project",
-            str(_REPO / "packages/investorch-qmt"),
-            "--locked",
-            "python",
-            str(_REPO / "tests/support/qmt_node_process.py"),
-            str(tmp_path / "node"),
-            str(ready),
-            lose_response,
-            stdout=log,
-            stderr=log,
-            env=env,
-        )
-        try:
-            async with asyncio.timeout(90):
-                while not ready.exists():
-                    if process.returncode is not None:
-                        raise AssertionError(log_path.read_text())
-                    await asyncio.sleep(0.05)
-            data = json.loads(ready.read_text())
-            yield QMTConnectionProfile(
-                "node",
-                data["url"] + "/mcp",
-                data["url"] + "/api/v1",
-                {"Authorization": "Bearer " + data["token"]},
-                0.5 if lose_response else 5,
-            )
-        finally:
-            if process.returncode is None:
-                process.terminate()
-                try:
-                    await asyncio.wait_for(process.wait(), timeout=10)
-                except TimeoutError:
-                    process.kill()
-                    await process.wait()
+from tests.support.qmt_companion import companion_node
 
 
 @pytest.mark.parametrize("lose_response", ["", "ack"])
