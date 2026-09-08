@@ -21,6 +21,7 @@ classifiers = [
 ]
 dependencies = [
     "fastapi>=0.141.1,<0.142",
+    "httpx>=0.28.1,<0.29",
     "openai-agents>=0.22.0,<0.23",
     "rqalpha==6.3.0",
     "socksio==1.*",
@@ -118,7 +119,6 @@ docstring-code-line-length = "dynamic"
 
 [dependency-groups]
 dev = [
-    "httpx>=0.28.1",
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
     "ruff>=0.16.5",

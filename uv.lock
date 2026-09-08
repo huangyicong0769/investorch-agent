@@ -781,6 +781,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "fastapi" },
+    { name = "httpx" },
     { name = "openai-agents" },
     { name = "rqalpha" },
     { name = "socksio" },
@@ -796,7 +797,6 @@ cnequity = [
 
 [package.dev-dependencies]
 dev = [
-    { name = "httpx" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "ruff" },
@@ -806,6 +806,7 @@ dev = [
 requires-dist = [
     { name = "cnequity", marker = "extra == 'cnequity'", specifier = "==0.7.3" },
     { name = "fastapi", specifier = ">=0.141.1,<0.142" },
+    { name = "httpx", specifier = ">=0.28.1,<0.29" },
     { name = "openai-agents", specifier = ">=0.22.0,<0.23" },
     { name = "rqalpha", specifier = "==6.3.0" },
     { name = "socksio", specifier = "==1.*" },
@@ -817,7 +818,6 @@ provides-extras = ["cnequity"]
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "httpx", specifier = ">=0.28.1" },
     { name = "pytest", specifier = ">=9.1.1" },
     { name = "pytest-asyncio", specifier = ">=1.4.0" },
     { name = "ruff", specifier = ">=0.16.5" },
