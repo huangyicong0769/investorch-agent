@@ -187,3 +187,106 @@ def save(context):
     )
     assert statuses[0:2] == ["READY", "RUNNING"]
     assert market.closed
+
+
+def artifacts_for(source, path):
+    return SimpleNamespace(
+        source=source.encode(), bootstrap=snapshot_wire(), manifest={"strategy_parameters": {}}, deployment_dir=path
+    )
+
+
+def test_stale_native_bundle_fails_before_strategy_before_trading(bundle, tmp_path):
+    from investorch_qmt.runtime.model import RuntimeFailure
+
+    with h5py.File(bundle / "indexes.h5", "a") as store:
+        del store["000001.XSHG"]
+        store.create_dataset(
+            "000001.XSHG",
+            data=np.array(
+                [(20260904000000, 20, 20, 21, 19, 1000, 20000, 22, 18)], dtype=SecuritiesDayBarStore.DEFAULT_DTYPE
+            ),
+        )
+    clock, control = Clock(datetime(2026, 9, 8, 9, 29, tzinfo=SH)), Control()
+    source = "def before_trading(context): raise AssertionError('must never run')"
+    with pytest.raises(RuntimeFailure) as error:
+        run_live(
+            artifacts_for(source, tmp_path), control, lambda *args, **kwargs: None, market=Market(clock), clock=clock
+        )
+    assert error.value.code == "HISTORICAL_DATA_NOT_FRESH"
+
+
+def test_current_snapshot_rejects_in_real_strategy_instead_of_native_fallback(bundle, tmp_path):
+    from investorch_qmt.runtime.model import RuntimeFailure
+
+    clock, control = Clock(datetime(2026, 9, 8, 9, 29, tzinfo=SH)), Control()
+    source = "def handle_bar(context,bars): current_snapshot('600519.XSHG')"
+    with pytest.raises(RuntimeFailure) as error:
+        run_live(
+            artifacts_for(source, tmp_path), control, lambda *args, **kwargs: None, market=Market(clock), clock=clock
+        )
+    assert error.value.code == "LIVE_CURRENT_SNAPSHOT_UNSUPPORTED"
+
+
+def test_live_suspended_bar_uses_current_day_state_in_native_bar_object(bundle, tmp_path):
+    output = tmp_path / "suspended.json"
+    clock, control = Clock(datetime(2026, 9, 8, 9, 29, tzinfo=SH)), Control()
+
+    class SuspendedMarket(Market):
+        def daily_bar(self, code, day):
+            bar = super().daily_bar(code, day)
+            bar.update(suspended=True, volume=0, total_turnover=0)
+            return bar
+
+    clock.on_wait = lambda _: control.stopped.set() if output.exists() else None
+    source = f"""
+import json
+def handle_bar(context,bars):
+    bar = bars['600519.XSHG']
+    with open({str(output)!r},'w') as f:
+        json.dump(dict(suspended=bar.suspended,volume=bar.volume,close=bar.close),f)
+"""
+    run_live(
+        artifacts_for(source, tmp_path),
+        control,
+        lambda *args, **kwargs: None,
+        market=SuspendedMarket(clock),
+        clock=clock,
+    )
+    assert json.loads(output.read_text()) == {"suspended": True, "volume": 0, "close": 25}
+
+
+def test_non_trading_day_start_waits_after_ready_without_synthetic_callbacks(bundle, tmp_path):
+    clock, control = Clock(datetime(2026, 9, 6, 12, tzinfo=SH)), Control()
+    statuses = []
+
+    def report(phase, **kwargs):
+        statuses.append(phase)
+        if phase == "RUNNING":
+            control.stopped.set()
+
+    source = "def before_trading(context): raise AssertionError('weekend callback')"
+    run_live(artifacts_for(source, tmp_path), control, report, market=Market(clock), clock=clock)
+    assert statuses == ["READY", "RUNNING"]
+
+
+def test_start_waits_for_a_usable_quote_for_nonempty_desired_subscription(bundle, tmp_path):
+    from investorch_qmt.market_data.errors import MarketDataError
+    from investorch_qmt.runtime.model import RuntimeFailure
+
+    class MissingQuoteMarket(Market):
+        def last_price(self, code):
+            raise MarketDataError("MARKET_PRICE_UNAVAILABLE")
+
+    clock, control = Clock(datetime(2026, 9, 8, 9, 29, tzinfo=SH)), Control()
+    statuses = []
+    with pytest.raises(RuntimeFailure) as error:
+        run_live(
+            artifacts_for("def init(context): pass", tmp_path),
+            control,
+            lambda phase, **kwargs: statuses.append(phase),
+            market=MissingQuoteMarket(clock),
+            clock=clock,
+        )
+    assert error.value.code == "MARKET_PRICE_UNAVAILABLE"
+    assert error.value.retryable
+    assert "READY" not in statuses

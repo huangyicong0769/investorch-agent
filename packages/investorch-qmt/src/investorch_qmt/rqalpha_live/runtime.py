@@ -80,6 +80,7 @@ def run_live(artifacts, control, on_status, *, market=None, clock=None):
     env, handler, subscription = None, None, None
     stack_depth = len(ExecutionContext.stack.stack)
     code, failure = EXIT_CODE.EXIT_SUCCESS, None
+    ready = False
     try:
         config = _config(artifacts, clock)
         env = Environment(config, False)
@@ -94,7 +95,9 @@ def run_live(artifacts, control, on_status, *, market=None, clock=None):
             calendar = [stamp.date() for stamp in proxy.get_trading_calendar()]
             proxy.available_data_range("1d")
         except Exception as exc:
-            raise RuntimeFailure("DATA_BUNDLE_NOT_READY", "Standard native bundle/reference preflight failed.") from exc
+            raise RuntimeFailure(
+                "DATA_BUNDLE_NOT_READY", "Standard native bundle/reference preflight failed.", retryable=True
+            ) from exc
         env.set_data_source(native)
         env.set_price_board(board)
         env.set_data_proxy(proxy)
@@ -128,7 +131,7 @@ def run_live(artifacts, control, on_status, *, market=None, clock=None):
             clock,
             control,
             on_status,
-            proxy.require_fresh_history,
+            lambda day: proxy.require_fresh_history(day, desired()),
             lambda day, final: proxy.prepare_bars(desired(), day, final),
             market.check_health,
         )
@@ -151,7 +154,9 @@ def run_live(artifacts, control, on_status, *, market=None, clock=None):
         ExecutionContext(EXECUTION_PHASE.GLOBAL)._push()
         scope = loader.load(scope)
         if callable(scope.get("handle_tick")) or callable(scope.get("open_auction")):
-            raise RuntimeFailure("UNSUPPORTED_FREQUENCY", "B3 does not support tick or open-auction callbacks.")
+            raise RuntimeFailure(
+                "UNSUPPORTED_FREQUENCY", "Live runtime does not support tick or open-auction callbacks."
+            )
         context = StrategyContext()
         for name, value in config.extra.context_vars.items():
             setattr(context, name, value)
@@ -160,6 +165,10 @@ def run_live(artifacts, control, on_status, *, market=None, clock=None):
         env.event_bus.publish_event(Event(EVENT.BEFORE_STRATEGY_RUN))
         strategy.init()
         update_subscription()
+        for symbol in desired():
+            board.get_last_price(symbol)
+            board.get_limit_up(symbol)
+            board.get_limit_down(symbol)
         market.check_health()
         # Init may take time: crossing the first boundary before READY is still not a full session.
         if events.first_session() != first:
@@ -167,6 +176,7 @@ def run_live(artifacts, control, on_status, *, market=None, clock=None):
         if control.stopped.is_set():
             return
         on_status("READY", market_data="CONNECTED")
+        ready = True
         on_status("RUNNING", market_data="CONNECTED")
         LiveExecutor(env).run(BarMap(proxy, "1d"))
         env.event_bus.publish_event(Event(EVENT.POST_STRATEGY_RUN))
@@ -176,7 +186,12 @@ def run_live(artifacts, control, on_status, *, market=None, clock=None):
         while isinstance(original, CustomException) and original.error.exc_val is not None:
             original = original.error.exc_val
         if isinstance(original, MarketDataError):
-            raise RuntimeFailure(original.code, str(original), retryable=original.transient) from exc
+            raise RuntimeFailure(
+                original.code,
+                str(original),
+                retryable=not ready
+                and (original.transient or original.code in {"MARKET_PRICE_UNAVAILABLE", "MARKET_DATA_INCOMPLETE"}),
+            ) from exc
         if isinstance(original, RuntimeFailure):
             raise original from exc
         raise

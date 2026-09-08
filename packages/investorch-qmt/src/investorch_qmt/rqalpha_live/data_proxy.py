@@ -21,13 +21,27 @@ class LiveDataProxy(DataProxy):
         for symbol in symbols:
             instrument = self.instrument(symbol)
             if instrument is None or instrument.type != INSTRUMENT_TYPE.CS or not symbol.endswith((".XSHG", ".XSHE")):
-                raise RuntimeFailure("UNSUPPORTED_INSTRUMENT", f"B3 requires XSHG/XSHE stock: {symbol}.")
+                raise RuntimeFailure("UNSUPPORTED_INSTRUMENT", f"Live runtime requires XSHG/XSHE stock: {symbol}.")
 
-    def require_fresh_history(self, day):
+    def require_fresh_history(self, day, symbols=()):
         previous = self.get_previous_trading_date(day).date()
         _, end = self.available_data_range("1d")
         if previous >= day or end < previous:
             raise RuntimeFailure("HISTORICAL_DATA_NOT_FRESH", f"Native daily history must cover {previous}.")
+        for symbol in symbols:
+            instrument = self.instrument_not_none(symbol)
+            rows = self._data_source.history_bars(
+                instrument,
+                1,
+                "1d",
+                "datetime",
+                datetime.combine(previous, datetime.min.time()),
+                skip_suspended=False,
+                include_now=False,
+                adjust_type="none",
+            )
+            if rows is None or len(rows) != 1 or int(rows[0]) // 1000000 != int(previous.strftime("%Y%m%d")):
+                raise RuntimeFailure("HISTORICAL_DATA_NOT_FRESH", f"Native history for {symbol} must cover {previous}.")
         self.current_day = day
         self.current_bars = {}
         self.finalized = False
@@ -54,4 +68,4 @@ class LiveDataProxy(DataProxy):
         return super().is_suspended(order_book_id, dt, count)
 
     def current_snapshot(self, order_book_id, frequency, dt):
-        raise RuntimeFailure("LIVE_CURRENT_SNAPSHOT_UNSUPPORTED", "B3 does not provide live current_snapshot().")
+        raise RuntimeFailure("LIVE_CURRENT_SNAPSHOT_UNSUPPORTED", "Live current_snapshot() is not supported.")

@@ -10,6 +10,7 @@ from investorch_qmt.runtime.model import RuntimeFailure
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
 FINAL_BAR_WAIT_SECONDS = 30
+DISPATCH_SLACK_SECONDS = 1
 
 
 class WallClock:
@@ -42,10 +43,14 @@ class DailyEventSource(AbstractEventSource):
             raise RuntimeFailure("SESSION_ALREADY_STARTED", "A full session boundary is required.", retryable=True)
         return day
 
-    def _wait_until(self, boundary):
+    def _wait_until(self, boundary, *, strict=False):
         while not self.control.stopped.is_set():
             self.health()
             now = self.clock.now().astimezone(SHANGHAI)
+            if strict and now > boundary + timedelta(seconds=DISPATCH_SLACK_SECONDS):
+                raise RuntimeFailure(
+                    "MISSED_RUNTIME_EVENT", "An event could not be dispatched at its required boundary."
+                )
             enabled, reason = self.control.gate()
             for paused_at, resumed_at in getattr(self.control, "pauses", lambda: ())():
                 if paused_at <= boundary <= (resumed_at or now):
@@ -68,7 +73,7 @@ class DailyEventSource(AbstractEventSource):
 
     def events(self, start_date, end_date, frequency):
         if frequency != "1d":
-            raise RuntimeFailure("UNSUPPORTED_FREQUENCY", "B3 only supports daily strategies.")
+            raise RuntimeFailure("UNSUPPORTED_FREQUENCY", "Live runtime only supports daily strategies.")
         for day in self.calendar:
             if day < start_date:
                 continue
@@ -76,13 +81,17 @@ class DailyEventSource(AbstractEventSource):
             opening = datetime.combine(day, min(start for start, _ in periods), SHANGHAI)
             execution = datetime.combine(day, time(14, 57), SHANGHAI)
             closing = datetime.combine(day, max(end for _, end in periods), SHANGHAI)
-            if not self._wait_until(opening):
+            if not self._wait_until(opening, strict=True):
                 return
             self.freshness(day)
+            if not self._wait_until(opening, strict=True):
+                return
             yield self._event(EVENT.BEFORE_TRADING, datetime.combine(day, time.min, SHANGHAI))
-            if not self._wait_until(execution):
+            if not self._wait_until(execution, strict=True):
                 return
             self.prepare_bars(day, False)
+            if not self._wait_until(execution, strict=True):
+                return
             yield self._event(EVENT.BAR, datetime.combine(day, time(15), SHANGHAI))
             if not self._wait_until(closing):
                 return
@@ -92,6 +101,8 @@ class DailyEventSource(AbstractEventSource):
                     return
                 try:
                     self.prepare_bars(day, True)
+                    if self.clock.now() > deadline:
+                        raise RuntimeFailure("MARKET_DATA_INCOMPLETE", "Final daily bar arrived after deadline.")
                     break
                 except Exception as exc:
                     if getattr(exc, "code", None) != "MARKET_DATA_INCOMPLETE":

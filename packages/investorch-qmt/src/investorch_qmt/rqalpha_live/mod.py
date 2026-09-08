@@ -1,4 +1,4 @@
-"""The single live Mod entry point, without a production Broker or EventSource."""
+"""Bootstrap Mod used by the live runner before native Portfolio construction."""
 
 import json
 from dataclasses import replace
