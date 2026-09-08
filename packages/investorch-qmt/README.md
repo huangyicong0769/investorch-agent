@@ -146,14 +146,14 @@ The same listener serves `/mcp` and `/api/v1` with the same Bearer token and Hos
 | Method | Path | Purpose |
 |---|---|---|
 | GET | `/api/v1/node/status` | Node, control and deployment status without strategy source |
-| POST | `/api/v1/control-sessions` | New node-wide in-memory session, fencing the old session |
+| POST | `/api/v1/control-sessions` | Acquire a node-wide in-memory lease; a valid existing lease returns retryable `409 CONTROL_SESSION_BUSY` |
 | POST | `/api/v1/control-sessions/{session_id}/renew` | Renew control lease; optional reconciliation assertion |
 | DELETE | `/api/v1/control-sessions/{session_id}` | Close current session; stale close cannot close a newer session |
 | PUT | `/api/v1/deployments/{deployment_id}` | Validate and stage exact frozen deployment bytes |
 | GET | `/api/v1/facts/next` | Deliver one globally oldest pending fact |
 | POST | `/api/v1/facts/{fact_id}/ack` | Atomically acknowledge one fact and advance its deployment cursor |
 
-Stage, pull and ACK require `X-InvestOrch-Control-Session`. Missing, expired or fenced authority returns `409 STALE_CONTROL_SESSION`. Sessions expire after the returned `lease_timeout_seconds`; they never survive process restart. Expiry invalidates sync and does not kill a runtime. Core maintains heartbeats only while it has ACTIVE live work.
+Stage, pull and ACK require `X-InvestOrch-Control-Session`. Missing, expired or closed authority returns `409 STALE_CONTROL_SESSION`. A valid lease cannot be preempted: another Core may acquire authority only after expiry or explicit close. Sessions expire after the returned `lease_timeout_seconds`; they never survive process restart. Expiry invalidates sync and does not kill a runtime. Core maintains heartbeats only while it has ACTIVE live work.
 
 A lease renewal without a body renews authority only. After draining and comparing the Core canonical head, Core may send:
 
@@ -161,12 +161,12 @@ A lease renewal without a body renews authority only. After draining and compari
 {"reconciled_deployments":[{"deployment_id":"deployment-a","acked_core_sequence":12}]}
 ```
 
-The service accepts this assertion only when the deployment has no pending facts and the cursor matches. Session replacement/expiry clears synchronization; a mismatch is DESYNCED. Ordinary heartbeat cannot restore SYNCED. This handshake does not perform broker reconciliation or adopt an unknown deployment.
+The service accepts this assertion only when the deployment has no pending facts and the cursor matches. Session close/expiry clears synchronization; a mismatch is DESYNCED. Ordinary heartbeat cannot restore SYNCED. This handshake does not perform broker reconciliation or adopt an unknown deployment.
 
 Staging validates the exact manifest field set, RQAlpha 6.3.0, Base64-decoded bytes against SHA-256, and independent Bootstrap V1 identities before installing `deployments/<deployment_id>/{strategy.py,manifest.json,bootstrap.json}`. Repeating the identical frozen deployment returns the same summary; changed content or another current deployment for the Portfolio conflicts. A failed database write removes newly installed artifacts. Persisted artifacts are not overwritten to repair corruption automatically.
 
 The internal `ExecutionNodeService.enqueue_trade_fact(payload)` seam accepts strict TRADE_V1 facts for a future real broker callback. There is no enqueue REST endpoint or Agent tool. Numeric fields are finite decimal strings, timestamps include a timezone, and broker trade identity deduplicates exact payloads. The outbox returns one fact, retains ACKED rows, and requires an oldest-only ACK with Core sequence exactly N+1. An identical ACK retry succeeds; a changed sequence conflicts. ACK and the deployment cursor commit in one SQLite transaction.
 
-MCP exposes only `get_status`, `start_live_strategy(portfolio_id)` and `stop_live_strategy(portfolio_id)`. Configure approval for start and stop in Core. Start requires a STAGED deployment, control authority and reconciled sync, then truthfully returns `BACKEND_NOT_READY` without changing STAGED. Stop changes STAGED to STOPPED and retries idempotently; FAILED remains FAILED and a RUNNING stop cannot fabricate success. Core releases ACTIVE ownership only after observing the terminal state, draining and reconciling.
+MCP exposes only `get_status`, `start_live_strategy(portfolio_id)` and `stop_live_strategy(portfolio_id)`. Configure approval for start and stop in Core. Both writes require current authority through the infrastructure-managed `X-InvestOrch-Control-Session` HTTP header; the Agent supplies only `portfolio_id`. Missing or stale authority returns `STALE_CONTROL_SESSION` before deployment or backend validation. `get_status` requires only Bearer authentication. Start requires a STAGED deployment and reconciled sync, then truthfully returns `BACKEND_NOT_READY` without changing STAGED. Stop changes STAGED to STOPPED and retries idempotently; FAILED remains FAILED and a RUNNING stop cannot fabricate success. Core releases ACTIVE ownership only after observing the terminal state, draining and reconciling.
 
 The companion does not include a fake broker/event source, production RQAlpha loop, actual QMT order placement, broker reconciliation, WebSocket transport or TLS/PKI. QMT remains `not_connected`. Do not use this plaintext service across an untrusted LAN or public Internet.
