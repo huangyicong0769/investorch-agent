@@ -3,6 +3,7 @@
 import multiprocessing
 import threading
 import time
+from collections import deque
 from concurrent.futures import Future
 from dataclasses import dataclass, field
 
@@ -23,6 +24,7 @@ class WorkerHandle:
     retryable: bool = False
     stop_requested: threading.Event = field(default_factory=threading.Event)
     monitor: threading.Thread | None = None
+    gates: deque = field(default_factory=deque)
 
 
 class RuntimeSupervisor:
@@ -91,6 +93,12 @@ class RuntimeSupervisor:
                 handle.stop_requested.set()
             return handle.shutdown
 
+    def disable_gate(self, identity=None, reason="CONTROL_AUTHORITY_UNAVAILABLE"):
+        with self._lock:
+            for key, handle in self._workers.items():
+                if (identity is None or identity == key) and not handle.shutdown.done():
+                    handle.gates.append((False, reason))
+
     def _publish(self, identity, handle, event):
         with self._lock:
             handle.phase = event["phase"]
@@ -115,6 +123,12 @@ class RuntimeSupervisor:
                     handle.pipe.send({"command": "SET_GATE", "enabled": False, "reason": "STOP_REQUESTED"})
                     handle.pipe.send({"command": "STOP"})
                 if stop_deadline is None:
+                    with self._lock:
+                        queued = list(handle.gates)
+                        handle.gates.clear()
+                    for gate in queued:
+                        handle.pipe.send({"command": "SET_GATE", "enabled": gate[0], "reason": gate[1]})
+                        last_gate = gate
                     gate = self._gate(identity)
                     if gate != last_gate:
                         handle.pipe.send({"command": "SET_GATE", "enabled": gate[0], "reason": gate[1]})
@@ -140,7 +154,7 @@ class RuntimeSupervisor:
                     terminal = {"phase": "FAILED", "reason": "START_TIMEOUT", "retryable": True}
                 elif not handle.process.is_alive() and terminal is None and not handle.pipe.poll():
                     terminal = {"phase": "FAILED", "reason": "WORKER_FAILED", "retryable": False}
-        except (EOFError, OSError, ValueError, TypeError, KeyError) as exc:
+        except Exception as exc:
             terminal = {"phase": "FAILED", "reason": "WORKER_FAILED", "message": str(exc), "retryable": False}
         finally:
             if handle.stop_requested.is_set():
@@ -155,10 +169,16 @@ class RuntimeSupervisor:
                 handle.process.kill()
                 handle.process.join()
             handle.pipe.close()
-            self._publish(identity, handle, terminal)
-            if not handle.startup.done():
-                handle.startup.set_result(terminal)
-            handle.shutdown.set_result(terminal)
+            try:
+                self._publish(identity, handle, terminal)
+            except Exception as exc:
+                if not handle.startup.done():
+                    handle.startup.set_exception(exc)
+                handle.shutdown.set_exception(exc)
+            else:
+                if not handle.startup.done():
+                    handle.startup.set_result(terminal)
+                handle.shutdown.set_result(terminal)
 
     def close(self):
         with self._lock:

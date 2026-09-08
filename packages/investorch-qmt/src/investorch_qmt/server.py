@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import signal
 import sqlite3
+from contextlib import asynccontextmanager
 from importlib.metadata import version
 
 import uvicorn
@@ -47,7 +49,7 @@ def create_mcp_server(transport_security: TransportSecuritySettings, service: Ex
         )
 
     @server.tool(
-        description="Report companion readiness and the truthful QMT connectivity state.",
+        description="Report companion, market-data, worker and trading readiness separately.",
         annotations=ToolAnnotations(
             readOnlyHint=True,
             destructiveHint=False,
@@ -59,11 +61,10 @@ def create_mcp_server(transport_security: TransportSecuritySettings, service: Ex
     def get_status() -> dict[str, object]:
         status = service.get_node_status()
         status["service"].update(name=_SERVICE_NAME, version=version(_SERVICE_NAME))
-        status["qmt"]["reason"] = "QMT backend is not connected."
         return status
 
     @server.tool(
-        description="Start the staged live strategy for a Portfolio. The live backend is not yet available; returns BACKEND_NOT_READY.",
+        description="Start a Portfolio's staged strategy on real MiniQMT market data. All orders are rejected because trading is not enabled.",
         annotations=ToolAnnotations(
             readOnlyHint=False, destructiveHint=False, idempotentHint=True, openWorldHint=False
         ),
@@ -76,7 +77,7 @@ def create_mcp_server(transport_security: TransportSecuritySettings, service: Ex
             return exc.to_wire()
 
     @server.tool(
-        description="Stop a Portfolio's staged live strategy. Requires approval in the Core MCP profile.",
+        description="Stop a Portfolio's live strategy worker. Requires approval in the Core MCP profile.",
         annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=True, idempotentHint=True, openWorldHint=False),
         structured_output=True,
     )
@@ -95,12 +96,24 @@ def create_app(
     config: QMTConfig, paths: AppPaths | None = None, service: ExecutionNodeService | None = None
 ) -> ASGIApp:
     transport_security = _transport_security(config)
-    server = create_mcp_server(transport_security, service or ExecutionNodeService(paths or default_paths()))
+    service = service or ExecutionNodeService(paths or default_paths())
+    server = create_mcp_server(transport_security, service)
     app = server.streamable_http_app(
         streamable_http_path="/mcp",
         host=config.server.host,
         transport_security=transport_security,
     )
+    original_lifespan = app.router.lifespan_context
+
+    @asynccontextmanager
+    async def lifespan(application):
+        try:
+            async with original_lifespan(application) as state:
+                yield state
+        finally:
+            await asyncio.to_thread(service.close)
+
+    app.router.lifespan_context = lifespan
     return BearerAuthMiddleware(app, config.auth.token)
 
 

@@ -88,9 +88,10 @@ async def test_official_client_discovers_live_controls_and_truthful_status(tmp_p
     assert tools.tools[0].annotations is not None
     assert tools.tools[0].annotations.read_only_hint is True
     assert result.is_error is False
-    assert {key: result.structured_content[key] for key in ("service", "qmt")} == {
+    assert {key: result.structured_content[key] for key in ("service", "market_data", "trading")} == {
         "service": {"name": "investorch-qmt", "version": version("investorch-qmt"), "status": "ready"},
-        "qmt": {"status": "not_connected", "reason": "QMT backend is not connected."},
+        "market_data": {"backend": "xtdata", "status": "DISCONNECTED", "xtquant_version": "250807.1.2"},
+        "trading": {"status": "NOT_READY", "reason": "TRADING_BACKEND_NOT_READY"},
     }
 
 
@@ -123,11 +124,11 @@ async def test_lan_transport_security_accepts_only_configured_host(tmp_path: Pat
 
 @pytest.mark.asyncio
 async def test_mcp_controls_share_the_rest_execution_state(tmp_path):
-    from test_execution_service import stage_body
+    from test_execution_service import stage_body, unavailable_runtime_factory
 
     from investorch_qmt.execution.service import ExecutionNodeService
 
-    service = ExecutionNodeService(default_paths(tmp_path))
+    service = ExecutionNodeService(default_paths(tmp_path), runtime_factory=unavailable_runtime_factory)
     session = service.open_control_session()["session_id"]
     service.stage_deployment("deployment-a", stage_body(), session)
     service.renew_control_session(session, [{"deployment_id": "deployment-a", "acked_core_sequence": 12}])
@@ -140,7 +141,7 @@ async def test_mcp_controls_share_the_rest_execution_state(tmp_path):
         Client(streamable_http_client(url, http_client=http_client), mode="legacy") as client,
     ):
         started = await client.call_tool("start_live_strategy", {"portfolio_id": "portfolio-a"})
-        assert started.structured_content["code"] == "BACKEND_NOT_READY"
+        assert started.structured_content["code"] == "MARKET_DATA_NOT_READY"
         assert service.get_portfolio_runtime_status("portfolio-a")["status"] == "STAGED"
         stopped = await client.call_tool("stop_live_strategy", {"portfolio_id": "portfolio-a"})
         assert stopped.structured_content["status"] == "STOPPED"
@@ -150,11 +151,11 @@ async def test_mcp_controls_share_the_rest_execution_state(tmp_path):
 
 @pytest.mark.asyncio
 async def test_mcp_write_authority_is_request_local_and_never_an_agent_argument(tmp_path):
-    from test_execution_service import stage_body
+    from test_execution_service import stage_body, unavailable_runtime_factory
 
     from investorch_qmt.execution.service import ExecutionNodeService
 
-    service = ExecutionNodeService(default_paths(tmp_path))
+    service = ExecutionNodeService(default_paths(tmp_path), runtime_factory=unavailable_runtime_factory)
     authority = service.open_control_session()["session_id"]
     service.stage_deployment("deployment-a", stage_body(), authority)
     service.renew_control_session(authority, [{"deployment_id": "deployment-a", "acked_core_sequence": 12}])
@@ -175,7 +176,7 @@ async def test_mcp_write_authority_is_request_local_and_never_an_agent_argument(
         discovered = await owner.list_tools()
         for tool in discovered.tools[1:]:
             assert set(tool.input_schema["properties"]) == {"portfolio_id"}
-        assert (await bearer.call_tool("get_status")).structured_content["qmt"]["status"] == "not_connected"
+        assert (await bearer.call_tool("get_status")).structured_content["market_data"]["status"] == "DISCONNECTED"
         for tool in ("start_live_strategy", "stop_live_strategy"):
             for portfolio in ("portfolio-a", "absent"):
                 result = await bearer.call_tool(tool, {"portfolio_id": portfolio})
@@ -184,7 +185,7 @@ async def test_mcp_write_authority_is_request_local_and_never_an_agent_argument(
             owner.call_tool("start_live_strategy", {"portfolio_id": "portfolio-a"}),
             bearer.call_tool("start_live_strategy", {"portfolio_id": "portfolio-a"}),
         )
-        assert current.structured_content["code"] == "BACKEND_NOT_READY"
+        assert current.structured_content["code"] == "MARKET_DATA_NOT_READY"
         assert missing.structured_content["code"] == "STALE_CONTROL_SESSION"
         service.close_control_session(authority)
         replacement = service.open_control_session()["session_id"]

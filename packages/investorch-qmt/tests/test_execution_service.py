@@ -5,6 +5,16 @@ import pytest
 from investorch_qmt.config import default_paths
 from investorch_qmt.execution.domain import ExecutionError
 from investorch_qmt.execution.service import ExecutionNodeService
+from investorch_qmt.runtime.supervisor import RuntimeSupervisor
+
+
+def unavailable_market_worker(spec, pipe):
+    pipe.send({"phase": "FAILED", "reason": "MARKET_DATA_NOT_READY", "retryable": True})
+    pipe.close()
+
+
+def unavailable_runtime_factory(notify, gate):
+    return RuntimeSupervisor(notify, gate, worker_target=unavailable_market_worker)
 
 
 def test_control_authority_is_fenced_expiring_and_process_local(tmp_path):
@@ -204,13 +214,13 @@ def test_stale_authority_cannot_stage_pull_or_ack(tmp_path):
 
 
 def test_reconciliation_required_after_open_expiry_and_pending_delivery(tmp_path):
-    service = ExecutionNodeService(default_paths(tmp_path))
+    service = ExecutionNodeService(default_paths(tmp_path), runtime_factory=unavailable_runtime_factory)
     session = service.open_control_session()["session_id"]
     service.stage_deployment("deployment-a", stage_body(), session)
     with pytest.raises(ExecutionError, match="PORTFOLIO_NOT_SYNCED"):
         service.start_live_strategy("portfolio-a", session)
     service.renew_control_session(session, [{"deployment_id": "deployment-a", "acked_core_sequence": 12}])
-    with pytest.raises(ExecutionError, match="BACKEND_NOT_READY"):
+    with pytest.raises(ExecutionError, match="MARKET_DATA_NOT_READY"):
         service.start_live_strategy("portfolio-a", session)
     assert service.get_portfolio_runtime_status("portfolio-a")["status"] == "STAGED"
     service.close_control_session(session)
@@ -246,9 +256,8 @@ def test_terminal_failure_is_preserved_and_running_stop_cannot_fake_success(tmp_
     service.stage_deployment("deployment-a", stage_body(), session)
     with sqlite3.connect(tmp_path / "runtime.db") as db:
         db.execute("UPDATE remote_deployments SET status='RUNNING'")
-    with pytest.raises(ExecutionError, match="BACKEND_NOT_READY"):
-        service.stop_live_strategy("portfolio-a", session)
-    assert service.get_portfolio_runtime_status("portfolio-a")["status"] == "RUNNING"
+    assert service.stop_live_strategy("portfolio-a", session)["status"] == "FAILED"
+    assert service.get_portfolio_runtime_status("portfolio-a")["failure_reason"] == "WORKER_FAILED"
     with sqlite3.connect(tmp_path / "runtime.db") as db:
         db.execute("UPDATE remote_deployments SET status='FAILED', failure_reason='runtime failed'")
     assert service.stop_live_strategy("portfolio-a", session)["status"] == "FAILED"

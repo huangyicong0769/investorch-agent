@@ -11,6 +11,8 @@ from pathlib import Path
 from uuid import uuid4
 
 from investorch_qmt.config import AppPaths
+from investorch_qmt.runtime.model import WorkerLaunchSpec
+from investorch_qmt.runtime.supervisor import RuntimeSupervisor
 
 from .domain import ControlSession, ExecutionError
 from .storage import RuntimeStorage
@@ -23,6 +25,7 @@ class ExecutionNodeService:
         *,
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
         lease_timeout_seconds: int = 10,
+        runtime_factory=RuntimeSupervisor,
     ):
         if type(lease_timeout_seconds) is not int or lease_timeout_seconds <= 0:
             raise ValueError("lease timeout must be a positive integer")
@@ -33,10 +36,51 @@ class ExecutionNodeService:
         self._lock = threading.RLock()
         self._session: ControlSession | None = None
         self._sync: dict[str, str] = {}
+        self.supervisor = runtime_factory(self._runtime_event, self._runtime_gate)
+        with self.storage.transaction() as db:
+            if db.execute("SELECT 1 FROM remote_deployments WHERE status='RUNNING'").fetchone():
+                now = self._clock().isoformat()
+                db.execute(
+                    "UPDATE remote_deployments SET status='FAILED',failure_reason=?,updated_at=?,ended_at=? WHERE status='RUNNING'",
+                    ("RUNTIME_LOST_ON_COMPANION_RESTART", now, now),
+                )
+
+    def close(self):
+        self.supervisor.close()
+
+    def _runtime_gate(self, identity):
+        with self._lock:
+            if self._current() is None:
+                return False, "CONTROL_AUTHORITY_UNAVAILABLE"
+            if self._sync.get(identity) != "SYNCED":
+                return False, "PORTFOLIO_NOT_SYNCED"
+            return True, None
+
+    def _runtime_event(self, identity, event):
+        phase = event["phase"]
+        status = {"READY": "RUNNING", "RUNNING": "RUNNING", "PAUSED": "RUNNING", "STOPPED": "STOPPED"}.get(phase)
+        if phase == "FAILED":
+            status = "STAGED" if event.get("retryable") else "FAILED"
+        if status is None:
+            return
+        with self._lock, self.storage.transaction() as db:
+            now = self._clock().isoformat()
+            db.execute(
+                """UPDATE remote_deployments SET status=?,failure_reason=?,updated_at=?,
+                ended_at=CASE WHEN ? IN ('STOPPED','FAILED') THEN ? ELSE ended_at END
+                WHERE deployment_id=? AND status IN ('STAGED','RUNNING')""",
+                (status, event.get("reason"), now, status, now, identity),
+            )
 
     def _invalidate(self):
         self._session = None
         self._sync.clear()
+        self.supervisor.disable_gate()
+
+    def _set_sync(self, identity, value):
+        self._sync[identity] = value
+        if value != "SYNCED":
+            self.supervisor.disable_gate(identity, "PORTFOLIO_NOT_SYNCED")
 
     def _current(self):
         if self._session is not None and self._clock() >= self._session.expires_at:
@@ -88,12 +132,12 @@ class ExecutionNodeService:
                             summary["pending_fact_count"]
                             or summary["acked_core_sequence"] != assertion["acked_core_sequence"]
                         ):
-                            self._sync[identity] = "DESYNCED"
+                            self._set_sync(identity, "DESYNCED")
                             raise ExecutionError(
                                 "SEQUENCE_CONFLICT", "Reconciliation requires no pending facts and an equal cursor."
                             )
                     for identity in seen:
-                        self._sync[identity] = "SYNCED"
+                        self._set_sync(identity, "SYNCED")
             self._require_control(session_id)
             self._session = ControlSession(session_id, self._clock() + timedelta(seconds=self._lease))
             return {
@@ -112,7 +156,14 @@ class ExecutionNodeService:
         pending = db.execute(
             "SELECT COUNT(*) FROM outbox WHERE deployment_id=? AND status='PENDING'", (row["deployment_id"],)
         ).fetchone()[0]
+        worker = self.supervisor.snapshot(row["deployment_id"])
         return {
+            "worker_phase": worker["phase"]
+            if worker
+            else (row["status"] if row["status"] in ("STOPPED", "FAILED") else None),
+            "market_data": worker["market_data"] if worker else "DISCONNECTED",
+            "control_authority": "AVAILABLE" if self._current() else "UNAVAILABLE",
+            "trading": {"status": "NOT_READY", "available": False, "reason": "TRADING_BACKEND_NOT_READY"},
             "deployment_id": row["deployment_id"],
             "portfolio_id": row["portfolio_id"],
             "broker_account_id": row["broker_account_id"],
@@ -126,17 +177,25 @@ class ExecutionNodeService:
     def get_node_status(self) -> dict:
         with self._lock, self.storage.transaction() as db:
             current = self._current()
+            deployments = [
+                self._summary(db, row)
+                for row in db.execute("SELECT * FROM remote_deployments ORDER BY staged_at, deployment_id")
+            ]
             return {
                 "service": {"status": "ready"},
-                "qmt": {"status": "not_connected"},
+                "market_data": {
+                    "backend": "xtdata",
+                    "status": "CONNECTED"
+                    if any(d["market_data"] == "CONNECTED" for d in deployments)
+                    else "DISCONNECTED",
+                    "xtquant_version": "250807.1.2",
+                },
+                "trading": {"status": "NOT_READY", "reason": "TRADING_BACKEND_NOT_READY"},
                 "control": {
                     "status": "AVAILABLE" if current else "UNAVAILABLE",
                     "lease_expires_at": current.expires_at.isoformat() if current else None,
                 },
-                "deployments": [
-                    self._summary(db, row)
-                    for row in db.execute("SELECT * FROM remote_deployments ORDER BY staged_at, deployment_id")
-                ],
+                "deployments": deployments,
             }
 
     def stage_deployment(self, deployment_id: str, body: dict, session_id: str) -> dict:
@@ -292,7 +351,7 @@ class ExecutionNodeService:
                     "SELECT acked_core_sequence FROM remote_deployments WHERE deployment_id=?", (row["deployment_id"],)
                 ).fetchone()[0]
                 if committed_ledger_sequence != cursor + 1:
-                    self._sync[row["deployment_id"]] = "DESYNCED"
+                    self._set_sync(row["deployment_id"], "DESYNCED")
                     raise ExecutionError("SEQUENCE_CONFLICT", "Committed sequence must advance exactly by one.")
                 now = self._clock().isoformat()
                 db.execute(
@@ -328,25 +387,44 @@ class ExecutionNodeService:
         with self._lock, self.storage.transaction() as db:
             self._require_control(session_id)
             row = self._portfolio_row(db, portfolio_id)
-            if row["status"] != "STAGED":
-                raise ExecutionError("DEPLOYMENT_CONFLICT", "Only a staged deployment can start.")
+            if row["status"] not in ("STAGED", "RUNNING"):
+                raise ExecutionError("DEPLOYMENT_CONFLICT", "Only a current deployment can start.")
             if self._summary(db, row)["portfolio_sync"] != "SYNCED":
                 raise ExecutionError("PORTFOLIO_NOT_SYNCED", "Core reconciliation is required before start.")
-            raise ExecutionError("BACKEND_NOT_READY", "The production live backend is not implemented.")
+            spec = WorkerLaunchSpec(
+                row["deployment_id"],
+                row["portfolio_id"],
+                row["broker_account_id"],
+                str(self.paths.deployments / row["deployment_id"]),
+                row["strategy_sha256"],
+            )
+            startup = self.supervisor.begin_start(spec)
+        result = startup.result()
+        if result["phase"] == "FAILED":
+            raise ExecutionError(
+                result["reason"],
+                result.get("message", "Worker could not start."),
+                retryable=result.get("retryable", False),
+            )
+        return self.get_portfolio_runtime_status(portfolio_id)
 
     def stop_live_strategy(self, portfolio_id: str, session_id: str | None = None) -> dict:
         with self._lock, self.storage.transaction() as db:
             self._require_control(session_id)
             row = self._portfolio_row(db, portfolio_id)
-            if row["status"] == "RUNNING":
-                raise ExecutionError("BACKEND_NOT_READY", "No production runtime stop controller is implemented.")
-            if row["status"] == "STAGED":
+            shutdown = self.supervisor.begin_stop(row["deployment_id"])
+            worker = self.supervisor.snapshot(row["deployment_id"])
+            if row["status"] == "STAGED" and (worker is None or worker["phase"] == "FAILED"):
                 now = self._clock().isoformat()
                 db.execute(
                     "UPDATE remote_deployments SET status='STOPPED',updated_at=?,ended_at=? WHERE deployment_id=?",
                     (now, now, row["deployment_id"]),
                 )
-                row = db.execute(
-                    "SELECT * FROM remote_deployments WHERE deployment_id=?", (row["deployment_id"],)
-                ).fetchone()
-            return self._summary(db, row)
+            if row["status"] == "RUNNING" and worker is None:
+                now = self._clock().isoformat()
+                db.execute(
+                    "UPDATE remote_deployments SET status='FAILED',failure_reason='WORKER_FAILED',updated_at=?,ended_at=? WHERE deployment_id=?",
+                    (now, now, row["deployment_id"]),
+                )
+        shutdown.result()
+        return self.get_portfolio_runtime_status(portfolio_id)
