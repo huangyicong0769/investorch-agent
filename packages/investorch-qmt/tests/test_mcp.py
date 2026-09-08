@@ -12,6 +12,7 @@ import pytest
 import uvicorn
 from mcp import Client
 from mcp.client.streamable_http import streamable_http_client
+from sse_starlette.sse import AppStatus
 
 from investorch_qmt.config import default_paths, load_config
 from investorch_qmt.server import create_app
@@ -38,6 +39,8 @@ token = "{TOKEN}"
 
 @asynccontextmanager
 async def running_app(app):
+    # Each test starts a fresh server, whereas the SSE dependency keeps a process-wide shutdown flag.
+    AppStatus.should_exit = False
     listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     listener.bind(("127.0.0.1", 0))
