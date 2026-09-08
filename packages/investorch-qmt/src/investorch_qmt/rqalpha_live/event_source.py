@@ -71,6 +71,22 @@ class DailyEventSource(AbstractEventSource):
             self.clock.wait(max(0.001, min(0.25, (boundary - now).total_seconds())), self.control.stopped)
         return False
 
+    def _can_publish(self, boundary, next_boundary):
+        # Admission already succeeded; I/O duration is not scheduler lateness.
+        if self.control.stopped.is_set():
+            return False
+        self.health()
+        now = self.clock.now().astimezone(SHANGHAI)
+        enabled, _ = self.control.gate()
+        if not enabled:
+            raise RuntimeFailure("MISSED_RUNTIME_EVENT", "Safety gate was lost before event publication.")
+        for paused_at, resumed_at in getattr(self.control, "pauses", lambda: ())():
+            if paused_at <= now and (resumed_at or now) >= boundary:
+                raise RuntimeFailure("MISSED_RUNTIME_EVENT", "Safety gate was lost during event dispatch.")
+        if now >= next_boundary:
+            raise RuntimeFailure("MISSED_RUNTIME_EVENT", "Event work crossed the next required event boundary.")
+        return not self.control.stopped.is_set()
+
     def events(self, start_date, end_date, frequency):
         if frequency != "1d":
             raise RuntimeFailure("UNSUPPORTED_FREQUENCY", "Live runtime only supports daily strategies.")
@@ -84,13 +100,13 @@ class DailyEventSource(AbstractEventSource):
             if not self._wait_until(opening, strict=True):
                 return
             self.freshness(day)
-            if not self._wait_until(opening, strict=True):
+            if not self._can_publish(opening, execution):
                 return
             yield self._event(EVENT.BEFORE_TRADING, datetime.combine(day, time.min, SHANGHAI))
             if not self._wait_until(execution, strict=True):
                 return
             self.prepare_bars(day, False)
-            if not self._wait_until(execution, strict=True):
+            if not self._can_publish(execution, closing):
                 return
             yield self._event(EVENT.BAR, datetime.combine(day, time(15), SHANGHAI))
             if not self._wait_until(closing):
