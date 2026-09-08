@@ -63,6 +63,8 @@ class LiveDeploymentCoordinator:
         return node
 
     async def deploy_live_strategy(self, portfolio_id: str, broker_account_id: str) -> dict:
+        if self._client is None:
+            return {"status": "unavailable", "code": "EXECUTION_NODE_NOT_CONFIGURED"}
         async with self._lock:
             active = next((d for d in await self._active() if d.portfolio_id == portfolio_id), None)
             if active is not None:

@@ -515,3 +515,54 @@ async def test_existing_deployment_retry_reports_observed_terminal_status(tmp_pa
         assert (await live.get_deployment(result["deployment_id"])).status.value == "STOPPED"
     finally:
         await coordinator.close()
+
+
+async def test_unconfigured_host_deploy_tool_creates_no_deployment_or_artifacts(tmp_path, monkeypatch):
+    from datetime import UTC, datetime
+
+    from agents.tool_context import ToolContext
+
+    from investorch.application.host import open_application_host
+    from investorch.application.live import LiveExecutionOperations
+    from investorch.context import AgentContext
+    from investorch.portfolio.domain import Broker, BrokerAccount, StrategyBinding
+    from investorch.portfolio.storage import create_broker, create_broker_account
+    from investorch.tools.live import deploy_live_strategy
+    from tests.support.config import make_test_config
+
+    config = make_test_config(tmp_path, {"secrets": {"DEEPSEEK_API_KEY": "unused-test-key"}, "qmt": {"mcp_server": ""}})
+    (config.workspace_dir / "strategy.py").write_text("def init(context):\n    pass\n")
+    now = datetime.now(UTC)
+    create_broker(config.portfolio_db, Broker("broker", "qmt", "Broker", now, now))
+    create_broker_account(config.portfolio_db, BrokerAccount("account", "broker", "ext", "Account", "stock", now, now))
+
+    async def initialize_command_sandbox(_execution, _workspace):
+        pass
+
+    async def approve(_request, _reason):
+        return True
+
+    monkeypatch.setattr("investorch.application.host.start_execution", initialize_command_sandbox)
+    async with open_application_host(
+        config, manual_approval_handler=approve, create_initial_session=False, enable_activity=False
+    ) as host:
+        portfolio = await host.portfolios.create(
+            name="P", base_currency="CNY", strategy_binding=StrategyBinding("strategy.py")
+        )
+        live = LiveExecutionOperations(config=config)
+        before = await live.list_deployments()
+        artifacts_before = list((config.state_dir / "live").rglob("*"))
+        context = AgentContext(
+            config, host.execution, "session", "run", host.portfolios, live_coordinator=host.live_coordinator
+        )
+        arguments = '{"portfolio_id":"' + portfolio.id + '","broker_account_id":"account"}'
+        wrapper = ToolContext(
+            context, tool_name="deploy_live_strategy", tool_call_id="deploy", tool_arguments=arguments
+        )
+        assert await deploy_live_strategy.on_invoke_tool(wrapper, arguments) == {
+            "status": "unavailable",
+            "code": "EXECUTION_NODE_NOT_CONFIGURED",
+        }
+        assert await live.list_deployments() == before == []
+        assert list((config.state_dir / "live").rglob("*")) == artifacts_before == []
+        await host.portfolios.record_cash_flow(portfolio.id, amount=Decimal(1), source="manual")
