@@ -11,6 +11,7 @@ def test_control_authority_is_fenced_expiring_and_process_local(tmp_path):
     now = [datetime(2026, 9, 8, tzinfo=UTC)]
     service = ExecutionNodeService(default_paths(tmp_path), clock=lambda: now[0])
     first = service.open_control_session()["session_id"]
+    now[0] += timedelta(seconds=10)
     second = service.open_control_session()["session_id"]
     with pytest.raises(ExecutionError, match="STALE_CONTROL_SESSION"):
         service.renew_control_session(first)
@@ -190,6 +191,7 @@ def test_trade_contract_rejects_invalid_payload_before_persistence(tmp_path, cha
 def test_stale_authority_cannot_stage_pull_or_ack(tmp_path):
     service = ExecutionNodeService(default_paths(tmp_path))
     stale = service.open_control_session()["session_id"]
+    service.close_control_session(stale)
     current = service.open_control_session()["session_id"]
     for operation in (
         lambda: service.stage_deployment("deployment-a", stage_body(), stale),
@@ -211,6 +213,7 @@ def test_reconciliation_required_after_open_expiry_and_pending_delivery(tmp_path
     with pytest.raises(ExecutionError, match="BACKEND_NOT_READY"):
         service.start_live_strategy("portfolio-a")
     assert service.get_portfolio_runtime_status("portfolio-a")["status"] == "STAGED"
+    service.close_control_session(session)
     session = service.open_control_session()["session_id"]
     assert service.get_portfolio_runtime_status("portfolio-a")["portfolio_sync"] == "UNKNOWN"
     fact = service.enqueue_trade_fact(trade())

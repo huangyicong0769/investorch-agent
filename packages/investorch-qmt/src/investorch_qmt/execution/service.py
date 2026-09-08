@@ -50,7 +50,12 @@ class ExecutionNodeService:
 
     def open_control_session(self) -> dict:
         with self._lock:
-            self._invalidate()
+            if self._current() is not None:
+                raise ExecutionError(
+                    "CONTROL_SESSION_BUSY",
+                    "Another Core currently owns the execution-node control lease.",
+                    retryable=True,
+                )
             self._session = ControlSession(str(uuid4()), self._clock() + timedelta(seconds=self._lease))
             return {"session_id": self._session.session_id, "lease_timeout_seconds": self._lease}
 
