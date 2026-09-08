@@ -140,3 +140,22 @@ def test_unexpected_running_child_exit_is_terminal():
         assert result["reason"] == "WORKER_FAILED"
     finally:
         supervisor.close()
+
+
+def unresponsive_stop_child(spec, pipe):
+    pipe.send({"phase": "READY", "market_data": "CONNECTED"})
+    while True:
+        time.sleep(1)
+
+
+def test_forced_stop_remains_distinguishable_from_graceful_acknowledgement():
+    supervisor = RuntimeSupervisor(
+        lambda *_: None, lambda _: (True, None), worker_target=unresponsive_stop_child, shutdown_timeout=0.1
+    )
+    try:
+        assert supervisor.begin_start(spec()).result(timeout=5)["phase"] == "READY"
+        result = supervisor.begin_stop("deployment-a").result(timeout=5)
+        assert result["phase"] == "STOPPED"
+        assert result["reason"] == "STOP_TIMEOUT"
+    finally:
+        supervisor.close()

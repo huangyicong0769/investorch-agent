@@ -157,12 +157,14 @@ class RuntimeSupervisor:
         except Exception as exc:
             terminal = {"phase": "FAILED", "reason": "WORKER_FAILED", "message": str(exc), "retryable": False}
         finally:
-            if handle.stop_requested.is_set():
-                terminal = {"phase": "STOPPED"}
+            if handle.stop_requested.is_set() and terminal["phase"] != "STOPPED":
+                terminal = {"phase": "STOPPED", "reason": terminal.get("reason", "WORKER_FAILED")}
             if ready and terminal.get("phase") == "FAILED":
                 terminal["retryable"] = False
             handle.process.join(timeout=0.5)
             if handle.process.is_alive():
+                if terminal["phase"] == "STOPPED" and not terminal.get("reason"):
+                    terminal["reason"] = "STOP_TERMINATED"
                 handle.process.terminate()
                 handle.process.join(timeout=self._shutdown_timeout)
             if handle.process.is_alive():
