@@ -313,3 +313,58 @@ async def test_companion_starts_listening_after_host_and_next_agent_run_calls_st
             online_run = host.runtime.start_run(session_id, "check newly started node", options)
             assert (await asyncio.wait_for(online_run.task, 10)).output == "Companion started"
             model.assert_complete()
+
+
+async def test_host_mcp_writes_receive_hidden_current_authority_after_approval(tmp_path, monkeypatch):
+    model = ScriptedModel()
+    external_seams(monkeypatch, model)
+    approved = []
+
+    async def approve(request, _reason):
+        approved.append(request.tool_name)
+        assert set(json.loads(request.arguments)) == {"portfolio_id"}
+        return True
+
+    async with companion_node(tmp_path / "companion") as profile:
+        config = host_config(tmp_path / "core", profile, profile.mcp_url.removesuffix("/mcp"))
+        config.workspace_dir.mkdir(parents=True, exist_ok=True)
+        (config.workspace_dir / "strategy.py").write_text("def init(context):\n    pass\n")
+        now = datetime.now(UTC)
+        create_broker(config.portfolio_db, Broker("broker", "qmt", "Broker", now, now))
+        create_broker_account(
+            config.portfolio_db, BrokerAccount("account", "broker", "external", "Account", "stock", now, now)
+        )
+        async with open_application_host(config, manual_approval_handler=approve, enable_activity=False) as host:
+            # MCP connects before a control lease exists; REST acquisition must update its hidden authority.
+            assert host.live_coordinator.control_session_id is None
+            portfolio = await host.portfolios.create(
+                name="Controlled", base_currency="CNY", strategy_binding=StrategyBinding("strategy.py")
+            )
+            assert (await host.live_coordinator.deploy_live_strategy(portfolio.id, "account"))["status"] == "staged"
+
+            def after_start(call):
+                assert approved == ["mcp_node__start_live_strategy"]
+                assert "BACKEND_NOT_READY" in str(call.input)
+                assert "STALE_CONTROL_SESSION" not in str(call.input)
+                return [function_call("mcp_node__stop_live_strategy", {"portfolio_id": portfolio.id}, call_id="stop")]
+
+            def after_stop(call):
+                assert approved == ["mcp_node__start_live_strategy", "mcp_node__stop_live_strategy"]
+                assert "STOPPED" in str(call.input)
+                return [assistant_message("approved control actions completed")]
+
+            model.extend(
+                [
+                    [function_call("mcp_node__start_live_strategy", {"portfolio_id": portfolio.id}, call_id="start")],
+                    {"responder": after_start},
+                    {"responder": after_stop},
+                ]
+            )
+            session_id = host.initial_session_id
+            set_session_title(config.sessions_db, session_id, "Authority acceptance")
+            run = host.runtime.start_run(session_id, "start then stop", RunOptions("none", "manual", "queue"))
+            assert (await asyncio.wait_for(run.task, 10)).output == "approved control actions completed"
+            assert await host.live_coordinator.ensure_connected_now()
+            deployments = await LiveExecutionOperations(config=config).list_deployments(portfolio.id)
+            assert deployments[0].status.value == "STOPPED"
+            model.assert_complete()
