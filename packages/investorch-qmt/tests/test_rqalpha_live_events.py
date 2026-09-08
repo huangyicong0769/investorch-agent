@@ -156,3 +156,35 @@ def test_delayed_callback_cannot_replay_a_missed_execution_minute():
     with pytest.raises(RuntimeFailure) as error:
         next(stream)
     assert error.value.code == "MISSED_RUNTIME_EVENT"
+
+
+def test_pause_during_final_query_prevents_after_trading_and_settlement():
+    event_source, _clock, control, _ = source(datetime(2026, 9, 7, 9, 29, tzinfo=SH))
+
+    def prepare(day, final):
+        if final:
+            control.enabled = False
+
+    event_source.prepare_bars = prepare
+    observed = []
+    with pytest.raises(RuntimeFailure) as error:
+        for event in event_source.events(date(2026, 9, 7), None, "1d"):
+            observed.append(event.event_type)
+    assert error.value.code == "MISSED_RUNTIME_EVENT"
+    assert observed == [EVENT.BEFORE_TRADING, EVENT.BAR]
+
+
+def test_final_query_returning_valid_data_after_deadline_fails_closed():
+    event_source, clock, _control, _ = source(datetime(2026, 9, 7, 9, 29, tzinfo=SH))
+
+    def prepare(day, final):
+        if final:
+            clock.current += timedelta(seconds=31)
+
+    event_source.prepare_bars = prepare
+    observed = []
+    with pytest.raises(RuntimeFailure) as error:
+        for event in event_source.events(date(2026, 9, 7), None, "1d"):
+            observed.append(event.event_type)
+    assert error.value.code == "MARKET_DATA_INCOMPLETE"
+    assert observed == [EVENT.BEFORE_TRADING, EVENT.BAR]

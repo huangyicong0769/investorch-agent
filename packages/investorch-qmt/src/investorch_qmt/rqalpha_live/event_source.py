@@ -112,7 +112,7 @@ class DailyEventSource(AbstractEventSource):
                             "MARKET_DATA_INCOMPLETE", "Final daily bar was unavailable at deadline."
                         ) from exc
                     self.clock.wait(0.25, self.control.stopped)
-            if self.control.stopped.is_set():
+            if not self._wait_until(closing):
                 return
             # Native daily AFTER_TRADING logical time is 15:30, even when live arrival is 15:00+.
             logical_close = datetime.combine(day, time(15, 30), SHANGHAI)
