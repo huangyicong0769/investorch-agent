@@ -31,6 +31,8 @@ def resolve_qmt_connection_profile(config: AppConfig) -> QMTConnectionProfile | 
             raise ConfigError(f"qmt.mcp_server references unknown MCP server: {name}")
         if not raw.get("enabled", True):
             raise ConfigError(f"qmt.mcp_server references disabled MCP server: {name}")
+        if not {"start_live_strategy", "stop_live_strategy"}.issubset(raw.get("require_approval", [])):
+            raise ConfigError("QMT MCP require_approval must include start_live_strategy and stop_live_strategy")
         server = expand_mcp_variables(raw, config.secrets)
         url = urlsplit(server["url"])
         if (

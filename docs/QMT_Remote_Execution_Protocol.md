@@ -28,7 +28,7 @@ Authorization = "Bearer ${QMT_MCP_TOKEN}"
 
 The token uses the existing MCP secret expansion mechanism. REST reuses the expanded headers and server timeout, falling back to `mcp.default_timeout_seconds`. Do not configure a second REST URL or token. Core parses the MCP URL to derive `http://192.168.1.20:8765/api/v1`; the supported MCP path is `/mcp` or `/mcp/`, without URL credentials, query, or fragment.
 
-An empty `qmt.mcp_server` is valid and leaves research/backtesting available. A reference to an unknown or disabled server is a static configuration error. Changing this setting requires a Core restart. An offline configured Windows node does not require Core startup to fail, and no ACTIVE deployment means no recurring node reconnect or heartbeat.
+An empty `qmt.mcp_server` is valid and leaves research/backtesting available. A reference to an unknown or disabled server is a static configuration error. The selected QMT server must list both `start_live_strategy` and `stop_live_strategy` in `require_approval`; missing or partial approval configuration fails before connecting. Approval lists on other MCP servers remain independently configurable. Changing this setting requires a Core restart. An offline configured Windows node does not require Core startup to fail, and no ACTIVE deployment means no recurring node reconnect or heartbeat.
 
 ## Tools and ownership
 
