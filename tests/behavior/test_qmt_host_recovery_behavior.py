@@ -133,7 +133,10 @@ async def test_offline_host_recovers_next_sdk_run_without_mutating_inflight_run(
 
     def verify_status(call):
         outputs = [item for item in call.input if item.get("type") == "function_call_output"]
-        assert any("not_connected" in str(item["output"]) for item in outputs)
+        assert any(
+            "market_data" in str(item["output"]) and "TRADING_BACKEND_NOT_READY" in str(item["output"])
+            for item in outputs
+        )
         return [assistant_message("node reachable; QMT not connected")]
 
     model = ScriptedModel(
@@ -222,7 +225,10 @@ async def test_companion_starts_listening_after_host_and_next_agent_run_calls_st
 
     def verify_status(call):
         outputs = [item for item in call.input if item.get("type") == "function_call_output"]
-        assert any("not_connected" in str(item["output"]) for item in outputs)
+        assert any(
+            "market_data" in str(item["output"]) and "TRADING_BACKEND_NOT_READY" in str(item["output"])
+            for item in outputs
+        )
         return [assistant_message("Companion started")]
 
     model = ScriptedModel([{"responder": offline_research}, {"responder": online_status}, {"responder": verify_status}])
@@ -277,7 +283,7 @@ async def test_host_mcp_writes_receive_hidden_current_authority_after_approval(t
 
             def after_start(call):
                 assert approved == ["mcp_node__start_live_strategy"]
-                assert "BACKEND_NOT_READY" in str(call.input)
+                assert "MARKET_DATA_NOT_READY" in str(call.input)
                 assert "STALE_CONTROL_SESSION" not in str(call.input)
                 return [function_call("mcp_node__stop_live_strategy", {"portfolio_id": portfolio.id}, call_id="stop")]
 

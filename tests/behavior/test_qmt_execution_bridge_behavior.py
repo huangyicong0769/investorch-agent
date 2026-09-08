@@ -70,7 +70,11 @@ async def test_real_node_stages_drains_trade_and_stops_through_mcp(tmp_path, mon
                 },
             ) as mcp:
                 started = await mcp.call_tool("start_live_strategy", {"portfolio_id": portfolio.id})
-                assert started.structured_content["code"] == "BACKEND_NOT_READY"
+                assert started.structured_content["code"] == "MARKET_DATA_NOT_READY"
+                assert started.structured_content["retryable"] is True
+                retryable = await coordinator.get_live_status(portfolio.id)
+                assert retryable["node"]["remote_status"] == "STAGED"
+                assert retryable["node"]["worker_phase"] == "FAILED"
                 stopped = await mcp.call_tool("stop_live_strategy", {"portfolio_id": portfolio.id})
                 assert stopped.is_error is False
             assert await coordinator.ensure_connected_now()

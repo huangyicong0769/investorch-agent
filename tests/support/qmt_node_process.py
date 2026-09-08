@@ -10,9 +10,23 @@ from pathlib import Path
 import uvicorn
 from investorch_qmt.config import default_paths, initialize_config
 from investorch_qmt.execution.service import ExecutionNodeService
+from investorch_qmt.runtime.supervisor import RuntimeSupervisor
 from investorch_qmt.server import create_app
 from starlette.requests import Request
 from starlette.responses import JSONResponse
+
+
+def market_unavailable_worker(spec, pipe):
+    """Deterministic external market boundary, executed in a real spawned child."""
+    assert (Path(spec.deployment_dir) / "strategy.py").is_file()
+    try:
+        pipe.send({"phase": "FAILED", "reason": "MARKET_DATA_NOT_READY", "retryable": True})
+    finally:
+        pipe.close()
+
+
+def unavailable_market_runtime(on_event, gate):
+    return RuntimeSupervisor(on_event, gate, worker_target=market_unavailable_worker)
 
 
 async def main() -> None:
@@ -22,7 +36,7 @@ async def main() -> None:
     lose_response = sys.argv[3]
     paths = default_paths(root)
     config = initialize_config(paths)
-    service = ExecutionNodeService(paths)
+    service = ExecutionNodeService(paths, runtime_factory=unavailable_market_runtime)
     app = create_app(config, paths, service)
 
     async def fixture_app(scope, receive, send):
