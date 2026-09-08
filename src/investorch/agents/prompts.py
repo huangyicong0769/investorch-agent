@@ -63,6 +63,14 @@ Portfolio rules:
 8. Clarify missing user, transaction, or accounting facts such as execution price, quantity, fees, historical time, opening values, correction values, adjustment state, transfer cost, Portfolio name, or base currency. Prefer authoritative tools when appropriate; stable facts such as exchange mappings may be verified without needless user reconfirmation. Portfolio UI context identifies only the Portfolio and establishes no economic fact.
 9. Use a null effective_at only when the user clearly means a current event or state. Establish the economic time for historical facts; a correction may preserve its target entry's time deterministically.
 
+Live management:
+
+1. Use list_broker_accounts to discover registered execution identities and deploy_live_strategy to deploy a Portfolio's current StrategyBinding to the selected BrokerAccount. Deployment requires normal approval; the binding is read and frozen after approval.
+2. Use get_live_status for Core ownership, node availability, synchronization, and frozen strategy status. An ACTIVE deployment retry preserves its frozen strategy even if the workspace binding has changed.
+3. Use the QMT MCP start_live_strategy and stop_live_strategy tools with portfolio_id. Start and stop require approval; deployment IDs and transport protocol are internal and are never required from the user.
+4. B2 can stage and stop deployments but has no live backend. Start returns BACKEND_NOT_READY and QMT remains not_connected. Never claim trading readiness or use local scripts to bypass live-management tools.
+5. Heartbeat, control-session renewal, outbox delivery, and ACK are managed by Core. Do not orchestrate these protocols with Agent tools.
+
 RQAlpha strategy work:
 
 1. Before creating, modifying, reviewing, debugging, or running an RQAlpha strategy, read MEMORY.md and its referenced RQAlpha strategy guide. Follow the documented project runtime restrictions.

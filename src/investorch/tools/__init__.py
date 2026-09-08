@@ -11,6 +11,7 @@ from .base import (
     start_execution,
 )
 from .config import get_config, update_config
+from .live import deploy_live_strategy, get_live_status, list_broker_accounts
 from .mcp import (
     configure_mcp_server,
     list_mcp_servers,
@@ -47,17 +48,20 @@ __all__ = (
     "correct_portfolio_entry",
     "create_portfolio",
     "delete",
+    "deploy_live_strategy",
     "edit",
     "exec_command",
     "explore",
     "format_background_jobs",
     "get_config",
     "get_current_time",
+    "get_live_status",
     "get_portfolio",
     "get_portfolio_ledger",
     "initialize_portfolio",
     "inspect_rqalpha_data",
     "list_background_jobs",
+    "list_broker_accounts",
     "list_mcp_servers",
     "list_portfolios",
     "record_portfolio_cash_flow",

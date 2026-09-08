@@ -20,6 +20,7 @@ from .title import ensure_session_title
 from .usage import TokenUsage
 
 if TYPE_CHECKING:
+    from investorch.application.live_coordinator import LiveDeploymentCoordinator
     from investorch.application.portfolios import PortfolioOperations
     from investorch.runtime.control import RunControl
 
@@ -93,12 +94,14 @@ class AgentLoop:
         config: AppConfig,
         portfolios: PortfolioOperations,
         successful_tool_handler: SuccessfulToolHandler = _ignore_successful_tool,
+        live_coordinator: LiveDeploymentCoordinator | None = None,
     ) -> None:
         self._agent = agent
         self._title_agent = title_agent
         self._compaction_agent = compaction_agent
         self._config = config
         self._portfolios = portfolios
+        self._live_coordinator = live_coordinator
         self._successful_tool_handler = successful_tool_handler
 
     async def run(
@@ -126,6 +129,7 @@ class AgentLoop:
             session_id=session_id,
             run_id=run_id,
             portfolios=self._portfolios,
+            live_coordinator=self._live_coordinator,
             todo_update_handler=todo_update_handler,
         )
         hooks = _SuccessfulToolHooks(

@@ -11,6 +11,7 @@ from typing_extensions import TypedDict
 from investorch.config import AppConfig
 
 if TYPE_CHECKING:
+    from investorch.application.live_coordinator import LiveDeploymentCoordinator
     from investorch.application.portfolios import PortfolioOperations
     from investorch.runtime.models import FollowUpBehavior
 
@@ -66,6 +67,7 @@ class AgentContext:
     portfolios: PortfolioOperations
     turn: TurnState = field(default_factory=TurnState)
     todo_update_handler: TodoUpdateHandler | None = None
+    live_coordinator: LiveDeploymentCoordinator | None = None
 
 
 @dataclass
