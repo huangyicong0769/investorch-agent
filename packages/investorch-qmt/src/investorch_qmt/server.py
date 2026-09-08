@@ -12,7 +12,10 @@ from starlette.responses import JSONResponse, Response
 from starlette.types import ASGIApp
 
 from investorch_qmt.auth import BearerAuthMiddleware
-from investorch_qmt.config import AppPaths, QMTConfig
+from investorch_qmt.config import AppPaths, QMTConfig, default_paths
+from investorch_qmt.execution.domain import ExecutionError
+from investorch_qmt.execution.rest import register_routes
+from investorch_qmt.execution.service import ExecutionNodeService
 from investorch_qmt.log import close_logging, configure_logging
 
 _SERVICE_NAME = "investorch-qmt"
@@ -23,7 +26,7 @@ class ServiceError(RuntimeError):
     """The companion service cannot start or run."""
 
 
-def create_mcp_server(transport_security: TransportSecuritySettings) -> MCPServer:
+def create_mcp_server(transport_security: TransportSecuritySettings, service: ExecutionNodeService) -> MCPServer:
     server = MCPServer(name=_SERVICE_NAME, version=version(_SERVICE_NAME))
     security = TransportSecurityMiddleware(transport_security)
 
@@ -51,18 +54,46 @@ def create_mcp_server(transport_security: TransportSecuritySettings) -> MCPServe
         ),
         structured_output=True,
     )
-    def get_status() -> dict[str, dict[str, str]]:
-        return {
-            "service": {"name": _SERVICE_NAME, "version": version(_SERVICE_NAME), "status": "ready"},
-            "qmt": {"status": "not_connected", "reason": "QMT backend is not connected."},
-        }
+    def get_status() -> dict[str, object]:
+        status = service.get_node_status()
+        status["service"].update(name=_SERVICE_NAME, version=version(_SERVICE_NAME))
+        status["qmt"]["reason"] = "QMT backend is not connected."
+        return status
+
+    @server.tool(
+        description="Start the staged live strategy for a Portfolio. B2 reports BACKEND_NOT_READY.",
+        annotations=ToolAnnotations(
+            readOnlyHint=False, destructiveHint=False, idempotentHint=True, openWorldHint=False
+        ),
+        structured_output=True,
+    )
+    def start_live_strategy(portfolio_id: str) -> dict[str, object]:
+        try:
+            return service.start_live_strategy(portfolio_id)
+        except ExecutionError as exc:
+            return exc.to_wire()
+
+    @server.tool(
+        description="Stop a Portfolio's staged live strategy. Requires approval in the Core MCP profile.",
+        annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=True, idempotentHint=True, openWorldHint=False),
+        structured_output=True,
+    )
+    def stop_live_strategy(portfolio_id: str) -> dict[str, object]:
+        try:
+            return service.stop_live_strategy(portfolio_id)
+        except ExecutionError as exc:
+            return exc.to_wire()
+
+    register_routes(server, service, security)
 
     return server
 
 
-def create_app(config: QMTConfig) -> ASGIApp:
+def create_app(
+    config: QMTConfig, paths: AppPaths | None = None, service: ExecutionNodeService | None = None
+) -> ASGIApp:
     transport_security = _transport_security(config)
-    server = create_mcp_server(transport_security)
+    server = create_mcp_server(transport_security, service or ExecutionNodeService(paths or default_paths()))
     app = server.streamable_http_app(
         streamable_http_path="/mcp",
         host=config.server.host,
@@ -92,7 +123,7 @@ def run_service(config: QMTConfig, paths: AppPaths) -> None:
 
     server = uvicorn.Server(
         uvicorn.Config(
-            create_app(config),
+            create_app(config, paths=paths),
             host=config.server.host,
             port=config.server.port,
             access_log=False,

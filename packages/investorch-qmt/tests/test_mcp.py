@@ -13,7 +13,7 @@ import uvicorn
 from mcp import Client
 from mcp.client.streamable_http import streamable_http_client
 
-from investorch_qmt.config import load_config
+from investorch_qmt.config import default_paths, load_config
 from investorch_qmt.server import create_app
 
 TOKEN = "protocol-token-with-at-least-32-characters"
@@ -63,8 +63,8 @@ async def running_app(app):
 
 
 @pytest.mark.asyncio
-async def test_official_client_discovers_and_calls_only_b0_status_tool(tmp_path: Path) -> None:
-    app = create_app(service_config(tmp_path))
+async def test_official_client_discovers_live_controls_and_truthful_status(tmp_path: Path) -> None:
+    app = create_app(service_config(tmp_path), paths=default_paths(tmp_path))
 
     async with (
         running_app(app) as url,
@@ -78,14 +78,14 @@ async def test_official_client_discovers_and_calls_only_b0_status_tool(tmp_path:
             assert client.server_info.name == "investorch-qmt"
             assert client.server_info.version == version("investorch-qmt")
 
-    assert [tool.name for tool in tools.tools] == ["get_status"]
+    assert [tool.name for tool in tools.tools] == ["get_status", "start_live_strategy", "stop_live_strategy"]
     assert tools.tools[0].input_schema["type"] == "object"
     assert tools.tools[0].input_schema["properties"] == {}
     assert "required" not in tools.tools[0].input_schema
     assert tools.tools[0].annotations is not None
     assert tools.tools[0].annotations.read_only_hint is True
     assert result.is_error is False
-    assert result.structured_content == {
+    assert {key: result.structured_content[key] for key in ("service", "qmt")} == {
         "service": {"name": "investorch-qmt", "version": version("investorch-qmt"), "status": "ready"},
         "qmt": {"status": "not_connected", "reason": "QMT backend is not connected."},
     }
@@ -93,7 +93,7 @@ async def test_official_client_discovers_and_calls_only_b0_status_tool(tmp_path:
 
 @pytest.mark.asyncio
 async def test_default_transport_security_rejects_unexpected_host(tmp_path: Path) -> None:
-    app = create_app(service_config(tmp_path))
+    app = create_app(service_config(tmp_path), paths=default_paths(tmp_path))
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://unexpected.example") as client:
         response = await client.get("/healthz", headers={"Authorization": f"Bearer {TOKEN}"})

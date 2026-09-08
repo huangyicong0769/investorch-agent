@@ -199,3 +199,25 @@ def test_stale_authority_cannot_stage_pull_or_ack(tmp_path):
         with pytest.raises(ExecutionError, match="STALE_CONTROL_SESSION"):
             operation()
     assert service.get_next_pending_fact(current) is None
+
+
+def test_reconciliation_required_after_open_expiry_and_pending_delivery(tmp_path):
+    service = ExecutionNodeService(default_paths(tmp_path))
+    session = service.open_control_session()["session_id"]
+    service.stage_deployment("deployment-a", stage_body(), session)
+    with pytest.raises(ExecutionError, match="PORTFOLIO_NOT_SYNCED"):
+        service.start_live_strategy("portfolio-a")
+    service.renew_control_session(session, [{"deployment_id": "deployment-a", "acked_core_sequence": 12}])
+    with pytest.raises(ExecutionError, match="BACKEND_NOT_READY"):
+        service.start_live_strategy("portfolio-a")
+    assert service.get_portfolio_runtime_status("portfolio-a")["status"] == "STAGED"
+    session = service.open_control_session()["session_id"]
+    assert service.get_portfolio_runtime_status("portfolio-a")["portfolio_sync"] == "UNKNOWN"
+    fact = service.enqueue_trade_fact(trade())
+    with pytest.raises(ExecutionError, match="SEQUENCE_CONFLICT"):
+        service.renew_control_session(session, [{"deployment_id": "deployment-a", "acked_core_sequence": 12}])
+    service.ack_fact(fact["fact_id"], 13, session)
+    service.renew_control_session(session, [{"deployment_id": "deployment-a", "acked_core_sequence": 13}])
+    assert service.get_portfolio_runtime_status("portfolio-a")["portfolio_sync"] == "SYNCED"
+    assert service.stop_live_strategy("portfolio-a")["status"] == "STOPPED"
+    assert service.stop_live_strategy("portfolio-a")["status"] == "STOPPED"

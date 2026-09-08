@@ -38,7 +38,13 @@ class BearerAuthMiddleware:
 
 
 def _is_protected(path: str) -> bool:
-    return path == "/mcp" or path.startswith("/mcp/") or path in {"/healthz", "/healthz/"}
+    return (
+        path == "/mcp"
+        or path.startswith("/mcp/")
+        or path in {"/healthz", "/healthz/"}
+        or path == "/api/v1"
+        or path.startswith("/api/v1/")
+    )
 
 
 async def _send_unauthorized(send: Send) -> None:

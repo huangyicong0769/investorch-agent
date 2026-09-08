@@ -57,6 +57,38 @@ class ExecutionNodeService:
     def renew_control_session(self, session_id: str, reconciled_deployments: list | None = None) -> dict:
         with self._lock:
             self._require_control(session_id)
+            if reconciled_deployments is not None:
+                from .contracts import fields, invalid, sequence, text
+
+                if type(reconciled_deployments) is not list:
+                    invalid("reconciled_deployments must be an array.")
+                seen = set()
+                for assertion in reconciled_deployments:
+                    fields(assertion, {"deployment_id", "acked_core_sequence"})
+                    identity = text(assertion["deployment_id"])
+                    sequence(assertion["acked_core_sequence"])
+                    if identity in seen:
+                        invalid("Reconciliation identities must be unique.")
+                    seen.add(identity)
+                with self.storage.transaction() as db:
+                    for assertion in reconciled_deployments:
+                        identity = assertion["deployment_id"]
+                        row = db.execute(
+                            "SELECT * FROM remote_deployments WHERE deployment_id=?", (identity,)
+                        ).fetchone()
+                        if row is None:
+                            raise ExecutionError("DEPLOYMENT_NOT_FOUND", "Deployment does not exist.", status=404)
+                        summary = self._summary(db, row)
+                        if (
+                            summary["pending_fact_count"]
+                            or summary["acked_core_sequence"] != assertion["acked_core_sequence"]
+                        ):
+                            self._sync[identity] = "DESYNCED"
+                            raise ExecutionError(
+                                "SEQUENCE_CONFLICT", "Reconciliation requires no pending facts and an equal cursor."
+                            )
+                    for identity in seen:
+                        self._sync[identity] = "SYNCED"
             self._session = ControlSession(session_id, self._clock() + timedelta(seconds=self._lease))
             return {
                 "session_id": session_id,
@@ -266,3 +298,49 @@ class ExecutionNodeService:
                     (committed_ledger_sequence, now, row["deployment_id"]),
                 )
             return {"fact_id": fact_id, "status": "ACKED", "committed_ledger_sequence": committed_ledger_sequence}
+
+    def _portfolio_row(self, db, portfolio_id):
+        from .contracts import text
+
+        text(portfolio_id)
+        row = db.execute(
+            """SELECT * FROM remote_deployments WHERE portfolio_id=?
+            ORDER BY CASE WHEN status IN ('STAGED','RUNNING') THEN 0 ELSE 1 END,
+            staged_at DESC, rowid DESC LIMIT 1""",
+            (portfolio_id,),
+        ).fetchone()
+        if row is None:
+            raise ExecutionError("DEPLOYMENT_NOT_FOUND", "Portfolio has no remote deployment.", status=404)
+        return row
+
+    def get_portfolio_runtime_status(self, portfolio_id: str) -> dict:
+        with self._lock, self.storage.transaction() as db:
+            self._current()
+            return self._summary(db, self._portfolio_row(db, portfolio_id))
+
+    def start_live_strategy(self, portfolio_id: str) -> dict:
+        with self._lock, self.storage.transaction() as db:
+            row = self._portfolio_row(db, portfolio_id)
+            if row["status"] != "STAGED":
+                raise ExecutionError("DEPLOYMENT_CONFLICT", "Only a staged deployment can start.")
+            if self._current() is None:
+                raise ExecutionError("STALE_CONTROL_SESSION", "Current Core control authority is unavailable.")
+            if self._summary(db, row)["portfolio_sync"] != "SYNCED":
+                raise ExecutionError("PORTFOLIO_NOT_SYNCED", "Core reconciliation is required before start.")
+            raise ExecutionError("BACKEND_NOT_READY", "The production live backend is not implemented.")
+
+    def stop_live_strategy(self, portfolio_id: str) -> dict:
+        with self._lock, self.storage.transaction() as db:
+            row = self._portfolio_row(db, portfolio_id)
+            if row["status"] == "RUNNING":
+                raise ExecutionError("BACKEND_NOT_READY", "No production runtime stop controller is implemented.")
+            if row["status"] == "STAGED":
+                now = self._clock().isoformat()
+                db.execute(
+                    "UPDATE remote_deployments SET status='STOPPED',updated_at=?,ended_at=? WHERE deployment_id=?",
+                    (now, now, row["deployment_id"]),
+                )
+                row = db.execute(
+                    "SELECT * FROM remote_deployments WHERE deployment_id=?", (row["deployment_id"],)
+                ).fetchone()
+            return self._summary(db, row)
