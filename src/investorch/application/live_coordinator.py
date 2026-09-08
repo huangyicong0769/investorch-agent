@@ -103,8 +103,13 @@ class LiveDeploymentCoordinator:
 
     def _deploy_result(self, deployment: LiveDeployment) -> dict:
         sync = self._sync.get(deployment.portfolio_id, "UNKNOWN")
+        remote = next(
+            (d for d in (self._node or {}).get("deployments", []) if d["deployment_id"] == deployment.deployment_id),
+            None,
+        )
+        status = remote["status"].lower() if sync == "SYNCED" and remote is not None else sync.lower()
         return {
-            "status": "staged" if sync == "SYNCED" else "desynced" if sync == "DESYNCED" else "unknown",
+            "status": status,
             "portfolio_id": deployment.portfolio_id,
             "deployment_id": deployment.deployment_id,
             "retry_safe": True,
@@ -381,6 +386,8 @@ class LiveDeploymentCoordinator:
                 sync = "COMMIT_PENDING"
             elif remote["acked_core_sequence"] != await self._head(portfolio_id):
                 sync = "DESYNCED"
+            elif sync == "SYNCED" and deployment.status is LiveDeploymentStatus.ACTIVE:
+                sync = remote["portfolio_sync"]
         elif deployment is not None and deployment.status is LiveDeploymentStatus.ACTIVE and sync != "DESYNCED":
             sync = "UNKNOWN"
         if (

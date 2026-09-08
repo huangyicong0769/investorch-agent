@@ -482,3 +482,30 @@ async def test_missing_original_bootstrap_after_ingestion_cannot_be_rebuilt(tmp_
         assert status["sync"] == "DESYNCED"
     finally:
         await coordinator.close()
+
+
+async def test_status_reflects_remote_session_reconciliation_invalidation(tmp_path):
+    config, _portfolios, p, _live = await setup_live(tmp_path)
+    node = WireNode()
+    coordinator = LiveDeploymentCoordinator(config=config, client=client_for(node))
+    try:
+        result = await coordinator.deploy_live_strategy(p.id, "account")
+        node.deployments[result["deployment_id"]]["portfolio_sync"] = "UNKNOWN"
+        assert (await coordinator.get_live_status(p.id))["sync"] == "UNKNOWN"
+    finally:
+        await coordinator.close()
+
+
+async def test_existing_deployment_retry_reports_observed_terminal_status(tmp_path):
+    config, _portfolios, p, live = await setup_live(tmp_path)
+    node = WireNode()
+    coordinator = LiveDeploymentCoordinator(config=config, client=client_for(node))
+    try:
+        result = await coordinator.deploy_live_strategy(p.id, "account")
+        node.deployments[result["deployment_id"]]["status"] = "STOPPED"
+        repeated = await coordinator.deploy_live_strategy(p.id, "account")
+        assert repeated["status"] == "stopped"
+        assert repeated["deployment_id"] == result["deployment_id"]
+        assert (await live.get_deployment(result["deployment_id"])).status.value == "STOPPED"
+    finally:
+        await coordinator.close()
