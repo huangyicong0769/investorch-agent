@@ -89,6 +89,7 @@ class ExecutionNodeService:
                             )
                     for identity in seen:
                         self._sync[identity] = "SYNCED"
+            self._require_control(session_id)
             self._session = ControlSession(session_id, self._clock() + timedelta(seconds=self._lease))
             return {
                 "session_id": session_id,

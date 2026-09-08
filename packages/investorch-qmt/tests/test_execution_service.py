@@ -249,3 +249,12 @@ def test_terminal_failure_is_preserved_and_running_stop_cannot_fake_success(tmp_
     with sqlite3.connect(tmp_path / "runtime.db") as db:
         db.execute("UPDATE remote_deployments SET status='FAILED', failure_reason='runtime failed'")
     assert service.stop_live_strategy("portfolio-a")["status"] == "FAILED"
+
+
+def test_renew_cannot_revive_authority_that_expires_during_request(tmp_path):
+    now = datetime(2026, 9, 8, tzinfo=UTC)
+    times = iter([now, now, now + timedelta(seconds=11), now + timedelta(seconds=11)])
+    service = ExecutionNodeService(default_paths(tmp_path), clock=lambda: next(times))
+    session = service.open_control_session()["session_id"]
+    with pytest.raises(ExecutionError, match="STALE_CONTROL_SESSION"):
+        service.renew_control_session(session)
