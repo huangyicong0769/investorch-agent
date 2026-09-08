@@ -92,3 +92,51 @@ def test_safety_gate_is_delivered_without_status_polling():
         assert phases[-1] == "RUNNING"
     finally:
         supervisor.close()
+
+
+def crash_after_ready(spec, pipe):
+    pipe.send({"phase": "READY", "market_data": "CONNECTED"})
+    pipe.recv()
+    os._exit(9)
+
+
+def test_durable_writer_failure_completes_start_and_reaps_child():
+    def unavailable_writer(identity, event):
+        if event["phase"] == "READY":
+            raise OSError("durable writer unavailable")
+
+    supervisor = RuntimeSupervisor(unavailable_writer, lambda _: (True, None), worker_target=controlled_child)
+    try:
+        result = supervisor.begin_start(spec()).result(timeout=5)
+        assert result["phase"] == "FAILED"
+        assert result["reason"] == "WORKER_FAILED"
+    finally:
+        supervisor.close()
+
+
+def test_start_is_rejected_while_stop_is_pending():
+    from investorch_qmt.execution.domain import ExecutionError
+
+    supervisor = RuntimeSupervisor(lambda *_: None, lambda _: (True, None), worker_target=controlled_child)
+    try:
+        supervisor.begin_start(spec()).result(timeout=5)
+        stopping = supervisor.begin_stop("deployment-a")
+        with pytest.raises(ExecutionError, match="RUNTIME_STOPPING"):
+            supervisor.begin_start(spec())
+        assert stopping.result(timeout=5)["phase"] == "STOPPED"
+    finally:
+        supervisor.close()
+
+
+def test_unexpected_running_child_exit_is_terminal():
+    supervisor = RuntimeSupervisor(lambda *_: None, lambda _: (True, None), worker_target=crash_after_ready)
+    try:
+        assert supervisor.begin_start(spec()).result(timeout=5)["phase"] == "READY"
+        deadline = time.monotonic() + 5
+        while supervisor.snapshot("deployment-a")["phase"] != "FAILED" and time.monotonic() < deadline:
+            time.sleep(0.01)
+        result = supervisor.snapshot("deployment-a")
+        assert result["phase"] == "FAILED"
+        assert result["reason"] == "WORKER_FAILED"
+    finally:
+        supervisor.close()

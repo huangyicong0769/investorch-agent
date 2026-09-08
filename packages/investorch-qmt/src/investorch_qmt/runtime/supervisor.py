@@ -169,6 +169,7 @@ class RuntimeSupervisor:
                 handle.process.kill()
                 handle.process.join()
             handle.pipe.close()
+            handle.process.close()
             try:
                 self._publish(identity, handle, terminal)
             except Exception as exc:
