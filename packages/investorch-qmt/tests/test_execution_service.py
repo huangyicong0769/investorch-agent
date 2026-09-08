@@ -208,10 +208,10 @@ def test_reconciliation_required_after_open_expiry_and_pending_delivery(tmp_path
     session = service.open_control_session()["session_id"]
     service.stage_deployment("deployment-a", stage_body(), session)
     with pytest.raises(ExecutionError, match="PORTFOLIO_NOT_SYNCED"):
-        service.start_live_strategy("portfolio-a")
+        service.start_live_strategy("portfolio-a", session)
     service.renew_control_session(session, [{"deployment_id": "deployment-a", "acked_core_sequence": 12}])
     with pytest.raises(ExecutionError, match="BACKEND_NOT_READY"):
-        service.start_live_strategy("portfolio-a")
+        service.start_live_strategy("portfolio-a", session)
     assert service.get_portfolio_runtime_status("portfolio-a")["status"] == "STAGED"
     service.close_control_session(session)
     session = service.open_control_session()["session_id"]
@@ -222,8 +222,8 @@ def test_reconciliation_required_after_open_expiry_and_pending_delivery(tmp_path
     service.ack_fact(fact["fact_id"], 13, session)
     service.renew_control_session(session, [{"deployment_id": "deployment-a", "acked_core_sequence": 13}])
     assert service.get_portfolio_runtime_status("portfolio-a")["portfolio_sync"] == "SYNCED"
-    assert service.stop_live_strategy("portfolio-a")["status"] == "STOPPED"
-    assert service.stop_live_strategy("portfolio-a")["status"] == "STOPPED"
+    assert service.stop_live_strategy("portfolio-a", session)["status"] == "STOPPED"
+    assert service.stop_live_strategy("portfolio-a", session)["status"] == "STOPPED"
 
 
 def test_same_broker_identity_cannot_change_payload(tmp_path):
@@ -247,11 +247,11 @@ def test_terminal_failure_is_preserved_and_running_stop_cannot_fake_success(tmp_
     with sqlite3.connect(tmp_path / "runtime.db") as db:
         db.execute("UPDATE remote_deployments SET status='RUNNING'")
     with pytest.raises(ExecutionError, match="BACKEND_NOT_READY"):
-        service.stop_live_strategy("portfolio-a")
+        service.stop_live_strategy("portfolio-a", session)
     assert service.get_portfolio_runtime_status("portfolio-a")["status"] == "RUNNING"
     with sqlite3.connect(tmp_path / "runtime.db") as db:
         db.execute("UPDATE remote_deployments SET status='FAILED', failure_reason='runtime failed'")
-    assert service.stop_live_strategy("portfolio-a")["status"] == "FAILED"
+    assert service.stop_live_strategy("portfolio-a", session)["status"] == "FAILED"
 
 
 def test_renew_cannot_revive_authority_that_expires_during_request(tmp_path):

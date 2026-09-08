@@ -134,7 +134,9 @@ async def test_mcp_controls_share_the_rest_execution_state(tmp_path):
     app = create_app(service_config(tmp_path), service=service)
     async with (
         running_app(app) as url,
-        httpx2.AsyncClient(headers={"Authorization": f"Bearer {TOKEN}"}, trust_env=False) as http_client,
+        httpx2.AsyncClient(
+            headers={"Authorization": f"Bearer {TOKEN}", "X-InvestOrch-Control-Session": session}, trust_env=False
+        ) as http_client,
         Client(streamable_http_client(url, http_client=http_client), mode="legacy") as client,
     ):
         started = await client.call_tool("start_live_strategy", {"portfolio_id": "portfolio-a"})
@@ -144,3 +146,53 @@ async def test_mcp_controls_share_the_rest_execution_state(tmp_path):
         assert stopped.structured_content["status"] == "STOPPED"
         status = await client.call_tool("get_status")
         assert status.structured_content["deployments"] == service.get_node_status()["deployments"]
+
+
+@pytest.mark.asyncio
+async def test_mcp_write_authority_is_request_local_and_never_an_agent_argument(tmp_path):
+    from test_execution_service import stage_body
+
+    from investorch_qmt.execution.service import ExecutionNodeService
+
+    service = ExecutionNodeService(default_paths(tmp_path))
+    authority = service.open_control_session()["session_id"]
+    service.stage_deployment("deployment-a", stage_body(), authority)
+    service.renew_control_session(authority, [{"deployment_id": "deployment-a", "acked_core_sequence": 12}])
+    app = create_app(service_config(tmp_path), service=service)
+    async with (
+        running_app(app) as url,
+        httpx2.AsyncClient(headers={"Authorization": f"Bearer {TOKEN}"}, trust_env=False) as bearer_http,
+        httpx2.AsyncClient(
+            headers={
+                "Authorization": f"Bearer {TOKEN}",
+                "X-InvestOrch-Control-Session": authority,
+            },
+            trust_env=False,
+        ) as owner_http,
+        Client(streamable_http_client(url, http_client=bearer_http), mode="legacy") as bearer,
+        Client(streamable_http_client(url, http_client=owner_http), mode="legacy") as owner,
+    ):
+        discovered = await owner.list_tools()
+        for tool in discovered.tools[1:]:
+            assert set(tool.input_schema["properties"]) == {"portfolio_id"}
+        assert (await bearer.call_tool("get_status")).structured_content["qmt"]["status"] == "not_connected"
+        for tool in ("start_live_strategy", "stop_live_strategy"):
+            for portfolio in ("portfolio-a", "absent"):
+                result = await bearer.call_tool(tool, {"portfolio_id": portfolio})
+                assert result.structured_content["code"] == "STALE_CONTROL_SESSION"
+        current, missing = await asyncio.gather(
+            owner.call_tool("start_live_strategy", {"portfolio_id": "portfolio-a"}),
+            bearer.call_tool("start_live_strategy", {"portfolio_id": "portfolio-a"}),
+        )
+        assert current.structured_content["code"] == "BACKEND_NOT_READY"
+        assert missing.structured_content["code"] == "STALE_CONTROL_SESSION"
+        service.close_control_session(authority)
+        replacement = service.open_control_session()["session_id"]
+        for tool in ("start_live_strategy", "stop_live_strategy"):
+            result = await owner.call_tool(tool, {"portfolio_id": "portfolio-a"})
+            assert result.structured_content["code"] == "STALE_CONTROL_SESSION"
+        assert service.get_portfolio_runtime_status("portfolio-a")["status"] == "STAGED"
+        # The same MCP session receives current authority on each HTTP request.
+        owner_http.headers["X-InvestOrch-Control-Session"] = replacement
+        stopped = await owner.call_tool("stop_live_strategy", {"portfolio_id": "portfolio-a"})
+        assert stopped.structured_content["status"] == "STOPPED"

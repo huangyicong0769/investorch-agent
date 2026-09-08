@@ -6,6 +6,7 @@ from importlib.metadata import version
 
 import uvicorn
 from mcp.server import MCPServer
+from mcp.server.mcpserver import Context
 from mcp.server.transport_security import TransportSecurityMiddleware, TransportSecuritySettings
 from mcp_types import ToolAnnotations
 from starlette.requests import Request
@@ -68,9 +69,9 @@ def create_mcp_server(transport_security: TransportSecuritySettings, service: Ex
         ),
         structured_output=True,
     )
-    def start_live_strategy(portfolio_id: str) -> dict[str, object]:
+    def start_live_strategy(portfolio_id: str, ctx: Context) -> dict[str, object]:
         try:
-            return service.start_live_strategy(portfolio_id)
+            return service.start_live_strategy(portfolio_id, (ctx.headers or {}).get("x-investorch-control-session"))
         except ExecutionError as exc:
             return exc.to_wire()
 
@@ -79,9 +80,9 @@ def create_mcp_server(transport_security: TransportSecuritySettings, service: Ex
         annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=True, idempotentHint=True, openWorldHint=False),
         structured_output=True,
     )
-    def stop_live_strategy(portfolio_id: str) -> dict[str, object]:
+    def stop_live_strategy(portfolio_id: str, ctx: Context) -> dict[str, object]:
         try:
-            return service.stop_live_strategy(portfolio_id)
+            return service.stop_live_strategy(portfolio_id, (ctx.headers or {}).get("x-investorch-control-session"))
         except ExecutionError as exc:
             return exc.to_wire()
 

@@ -324,19 +324,19 @@ class ExecutionNodeService:
             self._current()
             return self._summary(db, self._portfolio_row(db, portfolio_id))
 
-    def start_live_strategy(self, portfolio_id: str) -> dict:
+    def start_live_strategy(self, portfolio_id: str, session_id: str | None = None) -> dict:
         with self._lock, self.storage.transaction() as db:
+            self._require_control(session_id)
             row = self._portfolio_row(db, portfolio_id)
             if row["status"] != "STAGED":
                 raise ExecutionError("DEPLOYMENT_CONFLICT", "Only a staged deployment can start.")
-            if self._current() is None:
-                raise ExecutionError("STALE_CONTROL_SESSION", "Current Core control authority is unavailable.")
             if self._summary(db, row)["portfolio_sync"] != "SYNCED":
                 raise ExecutionError("PORTFOLIO_NOT_SYNCED", "Core reconciliation is required before start.")
             raise ExecutionError("BACKEND_NOT_READY", "The production live backend is not implemented.")
 
-    def stop_live_strategy(self, portfolio_id: str) -> dict:
+    def stop_live_strategy(self, portfolio_id: str, session_id: str | None = None) -> dict:
         with self._lock, self.storage.transaction() as db:
+            self._require_control(session_id)
             row = self._portfolio_row(db, portfolio_id)
             if row["status"] == "RUNNING":
                 raise ExecutionError("BACKEND_NOT_READY", "No production runtime stop controller is implemented.")
