@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import signal
+import sqlite3
 from importlib.metadata import version
 
 import uvicorn
@@ -121,9 +122,15 @@ def run_service(config: QMTConfig, paths: AppPaths) -> None:
         logger.warning(warning)
         print(warning, flush=True)
 
+    try:
+        app = create_app(config, paths=paths)
+    except (ValueError, OSError, sqlite3.Error) as exc:
+        close_logging(logger)
+        raise ServiceError(f"Cannot initialize runtime storage: {exc}") from exc
+
     server = uvicorn.Server(
         uvicorn.Config(
-            create_app(config, paths=paths),
+            app,
             host=config.server.host,
             port=config.server.port,
             access_log=False,
