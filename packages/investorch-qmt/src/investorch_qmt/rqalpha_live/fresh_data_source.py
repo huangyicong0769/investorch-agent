@@ -9,7 +9,6 @@ from rqalpha.data.base_data_source.storages import DayBarStore
 
 from investorch_qmt.history.model import latest_completed
 from investorch_qmt.market_data.errors import MarketDataError
-from investorch_qmt.market_data.symbols import to_xt_history_symbol
 
 from .event_source import WallClock
 from .fresh_factors import FreshFactorCache
@@ -19,6 +18,11 @@ COMMON_FIELDS = DayBarStore.DEFAULT_DTYPE.names
 
 def _date(value):
     return value.date() if isinstance(value, datetime) else value
+
+
+def _require_native_instrument(instrument):
+    if instrument.type not in {"CS", "INDX"} or not instrument.order_book_id.endswith((".XSHG", ".XSHE")):
+        raise MarketDataError("UNSUPPORTED_INSTRUMENT", instrument.order_book_id)
 
 
 class FreshDailyDataSource:
@@ -58,7 +62,7 @@ class FreshDailyDataSource:
     def get_bar(self, instrument, dt, frequency):
         if frequency != "1d":
             return self._native.get_bar(instrument, dt, frequency)
-        to_xt_history_symbol(instrument)
+        _require_native_instrument(instrument)
         day = _date(dt)
         if day > self._completed():
             raise MarketDataError("FRESH_HISTORY_NOT_READY", "An incomplete trading day is not historical data.")
@@ -82,7 +86,7 @@ class FreshDailyDataSource:
     ):
         if frequency != "1d":
             raise MarketDataError("UNSUPPORTED_FREQUENCY", "Completed fresh history only supports 1d.")
-        to_xt_history_symbol(instrument)
+        _require_native_instrument(instrument)
         if adjust_type not in {"none", "pre", "post"}:
             raise ValueError("Invalid adjustment type.")
         end = min(_date(dt), self._completed())

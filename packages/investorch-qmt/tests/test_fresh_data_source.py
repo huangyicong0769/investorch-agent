@@ -61,6 +61,13 @@ class CacheAPI:
     def __init__(self, rows):
         self.rows = rows
 
+    def get_instrument_type(self, symbol):
+        return {"index" if symbol == "000001.SH" else "stock": True}
+
+    def get_instrument_detail(self, symbol):
+        code, exchange = symbol.split(".")
+        return {"InstrumentID": code, "ExchangeID": exchange}
+
     def get_local_data(self, **kwargs):
         output = []
         for row in self.rows:
@@ -276,3 +283,18 @@ def test_bundle_update_preserves_existing_cutoff_and_new_instance_uses_new_cover
     np.testing.assert_array_equal(
         new.history_bars(stock, 5, "1d", "close", datetime(2026, 9, 8), adjust_type="none"), updated["close"][-5:]
     )
+
+
+def test_native_only_index_history_does_not_require_provider_mapping(history_bundle, bundle):
+    from test_history_adapter import instrument
+
+    native, _, rows, _ = history_bundle
+    index = instrument("H50032.XSHG", "INDX")
+    with h5py.File(bundle / "indexes.h5", "a") as store:
+        store.create_dataset(index.order_book_id, data=rows[:4])
+    fresh = FreshDailyDataSource(
+        native, object(), fresh_through=lambda: None, clock=Clock(datetime(2026, 9, 9, 14, tzinfo=SH))
+    )
+    result = fresh.history_bars(index, 2, "1d", "close", datetime(2026, 9, 4), adjust_type="none")
+    np.testing.assert_array_equal(result, rows["close"][2:4])
+    assert fresh.get_bar(index, datetime(2026, 9, 4), "1d")["close"] == rows[3]["close"]
