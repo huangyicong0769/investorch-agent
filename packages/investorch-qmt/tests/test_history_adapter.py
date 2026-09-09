@@ -119,3 +119,71 @@ def test_history_rejects_unsupported_metadata(code, kind):
         XtHistoryAdapter(API([])).read_daily_history(
             instrument(code, kind), date(2026, 9, 8), date(2026, 9, 8), [date(2026, 9, 8)]
         )
+
+
+def test_maintenance_download_batches_instruments_and_reports_truthful_progress():
+    observed = []
+
+    class Downloader:
+        def download_history_data2(self, stocks, **kwargs):
+            assert kwargs == dict(period="1d", start_time="20260907", end_time="20260908", incrementally=False)
+            observed.extend(stocks)
+            return {}
+
+    symbols = [instrument(f"{600000 + n:06}.XSHG") for n in range(201)]
+    progress = []
+    XtHistoryAdapter(Downloader()).download_daily_history(
+        symbols, date(2026, 9, 7), date(2026, 9, 8), progress=lambda finished, total: progress.append((finished, total))
+    )
+    assert observed == [f"{600000 + n:06}.SH" for n in range(201)]
+    assert progress[-1] == (201, 201)
+    assert all(0 <= finished <= total == 201 for finished, total in progress)
+    assert any(0 < finished < 201 for finished, _ in progress)
+
+
+def test_download_failure_never_reports_completion():
+    class Downloader:
+        def download_history_data2(self, stocks, **kwargs):
+            raise ConnectionError("download interrupted")
+
+    progress = []
+    with pytest.raises(MarketDataError, match="HISTORY_SYNC_FAILED"):
+        XtHistoryAdapter(Downloader()).download_daily_history(
+            [instrument()], date(2026, 9, 7), date(2026, 9, 8), progress=lambda *value: progress.append(value)
+        )
+    assert (1, 1) not in progress
+
+
+def test_lazy_factors_map_real_sdk_event_multiplier_schema_and_allow_empty():
+    class Factors:
+        empty = False
+
+        def get_divid_factors(self, symbol, *, start_time, end_time):
+            assert (symbol, start_time, end_time) == ("600000.SH", "20260701", "20260731")
+            if self.empty:
+                return pd.DataFrame()
+            return pd.DataFrame(
+                [
+                    dict(
+                        time=int(pd.Timestamp("2026-07-16", tz=SHANGHAI).timestamp() * 1000),
+                        interest=0.42,
+                        stockBonus=0.0,
+                        stockGift=0.0,
+                        allotNum=0.0,
+                        allotPrice=0.0,
+                        gugai=0.0,
+                        dr=1.047244,
+                    )
+                ],
+                index=["20260716"],
+            )
+
+    from investorch_qmt.market_data.daily import SHANGHAI
+
+    api = Factors()
+    adapter = XtHistoryAdapter(api)
+    assert adapter.get_dividend_factors(instrument(), date(2026, 7, 1), date(2026, 7, 31)) == (
+        (date(2026, 7, 16), 1.047244),
+    )
+    api.empty = True
+    assert adapter.get_dividend_factors(instrument(), date(2026, 7, 1), date(2026, 7, 31)) == ()
