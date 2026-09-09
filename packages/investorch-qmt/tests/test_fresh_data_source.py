@@ -252,3 +252,27 @@ def before_trading(context):
     observed = json.loads(output.read_text())
     expected = [[int(row["datetime"]), float(row["close"])] for row in rows[1:6]]
     assert observed == {"stock": expected, "index": expected}
+
+
+def test_bundle_update_preserves_existing_cutoff_and_new_instance_uses_new_coverage(history_bundle, bundle):
+    native, _, rows, _ = history_bundle
+    clock = Clock(datetime(2026, 9, 9, 14, tzinfo=SH))
+    old = FreshDailyDataSource(native, XtHistoryAdapter(CacheAPI(rows)), fresh_through=lambda: DAYS[-2], clock=clock)
+    stock = next(native.get_instruments(["600519.XSHG"]))
+    old_before = old.history_bars(stock, 5, "1d", "close", datetime(2026, 9, 8), adjust_type="none")
+    updated = rows[:6].copy()
+    for field in ["open", "high", "low", "close"]:
+        updated[field][4:] += 100
+    for filename, symbol in [("stocks", "600519.XSHG"), ("indexes", "000001.XSHG")]:
+        with h5py.File(bundle / f"{filename}.h5", "w") as store:
+            store.create_dataset(symbol, data=updated)
+    new_native = BaseDataSource(SimpleNamespace(data_bundle_path=str(bundle)))
+    new = FreshDailyDataSource(new_native, XtHistoryAdapter(CacheAPI([])), fresh_through=lambda: None, clock=clock)
+    assert old.native_cutoff == DAYS[3]
+    assert new.native_cutoff == DAYS[-2]
+    np.testing.assert_array_equal(
+        old.history_bars(stock, 5, "1d", "close", datetime(2026, 9, 8), adjust_type="none"), old_before
+    )
+    np.testing.assert_array_equal(
+        new.history_bars(stock, 5, "1d", "close", datetime(2026, 9, 8), adjust_type="none"), updated["close"][-5:]
+    )
