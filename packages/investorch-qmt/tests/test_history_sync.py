@@ -2,6 +2,7 @@ from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
 import pytest
+from test_rqalpha_live_runtime import bundle  # noqa: F401
 
 from investorch_qmt.history.model import latest_completed
 
@@ -358,3 +359,42 @@ def test_native_coverage_does_not_claim_unvalidated_provider_watermark():
     assert manager.snapshot()["status"] == "READY"
     assert manager.snapshot()["fresh_through"] is None
     manager.close()
+
+
+def test_native_bootstrap_filters_lifecycle_universe_and_keeps_node_cutoff(bundle):  # noqa: F811
+    import pickle
+
+    from investorch_qmt.history.model import SyncSpec
+    from investorch_qmt.history.worker import load_native_reference, synchronize
+
+    # Reuse the same on-disk native bundle fixture as real engine acceptance.
+    path = bundle
+    original = pickle.loads((path / "instruments.pk").read_bytes())
+    original.extend(
+        [
+            original[0] | {"order_book_id": "000001.XSHE", "exchange": "XSHE", "listed_date": "2026-09-08"},
+            original[0] | {"order_book_id": "600002.XSHG", "listed_date": "2026-09-09"},
+            original[0] | {"order_book_id": "600003.XSHG", "de_listed_date": "2026-09-08"},
+            original[0] | {"order_book_id": "510001.XSHG", "type": "ETF"},
+        ]
+    )
+    (path / "instruments.pk").write_bytes(pickle.dumps(original))
+    spec = SyncSpec(datetime(2026, 9, 9, 8, tzinfo=SHANGHAI))
+    cutoff, calendar, instruments = load_native_reference(spec)
+    assert cutoff == date(2026, 9, 7)
+    assert calendar == CALENDAR
+    assert {instrument.order_book_id for instrument in instruments} == {"600519.XSHG", "000001.XSHG", "000001.XSHE"}
+    # Existing workers can retain an older cutoff than a newly loaded native file.
+    frozen = SyncSpec(spec.now, native_through=date(2026, 9, 4))
+    reference = load_native_reference(frozen)
+    assert "600003.XSHG" in {instrument.order_book_id for instrument in reference[2]}
+    events = []
+
+    class CompleteCache:
+        def read_daily_history(self, *args):
+            return []
+
+    import threading
+
+    synchronize(frozen, CompleteCache(), reference, events.append, threading.Event())
+    assert events[0]["native_through"] == "2026-09-04"
