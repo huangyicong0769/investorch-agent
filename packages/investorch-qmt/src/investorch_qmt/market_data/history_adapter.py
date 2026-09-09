@@ -139,9 +139,11 @@ class XtHistoryAdapter:
         except Exception as exc:
             raise MarketDataError("FRESH_HISTORY_NOT_READY", str(exc), transient=True) from exc
         try:
-            frame = result.get(symbol) if isinstance(result, dict) else None
+            if not isinstance(result, dict) or symbol not in result or not isinstance(result[symbol], pd.DataFrame):
+                raise ValueError("Expected an explicit raw-history DataFrame for the requested symbol")
+            frame = result[symbol]
             rows = {}
-            for record in frame.to_dict(orient="records") if frame is not None else ():
+            for record in frame.to_dict(orient="records"):
                 day = datetime.fromtimestamp(float(record["time"]) / 1000, SHANGHAI).date()
                 if day not in expected:
                     continue

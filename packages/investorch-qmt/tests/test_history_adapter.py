@@ -423,3 +423,173 @@ def test_maintenance_ensures_an_unavailable_index_axis_before_accepting_suspensi
     )
     assert list(bars["suspended"]) == [True]
     assert list(bars["close"]) == [10.5]
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"suspendFlag": 0},
+        {"suspendFlag": -1},
+        {"suspendFlag": float("nan")},
+        {"suspendFlag": 0, "volume": 100, "amount": 100000},
+        {"volume": 1},
+        {"amount": 1},
+        {"high": 10.51},
+        {"preClose": 10.4},
+        dict.fromkeys(("open", "high", "low", "close", "preClose"), 10.6),
+        {"close": float("nan")},
+        {"close": float("inf")},
+    ],
+)
+def test_missing_date_requires_strong_anchored_suspension_evidence(changes):
+    before = raw("2026-09-07")
+    api = SuspensionAPI([before], [before, {**filled_suspension("2026-09-08"), **changes}])
+    with pytest.raises(MarketDataError, match="FRESH_HISTORY_INCOMPLETE"):
+        XtHistoryAdapter(api).read_daily_history(
+            instrument(), date(2026, 9, 7), date(2026, 9, 8), [date(2026, 9, day) for day in (7, 8)]
+        )
+
+
+@pytest.mark.parametrize("damage", ["missing_flag", "missing_preclose", "date", "missing_date", "field_axis"])
+def test_malformed_filled_matrix_cannot_validate_history(damage):
+    class MalformedMatrix(SuspensionAPI):
+        def get_market_data(self, **kwargs):
+            matrix = super().get_market_data(**kwargs)
+            if damage == "missing_flag":
+                matrix.pop("suspendFlag")
+            elif damage == "missing_preclose":
+                matrix.pop("preClose")
+            elif damage == "date":
+                matrix["time"].loc["600000.SH", "20260908"] = raw("2026-09-09")["time"]
+            elif damage == "missing_date":
+                matrix = {field: frame.drop(columns="20260908") for field, frame in matrix.items()}
+            else:
+                matrix["close"] = matrix["close"].rename(columns={"20260908": "20260909"})
+            return matrix
+
+    before = raw("2026-09-07")
+    api = MalformedMatrix([before], [before, filled_suspension("2026-09-08")])
+    with pytest.raises(MarketDataError, match="FRESH_HISTORY_INCOMPLETE"):
+        XtHistoryAdapter(api).read_daily_history(
+            instrument(), date(2026, 9, 7), date(2026, 9, 8), [date(2026, 9, day) for day in (7, 8)]
+        )
+
+
+@pytest.mark.parametrize(
+    "axis",
+    [
+        [],
+        [raw("2026-09-07")],
+        [raw("2026-09-07"), raw("2026-09-08", volume=0)],
+        [raw("2026-09-07"), raw("2026-09-08", volume=0, suspended=True)],
+        [raw("2026-09-07"), {**raw("2026-09-08"), "close": float("nan")}],
+    ],
+)
+def test_incomplete_or_abnormal_index_axis_cannot_authorize_fill(axis):
+    class UnusableAxis(SuspensionAPI):
+        def get_market_data(self, **kwargs):
+            raise AssertionError("An unverified axis cannot be used for suspension filling")
+
+    before = raw("2026-09-07")
+    api = UnusableAxis([before], [before, filled_suspension("2026-09-08")], axis=axis)
+    with pytest.raises(MarketDataError, match="FRESH_HISTORY_INCOMPLETE"):
+        XtHistoryAdapter(api).read_daily_history(
+            instrument(), date(2026, 9, 7), date(2026, 9, 8), [date(2026, 9, day) for day in (7, 8)]
+        )
+
+
+def test_complete_raw_history_is_available_when_fill_and_download_are_unavailable():
+    class RawOnly(API):
+        def get_market_data(self, **kwargs):
+            raise ConnectionError("Gap fill service unavailable")
+
+        def download_history_data(self, *args, **kwargs):
+            raise ConnectionError("Download service unavailable")
+
+    bars = XtHistoryAdapter(RawOnly([raw("2026-09-08")])).read_daily_history(
+        instrument(), date(2026, 9, 8), date(2026, 9, 8), [date(2026, 9, 8)], ensure_missing=True
+    )
+    assert list(bars["close"]) == [10.5]
+    assert list(bars["suspended"]) == [False]
+
+
+def test_default_history_reader_does_not_download_to_resolve_missing_cache():
+    class ReadOnly(SuspensionAPI):
+        def download_history_data(self, *args, **kwargs):
+            raise AssertionError("Strategy history reads cannot initiate downloads")
+
+    api = ReadOnly([], [raw("2026-09-07"), filled_suspension("2026-09-08")])
+    with pytest.raises(MarketDataError, match="FRESH_HISTORY_INCOMPLETE"):
+        XtHistoryAdapter(api).read_daily_history(
+            instrument(), date(2026, 9, 8), date(2026, 9, 8), [date(2026, 9, day) for day in (7, 8)]
+        )
+
+
+def test_successful_ensure_without_cache_evidence_remains_incomplete():
+    class StillEmpty(SuspensionAPI):
+        ensured = False
+
+        def download_history_data(self, *args, **kwargs):
+            if self.ensured:
+                raise RuntimeError("A bounded ensure cannot repeat the download")
+            self.ensured = True
+            return None
+
+    api = StillEmpty([], [raw("2026-09-07"), filled_suspension("2026-09-08")])
+    with pytest.raises(MarketDataError, match="FRESH_HISTORY_INCOMPLETE"):
+        XtHistoryAdapter(api).read_daily_history(
+            instrument(),
+            date(2026, 9, 8),
+            date(2026, 9, 8),
+            [date(2026, 9, day) for day in (7, 8)],
+            ensure_missing=True,
+        )
+
+
+@pytest.mark.parametrize("stop_before_download", [True, False])
+def test_maintenance_checkpoint_stop_is_preserved_before_and_after_targeted_download(stop_before_download):
+    from threading import Event
+
+    stopped = Event()
+    if stop_before_download:
+        stopped.set()
+    before = raw("2026-09-07")
+
+    class StopDuringDownload(SuspensionAPI):
+        def download_history_data(self, *args, **kwargs):
+            if stopped.is_set():
+                raise AssertionError("STOP must prevent the request")
+            self.rows = [before]
+            stopped.set()
+
+    def checkpoint():
+        if stopped.is_set():
+            raise InterruptedError("History maintenance stopped")
+
+    api = StopDuringDownload([], [before, filled_suspension("2026-09-08")])
+    with pytest.raises(InterruptedError, match="History maintenance stopped"):
+        XtHistoryAdapter(api).read_daily_history(
+            instrument(),
+            date(2026, 9, 8),
+            date(2026, 9, 8),
+            [date(2026, 9, day) for day in (7, 8)],
+            ensure_missing=True,
+            checkpoint=checkpoint,
+        )
+
+
+@pytest.mark.parametrize("malformed", [["invalid provider payload"], {}, {"600000.SH": None}, {"600000.SH": []}])
+def test_malformed_raw_payload_cannot_be_hidden_by_valid_suspension_fill(malformed):
+    before = raw("2026-09-07")
+
+    class MalformedRaw(SuspensionAPI):
+        def get_local_data(self, **kwargs):
+            if kwargs["stock_list"] == ["600000.SH"] and kwargs["start_time"] == "20260908":
+                return malformed
+            return super().get_local_data(**kwargs)
+
+    api = MalformedRaw([before], [before, filled_suspension("2026-09-08")])
+    with pytest.raises(MarketDataError, match="FRESH_HISTORY_INVALID"):
+        XtHistoryAdapter(api).read_daily_history(
+            instrument(), date(2026, 9, 8), date(2026, 9, 8), [date(2026, 9, day) for day in (7, 8)]
+        )
