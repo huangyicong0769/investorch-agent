@@ -18,6 +18,7 @@ def main() -> None:
         "get_market_data",
         "get_full_tick",
         "get_instrument_detail",
+        "get_instrument_type",
         "get_trading_period",
         "get_local_data",
         "download_history_data2",
