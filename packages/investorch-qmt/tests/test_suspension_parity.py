@@ -90,3 +90,28 @@ def test_provider_filled_get_bar_matches_native_suspension_row(filled_parity):
     for field in DayBarStore.DEFAULT_DTYPE.names:
         assert actual[field] == expected[field]
     assert actual["suspended"]
+
+
+@pytest.mark.parametrize("skip_suspended", [True, False])
+@pytest.mark.parametrize("adjust_type", ["none", "pre", "post"])
+@pytest.mark.parametrize("fields", [None, ["datetime", "close", "volume"], "close", "volume"])
+@pytest.mark.parametrize("bar_count", [1, 5])
+def test_provider_filled_history_matches_native_selection_and_adjustment(
+    filled_parity, skip_suspended, adjust_type, fields, bar_count
+):
+    fresh, native, stock = filled_parity
+    day = datetime(2026, 9, 7)
+    actual = fresh.history_bars(
+        stock, bar_count, "1d", fields, day, skip_suspended=skip_suspended, adjust_type=adjust_type, adjust_orig=day
+    )
+    expected = native.history_bars(
+        stock,
+        bar_count,
+        "1d",
+        list(DayBarStore.DEFAULT_DTYPE.names) if fields is None else fields,
+        day,
+        skip_suspended=skip_suspended,
+        adjust_type=adjust_type,
+        adjust_orig=day,
+    )
+    np.testing.assert_array_equal(actual, expected)
