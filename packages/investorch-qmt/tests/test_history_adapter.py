@@ -37,7 +37,15 @@ def raw(day, *, volume=100, suspended=False):
     )
 
 
-class API:
+class CapabilityAPI:
+    def get_instrument_type(self, code):
+        return {"index" if code in {"000001.SH", "399001.SZ"} else "stock": True}
+
+    def get_instrument_detail(self, code):
+        return {"ExchangeID": code[-2:], "InstrumentID": code[:6]}
+
+
+class API(CapabilityAPI):
     def __init__(self, rows, symbol="600000.SH"):
         self.rows = rows
         self.symbol = symbol
@@ -115,7 +123,7 @@ def test_history_api_failure_is_not_ready_and_never_downloads_or_falls_back():
 
 @pytest.mark.parametrize("code,kind", [("510300.XSHG", "ETF"), ("830001.XBEI", "CS"), ("00700.XHKG", "CS")])
 def test_history_rejects_unsupported_metadata(code, kind):
-    with pytest.raises(MarketDataError, match="UNSUPPORTED_INSTRUMENT"):
+    with pytest.raises(MarketDataError, match="FRESH_HISTORY_UNSUPPORTED"):
         XtHistoryAdapter(API([])).read_daily_history(
             instrument(code, kind), date(2026, 9, 8), date(2026, 9, 8), [date(2026, 9, 8)]
         )
@@ -124,7 +132,7 @@ def test_history_rejects_unsupported_metadata(code, kind):
 def test_maintenance_download_batches_instruments_and_reports_truthful_progress():
     observed = []
 
-    class Downloader:
+    class Downloader(CapabilityAPI):
         def download_history_data2(self, stocks, **kwargs):
             assert kwargs == dict(period="1d", start_time="20260907", end_time="20260908", incrementally=False)
             observed.extend(stocks)
@@ -142,7 +150,7 @@ def test_maintenance_download_batches_instruments_and_reports_truthful_progress(
 
 
 def test_download_failure_never_reports_completion():
-    class Downloader:
+    class Downloader(CapabilityAPI):
         def download_history_data2(self, stocks, **kwargs):
             raise ConnectionError("download interrupted")
 
@@ -155,7 +163,7 @@ def test_download_failure_never_reports_completion():
 
 
 def test_lazy_factors_map_real_sdk_event_multiplier_schema_and_allow_empty():
-    class Factors:
+    class Factors(CapabilityAPI):
         empty = False
 
         def get_divid_factors(self, symbol, *, start_time, end_time):
@@ -214,7 +222,7 @@ def test_invalid_or_unsupported_factor_payload_fails_closed(changes):
     )
     row.update(changes)
 
-    class Factors:
+    class Factors(CapabilityAPI):
         def get_divid_factors(self, *_args, **_kwargs):
             return pd.DataFrame([row], index=["20260716"])
 
@@ -223,9 +231,18 @@ def test_invalid_or_unsupported_factor_payload_fails_closed(changes):
 
 
 def test_factor_request_failure_is_not_successful_empty_history():
-    class Factors:
+    class Factors(CapabilityAPI):
         def get_divid_factors(self, *_args, **_kwargs):
             raise ConnectionError("factor query disconnected")
 
     with pytest.raises(MarketDataError, match="FRESH_FACTOR_NOT_READY"):
         XtHistoryAdapter(Factors()).get_dividend_factors(instrument(), date(2026, 7, 1), date(2026, 7, 31))
+
+
+def test_supported_identity_is_not_removed_when_completed_cache_is_missing():
+    api = API([])
+    adapter = XtHistoryAdapter(api)
+    assert adapter.history_capability(instrument())["supported"] is True
+    with pytest.raises(MarketDataError, match="FRESH_HISTORY_INCOMPLETE"):
+        adapter.read_daily_history(instrument(), date(2026, 9, 8), date(2026, 9, 8), [date(2026, 9, 8)])
+    assert adapter.require_supported(instrument()) == "600000.SH"

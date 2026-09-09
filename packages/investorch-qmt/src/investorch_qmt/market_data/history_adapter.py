@@ -9,7 +9,7 @@ from rqalpha.data.base_data_source.storages import DayBarStore
 
 from .daily import FIELDS, SHANGHAI, normalize_daily_row
 from .errors import MarketDataError
-from .symbols import to_xt_history_symbol
+from .history_capabilities import HistoryCapabilities
 from .xtdata_adapter import XtDataAdapter
 
 RAW_DTYPE = np.dtype([*DayBarStore.DEFAULT_DTYPE.descr, ("prev_close", "f8"), ("suspended", "?")])
@@ -21,14 +21,27 @@ class XtHistoryAdapter:
     def __init__(self, api=None, *, connection=None):
         self._connection = connection if connection is not None else XtDataAdapter(api)
         self._owns_connection = connection is None
+        self._capabilities = HistoryCapabilities(self._connection)
 
     def connect(self):
         if self._owns_connection:
             self._connection.connect()
         api = self._connection.connected_api()
-        for name in ("get_local_data", "download_history_data2", "get_divid_factors"):
+        for name in (
+            "get_local_data",
+            "download_history_data2",
+            "get_divid_factors",
+            "get_instrument_type",
+            "get_instrument_detail",
+        ):
             if not callable(getattr(api, name, None)):
                 raise MarketDataError("FRESH_HISTORY_NOT_READY", f"Missing xtdata API: {name}", transient=True)
+
+    def history_capability(self, instrument):
+        return self._capabilities.inspect(instrument)
+
+    def require_supported(self, instrument):
+        return self._capabilities.require_supported(instrument)
 
     def close(self):
         if self._owns_connection:
@@ -36,7 +49,7 @@ class XtHistoryAdapter:
 
     def download_daily_history(self, instruments, start, end, progress=None):
         """Populate MiniQMT cache in maintenance batches; callers must still validate."""
-        symbols = list(dict.fromkeys(to_xt_history_symbol(instrument) for instrument in instruments))
+        symbols = list(dict.fromkeys(self.require_supported(instrument) for instrument in instruments))
         for offset in range(0, len(symbols), BATCH_SIZE):
             batch = symbols[offset : offset + BATCH_SIZE]
             try:
@@ -57,7 +70,7 @@ class XtHistoryAdapter:
                 progress(offset + len(batch), len(symbols))
 
     def get_dividend_factors(self, instrument, start, end):
-        symbol = to_xt_history_symbol(instrument)
+        symbol = self.require_supported(instrument)
         if instrument.type == "INDX":
             return ()
         try:
@@ -93,7 +106,7 @@ class XtHistoryAdapter:
             raise MarketDataError("FRESH_FACTOR_INVALID", str(exc)) from exc
 
     def read_daily_history(self, instrument, start, end, calendar):
-        symbol = to_xt_history_symbol(instrument)
+        symbol = self.require_supported(instrument)
         expected = {
             day
             for day in calendar
