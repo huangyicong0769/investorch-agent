@@ -23,11 +23,13 @@ class Native:
 
 class History:
     def __init__(self):
-        self.calls = []
+        self.available = True
+        self.available_from = date.min
         self.events = ((date(2026, 9, 2), 1.5), (date(2026, 9, 3), 2.0))
 
     def get_dividend_factors(self, instrument, start, end):
-        self.calls.append((start, end))
+        if not self.available or start < self.available_from:
+            raise ConnectionError("Requested factor interval is unavailable.")
         return tuple((day, factor) for day, factor in self.events if start <= day <= end)
 
 
@@ -55,12 +57,14 @@ def test_empty_interval_cached_later_fetch_incremental_and_native_prefix_frozen(
     first = cache.get(CS, date(2026, 9, 1))
     native.factors["ex_cum_factor"] = 100
     first["ex_cum_factor"] = 200  # Caller mutation must not poison the cache.
+    history.available = False
     cached = cache.get(CS, date(2026, 9, 1))
     assert cached["ex_cum_factor"].tolist() == [1, 2]
-    assert len(history.calls) == 1
+    history.available = True
+    history.available_from = date(2026, 9, 2)
     later = cache.get(CS, date(2026, 9, 3))
-    assert history.calls == [(date(2026, 9, 1), date(2026, 9, 1)), (date(2026, 9, 2), date(2026, 9, 3))]
     assert later["ex_cum_factor"].tolist() == [1, 2, 3, 6]
+    history.available = False
     assert cache.get(CS, date(2026, 9, 2))["ex_cum_factor"].tolist() == [1, 2, 3]
 
 
@@ -111,10 +115,10 @@ def test_missing_native_factors_use_initial_one(native_factors):
     assert FreshFactorCache(native, History(), CUTOFF).get(CS, date(2026, 9, 2))["ex_cum_factor"].tolist() == [1, 1.5]
 
 
-def test_index_queries_never_fetch_factors():
+def test_index_query_succeeds_while_factor_provider_is_unavailable():
     history = History()
+    history.available = False
     assert FreshFactorCache(Native(), history, CUTOFF).get(SimpleNamespace(type="INDX"), date(2026, 9, 3)) is None
-    assert history.calls == []
 
 
 @pytest.mark.parametrize(
@@ -135,12 +139,12 @@ def test_invalid_native_prefix_fails_closed(rows):
         FreshFactorCache(native, History(), CUTOFF).get(CS, date(2026, 9, 3))
 
 
-def test_native_only_query_does_not_fetch_and_missing_initial_is_inserted():
+def test_native_only_query_succeeds_offline_and_missing_initial_is_inserted():
     native, history = Native(), History()
+    history.available = False
     native.factors = np.array([(20260801000000, 2)], dtype=DTYPE)
     factors = FreshFactorCache(native, history, CUTOFF).get(CS, CUTOFF)
     assert factors.tolist() == [(0, 1), (20260801000000, 2)]
-    assert history.calls == []
 
 
 def test_adapter_invalid_payload_retains_explicit_error_taxonomy():

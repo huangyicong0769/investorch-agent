@@ -20,10 +20,11 @@ class FactorAPI(CacheAPI):
     def __init__(self, rows, events):
         super().__init__(rows)
         self.events = events
-        self.factor_calls = []
+        self.factors_available = True
 
     def get_divid_factors(self, symbol, start_time, end_time):
-        self.factor_calls.append((start_time, end_time))
+        if not self.factors_available:
+            raise ConnectionError("Corporate-action provider is unavailable.")
         return pd.DataFrame.from_dict(
             {
                 day.strftime("%Y%m%d"): dict(
@@ -74,6 +75,7 @@ def test_history_matches_full_native_oracle_for_identical_raw_and_factors(
         with h5py.File(path / "ex_cum_factor.h5", "w") as h:
             h.create_dataset("600519.XSHG", data=factors)
     api = FactorAPI(rows, [(date(2026, 9, 7), 1.5), (date(2026, 9, 8), 2.0)])
+    api.factors_available = adjust_type != "none" and fields != "total_turnover"
     fresh = FreshDailyDataSource(
         native,
         XtHistoryAdapter(api),
@@ -92,5 +94,3 @@ def test_history_matches_full_native_oracle_for_identical_raw_and_factors(
         **kwargs,
     )
     np.testing.assert_array_equal(actual, expected)
-    if adjust_type == "none" or fields == "total_turnover":
-        assert api.factor_calls == []
