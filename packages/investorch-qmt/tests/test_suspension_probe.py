@@ -61,9 +61,9 @@ def test_report_compares_local_and_matrix_fields_and_exposes_invalid_time():
     report = []
     probe.run_probe(
         Provider(),
-        [{"symbol": "600929.SH"}],
+        [{"symbol": "600000.SH"}],
         days,
-        {"600929.SH": {"date": "2026-08-31", "close": 10, "volume": 100}},
+        {"600000.SH": {"date": "2026-08-31", "close": 10, "volume": 100}},
         start="2026-09-01",
         end="2026-09-02",
         anchor_days=5,

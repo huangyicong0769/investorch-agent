@@ -37,6 +37,7 @@ def _day(value):
 
 
 def _read(api, symbols, start, end, *, market=False, fill=False):
+    symbols = list(dict.fromkeys(symbols))
     params = dict(
         field_list=list(FIELDS),
         stock_list=symbols,
