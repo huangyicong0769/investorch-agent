@@ -55,8 +55,10 @@ class API(CapabilityAPI):
         assert kwargs["period"] == "1d"
         assert kwargs["fill_data"] is False
         assert kwargs["dividend_type"] == "none"
-        assert kwargs["stock_list"] == [self.symbol]
-        return {self.symbol: pd.DataFrame(self.rows)}
+        return {symbol: pd.DataFrame(self.rows if symbol == self.symbol else []) for symbol in kwargs["stock_list"]}
+
+    def get_market_data(self, **kwargs):
+        return {}
 
 
 @pytest.mark.parametrize("code,kind,xt", [("600000.XSHG", "CS", "600000.SH"), ("000001.XSHG", "INDX", "000001.SH")])
@@ -290,3 +292,64 @@ def test_supported_identity_is_not_removed_when_completed_cache_is_missing():
     with pytest.raises(MarketDataError, match="FRESH_HISTORY_INCOMPLETE"):
         adapter.read_daily_history(instrument(), date(2026, 9, 8), date(2026, 9, 8), [date(2026, 9, 8)])
     assert adapter.require_supported(instrument()) == "600000.SH"
+
+
+class SuspensionAPI(CapabilityAPI):
+    def __init__(self, rows, filled, *, axis=None):
+        self.rows = rows
+        self.filled = filled
+        self.axis = axis if axis is not None else [raw("2026-09-07"), raw("2026-09-08"), raw("2026-09-09")]
+
+    def get_local_data(self, *, stock_list, start_time, end_time, count=-1, **kwargs):
+        source = self.axis if stock_list[0] in {"000001.SH", "399001.SZ"} else self.rows
+        selected = [
+            row
+            for row in source
+            if (
+                not start_time
+                or pd.Timestamp(row["time"], unit="ms", tz="UTC").tz_convert("Asia/Shanghai").strftime("%Y%m%d")
+                >= start_time
+            )
+            and pd.Timestamp(row["time"], unit="ms", tz="UTC").tz_convert("Asia/Shanghai").strftime("%Y%m%d")
+            <= end_time
+        ]
+        return {stock_list[0]: pd.DataFrame(selected[-count:] if count > 0 else selected)}
+
+    def get_market_data(self, *, stock_list, **kwargs):
+        return {
+            field: pd.DataFrame(
+                {
+                    pd.Timestamp(row["time"], unit="ms", tz="UTC").tz_convert("Asia/Shanghai").strftime("%Y%m%d"): {
+                        stock_list[0]: row[field]
+                    }
+                    for row in self.filled
+                }
+            )
+            for field in raw("2026-09-07")
+        }
+
+
+def filled_suspension(day, price=10.5):
+    return {**raw(day, volume=0, suspended=True), **dict.fromkeys(("open", "high", "low", "close", "preClose"), price)}
+
+
+def test_history_accepts_provider_confirmed_internal_suspension_and_preserves_raw_trades():
+    before, after = raw("2026-09-07"), raw("2026-09-09")
+    api = SuspensionAPI([before, after], [before, filled_suspension("2026-09-08"), after])
+    bars = XtHistoryAdapter(api).read_daily_history(
+        instrument(), date(2026, 9, 7), date(2026, 9, 9), [date(2026, 9, day) for day in (7, 8, 9)]
+    )
+    assert list(bars["datetime"]) == [20260907000000, 20260908000000, 20260909000000]
+    assert list(bars["suspended"]) == [False, True, False]
+    assert list(bars["close"]) == [10.5, 10.5, 10.5]
+    assert list(bars["volume"]) == [10000.0, 0.0, 10000.0]
+    assert list(bars["total_turnover"]) == [100000.0, 0.0, 100000.0]
+
+
+def test_conflicting_filled_trade_cannot_validate_a_missing_suspension():
+    before = raw("2026-09-07")
+    api = SuspensionAPI([before], [{**before, "close": 10.6}, filled_suspension("2026-09-08")])
+    with pytest.raises(MarketDataError, match="FRESH_HISTORY_INCOMPLETE"):
+        XtHistoryAdapter(api).read_daily_history(
+            instrument(), date(2026, 9, 7), date(2026, 9, 8), [date(2026, 9, day) for day in (7, 8)]
+        )

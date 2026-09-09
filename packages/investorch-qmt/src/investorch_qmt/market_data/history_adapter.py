@@ -11,6 +11,7 @@ from rqalpha.data.base_data_source.storages import DayBarStore
 from .daily import FIELDS, SHANGHAI, normalize_daily_row
 from .errors import MarketDataError
 from .history_capabilities import HistoryCapabilities
+from .suspension import HistoricalSuspensionResolver
 from .xtdata_adapter import XtDataAdapter
 
 RAW_DTYPE = np.dtype([*DayBarStore.DEFAULT_DTYPE.descr, ("prev_close", "f8"), ("suspended", "?")])
@@ -32,6 +33,7 @@ class XtHistoryAdapter:
         api = self._connection.connected_api()
         for name in (
             "get_local_data",
+            "get_market_data",
             "download_history_data2",
             "get_divid_factors",
             "get_instrument_type",
@@ -150,6 +152,12 @@ class XtHistoryAdapter:
                 if day in rows and rows[day] != bar:
                     raise ValueError("Conflicting completed daily rows")
                 rows[day] = bar
+            if rows.keys() != expected and instrument.type == "CS":
+                rows.update(
+                    HistoricalSuspensionResolver(self._connection).resolve(
+                        symbol, expected - rows.keys(), rows, calendar
+                    )
+                )
             if rows.keys() != expected:
                 raise MarketDataError(
                     "FRESH_HISTORY_INCOMPLETE", f"Completed history has gaps for {instrument.order_book_id}"
