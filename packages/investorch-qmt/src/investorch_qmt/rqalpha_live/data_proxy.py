@@ -27,9 +27,11 @@ class LiveDataProxy(DataProxy):
         previous = self.get_previous_trading_date(day).date()
         _, end = self.available_data_range("1d")
         if previous >= day or end < previous:
-            raise RuntimeFailure("HISTORICAL_DATA_NOT_FRESH", f"Native daily history must cover {previous}.")
+            raise RuntimeFailure("FRESH_HISTORY_NOT_READY", f"Completed daily history must cover {previous}.")
         for symbol in symbols:
             instrument = self.instrument_not_none(symbol)
+            if not instrument.listed_date.date() <= previous < instrument.de_listed_date.date():
+                continue
             rows = self._data_source.history_bars(
                 instrument,
                 1,
@@ -41,7 +43,9 @@ class LiveDataProxy(DataProxy):
                 adjust_type="none",
             )
             if rows is None or len(rows) != 1 or int(rows[0]) // 1000000 != int(previous.strftime("%Y%m%d")):
-                raise RuntimeFailure("HISTORICAL_DATA_NOT_FRESH", f"Native history for {symbol} must cover {previous}.")
+                raise RuntimeFailure(
+                    "FRESH_HISTORY_NOT_READY", f"Completed history for {symbol} must cover {previous}."
+                )
         self.current_day = day
         self.current_bars = {}
         self.finalized = False

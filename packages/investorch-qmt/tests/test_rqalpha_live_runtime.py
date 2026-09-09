@@ -173,7 +173,14 @@ def save(context):
         deployment_dir=tmp_path,
     )
     statuses = []
-    run_live(artifacts, control, lambda phase, **kw: statuses.append(phase), market=market, clock=clock)
+    run_live(
+        artifacts,
+        control,
+        lambda phase, **kw: statuses.append(phase),
+        market=market,
+        clock=clock,
+        history=SimpleNamespace(get_dividend_factors=lambda *_: ()),
+    )
     observed = json.loads(output.read_text())
     assert observed == dict(
         events=["init", "before", "bar", "after", "settlement"],
@@ -213,7 +220,7 @@ def test_stale_native_bundle_fails_before_strategy_before_trading(bundle, tmp_pa
         run_live(
             artifacts_for(source, tmp_path), control, lambda *args, **kwargs: None, market=Market(clock), clock=clock
         )
-    assert error.value.code == "HISTORICAL_DATA_NOT_FRESH"
+    assert error.value.code == "FRESH_HISTORY_NOT_READY"
 
 
 def test_current_snapshot_rejects_in_real_strategy_instead_of_native_fallback(bundle, tmp_path):
