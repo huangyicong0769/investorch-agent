@@ -35,7 +35,7 @@ def worker_main(spec: WorkerLaunchSpec, pipe):
 
     from .protocol import WorkerControl
 
-    control = WorkerControl()
+    control = WorkerControl(history_through=spec.history_through)
     reader = threading.Thread(target=control.receive, args=(pipe,), daemon=True, name="runtime-control")
     reader.start()
 

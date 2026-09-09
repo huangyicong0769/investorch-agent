@@ -64,6 +64,11 @@ def main() -> None:
             "get_trading_period",
             "subscribe_whole_quote",
             "subscribe_quote",
+            "get_local_data",
+            "download_history_data2",
+            "get_divid_factors",
+            "get_instrument_detail",
+            "get_instrument_type",
         ):
             assert callable(getattr(xtdata, name, None))
         from investorch_qmt.runtime import worker

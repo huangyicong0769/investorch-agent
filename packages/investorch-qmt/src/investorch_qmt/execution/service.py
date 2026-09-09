@@ -6,12 +6,13 @@ import shutil
 import tempfile
 import threading
 from collections.abc import Callable
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from uuid import uuid4
 
 from investorch_qmt.config import AppPaths
+from investorch_qmt.history.sync import HistorySyncManager
 from investorch_qmt.runtime.model import WorkerLaunchSpec
 from investorch_qmt.runtime.supervisor import RuntimeSupervisor
 
@@ -27,6 +28,7 @@ class ExecutionNodeService:
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
         lease_timeout_seconds: int = 10,
         runtime_factory=RuntimeSupervisor,
+        history_manager=None,
     ):
         if type(lease_timeout_seconds) is not int or lease_timeout_seconds <= 0:
             raise ValueError("lease timeout must be a positive integer")
@@ -37,7 +39,14 @@ class ExecutionNodeService:
         self._lock = threading.RLock()
         self._session: ControlSession | None = None
         self._sync: dict[str, str] = {}
-        self.supervisor = runtime_factory(self._runtime_event, self._runtime_gate)
+        self.history = (
+            history_manager
+            if history_manager is not None
+            else HistorySyncManager(clock=clock, exclusions_path=paths.root / "history-exclusions.json")
+        )
+        self.supervisor = runtime_factory(
+            self._runtime_event, self._runtime_gate, history_snapshot=self.history.snapshot
+        )
         with self.storage.transaction() as db:
             if db.execute("SELECT 1 FROM remote_deployments WHERE status='RUNNING'").fetchone():
                 now = self._clock().isoformat()
@@ -46,8 +55,14 @@ class ExecutionNodeService:
                     ("RUNTIME_LOST_ON_COMPANION_RESTART", now, now),
                 )
 
+    def start_maintenance(self):
+        self.history.start()
+
     def close(self):
-        self.supervisor.close()
+        try:
+            self.supervisor.close()
+        finally:
+            self.history.close()
 
     def _runtime_gate(self, identity):
         with self._lock:
@@ -188,6 +203,7 @@ class ExecutionNodeService:
             ]
             return {
                 "service": {"status": "ready"},
+                "historical_data": self.history.snapshot(),
                 "market_data": {
                     "backend": "xtdata",
                     "status": "CONNECTED"
@@ -396,12 +412,14 @@ class ExecutionNodeService:
                 raise ExecutionError("DEPLOYMENT_CONFLICT", "Only a current deployment can start.")
             if self._summary(db, row)["portfolio_sync"] != "SYNCED":
                 raise ExecutionError("PORTFOLIO_NOT_SYNCED", "Core reconciliation is required before start.")
+            through = self.history.snapshot().get("fresh_through")
             spec = WorkerLaunchSpec(
                 row["deployment_id"],
                 row["portfolio_id"],
                 row["broker_account_id"],
                 str(self.paths.deployments / row["deployment_id"]),
                 row["strategy_sha256"],
+                history_through=date.fromisoformat(through) if through is not None else None,
             )
             startup = self.supervisor.begin_start(spec)
         result = startup.result()

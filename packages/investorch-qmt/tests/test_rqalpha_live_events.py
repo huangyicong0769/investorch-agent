@@ -33,6 +33,9 @@ class Control:
     def gate(self):
         return self.enabled, None if self.enabled else "lease lost"
 
+    def history_through(self):
+        return None
+
 
 def source(now):
     clock, control = Clock(now), Control()

@@ -3,6 +3,14 @@ import re
 from .errors import MarketDataError
 
 
+def to_xt_history_symbol(instrument) -> str:
+    """Map native-authorized Shanghai/Shenzhen stock and index metadata."""
+    code = instrument.order_book_id
+    if instrument.type not in {"CS", "INDX"} or not re.fullmatch(r"\d{6}\.(XSHG|XSHE)", code):
+        raise MarketDataError("UNSUPPORTED_INSTRUMENT", code)
+    return code[:6] + (".SH" if code.endswith(".XSHG") else ".SZ")
+
+
 def to_xt_symbol(order_book_id: str) -> str:
     if re.fullmatch(r"(600|601|603|605|688)\d{3}\.XSHG", order_book_id):
         return order_book_id[:6] + ".SH"

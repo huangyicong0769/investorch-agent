@@ -13,8 +13,8 @@ def unavailable_market_worker(spec, pipe):
     pipe.close()
 
 
-def unavailable_runtime_factory(notify, gate):
-    return RuntimeSupervisor(notify, gate, worker_target=unavailable_market_worker)
+def unavailable_runtime_factory(notify, gate, **kwargs):
+    return RuntimeSupervisor(notify, gate, worker_target=unavailable_market_worker, **kwargs)
 
 
 def test_control_authority_is_fenced_expiring_and_process_local(tmp_path):

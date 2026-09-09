@@ -20,6 +20,7 @@ from rqalpha.utils.config import parse_config
 from rqalpha.utils.exception import CustomException
 
 from investorch_qmt.market_data.errors import MarketDataError
+from investorch_qmt.market_data.history_adapter import XtHistoryAdapter
 from investorch_qmt.market_data.subscription import SubscriptionManager
 from investorch_qmt.market_data.xtdata_adapter import XtDataAdapter
 from investorch_qmt.runtime.model import RuntimeFailure
@@ -29,6 +30,7 @@ from .broker import TradingUnavailableBroker
 from .contracts import RQAlphaLiveBootstrapSnapshot
 from .data_proxy import LiveDataProxy
 from .event_source import DailyEventSource, WallClock
+from .fresh_data_source import FreshDailyDataSource
 from .price_board import LivePriceBoard
 
 
@@ -73,7 +75,7 @@ def _config(artifacts, clock):
     return config
 
 
-def run_live(artifacts, control, on_status, *, market=None, clock=None):
+def run_live(artifacts, control, on_status, *, market=None, history=None, clock=None):
     """Run a validated staged artifact; injection is limited to external market/time seams."""
     clock = clock or WallClock()
     market = market or XtDataAdapter()
@@ -90,15 +92,21 @@ def run_live(artifacts, control, on_status, *, market=None, clock=None):
         handler.start_up()
         try:
             native = BaseDataSource(config.base)
+            fresh = FreshDailyDataSource(
+                native,
+                history or XtHistoryAdapter(connection=market),
+                fresh_through=control.history_through,
+                clock=clock,
+            )
             board = LivePriceBoard(market)
-            proxy = LiveDataProxy(native, board, market)
+            proxy = LiveDataProxy(fresh, board, market)
             calendar = [stamp.date() for stamp in proxy.get_trading_calendar()]
             proxy.available_data_range("1d")
         except Exception as exc:
             raise RuntimeFailure(
                 "DATA_BUNDLE_NOT_READY", "Standard native bundle/reference preflight failed.", retryable=True
             ) from exc
-        env.set_data_source(native)
+        env.set_data_source(fresh)
         env.set_price_board(board)
         env.set_data_proxy(proxy)
         env.set_broker(TradingUnavailableBroker(env))

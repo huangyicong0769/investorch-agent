@@ -488,6 +488,7 @@ class LiveDeploymentCoordinator:
             "sync": sync,
             "sync_reason": self._reasons.get(portfolio_id),
             "market_data": observed.get("market_data", {"status": "UNKNOWN"}),
+            "historical_data": observed.get("historical_data", {"status": "UNKNOWN"}),
             "trading": observed.get("trading", {"status": "UNKNOWN"}),
             "capabilities": {
                 "can_start": can_start,

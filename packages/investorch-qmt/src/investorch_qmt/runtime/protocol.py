@@ -1,17 +1,22 @@
 """Small control and lifecycle messages; market data never crosses this channel."""
 
 import threading
-from datetime import datetime
+from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
 
 class WorkerControl:
-    def __init__(self):
+    def __init__(self, history_through: date | None = None):
         self.stopped = threading.Event()
         self._lock = threading.Lock()
         self._enabled = False
         self._reason = "CONTROL_NOT_CONFIRMED"
         self._pauses = []
+        self._history_through = history_through
+
+    def history_through(self):
+        with self._lock:
+            return self._history_through
 
     def gate(self):
         with self._lock:
@@ -27,6 +32,10 @@ class WorkerControl:
                 message = pipe.recv()
                 if message["command"] == "STOP":
                     self.stopped.set()
+                elif message["command"] == "SET_HISTORY":
+                    through = message["fresh_through"]
+                    with self._lock:
+                        self._history_through = date.fromisoformat(through) if through is not None else None
                 elif message["command"] == "SET_GATE":
                     with self._lock:
                         enabled = message["enabled"] is True
@@ -39,5 +48,5 @@ class WorkerControl:
                         self._reason = message.get("reason")
                 else:
                     self.stopped.set()
-        except (EOFError, OSError, KeyError, TypeError):
+        except (EOFError, OSError, KeyError, TypeError, ValueError):
             self.stopped.set()

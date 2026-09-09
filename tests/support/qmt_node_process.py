@@ -25,8 +25,19 @@ def market_unavailable_worker(spec, pipe):
         pipe.close()
 
 
-def unavailable_market_runtime(on_event, gate):
-    return RuntimeSupervisor(on_event, gate, worker_target=market_unavailable_worker)
+def unavailable_market_runtime(on_event, gate, **kwargs):
+    return RuntimeSupervisor(on_event, gate, worker_target=market_unavailable_worker, **kwargs)
+
+
+class UnavailableHistory:
+    def start(self):
+        pass
+
+    def close(self):
+        pass
+
+    def snapshot(self):
+        return {"status": "NOT_READY", "provider": "xtdata", "fresh_through": None}
 
 
 async def main() -> None:
@@ -36,7 +47,9 @@ async def main() -> None:
     lose_response = sys.argv[3]
     paths = default_paths(root)
     config = initialize_config(paths)
-    service = ExecutionNodeService(paths, runtime_factory=unavailable_market_runtime)
+    service = ExecutionNodeService(
+        paths, runtime_factory=unavailable_market_runtime, history_manager=UnavailableHistory()
+    )
     app = create_app(config, paths, service)
 
     async def fixture_app(scope, receive, send):

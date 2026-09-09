@@ -4,18 +4,15 @@ import math
 import re
 from collections.abc import Iterable
 from contextlib import suppress
-from datetime import date, datetime, time
+from datetime import date, time
 from importlib.metadata import version
 from threading import Event, Thread
 from typing import Any
-from zoneinfo import ZoneInfo
 
+from .daily import FIELDS, normalize_daily_row
 from .errors import MarketDataError
 from .quote_cache import QuoteCache
 from .symbols import to_xt_symbol
-
-SHANGHAI = ZoneInfo("Asia/Shanghai")
-FIELDS = ("time", "open", "high", "low", "close", "volume", "amount", "preClose", "suspendFlag")
 
 
 class XtDataAdapter:
@@ -30,6 +27,13 @@ class XtDataAdapter:
         self._original_get_client = None
         self._subscriptions: set[int] = set()
         self._subscription_groups: dict[int, tuple[int, ...]] = {}
+
+    def connected_api(self):
+        """Share the same pinned connection with completed-history readers."""
+        self.check_health()
+        if self._api is None:
+            raise MarketDataError("MARKET_DATA_NOT_READY", "xtdata is not connected", transient=True)
+        return self._api
 
     def daily_bar(self, order_book_id: str, trading_date: date) -> dict[str, Any]:
         symbol = to_xt_symbol(order_book_id)
@@ -54,31 +58,7 @@ class XtDataAdapter:
                 if len(series) != 1:
                     raise ValueError("Expected exactly one current-day row")
                 row[field] = float(series.iloc[0])
-            if not all(math.isfinite(value) for value in row.values()):
-                raise ValueError("Nonfinite daily field")
-            if datetime.fromtimestamp(row["time"] / 1000, SHANGHAI).date() != trading_date:
-                raise ValueError("Daily row has a different trading date")
-            if row["suspendFlag"] not in (-1, 0, 1):
-                raise ValueError("Invalid suspension flag")
-            suspended = row["suspendFlag"] == 1
-            if row["volume"] < 0 or row["amount"] < 0 or row["preClose"] <= 0:
-                raise ValueError("Invalid volume/turnover/previous close")
-            prices = [row[field] for field in ("open", "high", "low", "close")]
-            if suspended:
-                if row["volume"] != 0 or row["amount"] != 0 or min(prices) < 0:
-                    raise ValueError("Suspended row carries trades or invalid prices")
-            elif min(prices) <= 0 or row["high"] < max(prices) or row["low"] > min(prices):
-                raise ValueError("Invalid active daily prices")
-            return {
-                "datetime": int(day) * 1000000,
-                **{field: row[field] for field in ("open", "high", "low", "close")},
-                # Official native daily example: amount/volume implies 100-share hands.
-                # https://dict.thinktrader.net/dictionary/stock.html
-                "volume": row["volume"] * 100,
-                "total_turnover": row["amount"],
-                "prev_close": row["preClose"],
-                "suspended": suspended,
-            }
+            return normalize_daily_row(row, trading_date)
         except MarketDataError:
             raise
         except Exception as exc:

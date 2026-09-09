@@ -20,6 +20,13 @@ from investorch_qmt.server import create_app
 TOKEN = "protocol-token-with-at-least-32-characters"
 
 
+@pytest.fixture(autouse=True)
+def isolated_history_maintenance(monkeypatch):
+    from test_execution_runtime import HistoryState
+
+    monkeypatch.setattr("investorch_qmt.execution.service.HistorySyncManager", HistoryState)
+
+
 def service_market_status(tmp_path):
     from investorch_qmt.execution.service import ExecutionNodeService
 
@@ -207,3 +214,19 @@ async def test_mcp_write_authority_is_request_local_and_never_an_agent_argument(
         owner_http.headers["X-InvestOrch-Control-Session"] = replacement
         stopped = await owner.call_tool("stop_live_strategy", {"portfolio_id": "portfolio-a"})
         assert stopped.structured_content["status"] == "STOPPED"
+
+
+@pytest.mark.asyncio
+async def test_service_lifespan_starts_and_closes_history_maintenance(tmp_path):
+    from test_execution_runtime import HistoryState
+
+    from investorch_qmt.execution.service import ExecutionNodeService
+
+    history = HistoryState()
+    service = ExecutionNodeService(default_paths(tmp_path), history_manager=history)
+    app = create_app(service_config(tmp_path), service=service)
+    assert not history.started
+    async with running_app(app):
+        assert history.started
+        assert not history.closed
+    assert history.closed
