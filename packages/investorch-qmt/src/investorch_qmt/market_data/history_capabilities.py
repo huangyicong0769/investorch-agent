@@ -39,12 +39,10 @@ class HistoryCapabilities:
             not isinstance(key, str) or type(value) is not bool for key, value in types.items()
         ):
             raise MarketDataError("FRESH_HISTORY_INVALID", "Malformed provider instrument-type metadata.")
-        if not types and detail is None:
-            return {"supported": False, "provider_symbol": symbol, "reason": "PROVIDER_INSTRUMENT_UNKNOWN"}
+        # Pinned xtdata returns None when the canonical identity lookup has no
+        # entry; get_instrument_type may still classify that identifier as index.
         if detail is None:
-            raise MarketDataError(
-                "FRESH_HISTORY_NOT_READY", "Registered instrument identity is unavailable.", transient=True
-            )
+            return {"supported": False, "provider_symbol": symbol, "reason": "PROVIDER_INSTRUMENT_UNKNOWN"}
         if not isinstance(detail, dict) or not all(
             isinstance(detail.get(field), str) and detail[field] for field in ("ExchangeID", "InstrumentID")
         ):

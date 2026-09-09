@@ -93,3 +93,24 @@ def test_index_type_and_identity_must_both_match_native_metadata():
         HistoryCapabilities(connection).inspect(instrument("000001.XSHG", "INDX"))["reason"]
         == "PROVIDER_IDENTITY_MISMATCH"
     )
+
+
+def test_type_classification_without_registry_identity_is_explicitly_unknown():
+    connection = Connection(types={"index": True})
+    connection.detail = None
+    decision = HistoryCapabilities(connection).inspect(instrument("000830.XSHG", "INDX"))
+    assert decision == {"supported": False, "provider_symbol": "000830.SH", "reason": "PROVIDER_INSTRUMENT_UNKNOWN"}
+
+
+def test_failed_provider_lookup_is_not_an_exclusion_and_can_recover():
+    import pytest
+
+    from investorch_qmt.market_data.errors import MarketDataError
+
+    connection = Connection()
+    connection.offline = True
+    capabilities = HistoryCapabilities(connection)
+    with pytest.raises(MarketDataError, match="FRESH_HISTORY_NOT_READY"):
+        capabilities.inspect(instrument())
+    connection.offline = False
+    assert capabilities.require_supported(instrument()) == "600000.SH"
