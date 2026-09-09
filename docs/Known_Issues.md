@@ -72,9 +72,11 @@ The [official API](https://dict.thinktrader.net/nativeApi/xtdata.html#下载历�
 
 ## Missing suspension rows can block fresh historical readiness
 
+**Status: accepted known limitation; remediation deferred (2026-09-09).** This issue does not block further development. Runtime completeness checks remain in force: unexplained missing dates still prevent fresh historical readiness and watermark promotion.
+
 **Observed 2026-09-09 in the same environment.** With the inter-batch interval, all 5,792 supported instruments completed downloading for September 1–8. Independent cache validation passed for 5,779 instruments, including all 577 supported indices, but found missing dates for 13 stocks. The global fresh watermark did not advance. Download completion therefore does not yet establish usable fresh history across the supported scope.
 
-The current reader accepts an explicit valid suspension row, but cannot recognize a legitimately absent suspension row without separate historical suspension evidence. This leaves the planned distinction between valid suspension and missing data incomplete. The inspected native suspension reference ends on August 31, and no independent historical suspension query was found in the pinned SDK. Current instrument status cannot establish a past day's status.
+The current reader accepts an explicit valid suspension row, but cannot recognize a legitimately absent suspension row without separate historical suspension evidence. This leaves the planned distinction between valid suspension and missing data incomplete. The inspected native suspension reference ends on August 31. xtdata provides suspension-related fields, but a reliable historical query path covering the missing dates has not yet been established in the pinned environment. Current instrument status alone does not reconstruct the full historical suspension calendar.
 
 A separate manual comparison found company suspension announcements consistent with all 13 stocks' missing dates. For example, [Xuetian Salt's September 5 announcement](https://paper.cnstock.com/html/2026-09/05/content_2265364.htm) describes its ongoing suspension. This supports a suspension-handling gap rather than treating these observations as unexplained download loss, but manually reviewed announcements are not an integrated, reusable historical-status source.
 
