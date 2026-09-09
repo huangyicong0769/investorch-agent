@@ -55,8 +55,8 @@ def production_worker_with_external_fixtures(spec, pipe):
         worker_main(spec, pipe)
 
 
-def actual_runtime_factory(notify, gate):
-    return RuntimeSupervisor(notify, gate, worker_target=production_worker_with_external_fixtures)
+def actual_runtime_factory(notify, gate, **kwargs):
+    return RuntimeSupervisor(notify, gate, worker_target=production_worker_with_external_fixtures, **kwargs)
 
 
 def test_service_spawns_production_worker_validates_artifacts_runs_engine_and_stops(bundle, tmp_path):  # noqa: F811

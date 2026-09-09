@@ -29,7 +29,14 @@ class WorkerHandle:
 
 class RuntimeSupervisor:
     def __init__(
-        self, on_event, gate, *, worker_target=worker_main, startup_timeout=30.0, shutdown_timeout=5.0, history_snapshot=None
+        self,
+        on_event,
+        gate,
+        *,
+        worker_target=worker_main,
+        startup_timeout=30.0,
+        shutdown_timeout=5.0,
+        history_snapshot=None,
     ):
         self._context = multiprocessing.get_context("spawn")
         self._target = worker_target

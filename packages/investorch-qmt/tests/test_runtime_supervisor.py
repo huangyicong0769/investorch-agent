@@ -20,6 +20,8 @@ def controlled_child(spec, pipe):
         if command["command"] == "STOP":
             pipe.send({"phase": "STOPPED"})
             return
+        if command["command"] == "SET_HISTORY":
+            continue
         if mode != "timeout":
             pipe.send({"phase": "RUNNING" if command["enabled"] else "PAUSED", "market_data": "CONNECTED"})
 

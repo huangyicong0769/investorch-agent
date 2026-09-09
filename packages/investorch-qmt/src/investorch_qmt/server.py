@@ -109,6 +109,7 @@ def create_app(
     async def lifespan(application):
         try:
             async with original_lifespan(application) as state:
+                await asyncio.to_thread(service.start_maintenance)
                 yield state
         finally:
             await asyncio.to_thread(service.close)

@@ -667,6 +667,14 @@ async def test_status_distinguishes_paused_market_runtime_from_trading_and_clear
             body = response.json()
             body["market_data"] = {"backend": "xtdata", "status": "CONNECTED", "xtquant_version": "250807.1.2"}
             body["trading"] = {"status": "NOT_READY", "reason": "TRADING_BACKEND_NOT_READY"}
+            body["historical_data"] = {
+                "status": "SYNCING",
+                "provider": "xtdata",
+                "native_through": "2026-08-31",
+                "fresh_through": "2026-09-07",
+                "target_through": "2026-09-08",
+                "progress": {"finished": 3000, "total": 5400},
+            }
             return httpx.Response(200, json=body)
         return response
 
@@ -688,12 +696,16 @@ async def test_status_distinguishes_paused_market_runtime_from_trading_and_clear
         assert status["node"]["market_data"] == "CONNECTED"
         assert status["node"]["control_authority"] == "UNAVAILABLE"
         assert status["market_data"]["xtquant_version"] == "250807.1.2"
+        assert status["historical_data"]["status"] == "SYNCING"
+        assert status["historical_data"]["fresh_through"] == "2026-09-07"
+        assert status["historical_data"]["progress"] == {"finished": 3000, "total": 5400}
         assert status["trading"] == {"status": "NOT_READY", "reason": "TRADING_BACKEND_NOT_READY"}
         assert status["capabilities"]["can_start"] is False
         node.offline = True
         unavailable = await coordinator.get_live_status(portfolio.id)
         assert unavailable["node"]["worker_phase"] is None
         assert unavailable["market_data"]["status"] == "UNKNOWN"
+        assert unavailable["historical_data"] == {"status": "UNKNOWN"}
         assert unavailable["trading"]["status"] == "UNKNOWN"
     finally:
         await coordinator.close()
