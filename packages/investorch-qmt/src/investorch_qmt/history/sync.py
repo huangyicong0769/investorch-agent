@@ -3,6 +3,7 @@
 import contextlib
 import multiprocessing
 import threading
+from copy import deepcopy
 from datetime import date, datetime, timedelta
 
 from .model import SHANGHAI, SyncSpec, latest_completed
@@ -12,7 +13,9 @@ _RETRY_SECONDS = (60, 300, 900, 1800)
 
 
 class HistorySyncManager:
-    def __init__(self, *, clock=None, context=None, worker_target=worker_main, shutdown_timeout=5.0):
+    def __init__(
+        self, *, clock=None, context=None, worker_target=worker_main, shutdown_timeout=5.0, exclusions_path=None
+    ):
         self._clock = clock or (lambda: datetime.now(SHANGHAI))
         self._context = context or multiprocessing.get_context("spawn")
         self._worker_target = worker_target
@@ -29,6 +32,8 @@ class HistorySyncManager:
         self._progress = self._reason = None
         self._retry_at = None
         self._failures = 0
+        self._exclusions_path = str(exclusions_path) if exclusions_path is not None else None
+        self._scope = None
 
     def snapshot(self):
         with self._lock:
@@ -39,6 +44,8 @@ class HistorySyncManager:
                 "fresh_through": self._fresh.isoformat() if self._fresh else None,
                 "target_through": self._target.isoformat() if self._target else None,
             }
+            if self._scope is not None:
+                result["scope"] = deepcopy(self._scope)
             if self._progress is not None and self._status == "SYNCING":
                 result["progress"] = dict(self._progress)
             if self._reason:
@@ -96,7 +103,7 @@ class HistorySyncManager:
             parent, child = self._context.Pipe(duplex=True)
             process = self._context.Process(
                 target=self._worker_target,
-                args=(SyncSpec(now, self._native, self._fresh), child),
+                args=(SyncSpec(now, self._native, self._fresh, self._exclusions_path), child),
                 name="history-maintenance",
             )
             process.start()
@@ -125,6 +132,23 @@ class HistorySyncManager:
             if self._active_target != latest_completed(calendar, self._launched_at):
                 raise ValueError("Maintenance target differs from its launch session.")
             self._target = self._active_target
+        elif phase == "SCOPE":
+            scope = message["scope"]
+            counts = [scope[key] for key in ("candidate_count", "supported_count", "excluded_count")]
+            reasons = scope["exclusion_reasons"]
+            if (
+                any(type(count) is not int or count < 0 for count in counts)
+                or counts[0] != counts[1] + counts[2]
+                or not isinstance(reasons, dict)
+                or any(
+                    not isinstance(reason, str) or type(count) is not int or count <= 0
+                    for reason, count in reasons.items()
+                )
+                or sum(reasons.values()) != counts[2]
+                or scope["exclusions_path"] != self._exclusions_path
+            ):
+                raise ValueError("Invalid historical capability scope.")
+            self._scope = deepcopy(scope)
         elif phase == "PROGRESS":
             finished, total = message["finished"], message["total"]
             if type(finished) is not int or type(total) is not int or not 0 <= finished <= total:

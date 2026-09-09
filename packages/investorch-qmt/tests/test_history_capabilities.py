@@ -11,20 +11,20 @@ class Connection:
     def __init__(self, types=None, detail=None):
         self.types = types if types is not None else {"stock": True}
         self.detail = detail if detail is not None else {"ExchangeID": "SH", "InstrumentID": "600000"}
-        self.calls = []
+        self.offline = False
 
     def connected_api(self):
+        if self.offline:
+            raise ConnectionError("provider metadata unavailable")
         return self
 
     def check_health(self):
         pass
 
     def get_instrument_type(self, code):
-        self.calls.append(("type", code))
         return self.types
 
     def get_instrument_detail(self, code):
-        self.calls.append(("detail", code))
         return self.detail
 
 
@@ -36,19 +36,19 @@ def test_explicit_provider_identity_and_type_are_cached_without_bar_download():
         "provider_symbol": "600000.SH",
         "reason": None,
     }
+    connection.offline = True
     assert capabilities.require_supported(instrument()) == "600000.SH"
-    assert connection.calls == [("type", "600000.SH"), ("detail", "600000.SH")]
 
 
 def test_no_canonical_mapping_is_explicit_exclusion_without_guessing_alias():
     connection = Connection()
+    connection.offline = True
     capabilities = HistoryCapabilities(connection)
     assert capabilities.inspect(instrument("H30252.XSHG", "INDX")) == {
         "supported": False,
         "provider_symbol": None,
         "reason": "CANONICAL_MAPPING_UNAVAILABLE",
     }
-    assert connection.calls == []
 
 
 def test_absent_registry_entry_is_excluded_but_metadata_failures_are_not():
@@ -60,9 +60,9 @@ def test_absent_registry_entry_is_excluded_but_metadata_failures_are_not():
     connection.detail = None
     capabilities = HistoryCapabilities(connection)
     assert capabilities.inspect(instrument())["reason"] == "PROVIDER_INSTRUMENT_UNKNOWN"
+    connection.offline = True
     with pytest.raises(MarketDataError, match="FRESH_HISTORY_UNSUPPORTED"):
         capabilities.require_supported(instrument())
-    assert len(connection.calls) == 2
 
     connection = Connection()
     connection.types = {"stock": "true"}
@@ -71,7 +71,6 @@ def test_absent_registry_entry_is_excluded_but_metadata_failures_are_not():
         capabilities.inspect(instrument())
     connection.types = {"stock": True}
     assert capabilities.require_supported(instrument()) == "600000.SH"
-    assert len(connection.calls) == 4  # A failed observation was not cached as an exclusion.
 
 
 def test_ambiguous_provider_type_cannot_be_treated_as_supported():

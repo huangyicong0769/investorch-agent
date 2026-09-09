@@ -24,3 +24,4 @@ class SyncSpec:
     now: datetime
     native_through: date | None = None
     fresh_through: date | None = None
+    exclusions_path: str | None = None

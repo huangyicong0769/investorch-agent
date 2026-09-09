@@ -1,6 +1,11 @@
 """Dedicated maintenance process; bars and factors never travel over IPC."""
 
+import json
+import os
+import tempfile
+from collections import Counter
 from contextlib import suppress
+from pathlib import Path
 
 from investorch_qmt.market_data.errors import MarketDataError
 
@@ -10,6 +15,53 @@ from .model import latest_completed
 def _check_stop(stopped):
     if stopped.is_set():
         raise InterruptedError("History maintenance stopped.")
+
+
+def _supported_instruments(spec, adapter, candidates, target, report, stopped):
+    supported, excluded = [], []
+    for instrument in candidates:
+        _check_stop(stopped)
+        decision = adapter.history_capability(instrument)
+        if decision["supported"]:
+            supported.append(instrument)
+        else:
+            excluded.append(
+                {
+                    "order_book_id": instrument.order_book_id,
+                    "instrument_type": str(instrument.type),
+                    "provider_symbol": decision["provider_symbol"],
+                    "reason": decision["reason"],
+                }
+            )
+    scope = {
+        "candidate_count": len(candidates),
+        "supported_count": len(supported),
+        "excluded_count": len(excluded),
+        "exclusion_reasons": dict(Counter(item["reason"] for item in excluded)),
+        "exclusions_path": spec.exclusions_path,
+        "observed_at": spec.now.isoformat(),
+    }
+    if excluded and spec.exclusions_path is None:
+        raise MarketDataError("HISTORY_SYNC_FAILED", "An explicit exclusion report path is required.")
+    if spec.exclusions_path is not None:
+        path = Path(spec.exclusions_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = None
+        try:
+            with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent, delete=False) as stream:
+                temporary = Path(stream.name)
+                json.dump(
+                    {**scope, "target_through": target.isoformat(), "excluded": excluded},
+                    stream,
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            os.replace(temporary, path)
+        finally:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
+    report({"phase": "SCOPE", "scope": scope})
+    return supported
 
 
 def synchronize(spec, adapter, reference, report, stopped):
@@ -26,11 +78,12 @@ def synchronize(spec, adapter, reference, report, stopped):
             "target_through": target.isoformat(),
         }
     )
+    instruments = _supported_instruments(spec, adapter, instruments, target, report, stopped)
     covered = max(native, spec.fresh_through or native)
     dates = [day for day in calendar if covered < day <= target]
     if dates:
         if not instruments:
-            raise MarketDataError("HISTORY_SYNC_FAILED", "Native historical universe is empty.")
+            raise MarketDataError("HISTORY_SYNC_FAILED", "Supported historical universe is empty.")
         report({"phase": "VALIDATING"})
         missing = len(dates)
         for instrument in instruments:
@@ -72,7 +125,6 @@ def synchronize(spec, adapter, reference, report, stopped):
 
 def load_native_reference(spec):
     from datetime import timedelta
-    from pathlib import Path
     from types import SimpleNamespace
 
     from rqalpha.const import DEFAULT_ACCOUNT_TYPE, INSTRUMENT_TYPE, TRADING_CALENDAR_TYPE

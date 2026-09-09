@@ -39,7 +39,11 @@ class ExecutionNodeService:
         self._lock = threading.RLock()
         self._session: ControlSession | None = None
         self._sync: dict[str, str] = {}
-        self.history = history_manager if history_manager is not None else HistorySyncManager(clock=clock)
+        self.history = (
+            history_manager
+            if history_manager is not None
+            else HistorySyncManager(clock=clock, exclusions_path=paths.root / "history-exclusions.json")
+        )
         self.supervisor = runtime_factory(
             self._runtime_event, self._runtime_gate, history_snapshot=self.history.snapshot
         )

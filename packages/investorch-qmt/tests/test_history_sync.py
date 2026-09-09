@@ -10,6 +10,11 @@ SHANGHAI = ZoneInfo("Asia/Shanghai")
 CALENDAR = (date(2026, 9, 4), date(2026, 9, 7), date(2026, 9, 8), date(2026, 9, 9))
 
 
+class SupportedCache:
+    def history_capability(self, instrument):
+        return {"supported": True, "provider_symbol": None, "reason": None}
+
+
 @pytest.mark.parametrize(
     "now,expected",
     [
@@ -32,7 +37,7 @@ def test_restart_validates_cache_and_downloads_only_first_missing_range():
 
     instrument = SimpleNamespace(order_book_id="600000.XSHG")
 
-    class Cache:
+    class Cache(SupportedCache):
         def __init__(self):
             self.through = date(2026, 9, 7)
             self.downloads = []
@@ -76,7 +81,7 @@ def test_download_success_without_cache_validation_cannot_publish_watermark():
     from investorch_qmt.history.worker import synchronize
     from investorch_qmt.market_data.errors import MarketDataError
 
-    class BrokenCache:
+    class BrokenCache(SupportedCache):
         def read_daily_history(self, *args):
             raise MarketDataError("FRESH_HISTORY_INCOMPLETE")
 
@@ -390,7 +395,7 @@ def test_native_bootstrap_filters_lifecycle_universe_and_keeps_node_cutoff(bundl
     assert "600003.XSHG" in {instrument.order_book_id for instrument in reference[2]}
     events = []
 
-    class CompleteCache:
+    class CompleteCache(SupportedCache):
         def read_daily_history(self, *args):
             return []
 
@@ -398,3 +403,87 @@ def test_native_bootstrap_filters_lifecycle_universe_and_keeps_node_cutoff(bundl
 
     synchronize(frozen, CompleteCache(), reference, events.append, threading.Event())
     assert events[0]["native_through"] == "2026-09-04"
+
+
+def test_sync_reports_explicit_capability_exclusions_and_keeps_supported_missing_data(tmp_path):
+    import json
+    import threading
+    from types import SimpleNamespace
+
+    from investorch_qmt.history.model import SyncSpec
+    from investorch_qmt.history.worker import synchronize
+    from investorch_qmt.market_data.errors import MarketDataError
+
+    allowed = SimpleNamespace(order_book_id="600000.XSHG", type="CS")
+    excluded = SimpleNamespace(order_book_id="H50032.XSHG", type="INDX")
+    report_path = tmp_path / "history-exclusions.json"
+    events = []
+
+    class Cache(SupportedCache):
+        def history_capability(self, instrument):
+            return {
+                "supported": instrument is allowed,
+                "provider_symbol": "600000.SH" if instrument is allowed else None,
+                "reason": None if instrument is allowed else "CANONICAL_MAPPING_UNAVAILABLE",
+            }
+
+        def read_daily_history(self, instrument, *args):
+            assert instrument is allowed
+            raise MarketDataError("FRESH_HISTORY_INCOMPLETE")
+
+        def download_daily_history(self, instruments, *args, **kwargs):
+            assert instruments == [allowed]
+
+    with pytest.raises(MarketDataError, match="FRESH_HISTORY_INCOMPLETE"):
+        synchronize(
+            SyncSpec(datetime(2026, 9, 8, 17, tzinfo=SHANGHAI), exclusions_path=str(report_path)),
+            Cache(),
+            (date(2026, 9, 7), CALENDAR, [allowed, excluded]),
+            events.append,
+            threading.Event(),
+        )
+    scope = next(event["scope"] for event in events if event["phase"] == "SCOPE")
+    assert scope["candidate_count"] == 2
+    assert scope["supported_count"] == 1
+    assert scope["excluded_count"] == 1
+    assert scope["exclusion_reasons"] == {"CANONICAL_MAPPING_UNAVAILABLE": 1}
+    assert json.loads(report_path.read_text())["excluded"] == [
+        {
+            "order_book_id": "H50032.XSHG",
+            "instrument_type": "INDX",
+            "provider_symbol": None,
+            "reason": "CANONICAL_MAPPING_UNAVAILABLE",
+        }
+    ]
+    assert not any(event["phase"] == "SUCCEEDED" for event in events)
+
+
+def test_manager_publishes_bounded_scope_and_exclusion_artifact_location(tmp_path):
+    from investorch_qmt.history.sync import HistorySyncManager
+
+    context = FakeContext()
+    path = tmp_path / "history-exclusions.json"
+    manager = HistorySyncManager(
+        clock=lambda: datetime(2026, 9, 8, 8, tzinfo=SHANGHAI), context=context, exclusions_path=path
+    )
+    manager.start(background=False)
+    scope = {
+        "candidate_count": 2,
+        "supported_count": 1,
+        "excluded_count": 1,
+        "exclusion_reasons": {"CANONICAL_MAPPING_UNAVAILABLE": 1},
+        "exclusions_path": str(path),
+        "observed_at": "2026-09-08T08:00:00+08:00",
+    }
+    context.parents[-1].messages.extend(
+        [reference_event(), {"phase": "SCOPE", "scope": scope}, {"phase": "SUCCEEDED", "target_through": "2026-09-07"}]
+    )
+    context.processes[-1].alive = False
+    manager.poll()
+    assert manager.snapshot()["status"] == "READY"
+    assert manager.snapshot()["scope"] == scope
+    changed = manager.snapshot()
+    changed["scope"]["exclusion_reasons"].clear()
+    assert manager.snapshot()["scope"]["excluded_count"] == 1
+    assert manager.snapshot()["scope"]["exclusion_reasons"] == {"CANONICAL_MAPPING_UNAVAILABLE": 1}
+    manager.close()
