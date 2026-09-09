@@ -28,11 +28,14 @@ class WorkerHandle:
 
 
 class RuntimeSupervisor:
-    def __init__(self, on_event, gate, *, worker_target=worker_main, startup_timeout=30.0, shutdown_timeout=5.0):
+    def __init__(
+        self, on_event, gate, *, worker_target=worker_main, startup_timeout=30.0, shutdown_timeout=5.0, history_snapshot=None
+    ):
         self._context = multiprocessing.get_context("spawn")
         self._target = worker_target
         self._on_event = on_event
         self._gate = gate
+        self._history_snapshot = history_snapshot
         self._startup_timeout = startup_timeout
         self._shutdown_timeout = shutdown_timeout
         self._lock = threading.RLock()
@@ -114,6 +117,7 @@ class RuntimeSupervisor:
         deadline = time.monotonic() + self._startup_timeout
         stop_deadline = None
         last_gate = None
+        last_history = object()
         terminal = None
         ready = False
         try:
@@ -123,6 +127,11 @@ class RuntimeSupervisor:
                     handle.pipe.send({"command": "SET_GATE", "enabled": False, "reason": "STOP_REQUESTED"})
                     handle.pipe.send({"command": "STOP"})
                 if stop_deadline is None:
+                    if self._history_snapshot is not None:
+                        history = self._history_snapshot().get("fresh_through")
+                        if history != last_history:
+                            handle.pipe.send({"command": "SET_HISTORY", "fresh_through": history})
+                            last_history = history
                     with self._lock:
                         queued = list(handle.gates)
                         handle.gates.clear()

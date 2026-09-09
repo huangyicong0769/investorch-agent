@@ -159,3 +159,46 @@ def test_forced_stop_remains_distinguishable_from_graceful_acknowledgement():
         assert result["reason"] == "STOP_TIMEOUT"
     finally:
         supervisor.close()
+
+
+def history_observer_child(spec, pipe):
+    pipe.send({"phase": "READY", "history": spec.history_through.isoformat()})
+    while True:
+        command = pipe.recv()
+        if command["command"] == "STOP":
+            pipe.send({"phase": "STOPPED"})
+            return
+        if command["command"] == "SET_HISTORY":
+            pipe.send({"phase": "RUNNING", "history": command["fresh_through"]})
+
+
+def test_spawn_delivers_initial_and_updated_history_without_changing_gate():
+    import threading
+    from dataclasses import replace
+    from datetime import date
+
+    observed = []
+    updated = threading.Event()
+    history = {"status": "READY", "fresh_through": "2026-09-07"}
+
+    def notify(identity, event):
+        observed.append(event)
+        if event.get("history") == "2026-09-08":
+            updated.set()
+
+    supervisor = RuntimeSupervisor(
+        notify,
+        lambda _: (True, None),
+        history_snapshot=lambda: dict(history),
+        worker_target=history_observer_child,
+    )
+    try:
+        ready = supervisor.begin_start(replace(spec(), history_through=date(2026, 9, 7))).result(timeout=5)
+        assert ready["history"] == "2026-09-07"
+        history.update(status="NOT_READY")
+        history.update(status="READY", fresh_through="2026-09-08")
+        assert updated.wait(5)
+        assert supervisor.snapshot("deployment-a")["phase"] == "RUNNING"
+        assert not any(event["phase"] in {"PAUSED", "FAILED"} for event in observed)
+    finally:
+        supervisor.close()

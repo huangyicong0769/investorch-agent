@@ -1,6 +1,7 @@
 """Narrow artifact identity and process-local runtime outcomes."""
 
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 
 from investorch_qmt.rqalpha_live.contracts import RQAlphaLiveBootstrapSnapshot
@@ -13,6 +14,7 @@ class WorkerLaunchSpec:
     broker_account_id: str
     deployment_dir: str
     expected_strategy_sha256: str
+    history_through: date | None = None
 
 
 @dataclass(frozen=True, slots=True)
