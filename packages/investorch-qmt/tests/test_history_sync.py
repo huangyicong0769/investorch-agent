@@ -42,7 +42,7 @@ def test_restart_validates_cache_and_downloads_only_first_missing_range():
             self.through = date(2026, 9, 7)
             self.downloads = []
 
-        def read_daily_history(self, instrument, start, end, calendar):
+        def read_daily_history(self, instrument, start, end, calendar, *, ensure_missing=False, checkpoint=None):
             if end > self.through:
                 raise MarketDataError("FRESH_HISTORY_INCOMPLETE")
             return []
@@ -82,7 +82,7 @@ def test_download_success_without_cache_validation_cannot_publish_watermark():
     from investorch_qmt.market_data.errors import MarketDataError
 
     class BrokenCache(SupportedCache):
-        def read_daily_history(self, *args):
+        def read_daily_history(self, *args, ensure_missing=False, checkpoint=None):
             raise MarketDataError("FRESH_HISTORY_INCOMPLETE")
 
         def download_daily_history(self, *args, progress=None):
@@ -396,7 +396,7 @@ def test_native_bootstrap_filters_lifecycle_universe_and_keeps_node_cutoff(bundl
     events = []
 
     class CompleteCache(SupportedCache):
-        def read_daily_history(self, *args):
+        def read_daily_history(self, *args, ensure_missing=False, checkpoint=None):
             return []
 
     import threading
@@ -427,7 +427,7 @@ def test_sync_reports_explicit_capability_exclusions_and_keeps_supported_missing
                 "reason": None if instrument is allowed else "CANONICAL_MAPPING_UNAVAILABLE",
             }
 
-        def read_daily_history(self, instrument, *args):
+        def read_daily_history(self, instrument, *args, ensure_missing=False, checkpoint=None):
             assert instrument is allowed
             raise MarketDataError("FRESH_HISTORY_INCOMPLETE")
 
@@ -503,7 +503,7 @@ def test_new_supported_instrument_revalidates_history_before_previous_global_wat
     class Cache(SupportedCache):
         repaired = False
 
-        def read_daily_history(self, instrument, start, end, calendar):
+        def read_daily_history(self, instrument, start, end, calendar, *, ensure_missing=False, checkpoint=None):
             if start < date(2026, 9, 8) and not self.repaired:
                 raise MarketDataError("FRESH_HISTORY_INCOMPLETE")
             return []
@@ -522,3 +522,74 @@ def test_new_supported_instrument_revalidates_history_before_previous_global_wat
     )
     assert cache.repaired
     assert events[-1] == {"phase": "SUCCEEDED", "target_through": "2026-09-08"}
+
+
+def test_maintenance_ensures_missing_price_anchor_before_publishing_coverage():
+    import threading
+
+    from test_history_adapter import SuspensionAPI, filled_suspension, instrument, raw
+
+    from investorch_qmt.history.model import SyncSpec
+    from investorch_qmt.history.worker import synchronize
+    from investorch_qmt.market_data.history_adapter import XtHistoryAdapter
+
+    before = raw("2026-09-07")
+
+    class ColdProvider(SuspensionAPI):
+        def download_history_data2(self, symbols, **kwargs):
+            # The requested fresh range is suspended and has no traded observation.
+            return {}
+
+        def download_history_data(self, symbol, **kwargs):
+            self.rows = [before]
+
+    adapter = XtHistoryAdapter(ColdProvider([], [before, filled_suspension("2026-09-08")]))
+    events = []
+    synchronize(
+        SyncSpec(datetime(2026, 9, 8, 17, tzinfo=SHANGHAI)),
+        adapter,
+        (date(2026, 9, 7), CALENDAR, [instrument()]),
+        events.append,
+        threading.Event(),
+    )
+    assert events[-1] == {"phase": "SUCCEEDED", "target_through": "2026-09-08"}
+    bars = adapter.read_daily_history(instrument(), date(2026, 9, 8), date(2026, 9, 8), CALENDAR)
+    assert bars["close"].tolist() == [10.5]
+    assert bars["suspended"].tolist() == [True]
+
+
+def test_stop_during_targeted_anchor_download_does_not_publish_coverage():
+    import threading
+
+    import pytest
+    from test_history_adapter import SuspensionAPI, filled_suspension, instrument, raw
+
+    from investorch_qmt.history.model import SyncSpec
+    from investorch_qmt.history.worker import synchronize
+    from investorch_qmt.market_data.history_adapter import XtHistoryAdapter
+
+    stopped = threading.Event()
+    before = raw("2026-09-07")
+
+    class InterruptedProvider(SuspensionAPI):
+        def download_history_data2(self, symbols, **kwargs):
+            return {}
+
+        def download_history_data(self, symbol, **kwargs):
+            if stopped.is_set():
+                pytest.fail("A download started after maintenance was stopped")
+            self.rows = [before]
+            stopped.set()
+
+    adapter = XtHistoryAdapter(InterruptedProvider([], [before, filled_suspension("2026-09-08")]))
+    events = []
+    with pytest.raises(InterruptedError, match="maintenance stopped"):
+        synchronize(
+            SyncSpec(datetime(2026, 9, 8, 17, tzinfo=SHANGHAI)),
+            adapter,
+            (date(2026, 9, 7), CALENDAR, [instrument()]),
+            events.append,
+            stopped,
+        )
+    assert stopped.is_set()
+    assert all(event["phase"] != "SUCCEEDED" for event in events)

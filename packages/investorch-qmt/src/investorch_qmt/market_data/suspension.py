@@ -12,21 +12,23 @@ from .errors import MarketDataError
 class HistoricalSuspensionResolver:
     def __init__(self, connection):
         self._connection = connection
+        self.anchor_date = None
 
     def resolve(self, symbol, missing, rows, calendar):
         anchors = [
             day for day, row in rows.items() if day < min(missing) and not row["suspended"] and row["volume"] > 0
         ]
         if not anchors:
-            anchor = self._cached_anchor(symbol, min(missing), calendar)
+            anchor = self.cached_anchor(symbol, min(missing), calendar)
             if anchor is None:
                 return {}
             day, bar = anchor
             rows = {**rows, day: bar}
             anchors = [day]
         start, end = max(anchors), max(missing)
+        self.anchor_date = start
         axis = {day for day in calendar if start <= day <= end}
-        index = "000001.SH" if symbol.endswith(".SH") else "399001.SZ"
+        index = self.index_symbol(symbol)
         params = dict(
             field_list=list(FIELDS),
             period="1d",
@@ -35,28 +37,14 @@ class HistoricalSuspensionResolver:
             count=-1,
             dividend_type="none",
         )
+        self.require_axis(symbol, start, end, calendar)
         api = self._connection.connected_api()
         try:
-            raw_index = api.get_local_data(stock_list=[index], fill_data=False, **params)
-            self._connection.check_health()
             matrix = api.get_market_data(stock_list=[symbol, index], fill_data=True, **params)
             self._connection.check_health()
         except Exception as exc:
             raise MarketDataError("FRESH_HISTORY_NOT_READY", str(exc), transient=True) from exc
         try:
-            observed = {}
-            for record in raw_index[index].to_dict(orient="records"):
-                day = datetime.fromtimestamp(float(record["time"]) / 1000, SHANGHAI).date()
-                if day not in axis:
-                    continue
-                bar = normalize_daily_row(record, day)
-                if record["suspendFlag"] != 0 or bar["volume"] <= 0 or bar["total_turnover"] <= 0:
-                    raise ValueError("Index does not provide a normal trading-date axis")
-                if day in observed and observed[day] != bar:
-                    raise ValueError("Conflicting index observations")
-                observed[day] = bar
-            if observed.keys() != axis:
-                raise ValueError("Incomplete index trading-date axis")
             columns = matrix["time"].columns
             for field in FIELDS:
                 frame = matrix[field]
@@ -88,7 +76,46 @@ class HistoricalSuspensionResolver:
         except (KeyError, TypeError, ValueError, AttributeError, IndexError) as exc:
             raise MarketDataError("FRESH_HISTORY_INCOMPLETE", str(exc)) from exc
 
-    def _cached_anchor(self, symbol, before, calendar):
+    @staticmethod
+    def index_symbol(symbol):
+        return "000001.SH" if symbol.endswith(".SH") else "399001.SZ"
+
+    def require_axis(self, symbol, start, end, calendar):
+        index = self.index_symbol(symbol)
+        axis = {day for day in calendar if start <= day <= end}
+        try:
+            api = self._connection.connected_api()
+            raw_index = api.get_local_data(
+                field_list=list(FIELDS),
+                stock_list=[index],
+                period="1d",
+                start_time=start.strftime("%Y%m%d"),
+                end_time=end.strftime("%Y%m%d"),
+                count=-1,
+                dividend_type="none",
+                fill_data=False,
+            )
+            self._connection.check_health()
+        except Exception as exc:
+            raise MarketDataError("FRESH_HISTORY_NOT_READY", str(exc), transient=True) from exc
+        try:
+            observed = {}
+            for record in raw_index[index].to_dict(orient="records"):
+                day = datetime.fromtimestamp(float(record["time"]) / 1000, SHANGHAI).date()
+                if day not in axis:
+                    continue
+                bar = normalize_daily_row(record, day)
+                if record["suspendFlag"] != 0 or bar["volume"] <= 0 or bar["total_turnover"] <= 0:
+                    raise ValueError("Index does not provide a normal trading-date axis")
+                if day in observed and observed[day] != bar:
+                    raise ValueError("Conflicting index observations")
+                observed[day] = bar
+            if observed.keys() != axis:
+                raise ValueError("Incomplete index trading-date axis")
+        except (KeyError, TypeError, ValueError, AttributeError, IndexError) as exc:
+            raise MarketDataError("FRESH_HISTORY_INCOMPLETE", str(exc)) from exc
+
+    def cached_anchor(self, symbol, before, calendar):
         prior = [day for day in calendar if day < before]
         if not prior:
             return None

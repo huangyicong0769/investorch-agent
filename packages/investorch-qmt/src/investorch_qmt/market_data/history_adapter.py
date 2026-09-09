@@ -35,6 +35,7 @@ class XtHistoryAdapter:
             "get_local_data",
             "get_market_data",
             "download_history_data2",
+            "download_history_data",
             "get_divid_factors",
             "get_instrument_type",
             "get_instrument_detail",
@@ -113,7 +114,7 @@ class XtHistoryAdapter:
         except Exception as exc:
             raise MarketDataError("FRESH_FACTOR_INVALID", str(exc)) from exc
 
-    def read_daily_history(self, instrument, start, end, calendar):
+    def read_daily_history(self, instrument, start, end, calendar, *, ensure_missing=False, checkpoint=None):
         symbol = self.require_supported(instrument)
         expected = {
             day
@@ -149,11 +150,34 @@ class XtHistoryAdapter:
                     raise ValueError("Conflicting completed daily rows")
                 rows[day] = bar
             if rows.keys() != expected and instrument.type == "CS":
-                rows.update(
-                    HistoricalSuspensionResolver(self._connection).resolve(
-                        symbol, expected - rows.keys(), rows, calendar
-                    )
-                )
+                resolver = HistoricalSuspensionResolver(self._connection)
+                missing = expected - rows.keys()
+                try:
+                    rows.update(resolver.resolve(symbol, missing, rows, calendar))
+                except MarketDataError as exc:
+                    if exc.code != "FRESH_HISTORY_INCOMPLETE" or not ensure_missing:
+                        raise
+                if rows.keys() != expected and ensure_missing:
+                    prior = sorted(day for day in calendar if instrument.listed_date.date() <= day < min(missing))
+                    anchor_start = min([resolver.anchor_date or min(missing), *prior[-10:]])
+                    self._ensure_history(symbol, anchor_start, end, checkpoint)
+                    try:
+                        return self.read_daily_history(instrument, start, end, calendar)
+                    except MarketDataError as unresolved:
+                        if unresolved.code != "FRESH_HISTORY_INCOMPLETE":
+                            raise
+                        anchor = resolver.cached_anchor(symbol, min(missing), calendar)
+                        if anchor is None:
+                            raise
+                        try:
+                            resolver.require_axis(symbol, anchor[0], max(missing), calendar)
+                        except MarketDataError as axis_error:
+                            if axis_error.code != "FRESH_HISTORY_INCOMPLETE":
+                                raise
+                        else:
+                            raise unresolved
+                        self._ensure_history(resolver.index_symbol(symbol), anchor[0], max(missing), checkpoint)
+                        return self.read_daily_history(instrument, start, end, calendar)
             if rows.keys() != expected:
                 raise MarketDataError(
                     "FRESH_HISTORY_INCOMPLETE", f"Completed history has gaps for {instrument.order_book_id}"
@@ -161,7 +185,28 @@ class XtHistoryAdapter:
             return np.array(
                 [tuple(rows[day][field] for field in RAW_DTYPE.names) for day in sorted(rows)], dtype=RAW_DTYPE
             )
-        except MarketDataError:
+        except (MarketDataError, InterruptedError):
             raise
         except Exception as exc:
             raise MarketDataError("FRESH_HISTORY_INVALID", str(exc)) from exc
+
+    def _ensure_history(self, symbol, start, end, checkpoint):
+        sleep(BATCH_INTERVAL_SECONDS)
+        if checkpoint:
+            checkpoint()
+        try:
+            api = self._connection.connected_api()
+            result = api.download_history_data(
+                symbol,
+                period="1d",
+                start_time=start.strftime("%Y%m%d"),
+                end_time=end.strftime("%Y%m%d"),
+                incrementally=False,
+            )
+            self._connection.check_health()
+            if result is False:
+                raise ValueError("Provider reported download failure")
+        except Exception as exc:
+            raise MarketDataError("HISTORY_SYNC_FAILED", str(exc), transient=True) from exc
+        if checkpoint:
+            checkpoint()

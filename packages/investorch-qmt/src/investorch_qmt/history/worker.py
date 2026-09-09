@@ -119,7 +119,14 @@ def synchronize(spec, adapter, reference, report, stopped):
             report({"phase": "VALIDATING"})
             for instrument in instruments:
                 _check_stop(stopped)
-                adapter.read_daily_history(instrument, dates[0], dates[-1], calendar)
+                adapter.read_daily_history(
+                    instrument,
+                    dates[0],
+                    dates[-1],
+                    calendar,
+                    ensure_missing=True,
+                    checkpoint=lambda: _check_stop(stopped),
+                )
     _check_stop(stopped)
     report({"phase": "SUCCEEDED", "target_through": target.isoformat()})
 
