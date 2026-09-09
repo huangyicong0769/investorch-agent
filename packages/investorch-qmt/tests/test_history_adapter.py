@@ -187,3 +187,45 @@ def test_lazy_factors_map_real_sdk_event_multiplier_schema_and_allow_empty():
     )
     api.empty = True
     assert adapter.get_dividend_factors(instrument(), date(2026, 7, 1), date(2026, 7, 31)) == ()
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"dr": 0},
+        {"dr": float("nan")},
+        {"interest": -1},
+        {"allotNum": 0.1},
+        {"allotPrice": 5},
+        {"gugai": 0.5},
+        {"time": float("inf")},
+    ],
+)
+def test_invalid_or_unsupported_factor_payload_fails_closed(changes):
+    row = dict(
+        time=int(pd.Timestamp("2026-07-16", tz="Asia/Shanghai").timestamp() * 1000),
+        interest=0.42,
+        stockBonus=0,
+        stockGift=0,
+        allotNum=0,
+        allotPrice=0,
+        gugai=0,
+        dr=1.047244,
+    )
+    row.update(changes)
+
+    class Factors:
+        def get_divid_factors(self, *_args, **_kwargs):
+            return pd.DataFrame([row], index=["20260716"])
+
+    with pytest.raises(MarketDataError, match="FRESH_FACTOR_INVALID"):
+        XtHistoryAdapter(Factors()).get_dividend_factors(instrument(), date(2026, 7, 1), date(2026, 7, 31))
+
+
+def test_factor_request_failure_is_not_successful_empty_history():
+    class Factors:
+        def get_divid_factors(self, *_args, **_kwargs):
+            raise ConnectionError("factor query disconnected")
+
+    with pytest.raises(MarketDataError, match="FRESH_FACTOR_NOT_READY"):
+        XtHistoryAdapter(Factors()).get_dividend_factors(instrument(), date(2026, 7, 1), date(2026, 7, 31))
