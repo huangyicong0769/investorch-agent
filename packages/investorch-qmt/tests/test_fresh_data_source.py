@@ -298,3 +298,22 @@ def test_native_only_index_history_does_not_require_provider_mapping(history_bun
     result = fresh.history_bars(index, 2, "1d", "close", datetime(2026, 9, 4), adjust_type="none")
     np.testing.assert_array_equal(result, rows["close"][2:4])
     assert fresh.get_bar(index, datetime(2026, 9, 4), "1d")["close"] == rows[3]["close"]
+
+
+def test_excluded_fresh_index_fails_explicitly_even_before_global_readiness(history_bundle):
+    from test_history_adapter import instrument
+
+    from investorch_qmt.market_data.errors import MarketDataError
+
+    native, _, rows, _ = history_bundle
+    index = instrument("H50032.XSHG", "INDX")
+    fresh = FreshDailyDataSource(
+        native,
+        XtHistoryAdapter(CacheAPI(rows)),
+        fresh_through=lambda: None,
+        clock=Clock(datetime(2026, 9, 9, 14, tzinfo=SH)),
+    )
+    with pytest.raises(MarketDataError, match="FRESH_HISTORY_UNSUPPORTED"):
+        fresh.history_bars(index, 2, "1d", "close", datetime(2026, 9, 8), adjust_type="none")
+    with pytest.raises(MarketDataError, match="FRESH_HISTORY_UNSUPPORTED"):
+        fresh.get_bar(index, datetime(2026, 9, 8), "1d")

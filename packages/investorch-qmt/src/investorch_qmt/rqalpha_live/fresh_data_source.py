@@ -68,6 +68,7 @@ class FreshDailyDataSource:
             raise MarketDataError("FRESH_HISTORY_NOT_READY", "An incomplete trading day is not historical data.")
         if day <= self.native_cutoff:
             return self._native.get_bar(instrument, dt, frequency)
+        self._history.require_supported(instrument)
         self._require_coverage(day)
         rows = self._history.read_daily_history(instrument, day, day, self._calendar)
         return rows[0] if len(rows) else None
@@ -108,6 +109,7 @@ class FreshDailyDataSource:
                 adjust_type="none",
             )
         else:
+            self._history.require_supported(instrument)
             self._require_coverage(end)
             prefix = self._native.history_bars(
                 instrument,
