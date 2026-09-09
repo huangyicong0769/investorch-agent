@@ -6,6 +6,7 @@ from numbers import Real
 
 import numpy as np
 
+from investorch_qmt.market_data.errors import MarketDataError
 from investorch_qmt.runtime.model import RuntimeFailure
 
 _FACTOR_DTYPE = [("start_date", "i8"), ("ex_cum_factor", "f8")]
@@ -67,7 +68,7 @@ class FreshFactorCache:
         if through > checked:
             try:
                 events = self.history.get_dividend_factors(instrument, checked + timedelta(days=1), through)
-            except RuntimeFailure:
+            except (RuntimeFailure, MarketDataError):
                 raise
             except Exception as exc:
                 raise RuntimeFailure("FRESH_FACTOR_NOT_READY", "Fresh factors could not be fetched.") from exc

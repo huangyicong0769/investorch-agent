@@ -141,3 +141,16 @@ def test_native_only_query_does_not_fetch_and_missing_initial_is_inserted():
     factors = FreshFactorCache(native, history, CUTOFF).get(CS, CUTOFF)
     assert factors.tolist() == [(0, 1), (20260801000000, 2)]
     assert history.calls == []
+
+
+def test_adapter_invalid_payload_retains_explicit_error_taxonomy():
+    from investorch_qmt.market_data.errors import MarketDataError
+
+    history = History()
+
+    def invalid(*args):
+        raise MarketDataError("FRESH_FACTOR_INVALID", "bad payload")
+
+    history.get_dividend_factors = invalid
+    with pytest.raises(MarketDataError, match="FRESH_FACTOR_INVALID"):
+        FreshFactorCache(Native(), history, CUTOFF).get(CS, date(2026, 9, 3))
