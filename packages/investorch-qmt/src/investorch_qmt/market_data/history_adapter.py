@@ -139,12 +139,8 @@ class XtHistoryAdapter:
             raise MarketDataError("FRESH_HISTORY_NOT_READY", str(exc), transient=True) from exc
         try:
             frame = result.get(symbol) if isinstance(result, dict) else None
-            if frame is None or frame.empty:
-                raise MarketDataError(
-                    "FRESH_HISTORY_INCOMPLETE", f"Completed history is missing for {instrument.order_book_id}"
-                )
             rows = {}
-            for record in frame.to_dict(orient="records"):
+            for record in frame.to_dict(orient="records") if frame is not None else ():
                 day = datetime.fromtimestamp(float(record["time"]) / 1000, SHANGHAI).date()
                 if day not in expected:
                     continue

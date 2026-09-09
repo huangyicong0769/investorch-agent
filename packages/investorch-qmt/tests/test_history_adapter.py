@@ -353,3 +353,26 @@ def test_conflicting_filled_trade_cannot_validate_a_missing_suspension():
         XtHistoryAdapter(api).read_daily_history(
             instrument(), date(2026, 9, 7), date(2026, 9, 8), [date(2026, 9, day) for day in (7, 8)]
         )
+
+
+def test_history_resolves_leading_suspension_using_an_earlier_cached_price_anchor():
+    before, after = raw("2026-09-07"), raw("2026-09-09")
+    api = SuspensionAPI([before, after], [before, filled_suspension("2026-09-08"), after])
+    bars = XtHistoryAdapter(api).read_daily_history(
+        instrument(), date(2026, 9, 8), date(2026, 9, 9), [date(2026, 9, day) for day in (7, 8, 9)]
+    )
+    assert list(bars["datetime"]) == [20260908000000, 20260909000000]
+    assert list(bars["suspended"]) == [True, False]
+    assert list(bars["close"]) == [10.5, 10.5]
+
+
+def test_history_resolves_an_entirely_empty_range_from_its_cached_price_anchor():
+    before = raw("2026-09-07")
+    api = SuspensionAPI([before], [before, filled_suspension("2026-09-08"), filled_suspension("2026-09-09")])
+    bars = XtHistoryAdapter(api).read_daily_history(
+        instrument(), date(2026, 9, 8), date(2026, 9, 9), [date(2026, 9, day) for day in (7, 8, 9)]
+    )
+    assert list(bars["datetime"]) == [20260908000000, 20260909000000]
+    assert list(bars["suspended"]) == [True, True]
+    assert list(bars["volume"]) == [0.0, 0.0]
+    assert list(bars["close"]) == [10.5, 10.5]

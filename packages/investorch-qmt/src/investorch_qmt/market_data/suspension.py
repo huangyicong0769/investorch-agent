@@ -18,7 +18,12 @@ class HistoricalSuspensionResolver:
             day for day, row in rows.items() if day < min(missing) and not row["suspended"] and row["volume"] > 0
         ]
         if not anchors:
-            return {}
+            anchor = self._cached_anchor(symbol, min(missing), calendar)
+            if anchor is None:
+                return {}
+            day, bar = anchor
+            rows = {**rows, day: bar}
+            anchors = [day]
         start, end = max(anchors), max(missing)
         axis = {day for day in calendar if start <= day <= end}
         index = "000001.SH" if symbol.endswith(".SH") else "399001.SZ"
@@ -80,6 +85,41 @@ class HistoricalSuspensionResolver:
                     resolved[day] = bar
                 previous_close = bar["close"]
             return resolved
+        except (KeyError, TypeError, ValueError, AttributeError, IndexError) as exc:
+            raise MarketDataError("FRESH_HISTORY_INCOMPLETE", str(exc)) from exc
+
+    def _cached_anchor(self, symbol, before, calendar):
+        prior = [day for day in calendar if day < before]
+        if not prior:
+            return None
+        try:
+            api = self._connection.connected_api()
+            result = api.get_local_data(
+                field_list=list(FIELDS),
+                stock_list=[symbol],
+                period="1d",
+                start_time="",
+                end_time=max(prior).strftime("%Y%m%d"),
+                count=1,
+                dividend_type="none",
+                fill_data=False,
+            )
+            self._connection.check_health()
+        except Exception as exc:
+            raise MarketDataError("FRESH_HISTORY_NOT_READY", str(exc), transient=True) from exc
+        try:
+            frame = result.get(symbol) if isinstance(result, dict) else None
+            if frame is None or frame.empty:
+                return None
+            anchors = {}
+            for record in frame.to_dict(orient="records"):
+                day = datetime.fromtimestamp(float(record["time"]) / 1000, SHANGHAI).date()
+                if day not in prior:
+                    raise ValueError("Price anchor lies outside the preceding native calendar")
+                bar = normalize_daily_row(record, day)
+                if not bar["suspended"] and bar["volume"] > 0:
+                    anchors[day] = bar
+            return (max(anchors), anchors[max(anchors)]) if anchors else None
         except (KeyError, TypeError, ValueError, AttributeError, IndexError) as exc:
             raise MarketDataError("FRESH_HISTORY_INCOMPLETE", str(exc)) from exc
 
