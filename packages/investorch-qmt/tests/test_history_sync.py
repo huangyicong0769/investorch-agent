@@ -487,3 +487,38 @@ def test_manager_publishes_bounded_scope_and_exclusion_artifact_location(tmp_pat
     assert manager.snapshot()["scope"]["excluded_count"] == 1
     assert manager.snapshot()["scope"]["exclusion_reasons"] == {"CANONICAL_MAPPING_UNAVAILABLE": 1}
     manager.close()
+
+
+def test_new_supported_instrument_revalidates_history_before_previous_global_watermark():
+    import threading
+    from types import SimpleNamespace
+
+    from investorch_qmt.history.model import SyncSpec
+    from investorch_qmt.history.worker import synchronize
+    from investorch_qmt.market_data.errors import MarketDataError
+
+    calendar = (date(2026, 8, 31), date(2026, 9, 1), date(2026, 9, 7), date(2026, 9, 8))
+    instrument = SimpleNamespace(order_book_id="600000.XSHG")
+
+    class Cache(SupportedCache):
+        repaired = False
+
+        def read_daily_history(self, instrument, start, end, calendar):
+            if start < date(2026, 9, 8) and not self.repaired:
+                raise MarketDataError("FRESH_HISTORY_INCOMPLETE")
+            return []
+
+        def download_daily_history(self, instruments, start, end, progress=None):
+            assert (start, end) == (date(2026, 9, 1), date(2026, 9, 8))
+            self.repaired = True
+
+    cache, events = Cache(), []
+    synchronize(
+        SyncSpec(datetime(2026, 9, 8, 17, tzinfo=SHANGHAI), fresh_through=date(2026, 9, 7)),
+        cache,
+        (date(2026, 8, 31), calendar, [instrument]),
+        events.append,
+        threading.Event(),
+    )
+    assert cache.repaired
+    assert events[-1] == {"phase": "SUCCEEDED", "target_through": "2026-09-08"}

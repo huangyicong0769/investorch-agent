@@ -79,8 +79,9 @@ def synchronize(spec, adapter, reference, report, stopped):
         }
     )
     instruments = _supported_instruments(spec, adapter, instruments, target, report, stopped)
-    covered = max(native, spec.fresh_through or native)
-    dates = [day for day in calendar if covered < day <= target]
+    # A prior node watermark may describe a smaller supported universe.
+    # Revalidate every current instrument across the frozen-cutoff tail.
+    dates = [day for day in calendar if native < day <= target]
     if dates:
         if not instruments:
             raise MarketDataError("HISTORY_SYNC_FAILED", "Supported historical universe is empty.")
