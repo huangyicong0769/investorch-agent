@@ -93,3 +93,268 @@ def test_download_success_without_cache_validation_cannot_publish_watermark():
         )
     assert any(event["phase"] == "PROGRESS" for event in events)
     assert all(event["phase"] != "SUCCEEDED" for event in events)
+
+
+class FakePipe:
+    def __init__(self):
+        self.messages = []
+        self.sent = []
+        self.closed = False
+
+    def poll(self, timeout=0):
+        return bool(self.messages)
+
+    def recv(self):
+        return self.messages.pop(0)
+
+    def send(self, message):
+        self.sent.append(message)
+
+    def close(self):
+        self.closed = True
+
+
+class FakeProcess:
+    def __init__(self):
+        self.alive = True
+        self.closed = False
+        self.terminated = False
+
+    def start(self):
+        pass
+
+    def is_alive(self):
+        return self.alive
+
+    def join(self, timeout=None):
+        pass
+
+    def terminate(self):
+        self.terminated = True
+        self.alive = False
+
+    def kill(self):
+        self.alive = False
+
+    def close(self):
+        self.closed = True
+
+
+class FakeContext:
+    def __init__(self):
+        self.processes = []
+        self.parents = []
+
+    def Pipe(self, duplex):
+        pipe = FakePipe()
+        self.parents.append(pipe)
+        return pipe, FakePipe()
+
+    def Process(self, *, target, args, name):
+        process = FakeProcess()
+        self.processes.append(process)
+        return process
+
+
+def reference_event():
+    return {
+        "phase": "REFERENCE",
+        "native_through": "2026-09-04",
+        "target_through": "2026-09-07",
+        "calendar": [day.isoformat() for day in CALENDAR],
+    }
+
+
+def test_manager_startup_schedule_single_child_and_readonly_snapshot():
+    from investorch_qmt.history.sync import HistorySyncManager
+
+    clock = [datetime(2026, 9, 8, 8, tzinfo=SHANGHAI)]
+    context = FakeContext()
+    manager = HistorySyncManager(clock=lambda: clock[0], context=context)
+    try:
+        manager.start(background=False)
+        assert len(context.processes) == 1
+        assert manager.snapshot()["status"] == "SYNCING"
+        manager.poll()
+        assert len(context.processes) == 1
+        context.parents[-1].messages.extend([reference_event(), {"phase": "SUCCEEDED", "target_through": "2026-09-07"}])
+        context.processes[-1].alive = False
+        manager.poll()
+        assert manager.snapshot() == {
+            "status": "READY",
+            "provider": "xtdata",
+            "native_through": "2026-09-04",
+            "fresh_through": "2026-09-07",
+            "target_through": "2026-09-07",
+        }
+        clock[0] = datetime(2026, 9, 8, 16, 30, tzinfo=SHANGHAI)
+        assert manager.snapshot()["status"] == "READY"  # Read-only, does not schedule work.
+        manager.poll()
+        manager.poll()
+        assert len(context.processes) == 2
+        assert manager.snapshot()["target_through"] == "2026-09-08"
+    finally:
+        manager.close()
+    assert all(process.closed for process in context.processes)
+
+
+def test_manager_preserves_validated_coverage_on_failure_then_retries():
+    from investorch_qmt.history.sync import HistorySyncManager
+
+    clock = [datetime(2026, 9, 8, 8, tzinfo=SHANGHAI)]
+    context = FakeContext()
+    manager = HistorySyncManager(clock=lambda: clock[0], context=context)
+    manager.start(background=False)
+    context.parents[-1].messages.extend([reference_event(), {"phase": "SUCCEEDED", "target_through": "2026-09-07"}])
+    context.processes[-1].alive = False
+    manager.poll()
+    clock[0] = datetime(2026, 9, 8, 16, 30, tzinfo=SHANGHAI)
+    manager.poll()
+    context.parents[-1].messages.append({"phase": "FAILED", "reason": "FRESH_HISTORY_INCOMPLETE", "retryable": True})
+    manager.poll()
+    assert manager.snapshot()["status"] == "NOT_READY"
+    assert manager.snapshot()["fresh_through"] == "2026-09-07"
+    clock[0] = datetime(2026, 9, 8, 16, 30, 59, tzinfo=SHANGHAI)
+    manager.poll()
+    assert len(context.processes) == 2
+    clock[0] = datetime(2026, 9, 8, 16, 31, tzinfo=SHANGHAI)
+    manager.poll()
+    assert len(context.processes) == 3
+    context.parents[-1].messages.extend(
+        [reference_event() | {"target_through": "2026-09-08"}, {"phase": "SUCCEEDED", "target_through": "2026-09-08"}]
+    )
+    context.processes[-1].alive = False
+    manager.poll()
+    assert manager.snapshot()["status"] == "READY"
+    assert manager.snapshot()["fresh_through"] == "2026-09-08"
+    manager.close()
+
+
+def test_sync_crossing_schedule_finishes_original_target_before_next_child():
+    from investorch_qmt.history.sync import HistorySyncManager
+
+    clock = [datetime(2026, 9, 8, 16, 29, tzinfo=SHANGHAI)]
+    context = FakeContext()
+    manager = HistorySyncManager(clock=lambda: clock[0], context=context)
+    manager.start(background=False)
+    context.parents[-1].messages.append(reference_event())
+    manager.poll()
+    clock[0] = datetime(2026, 9, 8, 16, 30, tzinfo=SHANGHAI)
+    manager.poll()
+    assert len(context.processes) == 1
+    context.parents[-1].messages.append({"phase": "SUCCEEDED", "target_through": "2026-09-07"})
+    context.processes[-1].alive = False
+    manager.poll()
+    assert manager.snapshot()["fresh_through"] == "2026-09-07"
+    assert manager.snapshot()["status"] == "SYNCING"
+    assert len(context.processes) == 2
+    manager.close()
+
+
+@pytest.mark.parametrize("outcome", ["crash", "bad_progress", "unvalidated_success"])
+def test_child_failures_remain_not_ready_and_reap_process(outcome):
+    from investorch_qmt.history.sync import HistorySyncManager
+
+    context = FakeContext()
+    manager = HistorySyncManager(clock=lambda: datetime(2026, 9, 8, 8, tzinfo=SHANGHAI), context=context)
+    manager.start(background=False)
+    if outcome == "crash":
+        context.processes[-1].alive = False
+    elif outcome == "bad_progress":
+        context.parents[-1].messages.append({"phase": "PROGRESS", "finished": 3, "total": 2})
+    else:
+        context.parents[-1].messages.append({"phase": "SUCCEEDED", "target_through": "2026-09-07"})
+    manager.poll()
+    assert manager.snapshot()["status"] == "NOT_READY"
+    assert manager.snapshot()["fresh_through"] is None
+    assert context.processes[-1].closed
+    manager.close()
+
+
+def test_shutdown_stops_and_reaps_blocking_child_without_restart():
+    from investorch_qmt.history.sync import HistorySyncManager
+
+    context = FakeContext()
+    manager = HistorySyncManager(context=context)
+    manager.start(background=False)
+    manager.close()
+    manager.close()
+    manager.start(background=False)
+    manager.poll()
+    assert context.parents[0].sent == [{"command": "STOP"}]
+    assert context.processes[0].terminated
+    assert len(context.processes) == 1
+
+
+def test_maintenance_disconnects_before_success_and_reports_close_failure():
+    import threading
+
+    from investorch_qmt.history.model import SyncSpec
+    from investorch_qmt.history.worker import worker_main
+
+    class Pipe:
+        def __init__(self):
+            self.closed = threading.Event()
+            self.events = []
+
+        def recv(self):
+            self.closed.wait(2)
+            raise EOFError
+
+        def send(self, value):
+            self.events.append(value)
+
+        def close(self):
+            self.closed.set()
+
+    class Adapter:
+        def connect(self):
+            pass
+
+        def close(self):
+            raise OSError("disconnect failed")
+
+    pipe = Pipe()
+    worker_main(
+        SyncSpec(datetime(2026, 9, 8, 8, tzinfo=SHANGHAI)),
+        pipe,
+        reference_loader=lambda _: (date(2026, 9, 7), CALENDAR, []),
+        adapter_factory=Adapter,
+    )
+    assert pipe.events[-1]["phase"] == "FAILED"
+    assert all(event["phase"] != "SUCCEEDED" for event in pipe.events)
+
+
+def test_process_creation_failure_is_retryable_maintenance_state():
+    from investorch_qmt.history.sync import HistorySyncManager
+
+    class BrokenContext(FakeContext):
+        def Process(self, **kwargs):
+            raise OSError("cannot create child")
+
+    context = BrokenContext()
+    manager = HistorySyncManager(context=context)
+    manager.start(background=False)
+    assert manager.snapshot()["status"] == "NOT_READY"
+    assert manager.snapshot()["reason"] == "HISTORY_SYNC_FAILED"
+    assert context.parents[0].closed
+    manager.close()
+
+
+def test_native_coverage_does_not_claim_unvalidated_provider_watermark():
+    from investorch_qmt.history.sync import HistorySyncManager
+
+    context = FakeContext()
+    manager = HistorySyncManager(clock=lambda: datetime(2026, 9, 8, 8, tzinfo=SHANGHAI), context=context)
+    manager.start(background=False)
+    context.parents[-1].messages.extend(
+        [
+            reference_event() | {"native_through": "2026-09-07"},
+            {"phase": "SUCCEEDED", "target_through": "2026-09-07"},
+        ]
+    )
+    context.processes[-1].alive = False
+    manager.poll()
+    assert manager.snapshot()["status"] == "READY"
+    assert manager.snapshot()["fresh_through"] is None
+    manager.close()
