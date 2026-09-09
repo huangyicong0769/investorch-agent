@@ -42,7 +42,8 @@ The ready status is from the actual manager snapshot after its supported-scope v
 - Companion on macOS: 524 passed, 11 Windows-specific skips.
 - Core and companion Ruff formatting/lint: passed.
 - Core wheel and source distribution: built; both isolated artifact smokes passed.
-- Windows companion tests, native xtquant smoke and distribution smokes: pending final package checks.
+- Windows companion: 535 passed in 103.16 seconds, seven existing dependency warnings; Python 3.12.13. Pinned xtquant API smoke passed.
+- Companion wheel and source distribution: built; both isolated artifact smokes passed with Python 3.12.13. The first private validation wrapper omitted the interpreter selection and failed under a newer Python; its log is preserved separately from the successful pinned rerun. No production change was needed for that validation setup correction.
 - Final CI must run against the final branch commit after qualification documentation. Its exact SHA and run URL accompany the delivery, rather than reusing a predecessor's green run.
 
 ## Scope and review
@@ -53,4 +54,4 @@ The optional stalled-batch watchdog was deferred as a separate reliability chang
 
 Changes remain on `codex/qmt-suspension-gap-probe` for user review. This qualification does not authorize merging the branch.
 
-Local evidence is retained under `.git/b35-validation/suspension-plan/`: `phaseb-source-verified.json`, `production-13-gap-f13e427.json`, `production-manager-f13e427.json`, `production-cache-f13e427.json`, `production-manager-repeat-f13e427.json`, their exclusion metadata reports, and the two qualification scripts. Phase A observations and prior failed/preliminary attempts remain separate and recoverable.
+Local evidence is retained under `.git/b35-validation/suspension-plan/`: `phaseb-source-verified.json`, `production-13-gap-f13e427.json`, `production-manager-f13e427.json`, `production-cache-f13e427.json`, `production-manager-repeat-f13e427.json`, their exclusion metadata reports, the two qualification scripts, `final-windows-validation-summary.json`, `windows-validation-f13e427.log`, `windows-artifact-smoke-f13e427.log` and `dist-f13e427/`. Phase A observations and prior failed/preliminary attempts remain separate and recoverable.
