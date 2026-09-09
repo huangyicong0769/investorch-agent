@@ -2,6 +2,7 @@
 
 import math
 from datetime import datetime
+from time import sleep
 
 import numpy as np
 import pandas as pd
@@ -14,6 +15,8 @@ from .xtdata_adapter import XtDataAdapter
 
 RAW_DTYPE = np.dtype([*DayBarStore.DEFAULT_DTYPE.descr, ("prev_close", "f8"), ("suspended", "?")])
 BATCH_SIZE = 200
+# Measured workaround for consecutive-download completion stalls in the pinned SDK.
+BATCH_INTERVAL_SECONDS = 1.0
 FACTOR_FIELDS = ("time", "interest", "stockBonus", "stockGift", "allotNum", "allotPrice", "gugai", "dr")
 
 
@@ -66,6 +69,9 @@ class XtHistoryAdapter:
                     raise ValueError("Provider reported download failure")
             except Exception as exc:
                 raise MarketDataError("HISTORY_SYNC_FAILED", str(exc), transient=True) from exc
+            if offset + len(batch) < len(symbols):
+                sleep(BATCH_INTERVAL_SECONDS)
+            # Maintenance checks STOP here, after the pause and before another request.
             if progress:
                 progress(offset + len(batch), len(symbols))
 

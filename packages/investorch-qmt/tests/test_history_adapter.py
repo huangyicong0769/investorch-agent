@@ -1,4 +1,5 @@
 from datetime import date
+from time import monotonic
 
 import numpy as np
 import pandas as pd
@@ -160,6 +161,49 @@ def test_download_failure_never_reports_completion():
             [instrument()], date(2026, 9, 7), date(2026, 9, 8), progress=lambda *value: progress.append(value)
         )
     assert (1, 1) not in progress
+
+
+def test_maintenance_completes_multiple_batches_when_provider_needs_time_between_downloads():
+    available_at = 0.0
+    cached = set()
+
+    class Downloader(CapabilityAPI):
+        def download_history_data2(self, stocks, **kwargs):
+            nonlocal available_at
+            if monotonic() < available_at:
+                raise ConnectionError("Previous native download is still settling")
+            cached.update(stocks)
+            available_at = monotonic() + 0.05
+            return {}
+
+    symbols = [instrument(f"{600000 + n:06}.XSHG") for n in range(601)]
+    progress = []
+    XtHistoryAdapter(Downloader()).download_daily_history(
+        symbols, date(2026, 9, 7), date(2026, 9, 8), progress=lambda *value: progress.append(value)
+    )
+    assert cached == {f"{600000 + n:06}.SH" for n in range(601)}
+    assert progress[-1] == (601, 601)
+
+
+def test_maintenance_progress_interruption_stops_before_downloading_remaining_instruments():
+    cached = set()
+
+    class Downloader(CapabilityAPI):
+        def download_history_data2(self, stocks, **kwargs):
+            cached.update(stocks)
+            return {}
+
+    def stop(finished, total):
+        if finished < total:
+            raise InterruptedError("History maintenance stopped")
+
+    symbols = [instrument(f"{600000 + n:06}.XSHG") for n in range(601)]
+    with pytest.raises(InterruptedError, match="History maintenance stopped"):
+        XtHistoryAdapter(Downloader()).download_daily_history(
+            symbols, date(2026, 9, 7), date(2026, 9, 8), progress=stop
+        )
+    assert cached
+    assert cached < {f"{600000 + n:06}.SH" for n in range(601)}
 
 
 def test_lazy_factors_map_real_sdk_event_multiplier_schema_and_allow_empty():
