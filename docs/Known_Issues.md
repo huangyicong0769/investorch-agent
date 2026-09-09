@@ -40,6 +40,24 @@ The [official xtdata documentation](https://dict.thinktrader.net/nativeApi/xtdat
 
 Historical price adjustment does not implement dividend cash delivery, bonus-share delivery, rights subscriptions, tax, or reconciliation with broker and Ledger balances.
 
+### Limits of overlap calibration
+
+An overlapping interval can align two cumulative-factor series retrospectively. If `N(t)` is the native factor and `X(t)` is the xtdata factor, their correction ratio is `R(t) = N(t) / X(t)`. Between corporate actions this ratio is constant; at an action it changes by `native_event_multiplier / xtdata_dr`. The current native-prefix baseline already handles normalization at the cutoff.
+
+The event correction is not constant in the observed overlap. For 000001.SZ, sampled event corrections range from approximately 0.999646884 to 1.000432174; for 300750.SZ, from 0.999330358 to 1.000036659. The next event beyond native coverage has no observed native multiplier, so past overlap cannot uniquely determine its correction. Four targeted examples support a reference-price rounding explanation, but two counterexamples prevent treating that explanation as a universal conversion formula. Limited precision and unestablished upstream calculation inputs remain material.
+
+Overlap is useful for checking normalization and diagnosing differences. It does not currently justify extrapolating the last ratio, fitting an average correction, or reconstructing future native-equivalent factors. Such a conversion would require a separately established formula and its complete inputs. No empirical correction is applied.
+
 ### Related raw-data precision
 
 Observed xtdata daily volume was reported in integer hands, converted to shares by multiplying by 100; native stock volume retained individual-share precision. Sample differences were less than 50 shares. Some turnover and index prices also had different decimal precision. These observations are separate from factor composition and do not establish a general error bound or authorize fabricated precision.
+
+## Native index identifiers and provider coverage differ
+
+**Observed 2026-09-09 on the same pinned Windows environment.** The native listing-interval filter produced 7,349 XSHG/XSHE CS and INDX candidates, including 981 `Hxxxxx.XSHG` index identifiers. Native reference authority does not establish that MiniQMT supports the same identifier or supplies its completed history.
+
+Four direct mappings (`H21340.SH`, `H50032.SH`, `H11145.SH`, and `H30252.SH`) returned no instrument detail or cached bars after an explicit short-range history download. A successful download return did not establish coverage. The inspected SDK index lists contained 609 identifiers and no H-prefixed identifiers; these are environment observations, not a permanent exhaustive vendor-support guarantee. Some native identifiers have potentially related alternatives, but name similarity is insufficient to establish an alias. For example, native `H30252.XSHG` and `000856.XSHG` coexist; automatic substitution has not been justified.
+
+Fresh support is therefore limited to native-authorized instruments with an explicitly established provider mapping and capability. The candidate, supported, and excluded scope must be disclosed. Requests requiring fresh history for excluded instruments fail explicitly; they do not silently use stale native data or a guessed alias. Native reference data remains authoritative and native-only history does not acquire a new provider dependency.
+
+A transient provider error, empty cache before download, missing day, or invalid bar is **not** evidence for removing an otherwise supported instrument. Every supported instrument must pass the completed-range validation before the global fresh watermark advances. Reported fresh coverage refers to that declared supported scope, rather than every index present in the native bundle.
