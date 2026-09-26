@@ -26,7 +26,7 @@ function textFromNode(node: ReactNode): string {
 
 const markdownComponents: Components = {
   img({ src, alt }) {
-    return typeof src === 'string' ? <MessageImage image={{ image_url: src, filename: alt, detail: 'auto' }} /> : null
+    return typeof src === 'string' ? <MessageImage fallbackLabel="Assistant image" image={{ image_url: src, filename: alt, detail: 'auto' }} /> : null
   },
   a({ node: _node, ...props }) {
     void _node

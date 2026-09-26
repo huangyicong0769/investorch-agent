@@ -52,7 +52,7 @@ function AssistantTurn({ turn }: { turn: TimelineAssistantTurnViewModel }) {
           content.type === 'activity' ? (
             <ActivityGroup group={content} key={content.id} />
           ) : (
-            <Fragment key={content.id}><MarkdownMessage text={content.text} /><MessageImages images={content.images} /></Fragment>
+            <Fragment key={content.id}><MarkdownMessage text={content.text} /><MessageImages images={content.images} fallbackLabel="Assistant image" /></Fragment>
           ),
         )}
       </div>
@@ -69,7 +69,7 @@ function TimelineItem({ item }: { item: TimelineViewModel }) {
             {item.type === 'steer' ? 'You · Steer' : 'You'} ·{' '}
             <time dateTime={item.timestamp}>{formatTimelineTime(item.timestamp)}</time>
           </div>
-          <p className="whitespace-pre-wrap break-words rounded-2xl bg-muted px-4 py-3 text-sm leading-6">{item.text}</p>
+          {item.text ? <p className="whitespace-pre-wrap break-words rounded-2xl bg-muted px-4 py-3 text-sm leading-6">{item.text}</p> : null}
           <MessageImages images={item.images} />
         </div>
       </article>
@@ -144,9 +144,9 @@ function PendingDirectBubble({ message }: { message: PendingDirectMessage }) {
     <article className="flex justify-end py-3" data-pending="true">
       <div className="max-w-[85%]">
         <div className="mb-1 text-right text-xs font-medium text-muted-foreground">You · Sending…</div>
-        <p className="whitespace-pre-wrap break-words rounded-2xl bg-muted px-4 py-3 text-sm leading-6">
+        {message.text ? <p className="whitespace-pre-wrap break-words rounded-2xl bg-muted px-4 py-3 text-sm leading-6">
           {message.text}
-        </p>
+        </p> : null}
         <MessageImages images={message.images} />
       </div>
     </article>

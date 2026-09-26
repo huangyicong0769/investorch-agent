@@ -4,7 +4,7 @@ import { useImageConfig } from '../../config/WebConfigContext'
 import { Dialog, DialogContent, DialogTitle, DialogTrigger } from '../ui/dialog'
 import { Button } from '../ui/button'
 
-export function MessageImage({ image }: { image: ImageContent }) {
+export function MessageImage({ image, fallbackLabel = 'Attached image' }: { image: ImageContent; fallbackLabel?: string }) {
   const config = useImageConfig()
   const [loadedUrl, setLoadedUrl] = useState<string | null>(null)
   const [failedUrl, setFailedUrl] = useState<string | null>(null)
@@ -27,7 +27,7 @@ export function MessageImage({ image }: { image: ImageContent }) {
     )
   }
   if (failedUrl === source) return <span className="text-xs text-muted-foreground">Image could not be loaded.</span>
-  const label = image.filename || 'Conversation image'
+  const label = image.filename || fallbackLabel
   return (
     <Dialog>
       <DialogTrigger asChild>
@@ -43,7 +43,7 @@ export function MessageImage({ image }: { image: ImageContent }) {
   )
 }
 
-export function MessageImages({ images = [] }: { images?: ImageContent[] }) {
+export function MessageImages({ images = [], fallbackLabel }: { images?: ImageContent[]; fallbackLabel?: string }) {
   if (!images.length) return null
-  return <div className="my-2 flex flex-wrap items-start gap-2">{images.map((image, index) => <MessageImage key={index} image={image} />)}</div>
+  return <div className="my-2 flex flex-wrap items-start gap-2">{images.map((image, index) => <MessageImage key={index} image={image} fallbackLabel={fallbackLabel} />)}</div>
 }

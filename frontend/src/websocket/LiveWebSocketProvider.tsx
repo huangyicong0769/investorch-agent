@@ -26,6 +26,7 @@ import type {
   BootstrapResponse,
   FollowUpEventKind,
   JournalRecord,
+  ImageContent,
   LiveEvent,
   OutputEvent,
   RuntimeStateLiveEvent,
@@ -140,6 +141,16 @@ function nonNegativeNumberField(value: Record<string, unknown>, key: string): nu
   return typeof candidate === 'number' && Number.isFinite(candidate) && candidate >= 0 ? candidate : null
 }
 
+function imageContents(value: unknown): ImageContent[] {
+  if (!Array.isArray(value)) return []
+  return value.filter((image): image is ImageContent =>
+    isRecord(image) && typeof image.image_url === 'string' &&
+    ['auto', 'low', 'high', 'original'].includes(String(image.detail)) &&
+    (image.filename == null || typeof image.filename === 'string') &&
+    (image.media_type == null || typeof image.media_type === 'string'),
+  )
+}
+
 function outputEvent(value: unknown): OutputEvent | null {
   if (!isRecord(value) || typeof value.type !== 'string') {
     return null
@@ -163,11 +174,11 @@ function outputEvent(value: unknown): OutputEvent | null {
     }
     case 'tool_output': {
       const output = stringField(value, 'output')
-      return output === null ? null : { type: 'tool_output', output }
+      return output === null ? null : { type: 'tool_output', output, images: imageContents(value.images) }
     }
     case 'assistant_message': {
       const text = stringField(value, 'text')
-      return text === null ? null : { type: 'assistant_message', text }
+      return text === null ? null : { type: 'assistant_message', text, images: imageContents(value.images) }
     }
     default:
       return null
@@ -309,6 +320,7 @@ function parseLiveEvent(value: unknown): ParsedLiveEvent | null {
             source_run_id: sourceRunId,
             follow_up_id: followUpId,
             text,
+            images: imageContents(value.images),
             journal_seq: journalSeq,
           }
     }

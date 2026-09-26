@@ -44,10 +44,10 @@ function ConfiguredApp() {
 
   return (
     <ImageConfigProvider value={bootstrapQuery.data.image_config}>
-    <WebConfigProvider value={bootstrapQuery.data.web_config}>
-      <AppRouter />
-      <Toaster position="bottom-right" />
-    </WebConfigProvider>
+      <WebConfigProvider value={bootstrapQuery.data.web_config}>
+        <AppRouter />
+        <Toaster position="bottom-right" />
+      </WebConfigProvider>
     </ImageConfigProvider>
   )
 }
