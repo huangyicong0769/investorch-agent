@@ -24,12 +24,6 @@ base_url = "https://api.deepseek.com"
 api_key_secret = "DEEPSEEK_API_KEY"
 reasoning_effort = "none"
 
-[models.bootstrap]
-name = "deepseek-v4-flash"
-base_url = "https://api.deepseek.com"
-api_key_secret = "DEEPSEEK_API_KEY"
-reasoning_effort = "none"
-
 [models.permission]
 name = "deepseek-v4-flash"
 base_url = "https://api.deepseek.com"
@@ -151,15 +145,3 @@ include_server_in_tool_names = true
 [cnequity]
 config_path = "configs/cnequity.toml"
 mcp_cache_tools_list = true
-
-[[bootstrap.files]]
-source = "MEMORY.md.template"
-target = "MEMORY.md"
-
-[[bootstrap.files]]
-source = "configuration.md.template"
-target = "memory/configuration.md"
-
-[[bootstrap.files]]
-source = "rqalpha.md.template"
-target = "memory/rqalpha.md"

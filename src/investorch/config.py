@@ -13,7 +13,7 @@ import tomlkit
 
 REDACTED = "<redacted>"
 PROJECT_CONFIG_PATH = Path(__file__).resolve().parent / "resources" / "investorch.toml"
-REQUIRED_MODEL_AGENTS = ("main", "title", "activity", "bootstrap", "permission", "compact")
+REQUIRED_MODEL_AGENTS = ("main", "title", "activity", "permission", "compact")
 REASONING_EFFORTS = ("none", "minimal", "low", "medium", "high", "xhigh", "max")
 PERMISSION_MODES = ("manual", "review")
 FOLLOW_UP_BEHAVIORS = ("steer", "queue")
@@ -72,8 +72,6 @@ class AppConfig:
 
         self._validate_data(self._data)
 
-        _ = self.bootstrap_files
-
     @property
     def root_config_path(self) -> Path:
         return self.root / "investorch.toml"
@@ -127,72 +125,6 @@ class AppConfig:
     @property
     def session_journal_dir(self) -> Path:
         return self.state_dir / "sessions"
-
-    @property
-    def bootstrap_files(self) -> list[tuple[Path, Path]]:
-        """
-        Return configured bootstrap files as pairs.
-
-            (source_template, workspace_target)
-
-        Source paths are relative to the bundled project configuration directory.
-        Target paths are relative to the user workspace.
-        """
-        raw_files = self._data.get("bootstrap", {}).get("files", [])
-
-        if not isinstance(raw_files, list):
-            raise ConfigError("bootstrap.files must be an array")
-
-        config_dir = self.project_config_path.parent.resolve()
-
-        files: list[tuple[Path, Path]] = []
-        seen_targets: set[Path] = set()
-
-        for index, raw_file in enumerate(raw_files):
-            if not isinstance(raw_file, dict):
-                raise ConfigError("bootstrap.files entries must be tables")
-
-            source = raw_file.get("source")
-            target = raw_file.get("target")
-
-            if not isinstance(source, str) or not source:
-                raise ConfigError(f"bootstrap.files[{index}].source must be a non-empty string")
-
-            if not isinstance(target, str) or not target:
-                raise ConfigError(f"bootstrap.files[{index}].target must be a non-empty string")
-
-            source_relative = Path(source)
-
-            if source_relative.is_absolute():
-                raise ConfigError("Bootstrap source paths must be relative to the project defaults")
-
-            source_path = (config_dir / source_relative).resolve()
-
-            if not source_path.is_relative_to(config_dir):
-                raise ConfigError(f"Bootstrap source escapes config directory: {source}")
-
-            if not source_path.is_file():
-                raise ConfigError(f"Bootstrap template not found: {source_path}")
-
-            target_relative = Path(target).expanduser()
-
-            if target_relative.is_absolute():
-                raise ConfigError(f"bootstrap.files[{index}].target must be relative to workspace")
-
-            lexical_target = Path(os.path.normpath(str(self.workspace_dir / target_relative)))
-            if lexical_target.is_symlink():
-                raise ConfigError(f"Bootstrap target is not a regular file: {lexical_target}")
-
-            target_path = _resolve_under_root(self.workspace_dir, target, f"bootstrap.files[{index}].target")
-
-            if target_path in seen_targets:
-                raise ConfigError(f"Duplicate bootstrap target: {target}")
-
-            seen_targets.add(target_path)
-
-            files.append((source_path, target_path))
-
-        return files
 
     @property
     def secrets(self) -> dict[str, str]:
@@ -268,9 +200,6 @@ class AppConfig:
         """
         if key == "paths.root":
             raise ConfigError("paths.root cannot be changed at runtime")
-
-        if key.startswith("bootstrap."):
-            raise ConfigError("bootstrap cannot be changed at runtime")
 
         if _requires_restart(key) and not persist:
             raise ConfigError(f"{key} requires persist=true and an application restart")
@@ -390,12 +319,9 @@ def load_config(project_config_path: str | Path | None = None) -> AppConfig:
     if "root" in root_data.get("paths", {}):
         raise ConfigError("paths.root must only be defined in the project defaults")
 
-    if "bootstrap" in root_data:
-        raise ConfigError("[bootstrap] must only be defined in the project defaults")
-
     data = _merge(project_data, root_data)
 
-    # Bootstrap root always wins.
+    # The project root always wins.
     data.setdefault("paths", {})["root"] = str(root)
 
     return AppConfig(data=data, project_config_path=project_path)

@@ -9,8 +9,6 @@ from investorch.config import load_config
 
 @dataclass(frozen=True)
 class StartupOptions:
-    sync: bool = False
-    sync_force: bool = False
     plain: bool = False
 
 
@@ -24,16 +22,11 @@ def parse_startup_args(argv: list[str] | None = None) -> StartupOptions:
         description="Run InvestOrch Agent.",
         epilog="Other commands: investorch web, investorch data, investorch migrate portfolio",
     )
-    sync_group = parser.add_mutually_exclusive_group()
-    sync_group.add_argument("--sync", action="store_true", help="Merge bootstrap templates with the model and exit.")
-    sync_group.add_argument(
-        "--sync-force", action="store_true", help="Replace bootstrap targets with project templates and exit."
-    )
     parser.add_argument(
         "--plain", action="store_true", help="Use the verbose plain console instead of the Textual workspace."
     )
     args = parser.parse_args(argv)
-    return StartupOptions(sync=args.sync, sync_force=args.sync_force, plain=args.plain)
+    return StartupOptions(plain=args.plain)
 
 
 def _web_port(value: str) -> int:
@@ -87,8 +80,6 @@ def entrypoint() -> None:
     startup_options = parse_startup_args()
     asyncio.run(
         run_app(
-            sync=startup_options.sync,
-            sync_force=startup_options.sync_force,
             plain=startup_options.plain,
         )
     )
