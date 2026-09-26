@@ -1,6 +1,7 @@
 import asyncio
 import json
 
+from investorch.images import image_summary
 from investorch.output import (
     AgentChanged,
     AssistantMessage,
@@ -65,9 +66,13 @@ class ConsoleRenderer:
         elif isinstance(event, ToolCalled):
             self._render_tool_call(event)
         elif isinstance(event, ToolOutput):
-            self._render_trace_content("observation", event.output)
+            self._render_trace_content(
+                "observation", "\n".join([event.output, *(image_summary(image) for image in event.images)]).strip()
+            )
         elif isinstance(event, AssistantMessage):
             self._ui.write(f"Agent: {event.text}")
+            for image in event.images:
+                self._ui.write(image_summary(image))
 
     def _render_trace_content(self, kind: str, text: str) -> None:
         self._ui.write(f"\n[{kind}]")
