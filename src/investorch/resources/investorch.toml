@@ -6,32 +6,32 @@ workspace = "workspace"
 state = "state"
 
 [models.main]
-name = "deepseek-v4-flash"
+name = "deepseek-flash"
 base_url = "https://api.deepseek.com"
 api_key_secret = "DEEPSEEK_API_KEY"
 context_window_tokens = 1000000
 reasoning_effort = "max"
 
 [models.title]
-name = "deepseek-v4-flash"
+name = "deepseek-flash"
 base_url = "https://api.deepseek.com"
 api_key_secret = "DEEPSEEK_API_KEY"
 reasoning_effort = "none"
 
 [models.activity]
-name = "deepseek-v4-flash"
+name = "deepseek-flash"
 base_url = "https://api.deepseek.com"
 api_key_secret = "DEEPSEEK_API_KEY"
 reasoning_effort = "none"
 
 [models.permission]
-name = "deepseek-v4-flash"
+name = "deepseek-flash"
 base_url = "https://api.deepseek.com"
 api_key_secret = "DEEPSEEK_API_KEY"
 reasoning_effort = "high"
 
 [models.compact]
-name = "deepseek-v4-flash"
+name = "deepseek-flash"
 base_url = "https://api.deepseek.com"
 api_key_secret = "DEEPSEEK_API_KEY"
 context_window_tokens = 1000000
