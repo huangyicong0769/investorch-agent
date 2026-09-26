@@ -145,3 +145,147 @@ async def test_invalid_image_request_never_runs_or_echoes_payload(tmp_path: Path
         assert IMAGE.image_url not in response.text
         assert not web.runtime.runtime.is_session_active(session_id)
         assert not await web.host.journal.session_exists(session_id)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("boundary", ["tool", "final"])
+async def test_image_steer_reaches_sdk_continuation_or_fallback(tmp_path: Path, boundary: str) -> None:
+    import asyncio
+    from zoneinfo import ZoneInfo
+
+    from agents import Agent, function_tool
+    from agents.testing import ModelStep, ScriptedModel, assistant_message, function_call
+
+    from investorch.agents import AgentLoop, ApprovalOutcome, TokenUsage
+    from investorch.application import PortfolioOperations
+    from investorch.context import ExecutionState
+    from investorch.journal import SessionJournal
+    from investorch.runtime import AgentRuntime
+    from investorch.storage import create_session, set_session_title
+    from tests.support.config import make_test_config
+
+    config = make_test_config(tmp_path)
+    create_session(config.sessions_db, "session")
+    set_session_title(config.sessions_db, "session", "Images")
+    journal = SessionJournal(config.session_journal_dir, ZoneInfo("UTC"))
+    started, release, finished = asyncio.Event(), asyncio.Event(), asyncio.Event()
+    user_input = UserInput("", (IMAGE,))
+    ended = []
+
+    @function_tool
+    def read_status() -> str:
+        return "ready"
+
+    async def first_turn(_call):
+        started.set()
+        await release.wait()
+        return (
+            (function_call("read_status", {}, call_id="status"),)
+            if boundary == "tool"
+            else (assistant_message("first"),)
+        )
+
+    def next_turn(call):
+        messages = [item for item in call.input if item.get("role") == "user"]
+        assert messages[-1] == user_input_to_response_item(user_input)
+        return (assistant_message("image received"),)
+
+    model = ScriptedModel((ModelStep.respond(first_turn), ModelStep.respond(next_turn)))
+    unused = Agent(name="Unused", model=ScriptedModel())
+    loop = AgentLoop(
+        Agent(name="Main", model=model, tools=[read_status]), unused, unused, config, PortfolioOperations(config=config)
+    )
+
+    async def approve(_request):
+        return ApprovalOutcome(approved=True, usage=TokenUsage())
+
+    async def output(_output):
+        pass
+
+    async def run_ended(event):
+        ended.append(event)
+        if event.result is not None and event.result.output == "image received":
+            finished.set()
+
+    runtime = AgentRuntime(
+        loop,
+        ExecutionState(workspace_root=config.workspace_dir),
+        config.sessions_db,
+        output,
+        approve,
+        journal.record_user_message,
+        journal.record_user_steer,
+        journal.record_user_steers_activated,
+        journal.record_user_steers_discarded,
+        run_ended_handler=run_ended,
+    )
+    try:
+        runtime.start_run("session", "first", run_options())
+        await asyncio.wait_for(started.wait(), 2)
+        await runtime.submit_follow_up("session", user_input, run_options())
+        release.set()
+        await asyncio.wait_for(finished.wait(), 2)
+        assert all(event.status == "completed" for event in ended)
+        records = read_session_journal(config.session_journal_dir, "session")
+        assert len([record for record in records if record.get("images")]) == 1
+        assert any(record["type"] == "user_steers_activated" for record in records)
+        session = SQLiteSession("session", config.sessions_db)
+        try:
+            assert user_input_to_response_item(user_input) in await session.get_items()
+        finally:
+            session.close()
+        model.assert_complete()
+    finally:
+        release.set()
+        await runtime.aclose()
+
+
+def test_default_maximum_image_payload_survives_journal_and_websocket(tmp_path: Path) -> None:
+    import base64
+    from zoneinfo import ZoneInfo
+
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from investorch.images import normalize_user_input
+    from investorch.journal import SessionJournal, read_session_journal_page
+    from investorch.runtime import RuntimeFollowUpEvent
+    from investorch.web.connections import WebConnectionHub, websocket_router
+    from investorch.web.events import WebEventBridge
+    from tests.support.config import make_test_config
+
+    config = make_test_config(tmp_path)
+    size = config["images.max_image_bytes"]
+    count = config["images.max_total_image_bytes"] // size
+    data_url = "data:image/png;base64," + base64.b64encode(b"\x89PNG\r\n\x1a\n" + b"\0" * (size - 8)).decode()
+    user_input = normalize_user_input("", [{"image_url": data_url}] * count, config)
+    journal = SessionJournal(config.session_journal_dir, ZoneInfo("UTC"))
+    hub = WebConnectionHub(queue_capacity=4)
+    bridge = WebEventBridge(hub)
+    app = FastAPI()
+    app.state.connections = hub
+    app.include_router(websocket_router)
+
+    async def publish() -> None:
+        seq = await journal.record_user_steer("session", "run", user_input)
+        await bridge.handle_follow_up(
+            RuntimeFollowUpEvent(
+                kind="steer_submitted",
+                session_id="session",
+                run_id="run",
+                source_run_id="run",
+                follow_up_id="steer",
+                user_input=user_input,
+                journal_seq=seq,
+            )
+        )
+
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws", headers={"origin": "http://localhost"}) as websocket:
+            client.portal.call(publish)
+            event = websocket.receive_json()
+            assert len(event["images"]) == count
+            assert all(image["image_url"] == data_url for image in event["images"])
+        client.portal.call(hub.aclose)
+    page = read_session_journal_page(config.session_journal_dir, "session", limit=1)
+    assert page.records[0]["images"] == event["images"]
