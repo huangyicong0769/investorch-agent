@@ -11,9 +11,10 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 
 import { getSessionHistory, getSessionState, sendMessage, stopSession } from '../../api/client'
 import { queryKeys } from '../../api/queries'
-import { useWebConfig } from '../../config/WebConfigContext'
+import { useImageConfig, useWebConfig } from '../../config/WebConfigContext'
 import type {
   BootstrapResponse,
+  ImageContent,
   SessionPresentationState,
   SessionStateResponse,
   StopResponse,
@@ -21,9 +22,10 @@ import type {
 } from '../../api/types'
 import { errorMessage } from '../../lib/errors'
 import { historyNewestSeq, type HistoryInfiniteData } from '../../lib/timeline/history'
-import type { PendingDirectMessage } from '../conversation/interaction'
+import type { ComposerDraft, PendingDirectMessage } from '../conversation/interaction'
 import { UsagePopover } from '../usage/UsagePopover'
 import { Button } from '@/components/ui/button'
+import { ImageAttachments } from '../images/ImageAttachments'
 import { RunControlsPopover } from './RunControlsPopover'
 
 interface ComposerProps {
@@ -31,9 +33,9 @@ interface ComposerProps {
   state: SessionStateResponse
   archived: boolean
   contextWindowTokens: number | null
-  draft: string
-  onDraftChange: (sessionId: string, draft: string) => void
-  onDraftSubmitted: (sessionId: string, submittedText: string) => void
+  draft: ComposerDraft
+  onDraftChange: (sessionId: string, update: (draft: ComposerDraft) => ComposerDraft) => void
+  onDraftSubmitted: (sessionId: string, submittedDraft: ComposerDraft) => void
   onPendingDirectMessage: (sessionId: string, message: PendingDirectMessage) => void
   presentation: SessionPresentationState
 }
@@ -41,6 +43,8 @@ interface ComposerProps {
 interface SendVariables {
   sessionId: string
   text: string
+  images: ImageContent[]
+  draft: ComposerDraft
   baseNewestSeq: number | null
   baseSequenceKnown: boolean
 }
@@ -76,6 +80,8 @@ export function Composer({
   presentation,
 }: ComposerProps) {
   const webConfig = useWebConfig()
+  const imageConfig = useImageConfig()
+  const [readingImages, setReadingImages] = useState(false)
   const queryClient = useQueryClient()
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const stopRunIdRef = useRef<string | null>(null)
@@ -91,9 +97,9 @@ export function Composer({
   const active = runtime.run_phase !== null
 
   const sendMutation = useMutation<UserInputSubmission, Error, SendVariables>({
-    mutationFn: ({ sessionId: targetSessionId, text }) => sendMessage(targetSessionId, { text }),
+    mutationFn: ({ sessionId: targetSessionId, text, images }) => sendMessage(targetSessionId, { text, images }),
     onSuccess: (response, variables) => {
-      onDraftSubmitted(variables.sessionId, variables.text)
+      onDraftSubmitted(variables.sessionId, variables.draft)
       if (variables.sessionId === activeSessionIdRef.current) {
         setNativeActionNotice(null)
         setRefreshError(null)
@@ -102,6 +108,7 @@ export function Composer({
       if (response.disposition === 'run_started') {
         onPendingDirectMessage(variables.sessionId, {
           text: variables.text,
+          images: variables.images,
           runId: response.run_id,
           submittedAt: new Date().toISOString(),
           baseNewestSeq: variables.baseNewestSeq,
@@ -179,12 +186,12 @@ export function Composer({
 
   const submit = async () => {
     const targetSessionId = sessionId
-    if (archived || sendPendingForSession || preparingSendForSession) {
+    if (archived || sendPendingForSession || preparingSendForSession || readingImages) {
       return
     }
 
-    const text = draft.trim()
-    if (!text) {
+    const text = draft.text.trim()
+    if (!text && !draft.images.length) {
       return
     }
 
@@ -219,6 +226,8 @@ export function Composer({
       sendMutation.mutate({
         sessionId: targetSessionId,
         text,
+        draft,
+        images: draft.images.map((image) => ({ image_url: image.imageUrl, media_type: image.mediaType, filename: image.filename, detail: imageConfig.default_detail })),
         baseNewestSeq,
         baseSequenceKnown,
       })
@@ -240,7 +249,7 @@ export function Composer({
   }
 
   const handleDraftChange = (event: ChangeEvent<HTMLTextAreaElement>) => {
-    onDraftChange(sessionId, event.target.value)
+    onDraftChange(sessionId, (current) => ({ ...current, text: event.target.value }))
     setNativeActionNotice(null)
     setRefreshError(null)
     if (sendMutation.isError) {
@@ -250,6 +259,7 @@ export function Composer({
 
   return (
     <form className="rounded-2xl border border-border bg-card p-3 shadow-sm" onSubmit={handleSubmit}>
+      <ImageAttachments images={draft.images} disabled={archived || sendPendingForSession || preparingSendForSession} onReadingChange={setReadingImages} onChange={(images) => onDraftChange(sessionId, (current) => ({ ...current, images }))}>
       <textarea
         aria-label="Message InvestOrch Agent"
         className="block max-h-40 min-h-10 w-full resize-none overflow-hidden bg-transparent px-1 py-1.5 text-sm leading-6 outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60"
@@ -259,8 +269,9 @@ export function Composer({
         placeholder={archived ? 'Archived sessions are read-only.' : 'Message InvestOrch Agent'}
         ref={textareaRef}
         rows={1}
-        value={draft}
+        value={draft.text}
       />
+      </ImageAttachments>
       {nativeActionNotice ? (
         <p className="mt-1 text-xs text-muted-foreground" role="status">
           {nativeActionNotice}
@@ -303,7 +314,7 @@ export function Composer({
             size={null}
             variant={null}
             className="rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground disabled:cursor-not-allowed disabled:opacity-60"
-            disabled={archived || sendPendingForSession || preparingSendForSession || !draft.trim()}
+            disabled={archived || sendPendingForSession || preparingSendForSession || readingImages || (!draft.text.trim() && !draft.images.length)}
             type="submit"
           >
             {sendPendingForSession || preparingSendForSession ? 'Sending…' : 'Send'}
