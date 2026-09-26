@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 from investorch.context import AppState
+from investorch.images import UserInput
 from investorch.runtime import AgentRuntime, RunOptions, SessionBusyError
 from investorch.storage import is_session_archived
 
@@ -56,16 +57,17 @@ async def submit_user_input(
     state: AppState,
     runtime: AgentRuntime,
     session_id: str,
-    text: str,
+    user_input: UserInput | None = None,
+    text: str | None = None,
 ) -> UserInputSubmission:
-    if not text.strip():
-        raise ValueError("User input must not be empty")
+    if user_input is None:
+        user_input = UserInput(text or "")
     if await asyncio.to_thread(is_session_archived, state.config.sessions_db, session_id):
         raise ArchivedSessionInputError
 
     if runtime.is_session_active(session_id):
         try:
-            submission = await runtime.submit_follow_up(session_id, text, current_run_options(state))
+            submission = await runtime.submit_follow_up(session_id, user_input, current_run_options(state))
         except SessionBusyError as exc:
             raise ActiveRunChangedError(follow_up=True) from exc
         except Exception as exc:
@@ -84,7 +86,7 @@ async def submit_user_input(
         raise QueuedFollowUpsPendingError(paused=snapshot.queue_paused)
 
     try:
-        active_run = runtime.start_run(session_id, text, current_run_options(state))
+        active_run = runtime.start_run(session_id, user_input, current_run_options(state))
     except SessionBusyError as exc:
         raise ActiveRunChangedError(follow_up=False) from exc
     return UserInputSubmission(session_id=session_id, disposition="run_started", run_id=active_run.run_id)

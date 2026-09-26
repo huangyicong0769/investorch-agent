@@ -28,6 +28,7 @@ from investorch.application import (
 )
 from investorch.commands import Command, dispatch_command, parse_command
 from investorch.context import AppState, TodoItem
+from investorch.images import UserInput
 from investorch.journal import SessionJournal, read_session_journal
 from investorch.output import OutputEvent, ToolCalled
 from investorch.runtime import (
@@ -452,7 +453,7 @@ class InvestOrchAgentTUI(App[None]):
 
         try:
             submission = await submit_user_input(
-                state=self.state, runtime=self.runtime, session_id=session_id, text=event.text
+                state=self.state, runtime=self.runtime, session_id=session_id, user_input=UserInput(event.text)
             )
         except ArchivedSessionInputError:
             await self.query_one(ChatTimeline).add_notice(

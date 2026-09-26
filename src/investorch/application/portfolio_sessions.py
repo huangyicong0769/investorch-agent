@@ -4,6 +4,7 @@ import asyncio
 from dataclasses import dataclass
 
 from investorch.context import AppState
+from investorch.images import UserInput
 from investorch.runtime import AgentRuntime
 
 from .interaction import current_run_options
@@ -38,9 +39,11 @@ class PortfolioSessionWorkflows:
         self._portfolios = portfolios
         self._lock = asyncio.Lock()
 
-    async def ask_agent(self, *, portfolio_id: str, text: str, request_id: str) -> PortfolioSessionResult:
-        if not text.strip():
-            raise ValueError("text must not be empty")
+    async def ask_agent(
+        self, *, portfolio_id: str, request_id: str, user_input: UserInput | None = None, text: str | None = None
+    ) -> PortfolioSessionResult:
+        if user_input is None:
+            user_input = UserInput(text or "")
         await self._portfolios.get(portfolio_id)
         async with self._lock:
             session_id, created = await self._sessions.create_for_request(
@@ -59,7 +62,7 @@ class PortfolioSessionWorkflows:
                     return PortfolioSessionResult(session_id=session_id, run_id=None, started=False)
             active_run = self._runtime.start_contextual_run(
                 session_id,
-                text,
+                user_input,
                 _portfolio_context_instruction(portfolio_id),
                 current_run_options(self._state),
             )
