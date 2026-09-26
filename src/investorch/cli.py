@@ -4,7 +4,6 @@ import os
 import sys
 from dataclasses import dataclass
 
-from investorch.app import run_app
 from investorch.config import load_config
 
 
@@ -22,7 +21,8 @@ class WebOptions:
 
 def parse_startup_args(argv: list[str] | None = None) -> StartupOptions:
     parser = argparse.ArgumentParser(
-        description="Run InvestOrch Agent.", epilog="Other commands: investorch web, investorch data"
+        description="Run InvestOrch Agent.",
+        epilog="Other commands: investorch web, investorch data, investorch migrate portfolio",
     )
     sync_group = parser.add_mutually_exclusive_group()
     sync_group.add_argument("--sync", action="store_true", help="Merge bootstrap templates with the model and exit.")
@@ -70,12 +70,19 @@ def run_web_cli(args: list[str]) -> None:
 
 
 def entrypoint() -> None:
+    if len(sys.argv) >= 2 and sys.argv[1] == "migrate":
+        from investorch.portfolio.migration_cli import run_migration_cli
+
+        run_migration_cli(sys.argv[2:])
+        return
     if len(sys.argv) >= 2 and sys.argv[1] == "data":
         run_data_cli(sys.argv[2:])
         return
     if len(sys.argv) >= 2 and sys.argv[1] == "web":
         run_web_cli(sys.argv[2:])
         return
+
+    from investorch.app import run_app
 
     startup_options = parse_startup_args()
     asyncio.run(

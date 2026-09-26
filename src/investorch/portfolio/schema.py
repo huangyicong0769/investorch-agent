@@ -61,11 +61,20 @@ def init_portfolio_storage(db_path: str | Path) -> None:
                 )
             if version == 6:
                 return
-            upgrade_schema(connection, version)
-            connection.commit()
+            if version in (1, 2):
+                # Release the lock: archive creation must precede schema mutation.
+                connection.rollback()
+            else:
+                upgrade_schema(connection, version)
+                connection.commit()
         except BaseException:
             connection.rollback()
             raise
+
+    if version in (1, 2):
+        from investorch.portfolio.migration import migrate_portfolio
+
+        migrate_portfolio(db_path)
 
 
 def schema_version(connection: sqlite3.Connection) -> int:

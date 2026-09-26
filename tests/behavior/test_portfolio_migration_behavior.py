@@ -65,7 +65,7 @@ def test_v1_last_migration_statement_failure_rolls_back_every_change(tmp_path, m
             return super().execute(sql, parameters)
 
     def connect(path, *args, **kwargs):
-        if Path(path) == db:
+        if Path(path) == db or str(path).startswith(db.as_uri() + "?"):
             kwargs["factory"] = FailingConnection
         return real_connect(path, *args, **kwargs)
 
@@ -73,3 +73,22 @@ def test_v1_last_migration_statement_failure_rolls_back_every_change(tmp_path, m
     with pytest.raises(sqlite3.OperationalError, match="injected"):
         init_portfolio_storage(db)
     assert db.read_bytes() == before
+
+
+def test_explicit_retirement_archives_before_preserving_v5_economics(tmp_path):
+    from investorch.portfolio.migration import migrate_portfolio
+
+    db = tmp_path / "portfolio.db"
+    load_legacy_portfolio_fixture(db, 5)
+    before = portfolio_semantic_snapshot(db)
+    result = migrate_portfolio(db)
+    archive = Path(result.archive_path)
+    assert result.source_schema_version == 5
+    assert result.target_schema_version == 6
+    assert portfolio_semantic_snapshot(db) == before
+    assert portfolio_semantic_snapshot(archive / "portfolio.db.bak") == before
+    assert (archive / "live_deployments.jsonl").is_file()
+    assert (archive / "manifest.json").is_file()
+    with closing(sqlite3.connect(db)) as connection:
+        assert connection.execute("PRAGMA user_version").fetchone() == (6,)
+        assert connection.execute("SELECT name FROM sqlite_schema WHERE name LIKE 'live_%'").fetchall() == []

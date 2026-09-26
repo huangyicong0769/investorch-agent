@@ -32,6 +32,8 @@ from investorch.portfolio.domain import (
 from investorch.portfolio.ledger import project_portfolio, project_portfolio_with_attribution
 from investorch.portfolio.schema import (
     LATEST_SCHEMA_VERSION,
+    LegacyLiveDeploymentActiveError,
+    LegacyPortfolioMigrationRequiredError,
     PortfolioAlreadyExistsError,
     PortfolioConflictError,
     PortfolioDataError,
@@ -77,6 +79,8 @@ __all__ = [
     "InvalidVoidError",
     "LedgerEntry",
     "LedgerEntryType",
+    "LegacyLiveDeploymentActiveError",
+    "LegacyPortfolioMigrationRequiredError",
     "OpeningCash",
     "OpeningPosition",
     "Portfolio",
