@@ -289,3 +289,22 @@ def test_default_maximum_image_payload_survives_journal_and_websocket(tmp_path: 
         client.portal.call(hub.aclose)
     page = read_session_journal_page(config.session_journal_dir, "session", limit=1)
     assert page.records[0]["images"] == event["images"]
+
+
+@pytest.mark.asyncio
+async def test_terminal_composer_still_submits_and_renders_text(tmp_path: Path) -> None:
+    from textual.widgets import Static
+
+    from investorch.ui.tui.app import Composer, InvestOrchAgentTUI
+
+    async with open_test_web(tmp_path) as web:
+        session_id = await web.host.sessions.create()
+        web.host.state.selected_session_id = session_id
+        app = InvestOrchAgentTUI(web.host.state, web.host.config.session_journal_dir, web.host.journal)
+        app.bind_runtime(web.host.runtime, web.host.sessions)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await app.on_composer_submitted(Composer.Submitted("Hello from terminal"))
+            await web.runtime.agent_loop.wait_until_started(session_id)
+            assert web.runtime.agent_loop.input_for(session_id).structured_input == UserInput("Hello from terminal")
+            assert app.query_one(".user-message .message-content", Static).content == "Hello from terminal"

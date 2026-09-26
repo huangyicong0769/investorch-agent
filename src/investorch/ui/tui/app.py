@@ -494,7 +494,7 @@ class InvestOrchAgentTUI(App[None]):
 
         composer.clear()
         if submission.disposition == "run_started":
-            await self.query_one(ChatTimeline).add_user_message(input_summary(event.user_input))
+            await self.query_one(ChatTimeline).add_user_message(event.text)
             await self.refresh_sessions()
         self._refresh_selected_controls()
 
