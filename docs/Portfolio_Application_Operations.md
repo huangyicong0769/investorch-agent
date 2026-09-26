@@ -52,14 +52,22 @@ For each affected Portfolio, A2 reads the persisted Ledger and assigns new seque
 maximum. Multi-entry commands receive increasing values in semantic entry order, while each Portfolio in a transfer
 has an independent sequence.
 
-If A1 reports that persisted append order advanced before commit, A2 re-reads every affected Ledger, changes only the
-assigned sequences, and retries the whole business operation. Operation identity, entry identities, payloads, source,
+If A1 reports that persisted append order advanced before commit, A2 re-reads every affected Ledger, re-resolves
+implicit account locations, assigns new sequences, and retries the whole business operation. Operation identity, entry identities, payloads, source,
 external reference, and timestamps remain stable. Only this typed sequence conflict is retryable, for at most three
 total append attempts and without backoff; exhaustion raises a typed A2 error.
 
+## Account location
+
+Ordinary economic commands use NULL when there is no nonzero state, inherit the unique nonzero location when there
+is one, and raise PortfolioConflictError when multiple locations have nonzero holdings or cash. Negative cash also
+counts as nonzero. Transfer endpoints resolve independently and commit atomically. Correction always preserves the
+target's location for both VOID and replacement, without ordinary location inference. Retry preserves the original
+command time even if a competing write changed the account location.
+
 ## Scope boundary
 
-A2 does not add Agent Tools, approvals or permissions, ApplicationHost wiring, Web/TUI APIs, Broker/QMT integration,
-account links or reconciliation, external-reference idempotency, target state, strategy execution, market data,
+A2 does not add Agent Tools, approvals or permissions, ApplicationHost wiring, Web/TUI APIs, Broker/QMT connectivity,
+allocation workflows or reconciliation, external-reference idempotency, target state, strategy execution, market data,
 valuation, NAV or performance persistence, tax lots, FX accounting, Ledger editing or deletion, hard Portfolio
 deletion, or a generic service, repository, command bus, or unit-of-work framework.

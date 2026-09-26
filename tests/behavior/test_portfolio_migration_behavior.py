@@ -92,3 +92,47 @@ def test_explicit_retirement_archives_before_preserving_v5_economics(tmp_path):
     with closing(sqlite3.connect(db)) as connection:
         assert connection.execute("PRAGMA user_version").fetchone() == (6,)
         assert connection.execute("SELECT name FROM sqlite_schema WHERE name LIKE 'live_%'").fetchall() == []
+
+
+def test_changes_after_archive_abort_before_any_schema_mutation(tmp_path, monkeypatch):
+    from investorch.portfolio.migration import migrate_portfolio
+
+    db = tmp_path / "portfolio.db"
+    load_legacy_portfolio_fixture(db, 5)
+    original_connect = sqlite3.connect
+    write_uri = db.resolve().as_uri() + "?mode=rw"
+
+    def connect(path, *args, **kwargs):
+        if str(path) == write_uri:
+            with original_connect(db) as other:
+                other.execute("UPDATE live_deployments SET status='ACTIVE' WHERE deployment_id='deployment-stopped'")
+        return original_connect(path, *args, **kwargs)
+
+    monkeypatch.setattr(sqlite3, "connect", connect)
+    with pytest.raises(PortfolioSchemaError, match="changed after backup"):
+        migrate_portfolio(db)
+    with closing(original_connect(db)) as connection:
+        assert connection.execute("PRAGMA user_version").fetchone() == (5,)
+        assert connection.execute(
+            "SELECT status FROM live_deployments WHERE deployment_id='deployment-stopped'"
+        ).fetchone() == ("ACTIVE",)
+        assert connection.execute(
+            "SELECT count(*) FROM sqlite_schema WHERE name='live_trade_external_identity'"
+        ).fetchone() == (1,)
+    assert len(list(tmp_path.glob("migration-archives/portfolio-v5-to-v6/*/portfolio.db.bak"))) == 1
+
+
+def test_wal_migration_preserves_committed_rows_in_backup(tmp_path):
+    from investorch.portfolio.migration import migrate_portfolio
+
+    db = tmp_path / "portfolio.db"
+    load_legacy_portfolio_fixture(db, 5)
+    with closing(sqlite3.connect(db)) as writer:
+        writer.execute("PRAGMA journal_mode=WAL")
+        writer.execute("UPDATE portfolios SET description='committed in WAL'")
+        writer.commit()
+        assert Path(str(db) + "-wal").stat().st_size > 0
+        before = portfolio_semantic_snapshot(db)
+        result = migrate_portfolio(db)
+        assert portfolio_semantic_snapshot(db) == before
+        assert portfolio_semantic_snapshot(Path(result.archive_path) / "portfolio.db.bak") == before
