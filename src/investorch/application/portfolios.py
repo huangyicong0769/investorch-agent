@@ -697,7 +697,6 @@ def _assign_sequences(
         for portfolio_id, entries in ledgers.items()
     }
     assigned: list[LedgerEntry] = []
-    default_effective_at = datetime.now(UTC)
     for draft in drafts:
         if isinstance(draft.broker_account_id, _AutoBrokerAccount):
             raise AssertionError("AUTO location must be resolved before sequence assignment")
@@ -709,7 +708,7 @@ def _assign_sequences(
                 portfolio_id=draft.portfolio_id,
                 sequence=sequence,
                 entry_type=draft.entry_type,
-                effective_at=default_effective_at if draft.effective_at is None else draft.effective_at,
+                effective_at=recorded_at if draft.effective_at is None else draft.effective_at,
                 recorded_at=recorded_at,
                 source=source,
                 external_ref=external_ref,

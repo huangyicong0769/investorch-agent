@@ -275,3 +275,68 @@ async def test_ambiguous_transfer_endpoint_leaves_both_portfolios_unchanged(tmp_
     with pytest.raises(PortfolioConflictError, match="economic location is ambiguous"):
         await _transfer(ops, p.id, other.id, kind)
     assert [await ops.list_ledger(item.id) for item in (p, other)] == before
+
+
+@pytest.mark.parametrize("kind", ["cash", "position"])
+async def test_omitted_transfer_effective_time_is_the_command_time(tmp_path, kind):
+    _config, ops, p = await _portfolio(tmp_path)
+    other = await ops.create(name="Other", base_currency="CNY")
+    result = await _transfer(ops, p.id, other.id, kind)
+    assert all(entry.effective_at == entry.recorded_at for entry in result.entries)
+
+
+async def test_sequence_retry_preserves_command_time_with_real_competing_append(tmp_path, monkeypatch):
+    import sqlite3
+    from uuid import uuid4
+
+    from investorch.portfolio import CashFlow, LedgerEntry, LedgerEntryType, append_ledger_operation
+
+    config, ops, p = await _portfolio(tmp_path)
+    original_connect = sqlite3.connect
+    competing_time = datetime.now(UTC)
+    competing_entry = LedgerEntry(
+        str(uuid4()),
+        str(uuid4()),
+        p.id,
+        3,
+        LedgerEntryType.CASH_FLOW,
+        competing_time,
+        competing_time,
+        "competing-writer",
+        CashFlow("CNY", Decimal(1)),
+        broker_account_id="a",
+    )
+    append_attempts = []
+    callback_errors = []
+    injecting = False
+
+    def on_statement(statement):
+        nonlocal injecting
+        if statement != "BEGIN IMMEDIATE" or injecting:
+            return
+        append_attempts.append(statement)
+        if len(append_attempts) == 1:
+            injecting = True
+            try:
+                append_ledger_operation(config.portfolio_db, [competing_entry])
+            except Exception as exc:
+                callback_errors.append(exc)
+            finally:
+                injecting = False
+
+    def traced_connect(*args, **kwargs):
+        connection = original_connect(*args, **kwargs)
+        connection.set_trace_callback(on_statement)
+        return connection
+
+    # Schedule a real competing database writer immediately before the first
+    # append transaction begins; application and storage logic remain real.
+    monkeypatch.setattr(sqlite3, "connect", traced_connect)
+    result = await ops.record_cash_flow(p.id, amount=Decimal(10), source="manual")
+    assert not callback_errors
+    assert len(append_attempts) == 2
+    entry = result.entries[0]
+    assert entry.sequence == 4
+    assert entry.effective_at == entry.recorded_at
+    assert entry.broker_account_id == "a"
+    assert (await ops.get_state(p.id)).cash == {"CNY": Decimal(1011)}
