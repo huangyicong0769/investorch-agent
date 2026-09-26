@@ -22,7 +22,7 @@ def test_image_only_input_preserves_bytes_and_provider_fields(tmp_path):
         "role": "user",
         "content": [{"type": "input_image", "image_url": raw["image_url"], "detail": "auto"}],
     }
-    assert "payload" not in repr(value)
+    assert raw["image_url"] not in repr(value)
     with pytest.raises(FrozenInstanceError):
         value.text = "changed"
 
