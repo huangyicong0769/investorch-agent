@@ -145,3 +145,9 @@ include_server_in_tool_names = true
 [cnequity]
 config_path = "configs/cnequity.toml"
 mcp_cache_tools_list = true
+
+[images]
+max_images_per_input = 8
+max_image_bytes = 8388608
+max_total_image_bytes = 25165824
+default_detail = "auto"
