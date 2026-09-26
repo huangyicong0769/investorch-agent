@@ -1,10 +1,14 @@
-from typing import Literal
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Literal
 
 from agents import RunContextWrapper
 from agents.decorators import tool
 
-from investorch.application.skills import SkillOperations
 from investorch.context import AgentContext
+
+if TYPE_CHECKING:
+    from investorch.application.skills import SkillOperations
 
 
 def _skills(ctx: RunContextWrapper[AgentContext]) -> SkillOperations:
