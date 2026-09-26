@@ -2,6 +2,13 @@
 
 [简体中文](CHANGELOG.zh-CN.md)
 
+## 0.2.0 (unreleased)
+
+- Add six versioned Workspace Skills, registration/provenance, startup discovery, and on-demand loading.
+- Add independent candidate safety review and approved installation, removal, and enablement workflows.
+- Replace product-guide synchronization with deterministic `investorch --update` for managed built-ins; customization uses forks.
+- Move configuration, Portfolio, and RQAlpha methodology out of Memory/Core prompts. Add Big QMT authoring guidance for human deployment.
+
 ## 0.1.0
 
 The first public preview of InvestOrch Agent.
@@ -14,7 +21,6 @@ The first public preview of InvestOrch Agent.
 - Workspace-scoped file, command, calculation, Todo, configuration, and MCP registry tools.
 - RQAlpha daily stock backtesting with reproducibility metadata and workspace-relative artifacts.
 - Optional CNEquity CLI, data-overlay, and read-only MCP integration.
-- Bootstrap workspace synchronization through `--sync` and `--sync-force`.
 
 ### Distribution
 

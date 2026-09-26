@@ -113,23 +113,19 @@ plain console 用于诊断：
 uv run investorch --plain
 ```
 
-## 同步 Workspace 引导文件
+## Skills
 
-项目升级时，随包提供的 `MEMORY.md`、`memory/configuration.md` 和 `memory/rqalpha.md` 模板可能发生变化。使用以下命令将更新合并到 `~/.investorch/workspace` 中的对应文件：
-
-```bash
-uv run investorch --sync
-```
-
-`--sync` 使用 `[models.bootstrap]` 配置的模型应用当前项目规则，同时保留用户长期维护的内容。每个结果通过验证后，命令即退出。如果已有文件发生变化，原文件会保存在 `~/.investorch/state/bootstrap-backups/<timestamp>/` 下，命令也会显示具体备份路径。
-
-如果需要跳过模型，直接用随包模板替换这些 Workspace 文件：
+首次初始化创建 `MEMORY.md`，并在 `workspace/skills/` 安装六个内置 Skill：`skill-creator`、`skill-installer`、`investorch-configuration`、`investorch-portfolio`、`rqalpha-strategy`、`qmt-strategy`，版本均为 1.0.0。Memory 保存用户/项目上下文，Skill 保存可复用工作流。
 
 ```bash
-uv run investorch --sync-force
+uv run investorch --update
 ```
 
-`--sync-force` 会丢弃这些目标文件的当前内容，并在替换前将原文件备份到同一备份目录。
+该命令以随包内容确定性替换内置 Skill，保留启停状态，不调用模型，完成后退出。随包内容优先于本地修改和版本；定制内置 Skill 应 fork 为新名称。外部/自建 Skill 和用户 Memory 不受影响。
+
+Main Agent 在应用启动时获得 metadata，并按需加载正文。安装、替换、启停、删除和更新后，须重启应用才能刷新 catalog。外部/自建候选需要独立安全审查和正常审批；WARN 必须人工审批，BLOCK 禁止安装。安装不授予脚本执行权限。
+
+QMT Skill 生成供用户审查、人工部署到大 QMT 的策略产物；InvestOrch 不执行 QMT 下单。
 
 ## 可选 CNEquity 集成
 

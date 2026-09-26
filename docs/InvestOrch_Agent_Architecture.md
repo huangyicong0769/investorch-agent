@@ -84,7 +84,6 @@ The Main Agent is cloned with captured model settings for each Run. Support agen
 - Activity Agent creates presentation-only labels for Tool calls.
 - Permission Agent may return approve, reject, or ask in review mode.
 - Compact Agent replaces SDK continuation history with a marked summary.
-- Bootstrap Agent merges project templates during `investorch --sync`.
 
 The runtime uses the OpenAI Responses model adapter. Bundled configuration currently points all roles to DeepSeek. Model name, base URL, secret name, and reasoning effort come from `AppConfig`.
 
@@ -138,7 +137,6 @@ Persistent state under the configured root is intentionally split by responsibil
 
 The SQLite continuation is model state and may be compacted. The JSONL journal is replay state and is not compacted. Activity labels are derived annotations, not execution truth.
 
-Bootstrap templates are copied only when their target is absent. `--sync` uses the configured Bootstrap Agent to merge current project rules into existing user-owned files while preserving durable content. `--sync-force` skips the model and atomically replaces targets with the bundled templates. Both modes validate every changed target, restore the current target if its operation fails, and retain backups for replaced content under `<state>/bootstrap-backups/<timestamp>/`.
 
 ## Configuration
 
@@ -170,3 +168,13 @@ Run and persistence ownership stays in the application and Runtime layers. Clien
 - historical-turn conversation branching;
 - per-Session workspaces or cross-Run filesystem locking;
 - authenticated LAN or remote Web serving.
+
+## Skill Component
+
+Core instructions retain identity, grounding, Memory, approval, and Skill loading rules. Specialized methodology lives in six bundled Skills. The package is only a distribution source: initialization materializes built-ins into `<workspace>/skills/<name>/`, the sole runtime content location. `<state>/skills.json` stores registration, enabled state, and provenance; metadata/version come from validated `SKILL.md`.
+
+The application host freezes the enabled catalog and loadable names at startup. `load_skill` reads validated content/resources through an ordinary tool result retained in Session history. Supporting resources use `explore`; scripts use `exec_command` with existing approval. Lifecycle changes require restart, including newly opened sessions on the same host.
+
+Non-built-in installation validates then independently reviews the current candidate using the Permission model configuration, with no reviewer tools. PASS proceeds through normal approval, WARN requires manual approval, and BLOCK cannot install. Dedicated mutation tools change durable behavior; installed built-ins cannot be removed or Agent-replaced. Fork to customize.
+
+`investorch --update` deterministically replaces managed built-ins from the package and preserves enabled state without models, merge, backup, or dirty detection. Normal startup does not update content. Invalid/missing built-ins fail startup with update/reinstall guidance; invalid/missing custom Skills are excluded and remain inspectable. `MEMORY.md` is created only if absent; existing user files are retained.

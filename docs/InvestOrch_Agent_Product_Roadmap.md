@@ -39,20 +39,17 @@ Version 0.1.0 includes:
 - RQAlpha daily stock backtesting with reproducibility metadata and artifact output;
 - optional CNEquity integration for the existing overlay and read-only MCP path.
 
-Portfolio/account access, a QMT gateway, live trading, a unified investment data layer, and Multi-Agent orchestration remain future work.
+## 0.2.0 delivery sequence
 
-## Confirmed direction: portfolio and QMT execution
+| Stage | Status | Scope |
+| --- | --- | --- |
+| 0.2.0.A | Complete | Portfolio/User domain |
+| Transition | Complete on feature base | Portfolio schema v6 and legacy live schema retirement |
+| 0.2.0.B | Current | Skill Component and six built-in workflows |
+| 0.2.0.C | Next | QMT strategy authoring quality and human Big QMT deployment |
+| Old direct QMT live execution | Blocked / archived | Feasibility work; not a supported execution route |
 
-The first confirmed direction after 0.1.0 is portfolio workflow and QMT execution.
-
-The following details remain open:
-
-- an internal delivery sequence;
-- portfolio, account, order, or execution APIs;
-- an authorization model for real trading;
-- a gateway protocol or deployment model.
-
-InvestOrch Core targets macOS and Linux environments. It will reach QMT through a future gateway running in the Windows/QMT environment instead of importing XtQuant directly.
+The current QMT route is Agent-generated strategy artifact → human review → human deployment/run in Big QMT. Skill infrastructure does not restore a gateway, remote execution, order bridge, live broker, account mirror, or automatic settlement reconciliation.
 
 ## Confirmed direction: unified investment data
 

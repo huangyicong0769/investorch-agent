@@ -84,7 +84,6 @@ Main Agent 会为每个 Run 使用已捕获 model settings 进行 clone。辅助
 - Activity Agent 为 Tool call 生成只用于展示的 label。
 - Permission Agent 在 review 模式下可以返回 approve、reject 或 ask。
 - Compact Agent 用带标记的 summary 替换 SDK continuation history。
-- Bootstrap Agent 在 `investorch --sync` 时合并项目模板。
 
 Runtime 使用 OpenAI Responses model adapter。随包配置当前把所有角色指向 DeepSeek。Model name、base URL、secret name 和 reasoning effort 来自 `AppConfig`。
 
@@ -138,7 +137,6 @@ CNEquity 是可选且由用户运维的后端。`investorch data` 把参数传�
 
 SQLite continuation 是 model state，可以被压缩；JSONL Journal 是 replay state，不被压缩。Activity label 是 derived annotation，不是执行事实。
 
-Bootstrap template 只在 target 不存在时复制。`--sync` 使用配置的 Bootstrap Agent，把当前项目规则合并到用户已有文件中，同时保留长期内容。`--sync-force` 跳过模型，以随包模板原子替换目标文件。两种模式都会验证每个已修改的目标；单个文件处理失败时恢复该文件，并将被替换的内容备份到 `<state>/bootstrap-backups/<timestamp>/`。
 
 ## 配置
 
@@ -170,3 +168,13 @@ Run 与持久化由 Application 和 Runtime 层拥有。Client command parsing �
 - 历史 turn conversation branching；
 - per-Session Workspace 或跨 Run filesystem locking；
 - 经过认证的 LAN 或 remote Web serving。
+
+## Skill Component
+
+Core instructions 保留身份、事实依据、Memory、审批和 Skill 加载规则；专业方法属于六个内置 Skill。Package 仅负责分发，初始化将内置内容写入 `<workspace>/skills/<name>/`，这是唯一 runtime 内容来源。`<state>/skills.json` 仅保存注册、启停和来源；metadata/version 从经过验证的 `SKILL.md` 读取。
+
+ApplicationHost 在启动时固定 enabled catalog 与可加载名称。`load_skill` 的正文/资源通过普通 Tool result 进入 Session history；supporting resources 使用 `explore`，脚本通过 `exec_command` 和现有审批执行。生命周期变更需要重启，同一 host 新建 Session 不会刷新。
+
+安装非内置候选时先验证，再复用 Permission 模型配置进行独立安全审查，审查 Agent 无 Tools。PASS 仍走正常授权，WARN 必须人工审批，BLOCK 禁止安装。专用管理工具修改未来行为；内置 Skill 禁止 Agent 删除或替换，定制需 fork。
+
+`investorch --update` 以随包内容确定性替换内置 Skill 并保留 enabled，不调用模型、不 merge/backup/dirty-detect。普通启动不更新内容。内置缺失/无效导致启动失败并提示更新/重装；外部/自建缺失或无效时排除出 catalog，仍可 inspect。仅在缺失时创建 `MEMORY.md`，已有用户文件保留。
