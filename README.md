@@ -260,3 +260,9 @@ InvestOrch Agent is a personal research and software project. It does not provid
 Market data, third-party data, model output, calculations, and backtests may be inaccurate, incomplete, delayed, or affected by assumptions and hindsight. Historical and backtested performance does not indicate future results.
 
 Independently verify data and outputs before acting. You are responsible for investment decisions, credentials, configuration, regulatory compliance, and any resulting gains or losses. Test with non-production accounts and environments before connecting real capital.
+
+## Images in conversations
+
+The Web composer accepts JPEG, PNG, GIF and WebP through selection, paste or drag and drop, including image-only messages. Images follow Run, Steer, Queue and Portfolio Ask and are stored inline with Session history. The Agent can read Workspace raster images with `explore`; SVG remains text for the model.
+
+`[images]` controls count, decoded byte limits and default detail; changes require restart. The Web obtains effective limits from bootstrap. Bundled defaults allow 8 images, 8 MiB each and 24 MiB total. Assistant/tool images render in the timeline with enlargement; SVG output is displayed only through `<img>`. External HTTPS images load only after a click, with no referrer. TUI/plain show placeholders. This does not add image generation or generic file uploads.
