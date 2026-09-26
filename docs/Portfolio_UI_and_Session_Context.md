@@ -2,15 +2,16 @@
 
 ## Purpose and product boundary
 
-A4 makes Portfolio a first-class visible object while preserving InvestOrch's Agent-first workflow. The Web UI may
-browse Portfolio metadata, current projected state, and recent Ledger history, but it exposes no direct Portfolio
-mutation controls or write endpoints. Creation, lifecycle changes, initialization, economic facts, corrections, and
-transfers continue through the Main Agent, the approved A3 FunctionTools, `PortfolioOperations`, and the existing
-Ledger transaction path.
+The Portfolio UI makes Portfolio a first-class visible object while preserving InvestOrch's Agent-first
+workflow. The Web UI may browse Portfolio metadata, current projected state, and recent Ledger history, but it
+exposes no direct Portfolio mutation controls or write endpoints. Creation, lifecycle changes, initialization,
+economic facts, corrections, and transfers continue through the Main Agent, the approved Portfolio
+FunctionTools, `PortfolioOperations`, and the existing Ledger transaction path.
 
-Portfolio pages are object views rather than an analytics dashboard. They show only durable Portfolio facts: name,
-status, base currency, logical cash, holdings, strategy binding, and Ledger entries. A4 does not derive market value,
-NAV, profit and loss, returns, allocation, risk, or Broker/account balances. Unknown cost remains explicitly unknown.
+Portfolio pages are object views rather than an analytics dashboard. They show only durable Portfolio facts:
+name, status, base currency, logical cash, holdings, strategy binding, and Ledger entries. The Portfolio UI
+does not derive market value, NAV, profit and loss, returns, allocation, risk, or Broker/account balances.
+Unknown cost remains explicitly unknown.
 
 ## Web navigation and Agent workflows
 
@@ -25,10 +26,10 @@ visible user message, and supplies a separate server-generated run hint identify
 only the referred Portfolio and establishes no economic fact. Tool schemas continue to require an explicit
 `portfolio_id`.
 
-New Portfolio is also an Agent workflow, not a form. One idempotent application operation creates a new Session and
-starts the Main Agent with a short application-generated instruction to guide creation and initialization. That
-instruction is neither displayed nor journaled as user-authored authorization. The eventual Portfolio creation still
-uses the approved A3 `create_portfolio` tool.
+New Portfolio is also an Agent workflow, not a form. One idempotent application operation creates a new
+Session and starts the Main Agent with a short application-generated instruction to guide creation and
+initialization. That instruction is neither displayed nor journaled as user-authored authorization. The
+eventual Portfolio creation still uses the approved Portfolio `create_portfolio` tool.
 
 ## Durable Session relations
 
@@ -44,13 +45,13 @@ A relation is added only after a structured interaction:
 - successful Portfolio transfer, for both source and destination;
 - an explicit Ask Agent submission from Portfolio detail.
 
-`list_portfolios`, browsing index/detail pages, plain-text name mentions, rejected approvals, and failed tool calls do
-not add relations. Successful Tool observation belongs to the application/runtime output path; A3 tools and the
-Portfolio domain remain unaware of Session metadata.
+`list_portfolios`, browsing index/detail pages, plain-text name mentions, rejected approvals, and failed tool
+calls do not add relations. Successful Tool observation belongs to the application/runtime output path;
+Portfolio tools and the Portfolio domain remain unaware of Session metadata.
 
-The relation set is Session-scoped and durable. A new normal Session starts empty; archive and restore preserve it;
-fork copies it as an independent ordered set; Session deletion removes it; Portfolio archive does not remove it. A4
-adds no active-Portfolio state or manual pin, remove, or reorder controls.
+The relation set is Session-scoped and durable. A new normal Session starts empty; archive and restore
+preserve it; fork copies it as an independent ordered set; Session deletion removes it; Portfolio archive does
+not remove it. The Portfolio UI adds no active-Portfolio state or manual pin, remove, or reorder controls.
 
 ## Review and fact-grounding safety
 
@@ -79,8 +80,9 @@ must be supplied explicitly, including an explicit `"0"` when zero is grounded. 
 valid only for a clearly current event or state; historical facts require an established economic time, while a
 correction may deterministically retain its target's effective time.
 
-## A4 non-goals
+## UI scope boundary
 
-A4 does not add direct Portfolio editing, Broker/QMT integration, account linking or reconciliation, order placement,
-market-data enrichment, performance analytics, tax lots, FX accounting, advanced Ledger search or visualization, a
-second conversation surface, a Portfolio-specific Agent, a workflow engine, or manual Session relation management.
+The Portfolio UI does not add direct Portfolio editing, Broker/QMT integration, account linking or
+reconciliation, order placement, market-data enrichment, performance analytics, tax lots, FX accounting,
+advanced Ledger search or visualization, a second conversation surface, a Portfolio-specific Agent, a workflow
+engine, or manual Session relation management.

@@ -15,13 +15,14 @@ entry has relational identity, ordering, timing, source, and external-reference 
 payload. Financial `Decimal` values are encoded as exact text and are never stored as SQLite `REAL` values.
 
 The append-only Ledger is authoritative. Holdings and logical Cash are relational materialized projections for
-ordinary reads, not independent truth. Each Ledger mutation fully replays every affected Portfolio through the A0
-account-aware projector, then replaces aggregate and account projection rows in the same transaction. A public rebuild operation provides the same
-repair path from persisted Ledger history.
+ordinary reads, not independent truth. Each Ledger mutation fully replays every affected Portfolio through the
+account-aware domain projector, then replaces aggregate and account projection rows in the same transaction. A
+public rebuild operation provides the same repair path from persisted Ledger history.
 
-Writes use short `BEGIN IMMEDIATE` transactions limited to local persistence work. One Ledger operation may span
-multiple Portfolios; all Ledger rows and all affected projections commit or roll back together. A1 deliberately uses
-complete replay instead of incremental projection maintenance, including for backdated entries and VOID corrections.
+Writes use short `BEGIN IMMEDIATE` transactions limited to local persistence work. One Ledger operation may
+span multiple Portfolios; all Ledger rows and all affected projections commit or roll back together. The
+persistence layer deliberately uses complete replay instead of incremental projection maintenance, including
+for backdated entries and VOID corrections.
 
 ## BrokerAccount attribution
 
