@@ -106,6 +106,7 @@ def _write_archive(connection: sqlite3.Connection, report: MigrationReport) -> N
     """Publish the complete archive atomically before touching source schema."""
     from dataclasses import asdict
 
+    assert report.archive_path is not None
     final = Path(report.archive_path)
     final.parent.mkdir(parents=True, exist_ok=True)
     temporary = Path(tempfile.mkdtemp(prefix=".incomplete-", dir=final.parent))
@@ -163,6 +164,16 @@ def _write_archive(connection: sqlite3.Connection, report: MigrationReport) -> N
 def migrate_portfolio(db_path: str | Path, *, dry_run: bool = False) -> MigrationReport:
     """Back up and migrate an existing DB; dry-run never creates an archive."""
     path = Path(db_path).expanduser().resolve()
+    if dry_run:
+        # Even mode=ro may create/modify WAL sidecars. Refuse before opening
+        # SQLite rather than use immutable=1, which can hide committed WAL data.
+        with path.open("rb") as file:
+            header = file.read(20)
+        if header[18:20] == b"\x02\x02" or Path(str(path) + "-wal").exists():
+            raise PortfolioSchemaError(
+                "WAL dry-run cannot guarantee zero file writes. Stop all writers and use the old version "
+                "to checkpoint and switch this database to journal_mode=DELETE before dry-run."
+            )
     with closing(sqlite3.connect(path.as_uri() + "?mode=ro", uri=True, isolation_level=None)) as source:
         source.execute("BEGIN")
         version = schema_version(source)

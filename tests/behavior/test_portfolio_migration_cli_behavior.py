@@ -60,3 +60,18 @@ def test_migration_cli_failure_returns_nonzero_without_creating_database(tmp_pat
     assert result.returncode != 0
     assert "migration failed" in result.stderr.lower()
     assert not db.exists()
+
+
+def test_wal_dry_run_fails_closed_without_creating_sidecars(tmp_path):
+    import sqlite3
+    from contextlib import closing
+
+    db = tmp_path / "portfolio.db"
+    load_legacy_portfolio_fixture(db, 5)
+    with closing(sqlite3.connect(db)) as connection:
+        assert connection.execute("PRAGMA journal_mode=WAL").fetchone() == ("wal",)
+    before = {path.name: path.read_bytes() for path in tmp_path.iterdir()}
+    result = _cli(db, "--dry-run")
+    assert result.returncode != 0
+    assert "WAL" in result.stderr
+    assert {path.name: path.read_bytes() for path in tmp_path.iterdir()} == before
