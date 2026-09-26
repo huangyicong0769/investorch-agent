@@ -22,6 +22,7 @@ classifiers = [
 dependencies = [
     "fastapi>=0.141.1,<0.142",
     "openai-agents>=0.22.0,<0.23",
+    "pyyaml>=6.0.2,<7",
     "rqalpha==6.3.0",
     "socksio==1.*",
     "textual==8.2.8",

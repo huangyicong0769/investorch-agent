@@ -2,6 +2,13 @@
 
 [English](CHANGELOG.md)
 
+## 0.2.0（未发布）
+
+- 新增六个带版本的 Workspace Skill、注册/来源记录、启动发现和按需加载。
+- 新增独立候选安全审查，以及经过审批的安装、删除与启停工作流。
+- 使用确定性 `investorch --update` 更新内置 Skill；定制通过 fork 完成。
+- 将配置、Portfolio、RQAlpha 方法从 Memory/Core prompt 迁入 Skill，新增供人工部署的大 QMT 策略编写指导。
+
 ## 0.1.0
 
 InvestOrch Agent 的首个公开预览版本。
@@ -14,7 +21,6 @@ InvestOrch Agent 的首个公开预览版本。
 - Workspace 范围内的文件、命令执行、计算、Todo、配置和 MCP registry Tool。
 - 基于 RQAlpha 的日频股票回测，包含可复现元数据和 Workspace 相对 artifact。
 - 可选 CNEquity CLI、数据覆盖层和只读 MCP 集成。
-- 通过 `--sync` 与 `--sync-force` 同步 Workspace 引导文件。
 
 ### 发行
 

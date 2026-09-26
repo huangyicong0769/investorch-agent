@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
@@ -9,13 +10,17 @@ from pathlib import Path
 
 import investorch
 from investorch.config import PROJECT_CONFIG_PATH
+from investorch.skills.validation import validate_skill
 from investorch.web.assets import STATIC_DIR
 
-BOOTSTRAP_FILES = {
-    "MEMORY.md.template": Path("MEMORY.md"),
-    "configuration.md.template": Path("memory/configuration.md"),
-    "rqalpha.md.template": Path("memory/rqalpha.md"),
-}
+BUILTIN_SKILLS = (
+    "investorch-configuration",
+    "investorch-portfolio",
+    "qmt-strategy",
+    "rqalpha-strategy",
+    "skill-creator",
+    "skill-installer",
+)
 
 
 def _run(command: list[str], *, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
@@ -63,8 +68,12 @@ def main() -> None:
     resources = PROJECT_CONFIG_PATH.parent
     assert PROJECT_CONFIG_PATH.is_file()
     assert PROJECT_CONFIG_PATH.is_relative_to(package_file.parent)
-    for template_name in BOOTSTRAP_FILES:
-        assert (resources / template_name).is_file()
+    assert (resources / "MEMORY.md.template").is_file()
+    bundled_skills = resources / "skills"
+    assert sorted(path.name for path in bundled_skills.iterdir() if path.is_dir()) == list(BUILTIN_SKILLS)
+    for name in BUILTIN_SKILLS:
+        skill = validate_skill(bundled_skills / name, source_type="builtin")
+        assert skill.metadata.name == name
 
     assert (STATIC_DIR / "index.html").is_file()
     assert any(path.is_file() for path in (STATIC_DIR / "assets").iterdir())
@@ -91,8 +100,24 @@ def main() -> None:
         assert (root / "state").is_dir()
 
         workspace = root / "workspace"
-        for template_name, target in BOOTSTRAP_FILES.items():
-            assert (workspace / target).read_bytes() == (resources / template_name).read_bytes()
+        assert (workspace / "MEMORY.md").read_bytes() == (resources / "MEMORY.md.template").read_bytes()
+        assert not (workspace / "memory" / "configuration.md").exists()
+        assert not (workspace / "memory" / "rqalpha.md").exists()
+        registry_path = root / "state" / "skills.json"
+        registry = json.loads(registry_path.read_text(encoding="utf-8"))
+        assert registry == {
+            "schema_version": 1,
+            "skills": {name: {"enabled": True, "source": {"type": "builtin"}} for name in BUILTIN_SKILLS},
+        }
+        for name in BUILTIN_SKILLS:
+            installed = validate_skill(workspace / "skills" / name, source_type="builtin")
+            bundled = validate_skill(bundled_skills / name, source_type="builtin")
+            assert installed.metadata == bundled.metadata
+            assert installed.files == bundled.files
+            for relative_path in bundled.files:
+                assert (workspace / "skills" / name / relative_path).read_bytes() == (
+                    bundled_skills / name / relative_path
+                ).read_bytes()
 
 
 if __name__ == "__main__":

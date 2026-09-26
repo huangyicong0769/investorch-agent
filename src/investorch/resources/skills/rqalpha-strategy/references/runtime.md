@@ -196,8 +196,8 @@ def handle_bar(context, bar_dict):
 
 ## InvestOrch Agent workflow
 
-1. Read `MEMORY.md`.
-2. Read `memory/rqalpha.md`.
+1. Read relevant user/project Memory when the task depends on prior context.
+2. Load `rqalpha-strategy` and this runtime reference.
 3. Use `get_config` to determine the active data and backtest execution policy when it matters.
 4. When `inspect_rqalpha_data` is available and a new instrument, period, or uncertain coverage matters, inspect the intended canonical IDs before choosing the backtest window.
 5. Design the strategy.

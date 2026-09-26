@@ -35,6 +35,15 @@ from .portfolio import (
     update_portfolio,
 )
 from .quant import inspect_rqalpha_data, run_backtest
+from .skills import (
+    inspect_skill,
+    install_skill,
+    list_skills,
+    load_skill,
+    remove_skill,
+    review_skill_candidate,
+    set_skill_enabled,
+)
 from .todo import write_todos
 
 __all__ = (
@@ -57,15 +66,22 @@ __all__ = (
     "get_portfolio_ledger",
     "initialize_portfolio",
     "inspect_rqalpha_data",
+    "inspect_skill",
+    "install_skill",
     "list_background_jobs",
     "list_mcp_servers",
     "list_portfolios",
+    "list_skills",
+    "load_skill",
     "record_portfolio_cash_flow",
     "record_portfolio_income",
     "record_portfolio_trade",
     "remove_mcp_server",
+    "remove_skill",
     "restore_portfolio",
+    "review_skill_candidate",
     "run_backtest",
+    "set_skill_enabled",
     "start_execution",
     "transfer_portfolio_cash",
     "transfer_portfolio_position",

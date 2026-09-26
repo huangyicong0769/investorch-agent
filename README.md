@@ -113,23 +113,19 @@ The plain console is available for diagnostics:
 uv run investorch --plain
 ```
 
-## Syncing bootstrap workspace files
+## Skills
 
-Project upgrades may update the bundled templates for `MEMORY.md`, `memory/configuration.md`, and `memory/rqalpha.md`. Merge those updates into the corresponding files under `~/.investorch/workspace`:
-
-```bash
-uv run investorch --sync
-```
-
-`--sync` uses the model configured in `[models.bootstrap]` to apply current project rules while preserving durable user content. It validates each result and exits after synchronization. When an existing file changes, its previous version is kept under `~/.investorch/state/bootstrap-backups/<timestamp>/`, and the command reports that backup path.
-
-To replace the workspace files directly with the bundled templates without calling a model:
+Fresh initialization creates `MEMORY.md` and installs six built-in Skills under `workspace/skills/`: `skill-creator`, `skill-installer`, `investorch-configuration`, `investorch-portfolio`, `rqalpha-strategy`, and `qmt-strategy` (all version 1.0.0). Memory holds user/project context; Skills hold reusable workflows.
 
 ```bash
-uv run investorch --sync-force
+uv run investorch --update
 ```
 
-`--sync-force` discards the current contents of those target files. Replaced files are backed up in the same location before replacement.
+This deterministically replaces package-managed built-ins, preserves enabled state, and exits without model calls. Package content wins over local edits and versions; customize a built-in by forking it under a new name. External/created Skills and user Memory are untouched.
+
+The Main Agent receives metadata at application startup and loads relevant Skills on demand. Install, replace, enable, disable, remove, and update require an application restart before catalog changes take effect. External/created candidates undergo independent safety review and normal approval; warnings require manual approval and blocked candidates cannot be installed. Installing a Skill does not authorize running its scripts.
+
+QMT guidance creates strategy artifacts for human review and deployment in Big QMT; InvestOrch does not execute QMT orders.
 
 ## Optional CNEquity integration
 

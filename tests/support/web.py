@@ -17,6 +17,7 @@ from investorch.application import (
 )
 from investorch.application.presentation_state import SessionPresentationStore
 from investorch.application.sessions import SessionOperations
+from investorch.application.skills import SkillOperations
 from investorch.context import AppState
 from investorch.web.approvals import WebApprovalBroker
 from investorch.web.connections import WebConnectionHub
@@ -73,6 +74,7 @@ async def open_test_web(
         runtime=runtime.runtime,
         sessions=sessions,
         portfolios=portfolios,
+        skills=SkillOperations(config=runtime.config),
         portfolio_sessions=PortfolioSessionWorkflows(
             state=state,
             runtime=runtime.runtime,
