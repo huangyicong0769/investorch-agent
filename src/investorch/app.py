@@ -1,27 +1,19 @@
 import asyncio
 import logging
-from pathlib import Path
 
 from agents import set_tracing_disabled
 
-from investorch.agents import (
-    build_bootstrap_sync_prompt,
-    create_bootstrap_sync_agent,
-    run_bootstrap_sync,
-)
 from investorch.application import (
     ActivityLabelEvent,
     ApplicationCallbacks,
     ApprovalResolvedEvent,
-    PortfolioOperations,
     SessionOperations,
-    create_model,
     open_application_host,
 )
 from investorch.commands import dispatch_command, parse_command
 from investorch.config import AppConfig, load_config
-from investorch.context import AgentContext, AppState, ExecutionState
-from investorch.initializer import initialize, sync_bootstrap_files
+from investorch.context import AppState
+from investorch.initializer import initialize
 from investorch.log import configure_logging
 from investorch.runtime import (
     AgentRuntime,
@@ -80,17 +72,17 @@ async def _run_console(state: AppState, runtime: AgentRuntime, sessions: Session
             ui.write("Automatic context compaction failed; existing context was kept. Use /compact to retry.")
 
 
-async def run_app(sync: bool = False, sync_force: bool = False, plain: bool = False) -> None:
+async def run_app(plain: bool = False) -> None:
     ui = ConsoleUI()
     config = load_config()
     set_tracing_disabled(not config["observability.sdk_tracing_enabled"])
 
-    initialized = initialize(config, copy_bootstrap=not (sync or sync_force))
+    initialized = initialize(config)
     configure_logging(config)
     logger.info("InvestOrch Agent started")
 
     try:
-        await _run_configured_app(ui, config, initialized, sync, sync_force, plain)
+        await _run_configured_app(ui, config, initialized, plain)
     except Exception:
         logger.exception("InvestOrch Agent failed")
         raise
@@ -98,69 +90,11 @@ async def run_app(sync: bool = False, sync_force: bool = False, plain: bool = Fa
         logger.info("InvestOrch Agent stopped")
 
 
-async def _run_configured_app(
-    ui: ConsoleUI, config: AppConfig, initialized: bool, sync: bool, sync_force: bool, plain: bool
-) -> None:
-    def report_sync_progress(index: int, total: int, target: Path, status: str) -> None:
-        relative_target = target.relative_to(config.workspace_dir)
-        ui.write(f"[{index}/{total}] {status.capitalize()} {relative_target}")
-
-    if initialized and not sync_force:
+async def _run_configured_app(ui: ConsoleUI, config: AppConfig, initialized: bool, plain: bool) -> None:
+    if initialized:
         logger.info("First initialization completed at %s", config.root)
         ui.write(
             f"InvestOrch Agent initialized at {config.root}\nPlease configure required secrets in {config.root_config_path} and start InvestOrch Agent again."
-        )
-        return
-
-    if sync_force:
-        logger.info("Bootstrap force synchronization started")
-        result = await sync_bootstrap_files(config, force=True, progress=report_sync_progress)
-        backup = result.backup_dir or "none"
-        logger.info(
-            "Bootstrap force synchronization completed: created=%d updated=%d unchanged=%d backup=%s",
-            result.created,
-            result.updated,
-            result.unchanged,
-            backup,
-        )
-        ui.write(
-            f"Bootstrap files force-synchronized: created={result.created}, updated={result.updated}, unchanged={result.unchanged}, backup={backup}"
-        )
-        if initialized:
-            logger.info("First initialization completed at %s", config.root)
-            ui.write(
-                f"InvestOrch Agent initialized at {config.root}\nPlease configure required secrets in {config.root_config_path} before starting InvestOrch Agent."
-            )
-        return
-
-    if sync:
-        logger.info("Bootstrap synchronization started")
-        model, model_settings = create_model(config, "bootstrap")
-        agent = create_bootstrap_sync_agent(model, model_settings)
-        portfolios = PortfolioOperations(config=config)
-
-        async def merge_target(target: Path, template: str, exists: bool) -> None:
-            context = AgentContext(
-                config=config,
-                execution=ExecutionState(),
-                session_id="bootstrap-sync",
-                run_id="bootstrap-sync",
-                portfolios=portfolios,
-            )
-            prompt = build_bootstrap_sync_prompt(target, config.workspace_dir, template, exists)
-            await run_bootstrap_sync(agent, context, prompt, target)
-
-        result = await sync_bootstrap_files(config, merge_target, progress=report_sync_progress)
-        backup = result.backup_dir or "none"
-        logger.info(
-            "Bootstrap synchronization completed: created=%d updated=%d unchanged=%d backup=%s",
-            result.created,
-            result.updated,
-            result.unchanged,
-            backup,
-        )
-        ui.write(
-            f"Bootstrap files synchronized: created={result.created}, updated={result.updated}, unchanged={result.unchanged}, backup={backup}"
         )
         return
 

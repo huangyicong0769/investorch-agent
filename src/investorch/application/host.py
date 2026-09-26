@@ -22,6 +22,7 @@ from investorch.agents import (
     create_review_instruction_compactor,
     create_title_agent,
 )
+from investorch.agents.skill_review import create_skill_review_agent
 from investorch.config import AppConfig
 from investorch.context import AppState, ExecutionState
 from investorch.journal import SessionJournal
@@ -47,6 +48,7 @@ from .portfolio_sessions import PortfolioSessionWorkflows
 from .portfolios import PortfolioOperations
 from .presentation_state import SessionPresentationStore
 from .sessions import SessionOperations
+from .skills import SkillOperations
 
 logger = logging.getLogger(__name__)
 
@@ -92,6 +94,7 @@ class ApplicationHost:
     runtime: AgentRuntime
     sessions: SessionOperations
     portfolios: PortfolioOperations
+    skills: SkillOperations
     portfolio_sessions: PortfolioSessionWorkflows
     approvals: ApprovalCoordinator
     activity: ActivityCoordinator | None
@@ -166,6 +169,8 @@ async def open_application_host(
         logger.info("Started session %s", initial_session_id)
     execution = ExecutionState()
     portfolios = PortfolioOperations(config=config)
+    skills = SkillOperations(config=config)
+    skill_catalog = skills.enabled_catalog()
     state = AppState(
         config=config,
         execution=execution,
@@ -238,6 +243,7 @@ async def open_application_host(
                 title_model, title_model_settings = create_model(config, "title")
                 compact_model, compact_model_settings = create_model(config, "compact")
                 permission_model, permission_model_settings = create_model(config, "permission")
+                skills.review_agent = create_skill_review_agent(permission_model, permission_model_settings)
                 portfolio_context = PortfolioContextOperations(
                     config=config,
                     succeeded_handler=callbacks.handle_portfolio_tool_succeeded,
@@ -247,6 +253,7 @@ async def open_application_host(
                     model_settings=main_model_settings,
                     config=config,
                     mcp_servers=mcp_manager.active_servers,
+                    skill_catalog=skill_catalog,
                 )
                 agent_loop = AgentLoop(
                     agent,
@@ -255,6 +262,7 @@ async def open_application_host(
                     config,
                     portfolios,
                     successful_tool_handler=portfolio_context.observe_successful_tool,
+                    skills=skills,
                 )
                 approvals = ApprovalCoordinator(
                     config=config,
@@ -266,6 +274,7 @@ async def open_application_host(
                     journal=journal,
                     manual_handler=manual_approval_handler,
                     resolved_handler=callbacks.handle_approval_resolved,
+                    skills=skills,
                 )
                 runtime = AgentRuntime(
                     agent_loop,
@@ -311,6 +320,7 @@ async def open_application_host(
                     sessions=sessions,
                     portfolios=portfolios,
                     portfolio_sessions=portfolio_sessions,
+                    skills=skills,
                     approvals=approvals,
                     activity=activity,
                     presentation_state=presentation_state,

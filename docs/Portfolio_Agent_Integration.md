@@ -60,11 +60,7 @@ parameters. Strict schema is not disabled for either case.
 
 ## Agent guidance and scope
 
-The main prompt carries a concise operational Portfolio section. Portfolio is logical investment state, not a
-Broker account mirror; its Ledger is append-only truth. Correction replaces a wrong historical fact through
-VOID plus a new fact, while adjustment asserts a newly recognized current fact. Trade records an executed fact
-rather than placing an order, and external cash flow remains distinct from investment income. This guidance is
-compact enough that the tool adapter does not add a bootstrap Portfolio memory template.
+The `investorch-portfolio` Skill carries operational Portfolio guidance and is loaded for matching tasks. Core instructions retain generic grounding and approval invariants. The Skill covers logical state, append-only Ledger semantics, executed facts, income/capital distinctions, corrections, adjustments, transfers, strategy binding, archive/restore, and schema v6 account-attribution boundaries. Current Agent tools do not expose BrokerAccount management or attribution arguments; the Skill respects that API limitation.
 
 The tool adapter adds no Web/TUI Portfolio interface, Broker/QMT account or execution semantics,
 reconciliation or external-ref idempotency, target state or rebalancing, strategy execution, market data,

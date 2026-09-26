@@ -44,14 +44,6 @@ def test_local_config_cannot_redirect_project_root(tmp_path: Path) -> None:
         load_config(config.project_config_path)
 
 
-def test_local_config_cannot_define_bootstrap_policy(tmp_path: Path) -> None:
-    config = make_test_config(tmp_path)
-    config.root_config_path.write_text("[bootstrap]\nfiles = []\n", encoding="utf-8")
-
-    with pytest.raises(ConfigError, match="bootstrap"):
-        load_config(config.project_config_path)
-
-
 def test_public_config_redacts_secrets_without_breaking_secret_lookup(tmp_path: Path) -> None:
     secret = "super-secret"
     config = make_test_config(tmp_path, {"secrets": {"TEST_SECRET": secret}})

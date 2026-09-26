@@ -21,7 +21,7 @@ A persistent runtime update is written to `<root>/investorch.toml` and therefore
 
 | lifecycle | keys | behavior |
 | --- | --- | --- |
-| immutable | `paths.root`, `bootstrap.*` | Cannot be changed through runtime configuration. |
+| immutable | `paths.root` | Cannot be changed through runtime configuration. |
 | restart-required | `paths.workspace`, `paths.state`, `models.*`, `permission.*`, `tui.*`, `web.*`, `logging.*`, `mcp.*`, `cnequity.*`, `backtest.use_cnequity`, `backtest.rqalpha_bundle_dir`, `observability.sdk_tracing_enabled` | `persist=false` is rejected. `persist=true` writes the next-start value but does not change the current runtime; restart InvestOrch Agent to apply it. |
 | hot | `runtime.*`, `activity.*`, `compaction.*`, execution/explore/calculate limits, `backtest.artifact_dir`, and backtest execution policy | Validated and applied to the current `AppConfig`; persistence is optional. The next applicable operation uses the new value. |
 
@@ -79,7 +79,7 @@ The runtime policy sections below are TOML-only and must be present in the effec
 
 They are validated at startup and again before an update is persisted. `background_job_dir` and `backtest.artifact_dir` must remain relative to the configured workspace.
 
-Each Agent owns an independent `[models.<agent>]` table represented by `ModelConfig`. Every model defines `name`, `base_url`, `api_key_secret`, and `reasoning_effort`; the secret field names a key in the local `[secrets]` table rather than containing a credential. Supported reasoning effort values are `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, and `max`; `none` is the instant/non-thinking setting. A model may also define `context_window_tokens`, and `models.main.context_window_tokens` is required for the Main Agent capacity shown by the TUI. Adding another required Agent means registering its name once, adding its model table, and calling `AppConfig.model(agent)`; validation and restart handling apply to every model table without another list of model fields. Normal startup constructs Main, Title, Permission, and Compact models, Textual mode additionally constructs Activity, and `--sync` constructs only Bootstrap. All model settings are restart-required.
+Each Agent owns an independent `[models.<agent>]` table represented by `ModelConfig`. Every model defines `name`, `base_url`, `api_key_secret`, and `reasoning_effort`; the secret field names a key in the local `[secrets]` table rather than containing a credential. Supported reasoning effort values are `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, and `max`; `none` is the instant/non-thinking setting. A model may also define `context_window_tokens`, and `models.main.context_window_tokens` is required for the Main Agent capacity shown by the TUI. Adding another required Agent means registering its name once, adding its model table, and calling `AppConfig.model(agent)`; validation and restart handling apply to every model table without another list of model fields. Normal startup constructs Main, Title, Permission, and Compact models; Textual mode additionally constructs Activity. The independent Skill Review Agent reuses the Permission model configuration. All model settings are restart-required.
 
 ## Tool Permission Review
 
@@ -105,9 +105,8 @@ Automatic compaction runs synchronously after the Main answer and initial title 
 
 Compact Agent usage contributes to per-session auxiliary token totals. After successful manual or automatic compaction, `Main context` is unknown until the next physical Main request supplies real usage; Compact Agent usage and summary character length are not used as estimates.
 
-`runtime.max_turns` is passed explicitly to both normal Agent runs and bootstrap synchronization runs, including approval resumes. No Agent run relies on the Agents SDK default turn limit.
+`runtime.max_turns` is passed explicitly to normal Agent runs, including approval resumes. No Agent run relies on the Agents SDK default turn limit.
 
-`investorch --sync` and `investorch --sync-force` report per-file progress with the target's position, total target count, workspace-relative path, and `syncing`, `created`, `updated`, `unchanged`, or `failed` status. A changed file emits `syncing` before the potentially long operation and its final status afterward.
 
 ## Backtest Configuration
 
@@ -152,7 +151,7 @@ The built-in CNEquity MCP server is composed only when `backtest.use_cnequity=tr
 
 ## Observability Configuration
 
-`observability.sdk_tracing_enabled` uses positive `enabled` semantics and is restart-required because SDK tracing is initialized globally at process startup. Normal runtime and bootstrap Agent runs use the same process AppConfig policy.
+`observability.sdk_tracing_enabled` uses positive `enabled` semantics and is restart-required because SDK tracing is initialized globally at process startup. Agent runs use the same process AppConfig policy.
 
 ## User Interface
 
@@ -198,7 +197,7 @@ Configuration modification requires user approval.
 
 Rules:
 
-- `paths.root` and `bootstrap.*` cannot be changed at runtime.
+- `paths.root` cannot be changed at runtime.
 - Restart-required keys must use `persist=true`; the returned result reports `requires_restart=true` and `applied=false`.
 - Hot keys report `applied=true` when the current runtime is updated.
 - Unknown normal configuration keys cannot be created.
@@ -248,9 +247,7 @@ Per-server URLs, headers, enabled state, timeout, and tools-list caching remain 
 ## Initialization
 
 Persistent local runtime state is initialized separately from configuration loading.
-Project-provided bootstrap workspace files are copied into the user workspace during its initial bootstrap.
-Bootstrap files never overwrite existing user-owned workspace files.
-After bootstrap, workspace memory belongs to the user and the Agent. Project bootstrap files are not automatically synced over it.
+Fresh initialization creates MEMORY.md only when absent and installs the six bundled Skills into workspace/skills with state/skills.json registration. Normal startup preserves workspace content. `investorch --update` replaces only managed built-ins from the package, preserving enabled state; restart to use the new catalog.
 
 ## Design Principles
 

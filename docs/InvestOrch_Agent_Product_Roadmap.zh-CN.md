@@ -39,20 +39,17 @@ InvestOrch Agent 的目标是成为面向个人投资者的本地优先、human-
 - 带可复现元数据与 artifact 输出的 RQAlpha 日频股票回测；
 - 用于现有覆盖层和只读 MCP 路径的可选 CNEquity 集成。
 
-组合/账户访问、QMT Gateway、实盘交易、统一投资数据层和 Multi-Agent 编排属于后续工作。
+## 0.2.0 交付顺序
 
-## 已确认方向：组合与 QMT 执行
+| 阶段 | 状态 | 范围 |
+| --- | --- | --- |
+| 0.2.0.A | 完成 | Portfolio/User domain |
+| Transition | 当前 feature base 已完成 | Portfolio schema v6 与旧 live schema 退役 |
+| 0.2.0.B | 当前 | Skill Component 与六个内置工作流 |
+| 0.2.0.C | 下一步 | QMT 策略编写质量与人工大 QMT 部署 |
+| 旧 direct QMT live execution | 阻塞 / 已归档 | 可行性工作，不是受支持的执行路径 |
 
-0.1.0 之后的首个已确认方向是组合工作流与 QMT 执行。
-
-以下细节仍待决定：
-
-- 内部交付顺序；
-- 组合、账户、订单或执行 API；
-- 真实交易授权模式；
-- Gateway 协议或部署模型。
-
-InvestOrch Core 以 macOS 和 Linux 环境为目标。未来通过运行在 Windows/QMT 环境中的 Gateway 连接 QMT，而不在核心中直接 import XtQuant。
+当前 QMT 路线是 Agent 生成策略产物 → 人工审查 → 人工在大 QMT 部署/运行。Skill 基础设施不恢复 Gateway、远程执行、下单桥接、实盘 Broker、账户镜像或自动结算对账。
 
 ## 已确认方向：统一投资数据
 

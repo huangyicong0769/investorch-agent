@@ -782,6 +782,7 @@ source = { editable = "." }
 dependencies = [
     { name = "fastapi" },
     { name = "openai-agents" },
+    { name = "pyyaml" },
     { name = "rqalpha" },
     { name = "socksio" },
     { name = "textual" },
@@ -807,6 +808,7 @@ requires-dist = [
     { name = "cnequity", marker = "extra == 'cnequity'", specifier = "==0.7.3" },
     { name = "fastapi", specifier = ">=0.141.1,<0.142" },
     { name = "openai-agents", specifier = ">=0.22.0,<0.23" },
+    { name = "pyyaml", specifier = ">=6.0.2,<7" },
     { name = "rqalpha", specifier = "==6.3.0" },
     { name = "socksio", specifier = "==1.*" },
     { name = "textual", specifier = "==8.2.8" },

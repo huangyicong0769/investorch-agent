@@ -12,6 +12,7 @@ from investorch.config import AppConfig
 
 if TYPE_CHECKING:
     from investorch.application.portfolios import PortfolioOperations
+    from investorch.application.skills import SkillOperations
     from investorch.runtime.models import FollowUpBehavior
 
 TodoStatus = Literal["pending", "in_progress", "completed", "failed"]
@@ -64,6 +65,7 @@ class AgentContext:
     session_id: str
     run_id: str
     portfolios: PortfolioOperations
+    skills: SkillOperations | None = None
     turn: TurnState = field(default_factory=TurnState)
     todo_update_handler: TodoUpdateHandler | None = None
 
