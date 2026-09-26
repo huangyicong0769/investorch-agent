@@ -13,6 +13,7 @@ import type {
   SessionStateResponse,
 } from '../../api/types'
 import { errorMessage } from '../../lib/errors'
+import { MessageImages } from '../images/MessageImages'
 import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 
@@ -134,9 +135,10 @@ export function QueueStrip({ sessionId, state, archived }: QueueStripProps) {
           <ol className="mt-2 space-y-1.5">
             {visibleQueue.map((item, index) => (
               <li className="flex items-start justify-between gap-2 text-xs" key={item.queue_id}>
-                <span className="min-w-0 break-words">
+                <div className="min-w-0 break-words">
                   {index + 1}. {item.text}
-                </span>
+                  <MessageImages images={item.images} />
+                </div>
                 <Button
                   size={null}
                   variant={null}

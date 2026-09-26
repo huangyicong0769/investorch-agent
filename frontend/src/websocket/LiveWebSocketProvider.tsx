@@ -451,10 +451,11 @@ function overlayRecord(event: ParsedLiveEvent, runEndedSequence: number | null =
         type: 'user_steer',
         run_id: event.run_id,
         text: event.text,
+        images: event.images,
       }
     }
     if (event.event_kind === 'queue_promoted') {
-      return { seq: event.journal_seq, timestamp, type: 'user_message', text: event.text }
+      return { seq: event.journal_seq, timestamp, type: 'user_message', text: event.text, images: event.images }
     }
   }
 

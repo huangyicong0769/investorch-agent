@@ -24,6 +24,7 @@ import type { PendingDirectMessage } from '../conversation/interaction'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { ActivityGroup } from './ActivityGroup'
+import { MessageImages } from '../images/MessageImages'
 import { MarkdownMessage } from './MarkdownMessage'
 
 interface ConversationTimelineProps {
@@ -51,7 +52,7 @@ function AssistantTurn({ turn }: { turn: TimelineAssistantTurnViewModel }) {
           content.type === 'activity' ? (
             <ActivityGroup group={content} key={content.id} />
           ) : (
-            <MarkdownMessage key={content.id} text={content.text} />
+            <Fragment key={content.id}><MarkdownMessage text={content.text} /><MessageImages images={content.images} /></Fragment>
           ),
         )}
       </div>
@@ -69,6 +70,7 @@ function TimelineItem({ item }: { item: TimelineViewModel }) {
             <time dateTime={item.timestamp}>{formatTimelineTime(item.timestamp)}</time>
           </div>
           <p className="whitespace-pre-wrap break-words rounded-2xl bg-muted px-4 py-3 text-sm leading-6">{item.text}</p>
+          <MessageImages images={item.images} />
         </div>
       </article>
     )
@@ -145,6 +147,7 @@ function PendingDirectBubble({ message }: { message: PendingDirectMessage }) {
         <p className="whitespace-pre-wrap break-words rounded-2xl bg-muted px-4 py-3 text-sm leading-6">
           {message.text}
         </p>
+        <MessageImages images={message.images} />
       </div>
     </article>
   )
@@ -206,6 +209,8 @@ export function ConversationTimeline({
         (record) =>
           record.type === 'user_message' &&
           record.text === pendingMessage.text &&
+          (record.images ?? []).length === pendingMessage.images.length &&
+          (record.images ?? []).every((image, index) => image.image_url === pendingMessage.images[index].image_url) &&
           (pendingMessage.baseNewestSeq === null || record.seq > pendingMessage.baseNewestSeq),
       ),
     [canonicalRecords, pendingMessage],
@@ -230,6 +235,7 @@ export function ConversationTimeline({
               timestamp: pendingMessage.submittedAt,
               type: 'user_message',
               text: pendingMessage.text,
+              images: pendingMessage.images,
             },
           ]
         : records,
