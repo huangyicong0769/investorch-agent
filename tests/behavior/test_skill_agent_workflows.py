@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import asyncio
 import json
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -9,17 +10,18 @@ import pytest
 from agents import Agent, ModelSettings, SQLiteSession
 from agents.testing import ModelCall, ModelStep, ScriptedModel, assistant_message, function_call
 
-from investorch.agents import AgentLoop, create_agent
+from investorch.agents import AgentLoop, create_activity_agent, create_agent
 from investorch.agents.skill_review import create_skill_review_agent
-from investorch.application import ApprovalCoordinator, PortfolioOperations
+from investorch.application import ActivityCoordinator, ApprovalCoordinator, PortfolioOperations
 from investorch.application.skills import SkillOperations
 from investorch.context import ExecutionState
 from investorch.journal import SessionJournal
 from investorch.output import ToolCalled
-from investorch.runtime import ApprovalRequest
+from investorch.runtime import ApprovalRequest, RuntimeOutput
 from investorch.runtime.control import RunControl
 from investorch.storage import create_session, set_session_title
 from tests.support.config import make_test_config
+from tests.support.runtime import make_runtime_harness
 
 
 @pytest.mark.asyncio
@@ -162,3 +164,37 @@ async def test_main_agent_creates_or_acquires_reviews_and_installs_a_skill(tmp_p
     assert name in {entry["name"] for entry in restarted.enabled_catalog()}
     assert restarted.load(name)["content"] == content
     assert restarted.inspect(name)["source"]["type"] == source_type
+
+    # The real SDK load call flows through the existing generic ToolCalled activity path.
+    harness = make_runtime_harness(tmp_path / "activity")
+    labeled = asyncio.Event()
+    labels = []
+
+    async def receive_label(event):
+        labels.append(event)
+        labeled.set()
+
+    def label_activity(call: ModelCall):
+        assert "load_skill" in str(call.input)
+        return (assistant_message("Loading specialized task guidance"),)
+
+    activity_model = ScriptedModel((ModelStep(responder=label_activity),))
+    activity = ActivityCoordinator(
+        config=config,
+        activity_agent=create_activity_agent(activity_model, ModelSettings()),
+        journal=harness.journal,
+        runtime=harness.runtime,
+        label_handler=receive_label,
+    )
+    event = next(event for event in outputs if isinstance(event, ToolCalled) and event.name == "load_skill")
+    seq = await harness.journal.record_output("session", event)
+    try:
+        activity.observe(RuntimeOutput("run", "session", event), journal_seq=seq)
+        await asyncio.wait_for(labeled.wait(), timeout=2)
+        assert labels[0].target_seq == seq
+        assert labels[0].session_id == "session"
+        assert labels[0].text
+        activity_model.assert_complete()
+    finally:
+        await activity.aclose()
+        await harness.runtime.aclose()
