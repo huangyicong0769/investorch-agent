@@ -1,3 +1,6 @@
+import json
+from collections.abc import Sequence
+
 from agents import Agent, ModelSettings, OpenAIResponsesModel
 from agents.mcp import MCPServer
 
@@ -13,9 +16,17 @@ def create_agent(
     model_settings: ModelSettings,
     config: AppConfig,
     mcp_servers: list[MCPServer] | None = None,
+    skill_catalog: Sequence[dict] = (),
 ) -> Agent[AgentContext]:
     agent_tools = [
         tools.calculate,
+        tools.list_skills,
+        tools.inspect_skill,
+        tools.load_skill,
+        tools.review_skill_candidate,
+        tools.install_skill,
+        tools.remove_skill,
+        tools.set_skill_enabled,
         tools.configure_mcp_server,
         tools.delete,
         tools.edit,
@@ -50,7 +61,9 @@ def create_agent(
 
     return Agent[AgentContext](
         name="InvestOrch Agent",
-        instructions=MAIN_AGENT_INSTRUCTIONS,
+        instructions=MAIN_AGENT_INSTRUCTIONS
+        + "\n\nAvailable Skills (discovery metadata):\n"
+        + json.dumps(list(skill_catalog), ensure_ascii=False),
         model=model,
         model_settings=model_settings,
         tools=agent_tools,

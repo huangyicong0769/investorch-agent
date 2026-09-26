@@ -73,6 +73,7 @@ async def open_test_web(
         runtime=runtime.runtime,
         sessions=sessions,
         portfolios=portfolios,
+        skills=SkillOperations(config=runtime.config),
         portfolio_sessions=PortfolioSessionWorkflows(
             state=state,
             runtime=runtime.runtime,
