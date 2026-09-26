@@ -117,6 +117,16 @@ def _execute_sql(connection: sqlite3.Connection, sql: str) -> None:
             connection.execute(statement)
 
 
+def _normalize_sql(sql: str) -> str:
+    """Ignore SQL formatting while preserving quoted values and escaped quotes."""
+    import re
+
+    return "".join(
+        part if index % 2 else re.sub(r"\s+", "", part).lower()
+        for index, part in enumerate(re.split(r"('(?:''|[^'])*')", sql))
+    )
+
+
 def _checks(sql: str) -> tuple[str, ...]:
     import re
 
@@ -127,13 +137,11 @@ def _checks(sql: str) -> tuple[str, ...]:
         while depth and end < len(sql):
             depth += (sql[end] == "(") - (sql[end] == ")")
             end += 1
-        expressions.append(re.sub(r"\s+", "", sql[start : end - 1]).lower())
+        expressions.append(_normalize_sql(sql[start : end - 1]))
     return tuple(sorted(expressions))
 
 
 def _shape(connection: sqlite3.Connection) -> dict:
-    import re
-
     result = {}
     for kind, name, table, sql in connection.execute(
         "SELECT type, name, tbl_name, sql FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%' ORDER BY name"
@@ -157,7 +165,7 @@ def _shape(connection: sqlite3.Connection) -> dict:
                 )
             result[name] = (kind, columns, foreign_keys, tuple(sorted(indexes)), _checks(sql))
         else:
-            result[name] = (kind, table, re.sub(r"\s+", "", sql or "").lower())
+            result[name] = (kind, table, _normalize_sql(sql or ""))
     return result
 
 
