@@ -94,3 +94,33 @@ def test_candidate_must_be_workspace_staging_not_installed(tmp_path, path):
     operations = SkillOperations(config=make_test_config(tmp_path))
     with pytest.raises(ValueError, match="Candidate must"):
         operations.validate_install(path, "external")
+
+
+@pytest.mark.parametrize("operation", ["remove", "replace"])
+def test_invalid_custom_symlink_can_be_recovered_without_following_it(tmp_path, operation):
+    from investorch.skills.domain import SkillRegistration, SkillSource
+    from investorch.skills.registry import read_registry, write_registry
+
+    config = make_test_config(tmp_path)
+    outside = tmp_path / "private"
+    outside.mkdir()
+    (outside / "untouched.txt").write_text("preserve")
+    installed = config.workspace_dir / "skills/example"
+    installed.symlink_to(outside, target_is_directory=True)
+    registry = config.state_dir / "skills.json"
+    records = read_registry(registry)
+    records["example"] = SkillRegistration("example", True, SkillSource("external"))
+    write_registry(registry, records)
+    skills = SkillOperations(config=config)
+    assert skills.inspect("example")["status"] == "invalid"
+    if operation == "remove":
+        skills.remove("example")
+        assert not installed.exists()
+    else:
+        candidate(config.workspace_dir / ".skill-staging")
+        args = dict(run_id="r", candidate_path=".skill-staging/example", source_type="created", replace=True)
+        skills.authorize_install(**args)
+        skills.install(**args)
+        assert not installed.is_symlink()
+        assert skills.inspect("example")["status"] == "available"
+    assert (outside / "untouched.txt").read_text() == "preserve"

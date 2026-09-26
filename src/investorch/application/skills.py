@@ -33,8 +33,6 @@ class SkillOperations:
         if self.root.is_symlink() or not self.root.resolve().is_relative_to(self.config.workspace_dir.resolve()):
             raise ValueError("Installed Skill root escapes workspace")
         path = self.root / name
-        if path.is_symlink():
-            raise ValueError("Installed Skill must not be a symlink")
         return path
 
     def inspect(self, name: str) -> dict:
@@ -53,7 +51,7 @@ class SkillOperations:
         )
         try:
             path = self._installed_path(name)
-            if not path.exists():
+            if not path.exists() and not path.is_symlink():
                 return result
             skill = validate_skill(path, source_type=record.source.type)
         except (ValueError, OSError) as exc:
@@ -129,7 +127,7 @@ class SkillOperations:
         target = self._installed_path(skill.metadata.name)
         if old and old.source.type == "builtin":
             raise ValueError("Built-in customization requires a fork with a new name")
-        if (old is not None or target.exists()) and not replace:
+        if (old is not None or target.exists() or target.is_symlink()) and not replace:
             raise ValueError("Skill name collision; explicit replace is required")
         return path, skill
 
@@ -162,7 +160,9 @@ class SkillOperations:
         records = read_registry(self.registry_path)
         name = skill.metadata.name
         target = self._installed_path(name)
-        if target.is_dir():
+        if target.is_symlink():
+            target.unlink()
+        elif target.is_dir():
             shutil.rmtree(target)
         elif target.exists():
             target.unlink()
@@ -180,7 +180,9 @@ class SkillOperations:
         if record.source.type == "builtin":
             raise ValueError("Built-in Skills cannot be removed")
         path = self._installed_path(name)
-        if path.is_dir():
+        if path.is_symlink():
+            path.unlink()
+        elif path.is_dir():
             shutil.rmtree(path)
         elif path.exists():
             path.unlink()

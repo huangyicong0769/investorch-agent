@@ -12,7 +12,7 @@ from investorch.skills.registry import read_registry, write_registry
 from tests.support.config import make_test_config
 
 
-@pytest.mark.parametrize("mutation", ["content", "higher-version", "missing", "extra-file"])
+@pytest.mark.parametrize("mutation", ["content", "higher-version", "missing", "extra-file", "empty-directory"])
 def test_update_restores_package_authority_and_preserves_disabled_state(tmp_path: Path, mutation: str) -> None:
     config = make_test_config(tmp_path)
     root = config.workspace_dir / "skills" / "skill-creator"
@@ -25,6 +25,8 @@ def test_update_restores_package_authority_and_preserves_disabled_state(tmp_path
         (root / "SKILL.md").write_text(content + "\nUser modification", encoding="utf-8")
     elif mutation == "higher-version":
         (root / "SKILL.md").write_text(content.replace("1.0.0", "999.0.0"), encoding="utf-8")
+    elif mutation == "empty-directory":
+        (root / "obsolete-empty").mkdir()
     elif mutation == "extra-file":
         (root / "obsolete.txt").write_text("remove me", encoding="utf-8")
     else:
@@ -35,6 +37,7 @@ def test_update_restores_package_authority_and_preserves_disabled_state(tmp_path
     assert result == {"installed": int(mutation == "missing"), "updated": int(mutation != "missing"), "unchanged": 5}
     assert (root / "SKILL.md").read_text(encoding="utf-8") == content
     assert not (root / "obsolete.txt").exists()
+    assert not (root / "obsolete-empty").exists()
     assert read_registry(registry)["skill-creator"].enabled is False
 
 

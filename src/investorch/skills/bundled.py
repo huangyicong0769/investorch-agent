@@ -46,8 +46,13 @@ def update_builtins(config: AppConfig) -> dict[str, int]:
         if existed:
             try:
                 current = validate_skill(target, source_type="builtin")
-                identical = current.files == skill.files and all(
-                    (target / file).read_bytes() == (path / file).read_bytes() for file in skill.files
+                same_directories = {item.relative_to(target) for item in target.rglob("*") if item.is_dir()} == {
+                    item.relative_to(path) for item in path.rglob("*") if item.is_dir()
+                }
+                identical = (
+                    same_directories
+                    and current.files == skill.files
+                    and all((target / file).read_bytes() == (path / file).read_bytes() for file in skill.files)
                 )
             except (ValueError, OSError):
                 pass
