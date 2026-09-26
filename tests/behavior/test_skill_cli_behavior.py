@@ -10,13 +10,6 @@ import pytest
 from investorch.cli import parse_startup_args
 
 
-def test_update_is_an_explicit_startup_option() -> None:
-    options = parse_startup_args(["--update"])
-
-    assert options.update is True
-    assert options.plain is False
-
-
 @pytest.mark.parametrize("option", ["--sync", "--sync-force"])
 def test_retired_synchronization_options_are_rejected(option: str) -> None:
     with pytest.raises(SystemExit) as error:

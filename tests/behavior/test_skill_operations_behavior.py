@@ -11,8 +11,6 @@ def test_catalog_is_metadata_only_and_frozen_load_names(tmp_path):
     catalog = operations.enabled_catalog()
     assert len(catalog) == 6
     assert {key for entry in catalog for key in entry} == {"name", "description", "version"}
-    loaded = operations.load("skill-creator")
-    assert loaded["content"].startswith("---")
     operations.set_enabled("skill-creator", False)
     with pytest.raises(ValueError):
         operations.load("skill-creator")

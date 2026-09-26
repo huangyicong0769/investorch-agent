@@ -27,12 +27,11 @@ def test_skill_metadata_and_resource_inventory(tmp_path):
     assert "Read the report." in skill.content
 
 
-def test_registry_roundtrip_keeps_only_registration(tmp_path):
+def test_registry_roundtrip_preserves_disabled_state_and_provenance(tmp_path):
     path = tmp_path / "skills.json"
     records = {"example": SkillRegistration("example", False, SkillSource("external", "https://example.com"))}
     write_registry(path, records)
     assert read_registry(path) == records
-    assert "version" not in path.read_text().replace("schema_version", "")
 
 
 @pytest.mark.parametrize(

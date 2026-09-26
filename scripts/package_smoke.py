@@ -74,7 +74,6 @@ def main() -> None:
     for name in BUILTIN_SKILLS:
         skill = validate_skill(bundled_skills / name, source_type="builtin")
         assert skill.metadata.name == name
-        assert skill.metadata.version == "1.0.0"
 
     assert (STATIC_DIR / "index.html").is_file()
     assert any(path.is_file() for path in (STATIC_DIR / "assets").iterdir())

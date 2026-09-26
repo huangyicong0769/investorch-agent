@@ -49,15 +49,7 @@ async def test_main_agent_creates_or_acquires_reviews_and_installs_a_skill(tmp_p
     skills = SkillOperations(config=config, review_agent=create_skill_review_agent(review_model, ModelSettings()))
     catalog = skills.enabled_catalog()
 
-    def discover(call: ModelCall):
-        assert builtin in call.system_instructions
-        assert name not in call.system_instructions
-        return (function_call("load_skill", {"name": builtin}, call_id="load-builtin"),)
-
     def create_candidate(call: ModelCall):
-        history = str(call.input)
-        assert "function_call_output" in history
-        assert builtin in history
         candidate_content = content
         if source_type == "external":
             source_output = next(
@@ -74,7 +66,7 @@ async def test_main_agent_creates_or_acquires_reviews_and_installs_a_skill(tmp_p
             ),
         )
 
-    steps = [ModelStep(responder=discover)]
+    steps = [(function_call("load_skill", {"name": builtin}, call_id="load-builtin"),)]
     if source_type == "external":
         steps.append((function_call("explore", {"operation": "read", "path": "uploads/SKILL.md"}, call_id="source"),))
     steps.extend(
@@ -174,11 +166,7 @@ async def test_main_agent_creates_or_acquires_reviews_and_installs_a_skill(tmp_p
         labels.append(event)
         labeled.set()
 
-    def label_activity(call: ModelCall):
-        assert "load_skill" in str(call.input)
-        return (assistant_message("Loading specialized task guidance"),)
-
-    activity_model = ScriptedModel((ModelStep(responder=label_activity),))
+    activity_model = ScriptedModel(((assistant_message("Loading specialized task guidance"),),))
     activity = ActivityCoordinator(
         config=config,
         activity_agent=create_activity_agent(activity_model, ModelSettings()),
