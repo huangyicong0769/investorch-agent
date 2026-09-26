@@ -323,6 +323,7 @@ class LedgerEntry:
     source: str
     payload: LedgerPayload
     external_ref: str | None = None
+    broker_account_id: str | None = None
 
     def __post_init__(self) -> None:
         _require_text(self.entry_id, "entry_id")
@@ -335,6 +336,8 @@ class LedgerEntry:
         _require_datetime(self.effective_at, "effective_at")
         _require_datetime(self.recorded_at, "recorded_at")
         _require_text(self.source, "source")
+        if self.broker_account_id is not None:
+            _require_text(self.broker_account_id, "broker_account_id")
         if self.external_ref is not None:
             _require_text(self.external_ref, "external_ref")
         if not isinstance(self.payload, _PAYLOAD_TYPES[self.entry_type]):
@@ -382,3 +385,82 @@ class PortfolioState:
             _require_decimal(amount, "cash amount")
         object.__setattr__(self, "holdings", dict(self.holdings))
         object.__setattr__(self, "cash", dict(self.cash))
+
+
+def _copy_json_metadata(value: object) -> dict[str, JsonValue]:
+    def validate(item: object) -> None:
+        if isinstance(item, dict):
+            if any(not isinstance(key, str) for key in item):
+                raise PortfolioDomainError("metadata keys must be strings")
+            for child in item.values():
+                validate(child)
+        elif isinstance(item, list):
+            for child in item:
+                validate(child)
+        elif item is not None and not isinstance(item, str | int | float | bool):
+            raise PortfolioDomainError("metadata must be JSON-compatible")
+
+    if not isinstance(value, dict):
+        raise PortfolioDomainError("metadata must be a JSON object")
+    try:
+        validate(value)
+        return json.loads(json.dumps(value, allow_nan=False))
+    except (TypeError, ValueError, RecursionError) as exc:
+        raise PortfolioDomainError("metadata must be JSON-compatible") from exc
+
+
+@dataclass(frozen=True, slots=True)
+class Broker:
+    broker_id: str
+    provider: str
+    display_name: str
+    created_at: datetime
+    updated_at: datetime
+    metadata: dict[str, JsonValue] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        for name in ("broker_id", "provider", "display_name"):
+            _require_text(getattr(self, name), name)
+        _require_datetime(self.created_at, "created_at")
+        _require_datetime(self.updated_at, "updated_at")
+        object.__setattr__(self, "metadata", _copy_json_metadata(self.metadata))
+
+
+@dataclass(frozen=True, slots=True)
+class BrokerAccount:
+    broker_account_id: str
+    broker_id: str
+    external_account_id: str
+    display_name: str
+    account_type: str
+    created_at: datetime
+    updated_at: datetime
+    metadata: dict[str, JsonValue] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        for name in ("broker_account_id", "broker_id", "external_account_id", "display_name", "account_type"):
+            _require_text(getattr(self, name), name)
+        _require_datetime(self.created_at, "created_at")
+        _require_datetime(self.updated_at, "updated_at")
+        object.__setattr__(self, "metadata", _copy_json_metadata(self.metadata))
+
+
+@dataclass(frozen=True, slots=True)
+class PortfolioAccountState:
+    portfolio_id: str
+    broker_account_id: str | None
+    holdings: dict[InstrumentId, HoldingState]
+    cash: dict[str, Decimal]
+
+    def __post_init__(self) -> None:
+        if self.broker_account_id is not None:
+            _require_text(self.broker_account_id, "broker_account_id")
+        state = PortfolioState(self.portfolio_id, self.holdings, self.cash)
+        object.__setattr__(self, "holdings", state.holdings)
+        object.__setattr__(self, "cash", state.cash)
+
+
+@dataclass(frozen=True, slots=True)
+class PortfolioStateWithAttribution:
+    aggregate: PortfolioState
+    accounts: dict[str | None, PortfolioAccountState]

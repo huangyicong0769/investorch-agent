@@ -35,11 +35,13 @@ from investorch.portfolio import (
     create_portfolio,
     get_portfolio,
     get_portfolio_state,
+    get_portfolio_state_with_attribution,
     list_ledger_entries,
     list_portfolios,
     update_portfolio_metadata,
 )
-from investorch.portfolio.domain import LedgerPayload
+from investorch.portfolio.domain import LedgerPayload, PortfolioStateWithAttribution
+from investorch.portfolio.schema import PortfolioConflictError
 
 logger = logging.getLogger(__name__)
 
@@ -83,13 +85,21 @@ class PortfolioMutationResult:
     states: dict[str, PortfolioState]
 
 
+class _AutoBrokerAccount:
+    pass
+
+
+_AUTO_BROKER_ACCOUNT = _AutoBrokerAccount()
+
+
 @dataclass(frozen=True, slots=True)
 class _EntryDraft:
     entry_id: str
     portfolio_id: str
     entry_type: LedgerEntryType
-    effective_at: datetime
+    effective_at: datetime | None
     payload: LedgerPayload
+    broker_account_id: str | _AutoBrokerAccount | None = None
 
 
 class _Unset:
@@ -405,6 +415,7 @@ class PortfolioOperations:
                     entry_type=LedgerEntryType.VOID,
                     effective_at=target.effective_at,
                     payload=Void(target_entry_id, reason),
+                    broker_account_id=target.broker_account_id,
                 ),
                 _EntryDraft(
                     entry_id=uuid.uuid4().hex,
@@ -412,6 +423,7 @@ class PortfolioOperations:
                     entry_type=replacement_type,
                     effective_at=replacement_effective_at,
                     payload=replacement_payload,
+                    broker_account_id=target.broker_account_id,
                 ),
             )
 
@@ -502,7 +514,6 @@ class PortfolioOperations:
         if source_portfolio_id == destination_portfolio_id:
             raise PortfolioOperationError("Portfolio transfer requires distinct source and destination")
         recorded_at = datetime.now(UTC)
-        effective_at = recorded_at if effective_at is None else effective_at
         operation_id = uuid.uuid4().hex
         async with self._mutation_lock:
             source_portfolio = await self.get(source_portfolio_id)
@@ -516,6 +527,7 @@ class PortfolioOperations:
                     entry_type=LedgerEntryType.TRANSFER,
                     effective_at=effective_at,
                     payload=outgoing,
+                    broker_account_id=_AUTO_BROKER_ACCOUNT,
                 ),
                 _EntryDraft(
                     entry_id=uuid.uuid4().hex,
@@ -523,6 +535,7 @@ class PortfolioOperations:
                     entry_type=LedgerEntryType.TRANSFER,
                     effective_at=effective_at,
                     payload=incoming,
+                    broker_account_id=_AUTO_BROKER_ACCOUNT,
                 ),
             )
 
@@ -562,7 +575,6 @@ class PortfolioOperations:
         external_ref: str | None,
     ) -> PortfolioMutationResult:
         recorded_at = datetime.now(UTC)
-        effective_at = recorded_at if effective_at is None else effective_at
         operation_id = uuid.uuid4().hex
         async with self._mutation_lock:
             portfolio = await self.get(portfolio_id)
@@ -574,6 +586,7 @@ class PortfolioOperations:
                     entry_type=entry_type,
                     effective_at=effective_at,
                     payload=payload_factory(portfolio),
+                    broker_account_id=_AUTO_BROKER_ACCOUNT,
                 ),
             )
 
@@ -617,12 +630,27 @@ class PortfolioOperations:
             }
             if validate is not None:
                 validate(portfolios, ledgers)
+            # Read Ledger before state: concurrent economic changes force a sequence
+            # conflict and a fresh location resolution on the next attempt.
+            locations = {}
+            for draft in drafts:
+                if isinstance(draft.broker_account_id, _AutoBrokerAccount) and draft.portfolio_id not in locations:
+                    state = await asyncio.to_thread(
+                        get_portfolio_state_with_attribution, self._config.portfolio_db, draft.portfolio_id
+                    )
+                    locations[draft.portfolio_id] = _unique_economic_location(state)
+            resolved_drafts = tuple(
+                replace(draft, broker_account_id=locations[draft.portfolio_id])
+                if isinstance(draft.broker_account_id, _AutoBrokerAccount)
+                else draft
+                for draft in drafts
+            )
             entries = _assign_sequences(
                 operation_id=operation_id,
                 recorded_at=recorded_at,
                 source=source,
                 external_ref=external_ref,
-                drafts=drafts,
+                drafts=resolved_drafts,
                 ledgers=ledgers,
             )
             try:
@@ -670,6 +698,8 @@ def _assign_sequences(
     }
     assigned: list[LedgerEntry] = []
     for draft in drafts:
+        if isinstance(draft.broker_account_id, _AutoBrokerAccount):
+            raise AssertionError("AUTO location must be resolved before sequence assignment")
         sequence = next_sequences[draft.portfolio_id]
         assigned.append(
             LedgerEntry(
@@ -678,11 +708,12 @@ def _assign_sequences(
                 portfolio_id=draft.portfolio_id,
                 sequence=sequence,
                 entry_type=draft.entry_type,
-                effective_at=draft.effective_at,
+                effective_at=recorded_at if draft.effective_at is None else draft.effective_at,
                 recorded_at=recorded_at,
                 source=source,
                 external_ref=external_ref,
                 payload=draft.payload,
+                broker_account_id=draft.broker_account_id,
             )
         )
         next_sequences[draft.portfolio_id] += 1
@@ -716,3 +747,15 @@ def _correction_target(ledger: list[LedgerEntry], target_entry_id: str) -> Ledge
     if target.entry_type is LedgerEntryType.VOID:
         raise PortfolioCorrectionError(f"correction cannot use a VOID target: {target_entry_id}")
     return target
+
+
+def _unique_economic_location(state: PortfolioStateWithAttribution) -> str | None:
+    locations = [
+        identifier
+        for identifier, account in state.accounts.items()
+        if any(holding.quantity != 0 for holding in account.holdings.values())
+        or any(amount != 0 for amount in account.cash.values())
+    ]
+    if len(locations) > 1:
+        raise PortfolioConflictError("Portfolio economic location is ambiguous across BrokerAccounts")
+    return locations[0] if locations else None

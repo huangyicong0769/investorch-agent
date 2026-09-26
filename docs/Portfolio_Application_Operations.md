@@ -2,13 +2,15 @@
 
 ## Purpose and layering
 
-A2 provides the asynchronous business/use-case API for Portfolio reads and mutations. Future Agent and UI adapters
-call `PortfolioOperations`, which validates application preconditions, constructs complete Ledger entries, and
-delegates persistence to A1. A0 remains the authority for economic validation and projection; A1 remains the
-authority for SQLite transactions, append-only history, and materialized projections.
+The application layer provides the asynchronous business/use-case API for Portfolio reads and mutations. Agent
+and UI adapters call `PortfolioOperations`, which validates application preconditions, constructs complete
+Ledger entries, and delegates storage to the persistence layer. The domain layer remains the authority for
+economic validation and projection; the persistence layer remains the authority for SQLite transactions,
+append-only history, and materialized projections.
 
-A2 exposes explicit commands for Portfolio lifecycle, initialization, trades, cash flows, income, adjustments,
-corrections, and internal transfers. It does not expose generic Ledger append or payload commands.
+The application layer exposes explicit commands for Portfolio lifecycle, initialization, trades, cash flows,
+income, adjustments, corrections, and internal transfers. It does not expose generic Ledger append or payload
+commands.
 
 ## Portfolio lifecycle
 
@@ -25,9 +27,10 @@ Initialization is a one-shot operation for an existing active Portfolio whose Le
 present, is recorded first in the Portfolio base currency, followed by opening positions in caller order. All opening
 entries commit atomically as one operation. Initialization cannot be used once any Ledger history exists.
 
-Ongoing commands record supplied business facts as typed A0 payloads: trades, signed external cash flows, income,
-position adjustments, and cash adjustments. A2 does not calculate cost basis, profit and loss, entitlement, market
-prices, or adjustment deltas; A0 validates and projects the supplied facts.
+Ongoing commands record supplied business facts as typed domain payloads: trades, signed external cash flows,
+income, position adjustments, and cash adjustments. The application layer does not calculate cost basis,
+profit and loss, entitlement, market prices, or adjustment deltas; the domain layer validates and projects the
+supplied facts.
 
 Correction is distinct from adjustment. Correcting a wrong entry appends a `VOID` for the existing non-VOID target
 and exactly one ordinary replacement entry in the same atomic operation. The original row remains immutable. Unless
@@ -36,30 +39,40 @@ uses the target's economic time.
 
 ## Atomic internal transfers
 
-Position and cash transfers are paired Portfolio-to-Portfolio commands. They append `OUT` and `IN` entries with one
-operation identity through one A1 transaction, so both sides commit or roll back together. Both Portfolios must be
-active, distinct, and use the same base currency. Position quantity and transferred cost are caller-supplied business
-facts; A2 performs no cost inference or FX conversion.
+Position and cash transfers are paired Portfolio-to-Portfolio commands. They append `OUT` and `IN` entries
+with one operation identity through one persistence transaction, so both sides commit or roll back together.
+Both Portfolios must be active, distinct, and use the same base currency. Position quantity and transferred
+cost are caller-supplied business facts; the application layer performs no cost inference or FX conversion.
 
 ## Ledger metadata and time
 
-A2 generates a random UUID identity for each Portfolio, Ledger operation, and Ledger entry. It captures one UTC
-`recorded_at` when a mutating command begins. An omitted `effective_at` defaults to that command time; an explicitly
-supplied economic time is preserved. Every entry created by one command shares its operation identity, recorded time,
-opaque non-empty source, and optional opaque external reference.
+The application layer generates a random UUID identity for each Portfolio, Ledger operation, and Ledger entry.
+It captures one UTC `recorded_at` when a mutating command begins. An omitted `effective_at` defaults to that
+command time; an explicitly supplied economic time is preserved. Every entry created by one command shares its
+operation identity, recorded time, opaque non-empty source, and optional opaque external reference.
 
-For each affected Portfolio, A2 reads the persisted Ledger and assigns new sequences immediately after its current
-maximum. Multi-entry commands receive increasing values in semantic entry order, while each Portfolio in a transfer
-has an independent sequence.
+For each affected Portfolio, the application layer reads the persisted Ledger and assigns new sequences
+immediately after its current maximum. Multi-entry commands receive increasing values in semantic entry order,
+while each Portfolio in a transfer has an independent sequence.
 
-If A1 reports that persisted append order advanced before commit, A2 re-reads every affected Ledger, changes only the
-assigned sequences, and retries the whole business operation. Operation identity, entry identities, payloads, source,
-external reference, and timestamps remain stable. Only this typed sequence conflict is retryable, for at most three
-total append attempts and without backoff; exhaustion raises a typed A2 error.
+If the persistence layer reports that persisted append order advanced before commit, the application layer
+re-reads every affected Ledger, re-resolves implicit account locations, assigns new sequences, and retries the
+whole business operation. Operation identity, entry identities, payloads, source, external reference, and
+timestamps remain stable. Only this typed sequence conflict is retryable, for at most three total append
+attempts and without backoff; exhaustion raises a typed application error.
+
+## Account location
+
+Ordinary economic commands use NULL when there is no nonzero state, inherit the unique nonzero location when there
+is one, and raise PortfolioConflictError when multiple locations have nonzero holdings or cash. Negative cash also
+counts as nonzero. Transfer endpoints resolve independently and commit atomically. Correction always preserves the
+target's location for both VOID and replacement, without ordinary location inference. Retry preserves the original
+command time even if a competing write changed the account location.
 
 ## Scope boundary
 
-A2 does not add Agent Tools, approvals or permissions, ApplicationHost wiring, Web/TUI APIs, Broker/QMT integration,
-account links or reconciliation, external-reference idempotency, target state, strategy execution, market data,
-valuation, NAV or performance persistence, tax lots, FX accounting, Ledger editing or deletion, hard Portfolio
-deletion, or a generic service, repository, command bus, or unit-of-work framework.
+The application layer does not add Agent Tools, approvals or permissions, ApplicationHost wiring, Web/TUI
+APIs, Broker/QMT connectivity, allocation workflows or reconciliation, external-reference idempotency, target
+state, strategy execution, market data, valuation, NAV or performance persistence, tax lots, FX accounting,
+Ledger editing or deletion, hard Portfolio deletion, or a generic service, repository, command bus, or
+unit-of-work framework.
