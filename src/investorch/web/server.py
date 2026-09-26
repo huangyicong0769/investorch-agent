@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 
 import uvicorn
 from agents import set_tracing_disabled
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 
 from investorch.application import open_application_host
 from investorch.config import AppConfig, load_config
@@ -58,6 +58,13 @@ def create_web_app(config: AppConfig) -> FastAPI:
             logger.info("Web application lifespan stopped")
 
     app = FastAPI(title="InvestOrch Agent", version=APPLICATION_VERSION, lifespan=lifespan)
+
+    @app.middleware("http")
+    async def image_content_security_policy(request: Request, call_next):
+        response = await call_next(request)
+        response.headers["Content-Security-Policy"] = "img-src 'self' data: https:"
+        return response
+
     app.state.host = None
     app.state.connections = None
     app.state.events = None

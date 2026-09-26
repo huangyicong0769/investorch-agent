@@ -5,6 +5,7 @@ from investorch.application.activity import ActivityLabelEvent
 from investorch.application.interaction import UserInputSubmission
 from investorch.application.presentation_state import SessionPresentationState
 from investorch.context import BackgroundJob
+from investorch.images import serialize_images
 from investorch.journal import JournalPage
 from investorch.output import serialize_output_event
 from investorch.runtime import (
@@ -51,7 +52,8 @@ def serialize_follow_up_event(event: RuntimeFollowUpEvent) -> dict[str, object]:
         "run_id": event.run_id,
         "source_run_id": event.source_run_id,
         "follow_up_id": event.follow_up_id,
-        "text": event.text,
+        "text": event.user_input.text,
+        "images": serialize_images(event.user_input.images),
         "journal_seq": event.journal_seq,
     }
 
@@ -163,7 +165,8 @@ def serialize_queue_item(item: QueuedInput) -> dict[str, object]:
     return {
         "queue_id": item.queue_id,
         "session_id": item.session_id,
-        "text": item.text,
+        "text": item.user_input.text,
+        "images": serialize_images(item.user_input.images),
         "created_at": item.created_at.isoformat(),
     }
 

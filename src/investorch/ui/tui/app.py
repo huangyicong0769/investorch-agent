@@ -28,7 +28,7 @@ from investorch.application import (
 )
 from investorch.commands import Command, dispatch_command, parse_command
 from investorch.context import AppState, TodoItem
-from investorch.images import UserInput
+from investorch.images import UserInput, input_summary
 from investorch.journal import SessionJournal, read_session_journal
 from investorch.output import OutputEvent, ToolCalled
 from investorch.runtime import (
@@ -494,7 +494,7 @@ class InvestOrchAgentTUI(App[None]):
 
         composer.clear()
         if submission.disposition == "run_started":
-            await self.query_one(ChatTimeline).add_user_message(event.text)
+            await self.query_one(ChatTimeline).add_user_message(input_summary(event.user_input))
             await self.refresh_sessions()
         self._refresh_selected_controls()
 
@@ -804,7 +804,7 @@ class InvestOrchAgentTUI(App[None]):
                 event.session_id, set()
             ):
                 return
-            await self.query_one(ChatTimeline).add_steer_message(event.text)
+            await self.query_one(ChatTimeline).add_steer_message(input_summary(event.user_input))
             if event.journal_seq is not None:
                 self._rendered_steer_seqs[event.session_id].add(event.journal_seq)
                 self._last_rendered_seq[event.session_id] = max(
@@ -818,7 +818,7 @@ class InvestOrchAgentTUI(App[None]):
         if event.kind == "queue_promoted":
             if event.journal_seq is not None and event.journal_seq <= self._last_rendered_seq.get(event.session_id, 0):
                 return
-            await self.query_one(ChatTimeline).add_user_message(event.text)
+            await self.query_one(ChatTimeline).add_user_message(input_summary(event.user_input))
             if event.journal_seq is not None:
                 self._last_rendered_seq[event.session_id] = event.journal_seq
             return
