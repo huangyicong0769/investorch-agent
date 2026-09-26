@@ -9,6 +9,7 @@ from investorch.config import load_config
 
 @dataclass(frozen=True)
 class StartupOptions:
+    update: bool = False
     plain: bool = False
 
 
@@ -22,11 +23,12 @@ def parse_startup_args(argv: list[str] | None = None) -> StartupOptions:
         description="Run InvestOrch Agent.",
         epilog="Other commands: investorch web, investorch data, investorch migrate portfolio",
     )
+    parser.add_argument("--update", action="store_true", help="Update bundled built-in Skills and exit.")
     parser.add_argument(
         "--plain", action="store_true", help="Use the verbose plain console instead of the Textual workspace."
     )
     args = parser.parse_args(argv)
-    return StartupOptions(plain=args.plain)
+    return StartupOptions(update=args.update, plain=args.plain)
 
 
 def _web_port(value: str) -> int:
@@ -75,9 +77,23 @@ def entrypoint() -> None:
         run_web_cli(sys.argv[2:])
         return
 
+    startup_options = parse_startup_args()
+    if startup_options.update:
+        from investorch.initializer import initialize
+        from investorch.skills.bundled import update_builtins
+
+        config = load_config()
+        initialize(config)
+        result = update_builtins(config)
+        print(
+            f"Built-in Skills updated: installed={result['installed']} "
+            f"updated={result['updated']} unchanged={result['unchanged']}"
+        )
+        print("Restart InvestOrch to use the updated Skill catalog.")
+        return
+
     from investorch.app import run_app
 
-    startup_options = parse_startup_args()
     asyncio.run(
         run_app(
             plain=startup_options.plain,

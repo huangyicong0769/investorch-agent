@@ -6,6 +6,7 @@ from pathlib import Path
 
 from investorch.config import AppConfig, ConfigError
 from investorch.portfolio import init_portfolio_storage
+from investorch.skills.bundled import initialize_skills
 from investorch.storage import init_session_metadata
 
 LOCAL_CONFIG_TEMPLATE = """# Local InvestOrch Agent configuration.
@@ -46,6 +47,7 @@ def initialize(config: AppConfig) -> bool:
 
     memory_template = files("investorch.resources").joinpath("MEMORY.md.template").read_text(encoding="utf-8")
     _ensure_file(config.workspace_dir / "MEMORY.md", memory_template)
+    initialize_skills(config)
 
     return root_config_created
 

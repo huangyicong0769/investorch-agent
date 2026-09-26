@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -59,3 +60,23 @@ def test_reinitialization_preserves_legacy_workspace_guides(tmp_path: Path) -> N
     initialize(config)
 
     assert legacy.read_text(encoding="utf-8") == "User-owned legacy content"
+
+
+def test_first_initialization_installs_six_enabled_builtins(tmp_path: Path) -> None:
+    config = make_test_config(tmp_path, initialize_state=False)
+
+    initialize(config)
+
+    registry = json.loads((config.state_dir / "skills.json").read_text(encoding="utf-8"))
+    expected = {
+        "skill-creator",
+        "skill-installer",
+        "investorch-configuration",
+        "investorch-portfolio",
+        "rqalpha-strategy",
+        "qmt-strategy",
+    }
+    assert set(registry["skills"]) == expected
+    for name, registration in registry["skills"].items():
+        assert registration == {"enabled": True, "source": {"type": "builtin"}}
+        assert (config.workspace_dir / "skills" / name / "SKILL.md").is_file()
