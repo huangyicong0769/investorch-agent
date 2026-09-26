@@ -4,7 +4,7 @@
 
 ## 范围
 
-本文描述 0.1.0 已实现的架构。未来产品方向记录在[产品路线图](InvestOrch_Agent_Product_Roadmap.zh-CN.md)。
+本文描述截至 0.2.0 Skill Component 的架构。未来产品方向记录在[产品路线图](InvestOrch_Agent_Product_Roadmap.zh-CN.md)。
 
 ## 系统上下文
 
@@ -97,7 +97,7 @@ Main Agent 当前获得：
 - MCP registry：`list_mcp_servers`、`configure_mcp_server`、`remove_mcp_server`；
 - 回测：`run_backtest`，以及选择原生 bundle 时的 `inspect_rqalpha_data`。
 
-Tool 直接使用 Agents SDK Tool definitions。0.1.0 没有本地 Tool framework、registry abstraction、Market Tool、Portfolio Tool、Trading Tool 或 QMT 模块。
+Tool 直接使用 Agents SDK Tool definitions。Portfolio Tool 委托 PortfolioOperations，Skill Tool 委托 SkillOperations；adapter 不直接写入持久化状态。
 
 会修改 Workspace 或执行代码的能力强制实施 Workspace 边界与审批策略。Tool failure 以明确异常返回。
 
@@ -158,9 +158,9 @@ Run 与持久化由 Application 和 Runtime 层拥有。Client command parsing �
 
 ## 当前限制
 
-0.1.0 尚未实现：
+当前 component 尚未实现：
 
-- 组合、账户、订单、持仓监控或实盘交易能力；
+- Broker 下单、账户镜像、自动持仓监控或实盘交易能力；
 - QMT Gateway 或直接 XtQuant 集成；
 - 统一投资数据层；
 - Multi-Agent 编排；

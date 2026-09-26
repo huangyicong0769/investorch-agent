@@ -4,7 +4,7 @@
 
 ## Scope
 
-This document describes the architecture implemented in 0.1.0. Future product directions are recorded in the [Product Roadmap](InvestOrch_Agent_Product_Roadmap.md).
+This document describes the architecture through the 0.2.0 Skill Component. Future product directions are recorded in the [Product Roadmap](InvestOrch_Agent_Product_Roadmap.md).
 
 ## System context
 
@@ -97,7 +97,7 @@ The Main Agent currently receives:
 - MCP registry: `list_mcp_servers`, `configure_mcp_server`, `remove_mcp_server`;
 - backtesting: `run_backtest`, and `inspect_rqalpha_data` when the native bundle is selected.
 
-Tool implementation uses Agents SDK Tool definitions directly. There is no local Tool framework, registry abstraction, Market Tool, Portfolio Tool, Trading Tool, or QMT module in 0.1.0.
+Tool implementation uses Agents SDK Tool definitions directly. Portfolio tools delegate to PortfolioOperations; Skill tools delegate to SkillOperations. Neither adapter writes persistence directly.
 
 Workspace-changing and execution capabilities enforce workspace boundaries and approval policy. Tool failures surface as explicit exceptions.
 
@@ -158,9 +158,9 @@ Run and persistence ownership stays in the application and Runtime layers. Clien
 
 ## Current limits
 
-0.1.0 does not implement:
+The current component does not implement:
 
-- portfolio, account, order, position-monitoring, or live-trading capabilities;
+- broker order execution, account mirroring, position-monitoring automation, or live trading;
 - a QMT gateway or direct XtQuant integration;
 - a unified investment data layer;
 - Multi-Agent orchestration;
