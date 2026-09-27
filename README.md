@@ -101,6 +101,8 @@ uv run investorch web
 uv run investorch web --port 8000
 ```
 
+Web conversations accept JPEG, PNG, GIF and WebP by selection, paste or drop, including image-only messages. Images stay with Session history; `explore` lets the Agent read Workspace images. External images require a click to load. Configure limits under `[images]` and restart to apply them; see the [image architecture](docs/InvestOrch_Agent_Architecture.md#image-conversation-content).
+
 The TUI is an equally supported interface:
 
 ```bash
@@ -115,7 +117,7 @@ uv run investorch --plain
 
 ## Skills
 
-Fresh initialization creates `MEMORY.md` and installs six built-in Skills under `workspace/skills/`: `skill-creator`, `skill-installer`, `investorch-configuration`, `investorch-portfolio`, `rqalpha-strategy`, and `qmt-strategy` (all version 1.0.0). Memory holds user/project context; Skills hold reusable workflows.
+Fresh initialization creates `MEMORY.md` and installs six built-in Skills under `workspace/skills/`: `skill-creator`, `skill-installer`, `investorch-configuration`, `investorch-portfolio`, `rqalpha-strategy`, and `qmt-strategy`. Memory holds user/project context; Skills hold reusable workflows.
 
 ```bash
 uv run investorch --update
@@ -260,9 +262,3 @@ InvestOrch Agent is a personal research and software project. It does not provid
 Market data, third-party data, model output, calculations, and backtests may be inaccurate, incomplete, delayed, or affected by assumptions and hindsight. Historical and backtested performance does not indicate future results.
 
 Independently verify data and outputs before acting. You are responsible for investment decisions, credentials, configuration, regulatory compliance, and any resulting gains or losses. Test with non-production accounts and environments before connecting real capital.
-
-## Images in conversations
-
-The Web composer accepts JPEG, PNG, GIF and WebP through selection, paste or drag and drop, including image-only messages. Images follow Run, Steer, Queue and Portfolio Ask and are stored inline with Session history. The Agent can read Workspace raster images with `explore`; SVG remains text for the model.
-
-`[images]` controls count, decoded byte limits and default detail; changes require restart. The Web obtains effective limits from bootstrap. Bundled defaults allow 8 images, 8 MiB each and 24 MiB total. Assistant/tool images render in the timeline with enlargement; SVG output is displayed only through `<img>`. External HTTPS images load only after a click, with no referrer. TUI/plain show placeholders. This does not add image generation or generic file uploads.

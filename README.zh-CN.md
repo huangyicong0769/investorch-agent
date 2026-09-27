@@ -101,6 +101,8 @@ uv run investorch web
 uv run investorch web --port 8000
 ```
 
+Web 对话支持选择、粘贴或拖放 JPEG、PNG、GIF、WebP，也支持纯图片消息。图片随 Session 历史保存，Agent 可通过 `explore` 读取 Workspace 图片；外部图片经点击才加载。图片限制在 `[images]` 中配置，重启生效，详见[图片架构说明](docs/InvestOrch_Agent_Architecture.zh-CN.md#对话图片内容)。
+
 TUI 是同等支持的一级界面：
 
 ```bash
@@ -115,7 +117,7 @@ uv run investorch --plain
 
 ## Skills
 
-首次初始化创建 `MEMORY.md`，并在 `workspace/skills/` 安装六个内置 Skill：`skill-creator`、`skill-installer`、`investorch-configuration`、`investorch-portfolio`、`rqalpha-strategy`、`qmt-strategy`，版本均为 1.0.0。Memory 保存用户/项目上下文，Skill 保存可复用工作流。
+首次初始化创建 `MEMORY.md`，并在 `workspace/skills/` 安装六个内置 Skill：`skill-creator`、`skill-installer`、`investorch-configuration`、`investorch-portfolio`、`rqalpha-strategy`、`qmt-strategy`。Memory 保存用户/项目上下文，Skill 保存可复用工作流。
 
 ```bash
 uv run investorch --update
@@ -260,9 +262,3 @@ InvestOrch Agent 是个人研究与软件项目，不提供投资、法律、税
 市场数据、第三方数据、模型输出、计算和回测可能不准确、不完整、存在延迟，或受到假设与事后偏差影响。历史表现和回测结果不代表未来结果。
 
 采取行动前请独立核验数据与输出。投资决策、账户凭证、系统配置、监管合规及由此产生的收益或损失均由使用者负责。连接真实资金前，请先在非生产账户和环境中测试。
-
-## 对话图片
-
-Web 输入框支持选择、粘贴、拖放 JPEG、PNG、GIF、WebP，支持纯图片消息。图片随 Run、Steer、Queue 和 Portfolio Ask 传递，并内联存入 Session 历史。Agent 使用 `explore` 读取 Workspace 光栅图片；SVG 对模型仍按文本读取。
-
-`[images]` 控制数量、解码后字节上限和默认 detail，修改后重启生效。Web 从 bootstrap 获取有效限制。内置默认允许 8 张、单张 8 MiB、总计 24 MiB。时间线显示 Assistant/Tool 图片并支持放大；SVG 输出只通过 `<img>` 显示。外部 HTTPS 图片经点击才加载，且不发送 referrer。TUI/plain 显示占位说明；不提供图片生成或通用文件上传。
