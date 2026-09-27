@@ -178,3 +178,9 @@ The application host freezes the enabled catalog and loadable names at startup. 
 Non-built-in installation validates then independently reviews the current candidate using the Permission model configuration, with no reviewer tools. PASS proceeds through normal approval, WARN requires manual approval, and BLOCK cannot install. Dedicated mutation tools change durable behavior; installed built-ins cannot be removed or Agent-replaced. Fork to customize.
 
 `investorch --update` deterministically replaces managed built-ins from the package and preserves enabled state without models, merge, backup, or dirty detection. Normal startup does not update content. Invalid/missing built-ins fail startup with update/reinstall guidance; invalid/missing custom Skills are excluded and remain inspectable. `MEMORY.md` is created only if absent; existing user files are retained.
+
+## Image conversation content
+
+`ImageContent` and immutable `UserInput(text, images)` extend existing conversation contracts. Model input always uses structured Responses content. User raster data URLs are strictly decoded and validated against magic bytes and `[images]` limits; presentation additionally accepts SVG and HTTPS. `explore(read)` returns standard SDK text/image tool outputs, which remain images through output events, Journal, REST and WebSocket. The Web shares a gated HTTPS renderer with Markdown images, uses no-referrer and an image CSP, and never proxies remote content.
+
+Main, Title and Compact use image-bearing SDK history. ReviewContext accepts image-only instruction markers; Activity uses text/count summaries. Permission does not infer authorization from an unseen image. Canonical durable copies are SDK SQLite history and JSONL Journal, without an asset subsystem.

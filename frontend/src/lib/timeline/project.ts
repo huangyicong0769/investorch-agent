@@ -1,6 +1,7 @@
-import type { JournalRecord } from '../../api/types'
+import type { ImageContent, JournalRecord } from '../../api/types'
 
 export interface TimelineUserMessageViewModel {
+  images: ImageContent[]
   type: 'user'
   id: string
   seq: number
@@ -9,6 +10,7 @@ export interface TimelineUserMessageViewModel {
 }
 
 export interface TimelineSteerViewModel {
+  images: ImageContent[]
   type: 'steer'
   id: string
   seq: number
@@ -27,6 +29,7 @@ export interface TimelineSystemViewModel {
 }
 
 export interface TimelineAssistantMessageViewModel {
+  images: ImageContent[]
   type: 'assistant_message'
   id: string
   seq: number
@@ -43,6 +46,7 @@ export interface TimelineReasoningViewModel {
 }
 
 export interface TimelineToolViewModel {
+  images: ImageContent[]
   type: 'tool'
   id: string
   seq: number
@@ -55,6 +59,7 @@ export interface TimelineToolViewModel {
 }
 
 export interface TimelineUnmatchedToolOutputViewModel {
+  images: ImageContent[]
   type: 'unmatched_tool_output'
   id: string
   seq: number
@@ -274,6 +279,7 @@ function appendTool(
     name: record.name,
     arguments: record.arguments,
     label: labels.get(record.seq) ?? null,
+    images: [],
     observation: null,
     observationSeq: null,
   }
@@ -293,6 +299,7 @@ function appendUnmatchedOutput(
     seq: record.seq,
     timestamp: record.timestamp,
     output: record.output,
+    images: record.images ?? [],
   })
   refreshActivityTitle(group)
 }
@@ -363,6 +370,7 @@ export function projectTimeline(records: readonly JournalRecord[]): TimelineView
         seq: record.seq,
         timestamp: record.timestamp,
         text: record.text,
+        images: record.images ?? [],
       })
       lastAgentChangedName = null
       continue
@@ -377,6 +385,7 @@ export function projectTimeline(records: readonly JournalRecord[]): TimelineView
         timestamp: record.timestamp,
         runId: record.run_id,
         text: record.text,
+        images: record.images ?? [],
       })
       lastAgentChangedName = null
       continue
@@ -430,6 +439,7 @@ export function projectTimeline(records: readonly JournalRecord[]): TimelineView
         seq: record.seq,
         timestamp: record.timestamp,
         text: record.text,
+        images: record.images ?? [],
       }
       activeTurn.view.content.push(message)
       finishAssistantTurn()
@@ -453,6 +463,7 @@ export function projectTimeline(records: readonly JournalRecord[]): TimelineView
     if (record.type === 'tool_output') {
       const pending = pendingTools.shift()
       if (pending) {
+        pending.images = record.images ?? []
         pending.observation = record.output
         pending.observationSeq = record.seq
       } else {

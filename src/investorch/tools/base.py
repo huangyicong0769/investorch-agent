@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import ast
+import base64
+import json
 import math
 import operator
 import shlex
@@ -12,13 +14,14 @@ from pathlib import Path
 from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
-from agents import RunContextWrapper
+from agents import RunContextWrapper, ToolOutputImage, ToolOutputText
 from agents.decorators import tool
 from agents.sandbox import Manifest
 from agents.sandbox.errors import PtySessionNotFoundError
 from agents.sandbox.sandboxes.unix_local import UnixLocalSandboxClient
 
 from investorch.context import AgentContext, BackgroundJob, ExecutionState
+from investorch.images import detect_image_media_type
 
 BACKGROUND_PID_MARKER = "__INVESTORCH_PID__="
 
@@ -210,7 +213,7 @@ def explore(
     query: str = "",
     start_line: int = 0,
     end_line: int = 0,
-) -> dict[str, Any]:
+) -> dict[str, Any] | list[ToolOutputText | ToolOutputImage]:
     """
     Explore the persistent user workspace.
 
@@ -218,10 +221,10 @@ def explore(
 
     Operations:
     - list: List the immediate entries of a directory.
-    - read: Read a UTF-8 text file.
+    - read: Read a UTF-8 text file or view a JPEG, PNG, GIF, or WebP image.
     - search: Search text content recursively below a path.
 
-    Large files are not silently truncated. Use start_line/end_line for bounded reads. Read and search limits come from the explore config section.
+    Large files are not silently truncated. Use start_line/end_line for bounded reads. Text read and search limits come from explore; image limits come from images.
 
     Args:
         operation: list, read, or search.
@@ -268,6 +271,31 @@ def explore(
 
         if not target.is_file():
             raise ValueError(f"Path is not a file: {path}")
+
+        with target.open("rb") as file:
+            header = file.read(12)
+            media_type = detect_image_media_type(header)
+            if media_type is not None:
+                limit = config["images.max_image_bytes"]
+                data = header + file.read(max(0, limit + 1 - len(header)))
+                if len(data) > limit:
+                    raise ValueError(f"Image exceeds the {limit} byte images.max_image_bytes limit")
+                image_url = f"data:{media_type};base64," + base64.b64encode(data).decode("ascii")
+                detail = config["images.default_detail"]
+                # SDK 0.22's validator predates the provider's original detail value.
+                image = (
+                    ToolOutputImage.model_construct(image_url=image_url, detail=detail)
+                    if detail == "original"
+                    else ToolOutputImage(image_url=image_url, detail=detail)
+                )
+                return [
+                    ToolOutputText(
+                        text=json.dumps(
+                            {"path": _display_path(root, target), "media_type": media_type, "bytes": len(data)}
+                        )
+                    ),
+                    image,
+                ]
 
         return _read_text_file(
             root=root,

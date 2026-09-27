@@ -24,6 +24,7 @@ import type { PendingDirectMessage } from '../conversation/interaction'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { ActivityGroup } from './ActivityGroup'
+import { MessageImages } from '../images/MessageImages'
 import { MarkdownMessage } from './MarkdownMessage'
 
 interface ConversationTimelineProps {
@@ -51,7 +52,7 @@ function AssistantTurn({ turn }: { turn: TimelineAssistantTurnViewModel }) {
           content.type === 'activity' ? (
             <ActivityGroup group={content} key={content.id} />
           ) : (
-            <MarkdownMessage key={content.id} text={content.text} />
+            <Fragment key={content.id}><MarkdownMessage text={content.text} /><MessageImages images={content.images} fallbackLabel="Assistant image" /></Fragment>
           ),
         )}
       </div>
@@ -68,7 +69,8 @@ function TimelineItem({ item }: { item: TimelineViewModel }) {
             {item.type === 'steer' ? 'You · Steer' : 'You'} ·{' '}
             <time dateTime={item.timestamp}>{formatTimelineTime(item.timestamp)}</time>
           </div>
-          <p className="whitespace-pre-wrap break-words rounded-2xl bg-muted px-4 py-3 text-sm leading-6">{item.text}</p>
+          {item.text ? <p className="whitespace-pre-wrap break-words rounded-2xl bg-muted px-4 py-3 text-sm leading-6">{item.text}</p> : null}
+          <MessageImages images={item.images} />
         </div>
       </article>
     )
@@ -142,9 +144,10 @@ function PendingDirectBubble({ message }: { message: PendingDirectMessage }) {
     <article className="flex justify-end py-3" data-pending="true">
       <div className="max-w-[85%]">
         <div className="mb-1 text-right text-xs font-medium text-muted-foreground">You · Sending…</div>
-        <p className="whitespace-pre-wrap break-words rounded-2xl bg-muted px-4 py-3 text-sm leading-6">
+        {message.text ? <p className="whitespace-pre-wrap break-words rounded-2xl bg-muted px-4 py-3 text-sm leading-6">
           {message.text}
-        </p>
+        </p> : null}
+        <MessageImages images={message.images} />
       </div>
     </article>
   )
@@ -206,6 +209,8 @@ export function ConversationTimeline({
         (record) =>
           record.type === 'user_message' &&
           record.text === pendingMessage.text &&
+          (record.images ?? []).length === pendingMessage.images.length &&
+          (record.images ?? []).every((image, index) => image.image_url === pendingMessage.images[index].image_url) &&
           (pendingMessage.baseNewestSeq === null || record.seq > pendingMessage.baseNewestSeq),
       ),
     [canonicalRecords, pendingMessage],
@@ -230,6 +235,7 @@ export function ConversationTimeline({
               timestamp: pendingMessage.submittedAt,
               type: 'user_message',
               text: pendingMessage.text,
+              images: pendingMessage.images,
             },
           ]
         : records,

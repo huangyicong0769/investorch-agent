@@ -6,6 +6,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Literal
 
 from investorch.context import TodoItem
+from investorch.images import UserInput
 from investorch.output import OutputEvent
 
 if TYPE_CHECKING:
@@ -29,7 +30,7 @@ class RunOptions:
 class ActiveRun:
     run_id: str
     session_id: str
-    user_input: str
+    user_input: UserInput | None
     options: RunOptions
     started_at: datetime
     task: asyncio.Task[AgentRunResult]
@@ -54,19 +55,27 @@ class PendingSteer:
     steer_id: str
     session_id: str
     source_run_id: str
-    text: str
+    user_input: UserInput
     options: RunOptions
     created_at: datetime
     journal_seq: int | None = None
+
+    @property
+    def text(self) -> str:
+        return self.user_input.text
 
 
 @dataclass(frozen=True, slots=True)
 class QueuedInput:
     queue_id: str
     session_id: str
-    text: str
+    user_input: UserInput
     options: RunOptions
     created_at: datetime
+
+    @property
+    def text(self) -> str:
+        return self.user_input.text
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,8 +93,12 @@ class RuntimeFollowUpEvent:
     run_id: str
     source_run_id: str
     follow_up_id: str
-    text: str
+    user_input: UserInput
     journal_seq: int | None
+
+    @property
+    def text(self) -> str:
+        return self.user_input.text
 
 
 @dataclass(frozen=True, slots=True)

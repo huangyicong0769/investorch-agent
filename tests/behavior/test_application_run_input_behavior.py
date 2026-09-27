@@ -9,6 +9,7 @@ from agents.testing import ScriptedModel, assistant_message
 from investorch.agents import AgentLoop, ApprovalOutcome, TokenUsage
 from investorch.application import PortfolioOperations
 from investorch.context import AgentContext, ExecutionState
+from investorch.images import ImageContent, UserInput, user_input_to_response_item
 from investorch.journal import read_session_journal
 from investorch.output import OutputEvent
 from investorch.runtime.control import RunControl
@@ -18,7 +19,20 @@ from tests.support.runtime import make_runtime_harness, run_options
 
 
 @pytest.mark.asyncio
-async def test_agent_loop_keeps_application_context_separate_from_visible_user_input(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "user_input",
+    [
+        UserInput("Why is the cost unknown?"),
+        UserInput("", (ImageContent("data:image/png;base64,iVBORw0KGgo="),)),
+        UserInput(
+            "Compare these",
+            (ImageContent("data:image/png;base64,iVBORw0KGgo="), ImageContent("data:image/gif;base64,R0lGODlh")),
+        ),
+    ],
+)
+async def test_agent_loop_keeps_application_context_separate_from_visible_user_input(
+    tmp_path: Path, user_input: UserInput
+) -> None:
     config = make_test_config(tmp_path)
     create_session(config.sessions_db, "session-a")
     set_session_title(config.sessions_db, "session-a", "Test")
@@ -36,7 +50,7 @@ async def test_agent_loop_keeps_application_context_separate_from_visible_user_i
 
     try:
         await loop.run(
-            "Why is the cost unknown?",
+            user_input,
             session,
             ExecutionState(workspace_root=config.workspace_dir),
             run_id="run-a",
@@ -55,7 +69,7 @@ async def test_agent_loop_keeps_application_context_separate_from_visible_user_i
         "role": "developer",
         "content": "The selected Portfolio ID is portfolio-a. This establishes identity only.",
     }
-    assert history[1] == {"role": "user", "content": "Why is the cost unknown?"}
+    assert history[1] == user_input_to_response_item(user_input)
     model.assert_complete()
 
 

@@ -25,6 +25,7 @@ from investorch.agents import (
 from investorch.agents.skill_review import create_skill_review_agent
 from investorch.config import AppConfig
 from investorch.context import AppState, ExecutionState
+from investorch.images import UserInput
 from investorch.journal import SessionJournal
 from investorch.mcp import load_mcp_servers as load_configured_mcp_servers
 from investorch.runtime import (
@@ -179,11 +180,11 @@ async def open_application_host(
         permission_mode=config["permission.mode"],
     )
 
-    async def record_user_message(session_id: str, text: str) -> int:
-        return await journal.record_user_message(session_id, text)
+    async def record_user_message(session_id: str, user_input: UserInput) -> int:
+        return await journal.record_user_message(session_id, user_input)
 
-    async def record_user_steer(session_id: str, run_id: str, text: str) -> int:
-        return await journal.record_user_steer(session_id, run_id, text)
+    async def record_user_steer(session_id: str, run_id: str, user_input: UserInput) -> int:
+        return await journal.record_user_steer(session_id, run_id, user_input)
 
     async def record_user_steers_activated(session_id: str, run_id: str, steer_seqs: tuple[int, ...]) -> int:
         return await journal.record_user_steers_activated(session_id, run_id, steer_seqs)

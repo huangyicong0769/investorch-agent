@@ -9,6 +9,7 @@ from agents import Agent
 
 from investorch.agents import TokenUsage, generate_activity_label
 from investorch.config import AppConfig
+from investorch.images import input_summary
 from investorch.journal import SessionJournal
 from investorch.output import Reasoning, ToolCalled
 from investorch.runtime import AgentRuntime, RuntimeOutput
@@ -65,7 +66,11 @@ class ActivityCoordinator:
         if journal_seq is None:
             return
         active_run = self._runtime.get_active_run(output.session_id)
-        user_message = active_run.user_input if active_run is not None and active_run.run_id == output.run_id else ""
+        user_message = (
+            input_summary(active_run.user_input)
+            if active_run is not None and active_run.run_id == output.run_id and active_run.user_input is not None
+            else ""
+        )
         task = asyncio.create_task(
             self._generate_label(
                 output=output,

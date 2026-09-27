@@ -9,6 +9,8 @@ from datetime import UTC, datetime
 
 from agents import RunResultStreaming
 
+from investorch.images import UserInput
+
 from .models import PendingSteer, RunOptions
 
 
@@ -47,14 +49,14 @@ class RunControl:
         self._bound_stream = None
         self._after_turn_requested = False
 
-    def reserve_steer(self, text: str, options: RunOptions) -> PendingSteer:
+    def reserve_steer(self, user_input: UserInput | str, options: RunOptions) -> PendingSteer:
         if not self._accepting_submissions:
             raise RuntimeError("Run no longer accepts follow-up submissions")
         steer = PendingSteer(
             steer_id=uuid.uuid4().hex,
             session_id=self._session_id,
             source_run_id=self._run_id,
-            text=text,
+            user_input=UserInput(user_input) if isinstance(user_input, str) else user_input,
             options=options,
             created_at=datetime.now(UTC),
         )

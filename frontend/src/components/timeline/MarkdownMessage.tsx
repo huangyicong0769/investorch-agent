@@ -3,6 +3,7 @@ import { isValidElement } from 'react'
 import Markdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
+import { MessageImage } from '../images/MessageImages'
 import { CopyButton } from './CopyButton'
 
 interface MarkdownMessageProps {
@@ -24,6 +25,9 @@ function textFromNode(node: ReactNode): string {
 }
 
 const markdownComponents: Components = {
+  img({ src, alt }) {
+    return typeof src === 'string' ? <MessageImage fallbackLabel="Assistant image" image={{ image_url: src, filename: alt, detail: 'auto' }} /> : null
+  },
   a({ node: _node, ...props }) {
     void _node
     return <a {...props} rel="noopener noreferrer" target="_blank" />

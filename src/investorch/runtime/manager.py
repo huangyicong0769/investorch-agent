@@ -19,6 +19,7 @@ from investorch.agents import (
     CompactionResult,
 )
 from investorch.context import ExecutionState, TodoItem
+from investorch.images import UserInput, input_summary
 from investorch.output import OutputEvent
 
 from .control import RunControl
@@ -40,8 +41,8 @@ logger = logging.getLogger(__name__)
 
 RuntimeOutputHandler = Callable[[RuntimeOutput], Awaitable[None]]
 RuntimeApprovalHandler = Callable[[ApprovalRequest], Awaitable[ApprovalOutcome]]
-RecordUserMessage = Callable[[str, str], Awaitable[int]]
-RecordUserSteer = Callable[[str, str, str], Awaitable[int]]
+RecordUserMessage = Callable[[str, UserInput], Awaitable[int]]
+RecordUserSteer = Callable[[str, str, UserInput], Awaitable[int]]
 RecordUserSteersActivated = Callable[[str, str, tuple[int, ...]], Awaitable[int]]
 RecordUserSteersDiscarded = Callable[[str, str, tuple[int, ...]], Awaitable[int]]
 RuntimeStateHandler = Callable[[RuntimeSessionSnapshot], None]
@@ -127,18 +128,19 @@ class AgentRuntime:
         self._maintenance_sessions: set[str] = set()
         self._closed = False
 
-    def start_run(self, session_id: str, user_input: str, options: RunOptions) -> ActiveRun:
-        return self._start_run(session_id, user_input, options)
+    def start_run(self, session_id: str, user_input: UserInput | str, options: RunOptions) -> ActiveRun:
+        return self._start_run(
+            session_id, UserInput(user_input) if isinstance(user_input, str) else user_input, options
+        )
 
     def start_contextual_run(
         self,
         session_id: str,
-        user_input: str,
+        user_input: UserInput | str,
         application_instruction: str,
         options: RunOptions,
     ) -> ActiveRun:
-        if not user_input.strip():
-            raise ValueError("User input must not be empty")
+        user_input = UserInput(user_input) if isinstance(user_input, str) else user_input
         if not application_instruction.strip():
             raise ValueError("Application instruction must not be empty")
         return self._start_run(
@@ -159,7 +161,7 @@ class AgentRuntime:
         start_gate = asyncio.Event()
         active_run = self._start_run(
             session_id,
-            "",
+            None,
             options,
             record_user_message=False,
             start_gate=start_gate,
@@ -172,7 +174,7 @@ class AgentRuntime:
     def _start_run(
         self,
         session_id: str,
-        user_input: str,
+        user_input: UserInput | None,
         options: RunOptions,
         *,
         record_user_message: bool = True,
@@ -268,17 +270,22 @@ class AgentRuntime:
             return bool(self._queued_by_session.get(session_id))
         return any(self._queued_by_session.values())
 
-    async def submit_follow_up(self, session_id: str, text: str, next_run_options: RunOptions) -> FollowUpSubmission:
+    async def submit_follow_up(
+        self, session_id: str, user_input: UserInput | str, next_run_options: RunOptions
+    ) -> FollowUpSubmission:
+        user_input = UserInput(user_input) if isinstance(user_input, str) else user_input
         task = asyncio.current_task()
         if task is None:
             raise RuntimeError("Follow-up submission requires an asyncio task")
         self._submission_tasks.add(task)
         try:
-            return await self._submit_follow_up(session_id, text, next_run_options)
+            return await self._submit_follow_up(session_id, user_input, next_run_options)
         finally:
             self._submission_tasks.discard(task)
 
-    async def _submit_follow_up(self, session_id: str, text: str, next_run_options: RunOptions) -> FollowUpSubmission:
+    async def _submit_follow_up(
+        self, session_id: str, user_input: UserInput | str, next_run_options: RunOptions
+    ) -> FollowUpSubmission:
         if self._closed:
             raise RuntimeError("Agent runtime is closed")
         active_run = self._active_by_session.get(session_id)
@@ -286,8 +293,6 @@ class AgentRuntime:
             raise SessionBusyError(f"Session {session_id} does not have an active Agent run")
         if active_run.phase == "stopping":
             raise SessionBusyError(f"Session {session_id} Agent run is stopping and cannot accept follow-up input")
-        if not text.strip():
-            raise ValueError("Follow-up text must not be empty")
         input_journal = self._input_journal_by_run[active_run.run_id]
         await input_journal.wait()
         if self._closed or self._active_by_session.get(session_id) is not active_run or active_run.phase == "stopping":
@@ -297,7 +302,7 @@ class AgentRuntime:
             queued_input = QueuedInput(
                 queue_id=uuid.uuid4().hex,
                 session_id=session_id,
-                text=text,
+                user_input=user_input,
                 options=next_run_options,
                 created_at=datetime.now(UTC),
             )
@@ -310,7 +315,7 @@ class AgentRuntime:
                     run_id=active_run.run_id,
                     source_run_id=active_run.run_id,
                     follow_up_id=queued_input.queue_id,
-                    text=text,
+                    user_input=user_input,
                     journal_seq=None,
                 )
             )
@@ -328,10 +333,10 @@ class AgentRuntime:
             )
 
         control = self._controls_by_run[active_run.run_id]
-        steer = control.reserve_steer(text, next_run_options)
+        steer = control.reserve_steer(user_input, next_run_options)
         try:
             journal_seq, cancellation = await _await_journal_write(
-                self._record_user_steer(session_id, active_run.run_id, text)
+                self._record_user_steer(session_id, active_run.run_id, user_input)
             )
         except BaseException:
             control.discard_submission(steer.steer_id)
@@ -354,7 +359,7 @@ class AgentRuntime:
                     run_id=active_run.run_id,
                     source_run_id=active_run.run_id,
                     follow_up_id=steer.steer_id,
-                    text=text,
+                    user_input=user_input,
                     journal_seq=journal_seq,
                 )
             )
@@ -501,7 +506,7 @@ class AgentRuntime:
         self,
         run_id: str,
         session_id: str,
-        user_input: str,
+        user_input: UserInput | None,
         options: RunOptions,
         run_control: RunControl,
         input_journal: _InputJournalBarrier,
@@ -539,7 +544,7 @@ class AgentRuntime:
                         approval_id=uuid.uuid4().hex,
                         run_id=run_id,
                         session_id=session_id,
-                        user_input=user_input,
+                        user_input=input_summary(user_input) if user_input is not None else "",
                         permission_mode=options.permission_mode,
                         tool_name=tool_name,
                         arguments=arguments,
@@ -585,6 +590,7 @@ class AgentRuntime:
                 await start_gate.wait()
             session = SQLiteSession(session_id, self._sessions_db)
             if record_user_message:
+                assert user_input is not None
                 instruction_head_seq = await self._record_user_message(session_id, user_input)
                 input_journal.succeed(instruction_head_seq)
             else:
@@ -745,7 +751,7 @@ class AgentRuntime:
         try:
             active_run = self._start_run(
                 session_id,
-                steer.text,
+                steer.user_input,
                 steer.options,
                 record_user_message=False,
                 start_gate=start_gate,
@@ -804,7 +810,7 @@ class AgentRuntime:
                     run_id=active_run.run_id,
                     source_run_id=steer.source_run_id,
                     follow_up_id=steer.steer_id,
-                    text=steer.text,
+                    user_input=steer.user_input,
                     journal_seq=steer.journal_seq,
                 )
             )
@@ -848,7 +854,7 @@ class AgentRuntime:
         try:
             active_run = self._start_run(
                 session_id,
-                queued_input.text,
+                queued_input.user_input,
                 queued_input.options,
                 record_user_message=False,
                 start_gate=start_gate,
@@ -862,7 +868,7 @@ class AgentRuntime:
         await asyncio.sleep(0)
         try:
             journal_seq, cancellation = await _await_journal_write(
-                self._record_user_message(session_id, queued_input.text)
+                self._record_user_message(session_id, queued_input.user_input)
             )
         except BaseException as error:
             input_journal.fail(error)
@@ -899,7 +905,7 @@ class AgentRuntime:
                     run_id=active_run.run_id,
                     source_run_id=active_run.run_id,
                     follow_up_id=queued_input.queue_id,
-                    text=queued_input.text,
+                    user_input=queued_input.user_input,
                     journal_seq=journal_seq,
                 )
             )

@@ -13,6 +13,7 @@ from investorch.application import (
 from investorch.commands import dispatch_command, parse_command
 from investorch.config import AppConfig, load_config
 from investorch.context import AppState
+from investorch.images import UserInput
 from investorch.initializer import initialize
 from investorch.log import configure_logging
 from investorch.runtime import (
@@ -54,7 +55,7 @@ async def _run_console(state: AppState, runtime: AgentRuntime, sessions: Session
             continue
         active_run = runtime.start_run(
             session_id,
-            user_input,
+            UserInput(user_input),
             RunOptions(
                 reasoning_effort=state.main_reasoning_effort,
                 permission_mode=state.permission_mode,

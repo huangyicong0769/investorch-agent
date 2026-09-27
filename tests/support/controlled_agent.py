@@ -4,6 +4,7 @@ import asyncio
 from dataclasses import dataclass, field
 
 from investorch.agents import AgentRunResult, CompactionResult, TokenUsage
+from investorch.images import UserInput
 from investorch.output import AssistantMessage
 
 
@@ -13,6 +14,7 @@ class _ControlledRun:
     run_id: str
     user_input: str
     application_instruction: str | None
+    structured_input: UserInput | None
     release: asyncio.Event = field(default_factory=asyncio.Event)
 
 
@@ -24,11 +26,14 @@ class ControlledAgentLoop:
         self._runs: list[_ControlledRun] = []
         self._failing_inputs: set[str] = set()
 
-    async def run(self, user_input: str, _session: object, _execution: object, **kwargs: object) -> AgentRunResult:
+    async def run(
+        self, user_input: UserInput | None, _session: object, _execution: object, **kwargs: object
+    ) -> AgentRunResult:
         run = _ControlledRun(
             session_id=str(kwargs["session_id"]),
             run_id=str(kwargs["run_id"]),
-            user_input=user_input,
+            user_input=user_input.text if user_input is not None else "",
+            structured_input=user_input,
             application_instruction=(
                 str(kwargs["application_instruction"]) if kwargs.get("application_instruction") is not None else None
             ),
@@ -38,11 +43,13 @@ class ControlledAgentLoop:
             self._condition.notify_all()
 
         output_handler = kwargs["output_handler"]
-        await output_handler(AssistantMessage(text=f"started: {user_input}"))
+        await output_handler(AssistantMessage(text=f"started: {run.user_input}"))
         await run.release.wait()
-        if user_input in self._failing_inputs:
+        if run.user_input in self._failing_inputs:
             raise RuntimeError("controlled Agent failure")
-        return AgentRunResult(output=f"completed: {user_input}", main_usage=TokenUsage(), auxiliary_usage=TokenUsage())
+        return AgentRunResult(
+            output=f"completed: {run.user_input}", main_usage=TokenUsage(), auxiliary_usage=TokenUsage()
+        )
 
     async def compact(self, _session: object) -> CompactionResult:
         return CompactionResult(changed=False, usage=TokenUsage(), source_items=0, summary_chars=0)

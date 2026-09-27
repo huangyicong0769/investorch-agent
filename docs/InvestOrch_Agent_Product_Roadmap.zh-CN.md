@@ -45,8 +45,10 @@ InvestOrch Agent 的目标是成为面向个人投资者的本地优先、human-
 | --- | --- | --- |
 | 0.2.0.A | 完成 | Portfolio/User domain |
 | Transition | 当前 feature base 已完成 | Portfolio schema v6 与旧 live schema 退役 |
-| 0.2.0.B | 当前 | Skill Component 与六个内置工作流 |
-| 0.2.0.C | 下一步 | QMT 策略编写质量与人工大 QMT 部署 |
+| 0.2.0.B | 完成 | Skill Component 与六个内置工作流 |
+| 0.2.0.C | 当前 | Multimodal Image Support（多模态图片支持） |
+| Release | 下一步 | 0.2.0 hardening |
+| QMT 策略 qualification | 支线；无承诺排期 | Agent 编写策略与人工大 QMT 部署 |
 | 旧 direct QMT live execution | 阻塞 / 已归档 | 可行性工作，不是受支持的执行路径 |
 
 当前 QMT 路线是 Agent 生成策略产物 → 人工审查 → 人工在大 QMT 部署/运行。Skill 基础设施不恢复 Gateway、远程执行、下单桥接、实盘 Broker、账户镜像或自动结算对账。

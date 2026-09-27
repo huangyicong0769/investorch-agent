@@ -133,9 +133,12 @@ def _prepare_records(records: list[dict[str, object]], instruction_head_seq: int
 
 def _instruction_text(record: dict[str, object]) -> str:
     text = record.get("text")
-    if not isinstance(text, str) or not text.strip():
-        raise ReviewContextError("Durable user instruction text is missing or empty")
-    return text
+    if isinstance(text, str) and text.strip():
+        return text
+    images = record.get("images")
+    if isinstance(text, str) and isinstance(images, list) and images:
+        return f"[{len(images)} images attached]"
+    raise ReviewContextError("Durable user instruction text is missing or empty")
 
 
 def _apply_disposition(

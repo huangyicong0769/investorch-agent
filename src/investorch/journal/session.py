@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Literal
 from zoneinfo import ZoneInfo
 
+from investorch.images import UserInput, serialize_images
 from investorch.output import OutputEvent, serialize_output_event
 
 
@@ -47,11 +48,21 @@ class SessionJournal:
         if os.name == "posix":
             self._directory.chmod(0o700)
 
-    async def record_user_message(self, session_id: str, text: str) -> int:
-        return await self._record(session_id, {"type": "user_message", "text": text})
+    async def record_user_message(self, session_id: str, user_input: UserInput | str) -> int:
+        return await self._record(session_id, {"type": "user_message", **self._input_fields(user_input)})
 
-    async def record_user_steer(self, session_id: str, run_id: str, text: str) -> int:
-        return await self._record(session_id, {"type": "user_steer", "run_id": run_id, "text": text})
+    async def record_user_steer(self, session_id: str, run_id: str, user_input: UserInput | str) -> int:
+        return await self._record(
+            session_id, {"type": "user_steer", "run_id": run_id, **self._input_fields(user_input)}
+        )
+
+    @staticmethod
+    def _input_fields(user_input: UserInput | str) -> dict[str, object]:
+        user_input = UserInput(user_input) if isinstance(user_input, str) else user_input
+        fields: dict[str, object] = {"text": user_input.text}
+        if user_input.images:
+            fields["images"] = serialize_images(user_input.images)
+        return fields
 
     async def record_user_steers_activated(
         self,
