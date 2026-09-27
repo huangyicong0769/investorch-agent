@@ -101,6 +101,8 @@ uv run investorch web
 uv run investorch web --port 8000
 ```
 
+Web 对话支持选择、粘贴或拖放 JPEG、PNG、GIF、WebP，也支持纯图片消息。图片随 Session 历史保存，Agent 可通过 `explore` 读取 Workspace 图片；外部图片经点击才加载。图片限制在 `[images]` 中配置，重启生效，详见[图片架构说明](docs/InvestOrch_Agent_Architecture.zh-CN.md#对话图片内容)。
+
 TUI 是同等支持的一级界面：
 
 ```bash
@@ -115,7 +117,7 @@ uv run investorch --plain
 
 ## Skills
 
-首次初始化创建 `MEMORY.md`，并在 `workspace/skills/` 安装六个内置 Skill：`skill-creator`、`skill-installer`、`investorch-configuration`、`investorch-portfolio`、`rqalpha-strategy`、`qmt-strategy`，版本均为 1.0.0。Memory 保存用户/项目上下文，Skill 保存可复用工作流。
+首次初始化创建 `MEMORY.md`，并在 `workspace/skills/` 安装六个内置 Skill：`skill-creator`、`skill-installer`、`investorch-configuration`、`investorch-portfolio`、`rqalpha-strategy`、`qmt-strategy`。Memory 保存用户/项目上下文，Skill 保存可复用工作流。
 
 ```bash
 uv run investorch --update

@@ -101,6 +101,8 @@ uv run investorch web
 uv run investorch web --port 8000
 ```
 
+Web conversations accept JPEG, PNG, GIF and WebP by selection, paste or drop, including image-only messages. Images stay with Session history; `explore` lets the Agent read Workspace images. External images require a click to load. Configure limits under `[images]` and restart to apply them; see the [image architecture](docs/InvestOrch_Agent_Architecture.md#image-conversation-content).
+
 The TUI is an equally supported interface:
 
 ```bash
@@ -115,7 +117,7 @@ uv run investorch --plain
 
 ## Skills
 
-Fresh initialization creates `MEMORY.md` and installs six built-in Skills under `workspace/skills/`: `skill-creator`, `skill-installer`, `investorch-configuration`, `investorch-portfolio`, `rqalpha-strategy`, and `qmt-strategy` (all version 1.0.0). Memory holds user/project context; Skills hold reusable workflows.
+Fresh initialization creates `MEMORY.md` and installs six built-in Skills under `workspace/skills/`: `skill-creator`, `skill-installer`, `investorch-configuration`, `investorch-portfolio`, `rqalpha-strategy`, and `qmt-strategy`. Memory holds user/project context; Skills hold reusable workflows.
 
 ```bash
 uv run investorch --update

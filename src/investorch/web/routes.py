@@ -6,9 +6,15 @@ from importlib.metadata import version
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Query, Request
-from pydantic import BaseModel, ConfigDict, StrictBool
+from pydantic import BaseModel, ConfigDict, Field, StrictBool
 
 from investorch.application import ApplicationHost, submit_user_input
+from investorch.images import (
+    ACCEPTED_INPUT_MIME_TYPES,
+    RENDERABLE_MIME_TYPES,
+    ImageDetail,
+    normalize_user_input,
+)
 from investorch.journal import JournalPage, read_session_journal_page
 from investorch.portfolio import PortfolioNotFoundError
 from investorch.portfolio_presentation import (
@@ -45,17 +51,24 @@ PermissionMode = Literal["manual", "review"]
 FollowUpBehavior = Literal["steer", "queue"]
 
 
+class ImageInputRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    image_url: str
+    detail: ImageDetail | None = None
+    filename: str | None = None
+    media_type: str | None = None
+
+
 class SendMessageRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    text: str
+    text: str = ""
+    images: list[ImageInputRequest] = Field(default_factory=list)
 
 
-class AskPortfolioRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
+class AskPortfolioRequest(SendMessageRequest):
     request_id: str
-    text: str
 
 
 class StartPortfolioSessionRequest(BaseModel):
@@ -187,6 +200,14 @@ async def bootstrap(host: Host, broker: Broker) -> dict[str, object]:
             "context_window_tokens": host.config.model("main").context_window_tokens,
             "defaults": _serialize_defaults(host),
             "web_config": _serialize_web_config(host),
+            "image_config": {
+                key: host.config[f"images.{key}"]
+                for key in ("max_images_per_input", "max_image_bytes", "max_total_image_bytes", "default_detail")
+            }
+            | {
+                "accepted_input_mime_types": list(ACCEPTED_INPUT_MIME_TYPES),
+                "renderable_mime_types": list(RENDERABLE_MIME_TYPES),
+            },
             "sessions": [serialize_session_record(record) for record in records],
             "runtime": (
                 serialize_runtime_snapshot(host.runtime.session_snapshot(initial_session_id))
@@ -266,12 +287,16 @@ async def ask_portfolio_agent(
 ) -> dict[str, object]:
     if not request.request_id.strip():
         raise APIError(400, "invalid_request_id", "Request ID must not be empty.")
-    if not request.text.strip():
-        raise APIError(400, "invalid_message", "Message text must not be empty.")
+    try:
+        user_input = normalize_user_input(
+            request.text, [image.model_dump(exclude_none=True) for image in request.images], host.config
+        )
+    except ValueError as error:
+        raise APIError(400, "invalid_message", str(error)) from None
     try:
         result = await host.portfolio_sessions.ask_agent(
             portfolio_id=portfolio_id,
-            text=request.text,
+            user_input=user_input,
             request_id=request.request_id,
         )
     except PortfolioNotFoundError as error:
@@ -392,11 +417,15 @@ async def rename_session(request: RenameSessionRequest, session: Session, host: 
 
 @router.post("/sessions/{session_id}/messages")
 async def send_message(request: SendMessageRequest, session: Session, host: Host) -> dict[str, object]:
-    if not request.text.strip():
-        raise APIError(400, "invalid_message", "Message text must not be empty.")
+    try:
+        user_input = normalize_user_input(
+            request.text, [image.model_dump(exclude_none=True) for image in request.images], host.config
+        )
+    except ValueError as error:
+        raise APIError(400, "invalid_message", str(error)) from None
     try:
         submission = await submit_user_input(
-            state=host.state, runtime=host.runtime, session_id=session.session_id, text=request.text
+            state=host.state, runtime=host.runtime, session_id=session.session_id, user_input=user_input
         )
     except Exception as error:
         raise_application_error(error)

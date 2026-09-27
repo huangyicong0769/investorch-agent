@@ -321,3 +321,21 @@ async def test_review_compaction_failure_falls_back_without_running_reviewer(tmp
     assert outcome.approved is False
     assert manual_reasons == ["AutoReview is unavailable; manual approval is required."]
     assert review_model.calls == ()
+
+
+@pytest.mark.asyncio
+async def test_image_only_instructions_are_available_without_copying_payload(tmp_path: Path) -> None:
+    from investorch.images import ImageContent, UserInput
+
+    config = make_test_config(tmp_path)
+    journal = SessionJournal(config.session_journal_dir, ZoneInfo("UTC"))
+    image = ImageContent("data:image/png;base64,iVBORw0KGgo=")
+    head = await journal.record_user_message("images", UserInput("", (image,)))
+    prepared = await ReviewContext(config=config).prepare("images", head)
+    assert prepared.instruction_count == 1
+    assert prepared.text.strip()
+    assert image.image_url not in prepared.text
+    head = await journal.record_user_message("images", UserInput("Do not place orders", (image,)))
+    prepared = await ReviewContext(config=config).prepare("images", head)
+    assert "Do not place orders" in prepared.text
+    assert image.image_url not in prepared.text

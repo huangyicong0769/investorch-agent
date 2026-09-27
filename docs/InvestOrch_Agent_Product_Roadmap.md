@@ -45,8 +45,10 @@ Version 0.1.0 includes:
 | --- | --- | --- |
 | 0.2.0.A | Complete | Portfolio/User domain |
 | Transition | Complete on feature base | Portfolio schema v6 and legacy live schema retirement |
-| 0.2.0.B | Current | Skill Component and six built-in workflows |
-| 0.2.0.C | Next | QMT strategy authoring quality and human Big QMT deployment |
+| 0.2.0.B | Complete | Skill Component and six built-in workflows |
+| 0.2.0.C | Current | Multimodal Image Support |
+| Release | Next | 0.2.0 hardening |
+| QMT strategy qualification | Side track; no committed schedule | Agent-authored strategies and human Big QMT deployment |
 | Old direct QMT live execution | Blocked / archived | Feasibility work; not a supported execution route |
 
 The current QMT route is Agent-generated strategy artifact → human review → human deployment/run in Big QMT. Skill infrastructure does not restore a gateway, remote execution, order bridge, live broker, account mirror, or automatic settlement reconciliation.

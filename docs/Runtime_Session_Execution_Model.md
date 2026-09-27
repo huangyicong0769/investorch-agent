@@ -147,3 +147,9 @@ Normal client exit is blocked while active Runs or queued follow-ups remain. Def
 ## Current limits
 
 0.1.0 does not persist active Runs, pending Steer, Queue state, Todo, pending approvals, usage display state, or UI state across process restarts. All Sessions share one workspace and managed-job registry. There is no historical-turn branching, per-Session workspace, distributed scheduler, or cross-process Runtime recovery.
+
+## Image input and replay
+
+Run, Steer and Queue carry the same `UserInput`; Portfolio Ask keeps developer context separate. Queue promotion journals the complete input. Steer disposition records reference the original sequence without duplicating images. Public legacy text calls normalize once; all user model input uses structured content. Developer-only application runs have no user payload.
+
+Journal `images` fields are additive on user messages, steers, assistant messages and tool outputs. Missing fields in older history mean no images; no migration is required. Fork copies inline SDK/Journal content, archive preserves it, and deletion removes it with existing state. Clear retains the existing lifecycle: a fresh replacement Session and the old Journal, with old SDK session/metadata removed. Web drafts remain Session-scoped and optimistic messages retain images until durable events arrive.

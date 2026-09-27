@@ -1,6 +1,12 @@
+import base64
+import binascii
+
+from agents import ToolOutputImage, ToolOutputText
 from openai.types.responses import ResponseReasoningTextDeltaEvent
 
-from .events import AgentChanged, OutputHandler, Reasoning, ToolCalled, ToolOutput
+from investorch.images import ImageContent, detect_image_media_type
+
+from .events import AgentChanged, AssistantMessage, OutputHandler, Reasoning, ToolCalled, ToolOutput
 
 
 async def _flush_reasoning(
@@ -56,9 +62,52 @@ async def consume_run_events(
             )
             await output_handler(ToolCalled(name=item.tool_name, arguments=arguments))
         elif event.name == "tool_output":
-            await output_handler(ToolOutput(output=str(item.output)))
+            await output_handler(tool_output_from_sdk(item.output))
         elif event.name == "message_output_created":
             pass
 
     await _flush_reasoning(reasoning_parts, output_handler)
     return current_agent_name
+
+
+def tool_output_from_sdk(output: object) -> ToolOutput:
+    """Preserve the SDK's structured text/image observations without dumping images."""
+    parts = output if isinstance(output, (list, tuple)) else [output]
+    texts: list[str] = []
+    images: list[ImageContent] = []
+    for part in parts:
+        if isinstance(part, ToolOutputText):
+            texts.append(part.text)
+        elif isinstance(part, ToolOutputImage):
+            if part.image_url:
+                images.append(ImageContent(part.image_url, detail=part.detail or "auto"))
+            else:
+                texts.append("[image: provider file]")
+        elif isinstance(part, dict) and part.get("type") in ("image", "input_image"):
+            url = part.get("image_url")
+            if isinstance(url, str):
+                images.append(ImageContent(url, detail=part.get("detail") or "auto"))
+            else:
+                texts.append("[image: provider file]")
+        elif isinstance(part, dict) and part.get("type") in ("text", "input_text"):
+            texts.append(str(part.get("text", "")))
+        else:
+            texts.append(str(part))
+    return ToolOutput(output="\n".join(texts), images=tuple(images))
+
+
+def assistant_message_from_result(result) -> AssistantMessage:
+    """Keep final text semantics and image output exposed by standard SDK run items."""
+    if isinstance(result.final_output, AssistantMessage):
+        return result.final_output
+    images: list[ImageContent] = []
+    for item in result.new_items:
+        raw = item.raw_item
+        if getattr(raw, "type", None) == "image_generation_call" and getattr(raw, "result", None):
+            try:
+                media_type = detect_image_media_type(base64.b64decode(raw.result, validate=True))
+            except (ValueError, binascii.Error):
+                continue
+            if media_type:
+                images.append(ImageContent(f"data:{media_type};base64," + raw.result, media_type=media_type))
+    return AssistantMessage(text=str(result.final_output), images=tuple(images))

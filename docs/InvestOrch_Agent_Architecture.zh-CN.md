@@ -178,3 +178,9 @@ ApplicationHost 在启动时固定 enabled catalog 与可加载名称。`load_sk
 安装非内置候选时先验证，再复用 Permission 模型配置进行独立安全审查，审查 Agent 无 Tools。PASS 仍走正常授权，WARN 必须人工审批，BLOCK 禁止安装。专用管理工具修改未来行为；内置 Skill 禁止 Agent 删除或替换，定制需 fork。
 
 `investorch --update` 以随包内容确定性替换内置 Skill 并保留 enabled，不调用模型、不 merge/backup/dirty-detect。普通启动不更新内容。内置缺失/无效导致启动失败并提示更新/重装；外部/自建缺失或无效时排除出 catalog，仍可 inspect。仅在缺失时创建 `MEMORY.md`，已有用户文件保留。
+
+## 对话图片内容
+
+`ImageContent` 与不可变 `UserInput(text, images)` 扩展现有对话接口。模型输入统一采用 Responses structured content。用户光栅 data URL 经严格解码、magic bytes 与 `[images]` 限制校验；展示层另外支持 SVG 和 HTTPS。`explore(read)` 返回 SDK 标准文本/图片工具输出，经 Output、Journal、REST、WebSocket 保留图片。Web 与 Markdown 共用点击加载 HTTPS 图片的组件，使用 no-referrer 和图片 CSP，不代理远程内容。
+
+Main、Title、Compact 接收含图片的 SDK 历史。ReviewContext 接受纯图片指令标记，Activity 使用文本/数量摘要；Permission 不从未看到的图片推断授权。持久化副本位于 SDK SQLite 历史与 JSONL Journal，不增加 asset 子系统。

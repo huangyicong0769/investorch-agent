@@ -13,7 +13,9 @@ from agents.tool import Tool
 
 from investorch.config import AppConfig
 from investorch.context import AgentContext, ExecutionState, TodoUpdateHandler
-from investorch.output import AssistantMessage, OutputHandler, consume_run_events
+from investorch.images import UserInput, user_input_to_response_item
+from investorch.output import OutputHandler, consume_run_events
+from investorch.output.stream import assistant_message_from_result
 
 from .compact import CompactionResult, compact_session, session_history_restore_failed
 from .title import ensure_session_title
@@ -106,7 +108,7 @@ class AgentLoop:
 
     async def run(
         self,
-        user_input: str,
+        user_input: UserInput | str | None,
         session: SQLiteSession,
         execution: ExecutionState,
         *,
@@ -137,13 +139,18 @@ class AgentLoop:
             run_id=run_id,
             handler=self._successful_tool_handler,
         )
-        model_input: str | list[TResponseInputItem] = user_input
+        # Application-started workflows contain only developer instructions.
+        if isinstance(user_input, str):
+            user_input = UserInput(user_input) if user_input else None
+        model_input: list[TResponseInputItem] = []
         if application_instruction is not None:
             if not application_instruction.strip():
                 raise ValueError("Application instruction must not be empty")
-            model_input = [{"role": "developer", "content": application_instruction}]
-            if user_input:
-                model_input.append({"role": "user", "content": user_input})
+            model_input.append({"role": "developer", "content": application_instruction})
+        if user_input is not None:
+            model_input.append(user_input_to_response_item(user_input))
+        if not model_input:
+            raise ValueError("Run requires user input or an application instruction")
 
         result = Runner.run_streamed(
             run_agent,
@@ -187,7 +194,7 @@ class AgentLoop:
                 sdk_state = sdk_state or result.to_state()
                 try:
                     for steer in pending_steers:
-                        sdk_state.add_input(steer.text)
+                        sdk_state.add_input([user_input_to_response_item(steer.user_input)])
                         staged_ids.append(steer.steer_id)
                 except UserError as error:
                     if staged_ids:
@@ -224,10 +231,11 @@ class AgentLoop:
                 continue
             break
 
-        output = str(result.final_output)
+        message = assistant_message_from_result(result)
+        output = message.text
         main_usage = TokenUsage.from_sdk(result.context_wrapper.usage)
         title_usage = await ensure_session_title(self._title_agent, session, self._config.sessions_db)
-        await output_handler(AssistantMessage(text=output))
+        await output_handler(message)
         auto_compaction, auto_compaction_failed, consistency_uncertain = await self._auto_compact(session, main_usage)
         auxiliary_usage = (
             approval_usage + title_usage + (auto_compaction.usage if auto_compaction is not None else TokenUsage())

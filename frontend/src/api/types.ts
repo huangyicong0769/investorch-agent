@@ -1,3 +1,21 @@
+export type ImageDetail = 'auto' | 'low' | 'high' | 'original'
+
+export interface ImageContent {
+  image_url: string
+  detail: ImageDetail
+  filename?: string | null
+  media_type?: string | null
+}
+
+export interface ImageConfig {
+  max_images_per_input: number
+  max_image_bytes: number
+  max_total_image_bytes: number
+  default_detail: ImageDetail
+  accepted_input_mime_types: string[]
+  renderable_mime_types: string[]
+}
+
 export type JsonPrimitive = boolean | number | string | null
 export type JsonValue = JsonPrimitive | JsonObject | JsonValue[]
 export type JsonObject = { [key: string]: JsonValue }
@@ -54,6 +72,7 @@ export interface SessionPresentationState {
 }
 
 export interface QueueItem {
+  images?: ImageContent[]
   queue_id: string
   session_id: string
   text: string
@@ -92,6 +111,7 @@ export interface BootstrapResponse {
   agent_name: string
   context_window_tokens: number
   defaults: Defaults
+  image_config: ImageConfig
   web_config: WebConfig
   sessions: SessionRecord[]
   runtime: RuntimeSnapshot | null
@@ -255,11 +275,13 @@ export interface OutputEventToolCalled {
 }
 
 export interface OutputEventToolOutput {
+  images?: ImageContent[]
   type: 'tool_output'
   output: string
 }
 
 export interface OutputEventAssistantMessage {
+  images?: ImageContent[]
   type: 'assistant_message'
   text: string
 }
@@ -282,6 +304,7 @@ export interface OutputLiveEvent {
 export type FollowUpEventKind = 'steer_submitted' | 'steer_fallback_promoted' | 'queue_submitted' | 'queue_promoted'
 
 export interface FollowUpLiveEvent {
+  images?: ImageContent[]
   kind: 'follow_up'
   event_kind: FollowUpEventKind
   session_id: string
@@ -370,11 +393,13 @@ export interface JournalRecordBase {
 }
 
 export interface UserMessageRecord extends JournalRecordBase {
+  images?: ImageContent[]
   type: 'user_message'
   text: string
 }
 
 export interface UserSteerRecord extends JournalRecordBase {
+  images?: ImageContent[]
   type: 'user_steer'
   run_id: string
   text: string
@@ -522,10 +547,12 @@ export interface ApiErrorEnvelope {
 }
 
 export interface SendMessageBody {
+  images?: ImageContent[]
   text: string
 }
 
 export interface AskPortfolioBody {
+  images?: ImageContent[]
   request_id: string
   text: string
 }

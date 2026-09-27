@@ -5,10 +5,13 @@ import { useNavigate } from 'react-router-dom'
 
 import { askPortfolioAgent } from '../../api/client'
 import { queryKeys } from '../../api/queries'
-import type { SessionListResponse } from '../../api/types'
+import type { ImageContent, SessionListResponse } from '../../api/types'
 import { errorMessage } from '../../lib/errors'
 import { sessionPath } from '../../lib/session'
 import { cn } from '../../lib/utils'
+import { useImageConfig } from '../../config/WebConfigContext'
+import type { DraftImage } from '../conversation/interaction'
+import { ImageAttachments } from '../images/ImageAttachments'
 import { Button } from '@/components/ui/button'
 
 interface AskAgentControlProps {
@@ -18,6 +21,9 @@ interface AskAgentControlProps {
 
 export function AskAgentControl({ portfolioId, portfolioName }: AskAgentControlProps) {
   const navigate = useNavigate()
+  const imageConfig = useImageConfig()
+  const [images, setImages] = useState<DraftImage[]>([])
+  const [readingImages, setReadingImages] = useState(false)
   const queryClient = useQueryClient()
   const composerId = useId()
   const collapsedButtonRef = useRef<HTMLButtonElement>(null)
@@ -26,13 +32,14 @@ export function AskAgentControl({ portfolioId, portfolioName }: AskAgentControlP
   const [expanded, setExpanded] = useState(false)
   const [text, setText] = useState('')
   const askMutation = useMutation({
-    mutationFn: (message: string) => {
+    mutationFn: (message: { text: string; images: ImageContent[] }) => {
       requestIdRef.current ??= crypto.randomUUID()
-      return askPortfolioAgent(portfolioId, { request_id: requestIdRef.current, text: message })
+      return askPortfolioAgent(portfolioId, { request_id: requestIdRef.current, ...message })
     },
     onSuccess: async (response) => {
       requestIdRef.current = null
       setText('')
+      setImages([])
       setExpanded(false)
       queryClient.setQueryData<SessionListResponse>(queryKeys.sessions(), (current) => ({
         sessions: [
@@ -53,10 +60,10 @@ export function AskAgentControl({ portfolioId, portfolioName }: AskAgentControlP
   }, [expanded])
 
   const submit = () => {
-    if (!text.trim() || askMutation.isPending) {
+    if ((!text.trim() && !images.length) || readingImages || askMutation.isPending) {
       return
     }
-    askMutation.mutate(text)
+    askMutation.mutate({ text, images: images.map((image) => ({ image_url: image.imageUrl, media_type: image.mediaType, filename: image.filename, detail: imageConfig.default_detail })) })
   }
 
   const collapseAndRestoreFocus = () => {
@@ -70,7 +77,7 @@ export function AskAgentControl({ portfolioId, portfolioName }: AskAgentControlP
   }
 
   const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.key === 'Escape' && !text.trim()) {
+    if (event.key === 'Escape' && !text.trim() && !images.length) {
       event.preventDefault()
       collapseAndRestoreFocus()
       return
@@ -127,6 +134,7 @@ export function AskAgentControl({ portfolioId, portfolioName }: AskAgentControlP
             id={composerId}
             onSubmit={handleSubmit}
           >
+            <ImageAttachments images={images} disabled={askMutation.isPending} onReadingChange={setReadingImages} onChange={(next) => { setImages(next); requestIdRef.current = null; askMutation.reset() }}>
             <div className="flex items-start gap-2">
               <textarea
                 aria-label={`Message about ${portfolioName}`}
@@ -156,13 +164,14 @@ export function AskAgentControl({ portfolioId, portfolioName }: AskAgentControlP
                 <X aria-hidden="true" />
               </Button>
             </div>
+            </ImageAttachments>
             {askMutation.isError ? (
               <p className="mt-2 text-xs text-destructive" role="alert">
                 {errorMessage(askMutation.error, 'The message could not be sent. Your text is still here.')}
               </p>
             ) : null}
             <div className="mt-2 flex justify-end">
-              <Button disabled={askMutation.isPending || !text.trim()} size="sm" type="submit">
+              <Button disabled={askMutation.isPending || readingImages || (!text.trim() && !images.length)} size="sm" type="submit">
                 <Send aria-hidden="true" size={14} />
                 {askMutation.isPending ? 'Sending…' : 'Send'}
               </Button>

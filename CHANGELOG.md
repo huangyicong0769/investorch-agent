@@ -4,6 +4,8 @@
 
 ## 0.2.0 (unreleased)
 
+- Add end-to-end image conversations, Workspace image reading through explore, inline history and gated external image display.
+
 - Add six versioned Workspace Skills, registration/provenance, startup discovery, and on-demand loading.
 - Add independent candidate safety review and approved installation, removal, and enablement workflows.
 - Replace product-guide synchronization with deterministic `investorch --update` for managed built-ins; customization uses forks.

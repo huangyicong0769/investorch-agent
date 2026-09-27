@@ -11,6 +11,7 @@ import type {
 import { formatJsonValue } from '../../lib/timeline/project'
 import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
+import { MessageImages } from '../images/MessageImages'
 import { CopyButton } from './CopyButton'
 
 interface ActivityGroupProps {
@@ -69,6 +70,7 @@ function ToolActivity({ item }: { item: TimelineToolViewModel }) {
       </div>
       {item.arguments !== null ? <Detail formatJson label="Arguments" value={item.arguments} /> : null}
       {item.observation !== null ? <Detail label="Observation" value={item.observation} /> : null}
+      <MessageImages images={item.images} fallbackLabel="Tool output image" />
     </div>
   )
 }
@@ -78,6 +80,7 @@ function UnmatchedOutput({ item }: { item: TimelineUnmatchedToolOutputViewModel 
     <div className="text-xs">
       <span className="font-medium">Unmatched tool output</span>
       <Detail label="Observation" value={item.output} />
+      <MessageImages images={item.images} fallbackLabel="Tool output image" />
     </div>
   )
 }

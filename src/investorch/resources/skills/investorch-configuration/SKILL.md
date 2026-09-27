@@ -1,12 +1,12 @@
 ---
 name: investorch-configuration
 description: Inspect or change InvestOrch configuration, models, secrets, MCP connections, or restart-required settings. Use when configuring the application or diagnosing effective policy.
-version: 1.0.0
+version: 1.0.1
 ---
 
 # Configure InvestOrch
 
-1. Read `references/configuration.md` for the relevant configuration lifecycle, model, MCP, or backtest rules.
+1. Read `references/configuration.md` for the relevant configuration lifecycle, model, image, MCP, or backtest rules.
 2. Use `get_config` as the authority for effective settings. Bundled TOML defaults, local `<root>/investorch.toml` overrides, and runtime-only changes form the configuration layers; Memory does not supply current values.
 3. Use `update_config` for approved normal settings. Validate type/range and whether the key is hot, immutable, or restart-required. For restart-required changes use `persist=true` and report that the running process still uses its prior snapshot.
 4. Manage MCP entries with `list_mcp_servers`, `configure_mcp_server`, and `remove_mcp_server`. Their registry is `<root>/mcp.toml`, separate from application MCP policy.

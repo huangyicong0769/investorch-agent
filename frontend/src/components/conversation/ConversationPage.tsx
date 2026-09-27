@@ -15,12 +15,12 @@ import { QueueStrip } from '../queue/QueueStrip'
 import { RelatedPortfolios } from '../portfolio/RelatedPortfolios'
 import { ConversationTimeline } from '../timeline/ConversationTimeline'
 import { ConversationHeader } from './ConversationHeader'
-import type { PendingDirectMessage } from './interaction'
+import { EMPTY_DRAFT, type ComposerDraft, type PendingDirectMessage } from './interaction'
 import { Button } from '@/components/ui/button'
 
 export function ConversationPage() {
   const { sessionId = '' } = useParams<'sessionId'>()
-  const [drafts, setDrafts] = useState<Map<string, string>>(() => new Map())
+  const [drafts, setDrafts] = useState<Map<string, ComposerDraft>>(() => new Map())
   const [pendingMessages, setPendingMessages] = useState<Map<string, PendingDirectMessage>>(() => new Map())
   const stateQuery = useQuery({
     ...sessionStateQueryOptions(sessionId),
@@ -31,13 +31,14 @@ export function ConversationPage() {
     enabled: Boolean(sessionId),
   })
   const bootstrapQuery = useQuery(bootstrapQueryOptions())
-  const draft = drafts.get(sessionId) ?? ''
+  const draft = drafts.get(sessionId) ?? EMPTY_DRAFT
   const pendingMessage = pendingMessages.get(sessionId) ?? null
   const updateDraft = useCallback(
-    (targetSessionId: string, nextDraft: string) => {
+    (targetSessionId: string, update: (draft: ComposerDraft) => ComposerDraft) => {
       setDrafts((current) => {
+        const nextDraft = update(current.get(targetSessionId) ?? EMPTY_DRAFT)
         const next = new Map(current)
-        if (nextDraft) {
+        if (nextDraft.text || nextDraft.images.length) {
           next.set(targetSessionId, nextDraft)
         } else {
           next.delete(targetSessionId)
@@ -47,9 +48,9 @@ export function ConversationPage() {
     },
     [],
   )
-  const clearSubmittedDraft = useCallback((targetSessionId: string, submittedText: string) => {
+  const clearSubmittedDraft = useCallback((targetSessionId: string, submittedDraft: ComposerDraft) => {
     setDrafts((current) => {
-      if (current.get(targetSessionId)?.trim() !== submittedText) {
+      if (current.get(targetSessionId) !== submittedDraft) {
         return current
       }
       const next = new Map(current)
@@ -122,6 +123,7 @@ export function ConversationPage() {
         />
         <ApprovalCard approvals={stateQuery.data.pending_approvals} sessionId={sessionId} />
         <Composer
+          key={sessionId}
           archived={stateQuery.data.session.archived_at !== null}
           contextWindowTokens={bootstrapQuery.data?.context_window_tokens ?? null}
           draft={draft}

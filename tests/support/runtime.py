@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 from investorch.agents import AgentLoop, ApprovalOutcome, TokenUsage
 from investorch.config import AppConfig
 from investorch.context import ExecutionState
+from investorch.images import UserInput
 from investorch.journal import SessionJournal
 from investorch.runtime import AgentRuntime, RunOptions, RuntimeFollowUpEvent, RuntimeRunEnded, RuntimeSessionSnapshot
 from investorch.runtime.models import ApprovalRequest, FollowUpBehavior, RuntimeOutput
@@ -136,7 +137,7 @@ class FailingTextUserMessageSink:
         self._failing_text = failing_text
 
     async def record(self, session_id: str, text: str) -> int:
-        if text == self._failing_text:
+        if (text.text if isinstance(text, UserInput) else text) == self._failing_text:
             raise RuntimeError("controlled journal failure")
         return await self._journal.record_user_message(session_id, text)
 

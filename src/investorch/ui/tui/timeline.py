@@ -7,6 +7,7 @@ from collections import deque
 from textual.containers import Vertical, VerticalScroll
 from textual.widgets import Collapsible, Label, Markdown, Static
 
+from investorch.images import ImageContent, image_summary
 from investorch.output import (
     AgentChanged,
     AssistantMessage,
@@ -312,9 +313,9 @@ class ChatTimeline(VerticalScroll):
         elif isinstance(event, ToolCalled):
             return await self.add_tool_call(event.name, event.arguments)
         elif isinstance(event, ToolOutput):
-            return await self.add_tool_output(event.output)
+            return await self.add_tool_output(_with_images(event.output, event.images))
         elif isinstance(event, AssistantMessage):
-            await self.add_assistant_message(event.text)
+            await self.add_assistant_message(_with_images(event.text, event.images))
         return None
 
     def register_activity_step(self, step: ActivityStep, target_seq: int) -> None:
@@ -348,9 +349,9 @@ class ChatTimeline(VerticalScroll):
             if event_type == "activity_label":
                 continue
             if event_type == "user_message" and isinstance(record.get("text"), str):
-                await self.add_user_message(record["text"])
+                await self.add_user_message(_record_text(record, "text"))
             elif event_type == "user_steer" and isinstance(record.get("text"), str):
-                await self.add_steer_message(record["text"])
+                await self.add_steer_message(_record_text(record, "text"))
             elif event_type == "reasoning" and isinstance(record.get("text"), str):
                 await self.add_reasoning(record["text"])
             elif event_type == "tool_called" and isinstance(record.get("name"), str):
@@ -364,9 +365,9 @@ class ChatTimeline(VerticalScroll):
                     if label:
                         step.set_activity_label(label)
             elif event_type == "tool_output" and isinstance(record.get("output"), str):
-                await self.add_tool_output(record["output"])
+                await self.add_tool_output(_record_text(record, "output"))
             elif event_type == "assistant_message" and isinstance(record.get("text"), str):
-                await self.add_assistant_message(record["text"])
+                await self.add_assistant_message(_record_text(record, "text"))
             elif event_type == "agent_changed" and isinstance(record.get("name"), str):
                 await self.add_agent_changed(record["name"])
             elif event_type == "approval" and type(record.get("approved")) is bool:
@@ -385,3 +386,12 @@ class ChatTimeline(VerticalScroll):
                         if isinstance(record.get("review_reason"), str)
                         else None,
                     )
+
+
+def _with_images(text: str, images: tuple[ImageContent, ...]) -> str:
+    return "\n".join(part for part in (text, *(image_summary(image) for image in images)) if part)
+
+
+def _record_text(record: dict[str, object], field: str) -> str:
+    images = tuple(ImageContent(**image) for image in record.get("images", []) if isinstance(image, dict))
+    return _with_images(str(record[field]), images)

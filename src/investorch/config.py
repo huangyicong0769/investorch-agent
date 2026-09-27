@@ -402,7 +402,7 @@ def _set_config_value(data: dict[str, Any], parts: tuple[str, ...], value: Any) 
 
 
 def _requires_restart(key: str) -> bool:
-    return key in RESTART_REQUIRED_KEYS or key.startswith(("models.", "permission.", "web."))
+    return key in RESTART_REQUIRED_KEYS or key.startswith(("models.", "permission.", "web.", "images."))
 
 
 def _required_config_value(data: dict[str, Any], key: str) -> Any:
@@ -463,6 +463,11 @@ def _require_ratio(data: dict[str, Any], key: str) -> int | float:
 
 
 def _validate_config_data(data: dict[str, Any], root: Path) -> None:
+    for key in ("max_images_per_input", "max_image_bytes", "max_total_image_bytes"):
+        _require_int(data, f"images.{key}", minimum=1)
+    if _require_string(data, "images.default_detail") not in ("auto", "low", "high", "original"):
+        raise ConfigError("images.default_detail is not supported")
+
     _require_string(data, "paths.root")
     all_models = data.get("models")
     if not isinstance(all_models, dict):

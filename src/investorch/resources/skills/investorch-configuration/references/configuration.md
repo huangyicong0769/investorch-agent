@@ -22,7 +22,7 @@ A persistent runtime update is written to `<root>/investorch.toml` and therefore
 | lifecycle | keys | behavior |
 | --- | --- | --- |
 | immutable | `paths.root` | Cannot be changed through runtime configuration. |
-| restart-required | `paths.workspace`, `paths.state`, `models.*`, `permission.*`, `tui.*`, `web.*`, `logging.*`, `mcp.*`, `cnequity.*`, `backtest.use_cnequity`, `backtest.rqalpha_bundle_dir`, `observability.sdk_tracing_enabled` | `persist=false` is rejected. `persist=true` writes the next-start value but does not change the current runtime; restart InvestOrch Agent to apply it. |
+| restart-required | `paths.workspace`, `paths.state`, `models.*`, `permission.*`, `tui.*`, `web.*`, `images.*`, `logging.*`, `mcp.*`, `cnequity.*`, `backtest.use_cnequity`, `backtest.rqalpha_bundle_dir`, `observability.sdk_tracing_enabled` | `persist=false` is rejected. `persist=true` writes the next-start value but does not change the current runtime; restart InvestOrch Agent to apply it. |
 | hot | `runtime.*`, `activity.*`, `compaction.*`, execution/explore/calculate limits, `backtest.artifact_dir`, and backtest execution policy | Validated and applied to the current `AppConfig`; persistence is optional. The next applicable operation uses the new value. |
 
 `get_config` reports the value currently used by this process. A persisted restart-required update therefore continues to report the old value until the application is restarted.
@@ -262,3 +262,7 @@ Prefer:
 - user approval for side effects
 
 Do not introduce Provider, Registry, Adapter, or Manager layers unless a concrete requirement makes them necessary.
+
+## Images
+
+Use `get_config` for effective `images.max_images_per_input`, `images.max_image_bytes`, `images.max_total_image_bytes` and `images.default_detail`. Byte limits count decoded image bytes. Detail accepts `auto`, `low`, `high`, `original`. All `images.*` settings require persistence and restart; Web bootstrap and backend validation share the running snapshot. Workspace `explore` image reads use the same per-image limit and detail, while text reads retain `explore.*` limits.

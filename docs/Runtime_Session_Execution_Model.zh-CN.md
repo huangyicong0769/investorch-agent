@@ -147,3 +147,9 @@ Manual 或 automatic compaction 只修改 SDK continuation。已完成答案不�
 ## 当前限制
 
 0.1.0 不跨进程重启持久化 active Run、pending Steer、Queue、Todo、pending approval、usage display 或 UI state。所有 Session 共享同一个 Workspace 和 managed-job registry。当前没有 historical-turn branching、per-Session Workspace、distributed scheduler 或 cross-process Runtime recovery。
+
+## 图片输入与回放
+
+Run、Steer、Queue 使用同一 `UserInput`；Portfolio Ask 的 developer 上下文与用户输入分开。Queue 晋升后完整记录输入；Steer 处置记录引用原序号，不重复图片。旧文本调用在公共入口转换，模型用户输入统一为 structured content。仅含应用 developer 指令的 Run 没有用户 payload。
+
+Journal 在用户消息、Steer、Assistant、Tool 输出增加可选 `images`；旧历史缺失该字段即无图片，无需迁移。Fork 复制内联 SDK/Journal 内容，归档保留内容，删除沿用状态清理。Clear 沿用现有语义：建立空的替代 Session、保留旧 Journal，并移除旧 SDK session/元数据。Web 图片草稿按 Session 保存，乐观消息在持久事件到达前仍保留图片。

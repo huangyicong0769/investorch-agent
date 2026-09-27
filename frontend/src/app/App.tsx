@@ -3,7 +3,7 @@ import { toast } from 'sonner'
 
 import { ApiError } from '../api/client'
 import { bootstrapQueryOptions } from '../api/queries'
-import { WebConfigProvider } from '../config/WebConfigContext'
+import { ImageConfigProvider, WebConfigProvider } from '../config/WebConfigContext'
 import { errorMessage } from '../lib/errors'
 import { Toaster } from '@/components/ui/sonner'
 import { AppRouter } from './router'
@@ -43,10 +43,12 @@ function ConfiguredApp() {
   }
 
   return (
-    <WebConfigProvider value={bootstrapQuery.data.web_config}>
-      <AppRouter />
-      <Toaster position="bottom-right" />
-    </WebConfigProvider>
+    <ImageConfigProvider value={bootstrapQuery.data.image_config}>
+      <WebConfigProvider value={bootstrapQuery.data.web_config}>
+        <AppRouter />
+        <Toaster position="bottom-right" />
+      </WebConfigProvider>
+    </ImageConfigProvider>
   )
 }
 
