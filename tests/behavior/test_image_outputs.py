@@ -14,7 +14,8 @@ from investorch.ui.console import ConsoleRenderer, ConsoleUI
 
 
 @pytest.mark.asyncio
-async def test_mixed_sdk_image_output_survives_stream_journal_and_console(tmp_path: Path, capsys):
+async def test_tool_image_survives_sdk_stream_journal_and_console(tmp_path: Path, capsys):
+    """Preserve a Tool result; the scripted model only schedules the Tool call."""
     url = "data:image/png;base64,iVBORw0KGgo="
 
     @function_tool
@@ -48,7 +49,8 @@ async def test_mixed_sdk_image_output_survives_stream_journal_and_console(tmp_pa
 
 
 @pytest.mark.asyncio
-async def test_image_only_assistant_persists_and_prints_without_payload(tmp_path: Path, capsys):
+async def test_synthetic_assistant_image_event_persists_and_prints_without_payload(tmp_path: Path, capsys):
+    """Verify the event contract, not a provider's ability to generate images."""
     image = ImageContent("https://images.example.com/chart.svg", filename="chart.svg", media_type="image/svg+xml")
     event = AssistantMessage(text="", images=(image,))
     journal = SessionJournal(tmp_path, ZoneInfo("UTC"))
