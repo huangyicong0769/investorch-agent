@@ -4,11 +4,11 @@ import { useImageConfig } from '../../config/WebConfigContext'
 import { Dialog, DialogContent, DialogTitle, DialogTrigger } from '../ui/dialog'
 import { Button } from '../ui/button'
 
-export function MessageImage({ image, fallbackLabel = 'Attached image' }: { image: ImageContent; fallbackLabel?: string }) {
+export function MessageImage({ image, fallbackLabel = 'Attached image', workspacePath }: { image: ImageContent; fallbackLabel?: string; workspacePath?: string }) {
   const config = useImageConfig()
   const [loadedUrl, setLoadedUrl] = useState<string | null>(null)
   const [failedUrl, setFailedUrl] = useState<string | null>(null)
-  const source = image.image_url
+  const source = workspacePath === undefined ? image.image_url : `/api/workspace/image?path=${encodeURIComponent(workspacePath)}`
   const dataMime = /^data:([^;,]+)(?:;[^,]*)?,/i.exec(source)?.[1].toLowerCase()
   let hostname: string | null = null
   try {
@@ -16,7 +16,7 @@ export function MessageImage({ image, fallbackLabel = 'Attached image' }: { imag
     if (url.protocol === 'https:' && url.hostname) hostname = url.hostname
   } catch { /* Invalid sources never become img elements. */ }
   const inline = Boolean(dataMime && config.renderable_mime_types.includes(dataMime))
-  if (!inline && !hostname) return <span className="text-xs text-muted-foreground">Unsupported image source</span>
+  if (!inline && !hostname && workspacePath === undefined) return <span className="text-xs text-muted-foreground">Unsupported image source</span>
   if (hostname && loadedUrl !== source) {
     return (
       <span className="inline-flex flex-col gap-2 rounded-lg border border-border p-3 text-xs">
@@ -31,8 +31,8 @@ export function MessageImage({ image, fallbackLabel = 'Attached image' }: { imag
   return (
     <Dialog>
       <DialogTrigger asChild>
-        <button className="inline-block overflow-hidden rounded-lg border border-border" type="button" aria-label={`Enlarge ${label}`}>
-          <img src={source} alt={label} className="max-h-40 max-w-52 object-contain" loading="lazy" decoding="async" referrerPolicy="no-referrer" onError={() => setFailedUrl(source)} />
+        <button className="inline-block max-w-full overflow-hidden rounded-lg border border-border" type="button" aria-label={`Enlarge ${label}`}>
+          <img src={source} alt={label} className={`${workspacePath === undefined ? 'max-h-40 max-w-52' : 'max-h-[32rem] max-w-full'} object-contain`} loading="lazy" decoding="async" referrerPolicy="no-referrer" onError={() => setFailedUrl(source)} />
         </button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-[90vw]" aria-describedby={undefined}>

@@ -183,4 +183,6 @@ ApplicationHost 在启动时固定 enabled catalog 与可加载名称。`load_sk
 
 `ImageContent` 与不可变 `UserInput(text, images)` 扩展现有对话接口。模型输入统一采用 Responses structured content。用户光栅 data URL 经严格解码、magic bytes 与 `[images]` 限制校验；展示层另外支持 SVG 和 HTTPS。`explore(read)` 返回 SDK 标准文本/图片工具输出，经 Output、Journal、REST、WebSocket 保留图片。Web 与 Markdown 共用点击加载 HTTPS 图片的组件，使用 no-referrer 和图片 CSP，不代理远程内容。
 
+正文中的图表使用 `![净值曲线](figures/nav.png)` 等 Markdown 引用。Workspace 相对路径图片按正文位置显示，工具观察仍默认折叠。只读 `/api/workspace/image` 接口在 Workspace 范围和单图字节限制内提供 JPEG、PNG、GIF、WebP。路径引用展示当前文件，不是 Session 快照：覆盖或删除文件会改变旧消息的显示结果；内嵌图片附件的历史持久化方式不变。
+
 Main、Title、Compact 接收含图片的 SDK 历史。ReviewContext 接受纯图片指令标记，Activity 使用文本/数量摘要；Permission 不从未看到的图片推断授权。持久化副本位于 SDK SQLite 历史与 JSONL Journal，不增加 asset 子系统。
