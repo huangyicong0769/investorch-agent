@@ -3,9 +3,11 @@ from __future__ import annotations
 import asyncio
 import logging
 from importlib.metadata import version
+from pathlib import Path
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Query, Request
+from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field, StrictBool
 
 from investorch.application import ApplicationHost, submit_user_input
@@ -13,6 +15,7 @@ from investorch.images import (
     ACCEPTED_INPUT_MIME_TYPES,
     RENDERABLE_MIME_TYPES,
     ImageDetail,
+    detect_image_media_type,
     normalize_user_input,
 )
 from investorch.journal import JournalPage, read_session_journal_page
@@ -181,6 +184,28 @@ def _serialize_pending_approvals(
 @router.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "ok", "version": APPLICATION_VERSION}
+
+
+@router.get("/workspace/image")
+def workspace_image(host: Host, path: str) -> Response:
+    root = host.config.workspace_dir.resolve()
+    try:
+        relative = Path(path)
+        target = (root / relative).resolve()
+        if relative.is_absolute() or not target.is_relative_to(root) or not target.is_file():
+            raise ValueError
+        with target.open("rb") as file:
+            data = file.read(host.config["images.max_image_bytes"] + 1)
+    except (OSError, ValueError, RuntimeError):
+        raise APIError(404, "image_not_found", "Workspace image not found.") from None
+    if len(data) > host.config["images.max_image_bytes"]:
+        raise APIError(413, "image_too_large", "Workspace image exceeds the configured image byte limit.")
+    media_type = detect_image_media_type(data)
+    if media_type is None:
+        raise APIError(415, "unsupported_image", "Workspace image must be JPEG, PNG, GIF or WebP.")
+    return Response(
+        data, media_type=media_type, headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"}
+    )
 
 
 @router.get("/bootstrap")

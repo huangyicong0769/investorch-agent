@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import { isValidElement } from 'react'
-import Markdown, { type Components } from 'react-markdown'
+import Markdown, { defaultUrlTransform, type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
 import { MessageImage } from '../images/MessageImages'
@@ -26,7 +26,12 @@ function textFromNode(node: ReactNode): string {
 
 const markdownComponents: Components = {
   img({ src, alt }) {
-    return typeof src === 'string' ? <MessageImage fallbackLabel="Assistant image" image={{ image_url: src, filename: alt, detail: 'auto' }} /> : null
+    if (typeof src !== 'string' || !src) return null
+    let workspacePath: string | undefined
+    if (!/^[a-z][a-z\d+.-]*:|^[/\\#?]/i.test(src)) {
+      try { workspacePath = decodeURIComponent(src) } catch { /* Malformed paths stay unsupported. */ }
+    }
+    return <MessageImage fallbackLabel="Assistant image" image={{ image_url: src, filename: alt, detail: 'auto' }} workspacePath={workspacePath} />
   },
   a({ node: _node, ...props }) {
     void _node
@@ -100,7 +105,7 @@ const markdownComponents: Components = {
 export function MarkdownMessage({ text }: MarkdownMessageProps) {
   return (
     <div className="min-w-0 text-sm leading-6">
-      <Markdown components={markdownComponents} remarkPlugins={[remarkGfm]} skipHtml>
+      <Markdown components={markdownComponents} remarkPlugins={[remarkGfm]} skipHtml urlTransform={(url, key) => key === 'src' ? url : defaultUrlTransform(url)}>
         {text}
       </Markdown>
     </div>
