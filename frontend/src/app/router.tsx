@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { PanelLeft } from 'lucide-react'
-import { BrowserRouter, Link, Outlet, Route, Routes, useLocation, useMatch } from 'react-router-dom'
+import { createBrowserRouter, Link, Navigate, Outlet, RouterProvider, useLocation, useMatch } from 'react-router-dom'
 
 import { discardUnusedSession } from '../api/client'
-import { queryKeys } from '../api/queries'
-import { useWebConfig } from '../config/WebConfigContext'
+import { bootstrapQueryOptions, queryKeys } from '../api/queries'
+import { setupQueryOptions } from '../api/management'
+import { ImageConfigProvider, WebConfigProvider, useWebConfig } from '../config/WebConfigContext'
 import type { BootstrapResponse, SessionListResponse } from '../api/types'
 import { ConversationPage } from '../components/conversation/ConversationPage'
 import { PortfolioDetailPage } from '../components/portfolio/PortfolioDetailPage'
@@ -13,6 +14,9 @@ import { PortfolioIndexPage } from '../components/portfolio/PortfolioIndexPage'
 import { SessionSidebar } from '../components/sidebar/SessionSidebar'
 import { LiveWebSocketProvider } from '../websocket/LiveWebSocketProvider'
 import { Button } from '@/components/ui/button'
+import { SetupPage } from '../components/setup/SetupPage'
+import { SystemPage } from '../components/system/SystemPage'
+import { ErrorNotice } from '../components/management/Feedback'
 
 function AppShell() {
   const webConfig = useWebConfig()
@@ -154,20 +158,65 @@ function NotFoundRoute() {
   )
 }
 
+function ReadyBoundary() {
+  const bootstrap = useQuery({ ...bootstrapQueryOptions(), retry: false })
+  if (bootstrap.isPending) return <div className="flex min-h-screen items-center justify-center text-sm text-muted-foreground" role="status">Opening your workspace…</div>
+  if (bootstrap.isError) return <div className="mx-auto max-w-xl space-y-4 px-6 py-16">
+    <h1 className="text-xl font-semibold">Workspace could not open</h1>
+    <ErrorNotice error={bootstrap.error} fallback="The application runtime is unavailable." />
+    <Button onClick={() => void bootstrap.refetch()} type="button" variant="outline">Retry</Button>
+    <SystemPage standalone />
+  </div>
+  return <ImageConfigProvider value={bootstrap.data.image_config}>
+    <WebConfigProvider value={bootstrap.data.web_config}>
+      <LiveWebSocketProvider><Outlet /></LiveWebSocketProvider>
+    </WebConfigProvider>
+  </ImageConfigProvider>
+}
+
+function StartupGate() {
+  const state = useQuery(setupQueryOptions())
+  const location = useLocation()
+  if (state.isPending) return <div className="flex min-h-screen items-center justify-center text-sm text-muted-foreground" role="status">Checking workspace…</div>
+  if (state.isError) return <div className="mx-auto max-w-xl space-y-4 px-6 py-16">
+    <h1 className="text-xl font-semibold">Cannot reach InvestOrch</h1>
+    <ErrorNotice error={state.error} fallback="The local server could not be reached." />
+    <Button onClick={() => void state.refetch()} type="button" variant="outline">Retry</Button>
+  </div>
+  if (state.data.status === 'ready') return <ReadyBoundary />
+  if (location.pathname === '/system') return <SystemPage standalone />
+  if (state.data.status === 'recovery_required') return <div className="mx-auto max-w-2xl px-6 py-16">
+    <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">InvestOrch Agent</p>
+    <h1 className="mt-3 text-2xl font-semibold">Your workspace needs attention</h1>
+    <p className="mt-4 rounded-xl border border-border bg-card p-5 text-sm leading-6">{state.data.error ?? 'Existing configuration or storage requires repair before InvestOrch can start.'}</p>
+    <p className="mt-4 text-sm text-muted-foreground">Review local diagnostics for the repair steps. Keep your existing files and make an offline backup before making changes.</p>
+    <div className="mt-6 flex flex-wrap gap-3"><Button asChild><Link to="/system">Open System Status</Link></Button><Button onClick={() => void state.refetch()} type="button" variant="outline">Check again</Button></div>
+    <p className="mt-6 text-sm text-muted-foreground">Offline checks: <code>investorch doctor</code> · <code>investorch upgrade check</code></p>
+  </div>
+  if (location.pathname !== '/setup') return <Navigate replace to="/setup" />
+  return <SetupPage />
+}
+
+const router = createBrowserRouter([
+  {
+    element: <StartupGate />,
+    children: [
+      { path: 'setup', element: <Navigate replace to="/" /> },
+      {
+        element: <AppShell />,
+        children: [
+          { index: true, element: <RootRoute /> },
+          { path: 'c/:sessionId', element: <ConversationPage /> },
+          { path: 'portfolios', element: <PortfolioIndexPage /> },
+          { path: 'portfolios/:portfolioId', element: <PortfolioDetailPage /> },
+          { path: 'system', element: <SystemPage /> },
+          { path: '*', element: <NotFoundRoute /> },
+        ],
+      },
+    ],
+  },
+])
+
 export function AppRouter() {
-  return (
-    <BrowserRouter>
-      <LiveWebSocketProvider>
-        <Routes>
-          <Route element={<AppShell />}>
-            <Route index element={<RootRoute />} />
-            <Route element={<ConversationPage />} path="c/:sessionId" />
-            <Route element={<PortfolioIndexPage />} path="portfolios" />
-            <Route element={<PortfolioDetailPage />} path="portfolios/:portfolioId" />
-            <Route element={<NotFoundRoute />} path="*" />
-          </Route>
-        </Routes>
-      </LiveWebSocketProvider>
-    </BrowserRouter>
-  )
+  return <RouterProvider router={router} />
 }

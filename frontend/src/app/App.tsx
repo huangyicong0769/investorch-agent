@@ -1,9 +1,7 @@
-import { MutationCache, QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query'
+import { MutationCache, QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { toast } from 'sonner'
 
 import { ApiError } from '../api/client'
-import { bootstrapQueryOptions } from '../api/queries'
-import { ImageConfigProvider, WebConfigProvider } from '../config/WebConfigContext'
 import { errorMessage } from '../lib/errors'
 import { Toaster } from '@/components/ui/sonner'
 import { AppRouter } from './router'
@@ -32,30 +30,11 @@ export const queryClient = new QueryClient({
   },
 })
 
-function ConfiguredApp() {
-  const bootstrapQuery = useQuery(bootstrapQueryOptions())
-
-  if (bootstrapQuery.isPending) {
-    return <div className="flex min-h-screen items-center justify-center text-sm text-muted-foreground">Loading…</div>
-  }
-  if (bootstrapQuery.isError) {
-    return <div className="flex min-h-screen items-center justify-center text-sm text-destructive">Unable to load configuration.</div>
-  }
-
-  return (
-    <ImageConfigProvider value={bootstrapQuery.data.image_config}>
-      <WebConfigProvider value={bootstrapQuery.data.web_config}>
-        <AppRouter />
-        <Toaster position="bottom-right" />
-      </WebConfigProvider>
-    </ImageConfigProvider>
-  )
-}
-
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <ConfiguredApp />
+      <AppRouter />
+      <Toaster position="bottom-right" />
     </QueryClientProvider>
   )
 }
