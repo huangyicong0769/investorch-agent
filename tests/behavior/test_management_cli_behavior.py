@@ -3,6 +3,8 @@ import os
 import subprocess
 import sys
 
+import pytest
+
 from investorch.config import load_config
 from investorch.initializer import initialize
 
@@ -19,9 +21,10 @@ def run_cli(tmp_path, *arguments):
     )
 
 
-def test_doctor_new_root_is_read_only_and_returns_warning_json(tmp_path):
+@pytest.mark.parametrize("command", [("doctor",), ("upgrade", "check")])
+def test_management_checks_new_root_without_creating_it(tmp_path, command):
     root = tmp_path / "not-initialized"
-    result = run_cli(tmp_path, "doctor", "--root", str(root), "--json")
+    result = run_cli(tmp_path, *command, "--root", str(root), "--json")
     assert result.returncode == 1, result.stderr
     report = json.loads(result.stdout)
     assert report["exit_code"] == 1
@@ -41,20 +44,6 @@ def test_doctor_invalid_configuration_reports_error_without_secret_values(tmp_pa
     assert "secret-sentinel" not in result.stdout + result.stderr
     assert config.read_bytes() == original
     assert sorted(path.name for path in root.iterdir()) == ["investorch.toml"]
-
-
-def test_upgrade_check_does_not_migrate_legacy_configuration(tmp_path):
-    root = tmp_path / "legacy"
-    root.mkdir()
-    config = root / "investorch.toml"
-    original = b'[secrets]\nDEEPSEEK_API_KEY = "legacy-sentinel"\n'
-    config.write_bytes(original)
-    result = run_cli(tmp_path, "upgrade", "check", "--root", str(root), "--json")
-    assert result.returncode == 1, result.stderr
-    report = json.loads(result.stdout)
-    assert any(item["code"] == "config_upgrade" and item["status"] == "warning" for item in report["checks"])
-    assert config.read_bytes() == original
-    assert not (root / "investorch.toml.pre-schema.bak").exists()
 
 
 def test_backup_cli_creates_and_verifies_without_touching_default_home(tmp_path):

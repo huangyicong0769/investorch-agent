@@ -34,7 +34,7 @@ def test_doctor_reports_bad_config_without_echoing_or_changing_it(tmp_path: Path
 def test_doctor_reports_actionable_config_fields_without_secret_values(tmp_path: Path) -> None:
     path = tmp_path / "investorch.toml"
     path.write_text(
-        "config_version = 1\n[web]\ndefault_port = 70000\n"
+        "[web]\ndefault_port = 70000\n"
         "[observability]\nsummary_enabled = true\n"
         '[secrets]\nVALID_KEY = "private-config-value"\nINVALID_KEY = ["private-invalid-value"]\n'
     )
@@ -54,14 +54,13 @@ def test_doctor_reports_actionable_config_fields_without_secret_values(tmp_path:
     assert _files(tmp_path) == before
 
 
-def test_missing_legacy_credentials_are_setup_warning_not_config_failure(tmp_path: Path) -> None:
+def test_unconfigured_model_credentials_report_setup_without_exposing_unrelated_secrets(tmp_path: Path) -> None:
     path = tmp_path / "investorch.toml"
     path.write_text('[secrets]\nUNUSED_NAME = "secret-value"\n')
     original = path.read_bytes()
     checks = {item["code"]: item for item in doctor_checks(tmp_path, upgrade=True)}
     assert checks["config"]["status"] == "warning"
     assert checks["credentials"]["configured"]["main"] is False
-    assert checks["config_upgrade"]["status"] == "warning"
     assert "UNUSED_NAME" not in json.dumps(checks)
     assert "secret-value" not in json.dumps(checks)
     assert path.read_bytes() == original
@@ -79,7 +78,7 @@ def test_offline_doctor_checks_real_session_and_portfolio_without_writes(tmp_pat
     from investorch.portfolio import init_portfolio_storage
     from investorch.storage import init_session_metadata
 
-    config = load_config(root=tmp_path, migrate=False)
+    config = load_config(root=tmp_path)
     config.state_dir.mkdir()
     init_session_metadata(config.sessions_db)
     init_portfolio_storage(config.portfolio_db)
@@ -100,7 +99,7 @@ def test_doctor_does_not_touch_wal_or_corrupt_database(tmp_path: Path) -> None:
 
     from investorch.config import load_config
 
-    config = load_config(root=tmp_path, migrate=False)
+    config = load_config(root=tmp_path)
     config.state_dir.mkdir()
     config.sessions_db.write_bytes(b"not SQLite data")
     with closing(sqlite3.connect(config.portfolio_db)) as connection:
@@ -124,7 +123,7 @@ def test_upgrade_checks_historical_portfolios_without_migration(tmp_path: Path) 
 
     for version in (1, 2, 3, 4, 5):
         root = tmp_path / str(version)
-        config = load_config(root=root, migrate=False)
+        config = load_config(root=root)
         config.state_dir.mkdir(parents=True)
         init_session_metadata(config.sessions_db)
         load_legacy_portfolio_fixture(config.portfolio_db, version)
@@ -153,7 +152,7 @@ def test_doctor_finds_skill_content_drift_and_missing_files_without_updates(tmp_
     from investorch.config import load_config
     from investorch.skills.bundled import update_builtins
 
-    config = load_config(root=tmp_path, migrate=False)
+    config = load_config(root=tmp_path)
     update_builtins(config)
     root = config.workspace_dir / "skills"
     names = sorted(path.name for path in root.iterdir())
@@ -195,7 +194,7 @@ Authorization = "secret-header"
 def test_doctor_reports_unreadable_bundle_without_aborting_other_checks(tmp_path: Path) -> None:
     from investorch.config import load_config
 
-    config = load_config(root=tmp_path, migrate=False)
+    config = load_config(root=tmp_path)
     config.rqalpha_bundle_dir.mkdir(parents=True)
     config.rqalpha_bundle_dir.chmod(0)
     try:

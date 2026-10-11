@@ -153,7 +153,7 @@ async def test_config_only_new_root_can_initialize_setup(tmp_path: Path) -> None
     root = tmp_path / "root"
     root.mkdir()
     local = root / "investorch.toml"
-    local.write_text("config_version = 1\n")
+    local.write_text("# User note\n[runtime]\nmax_turns = 25\n")
     original = local.read_bytes()
     app = create_web_app(root=root)
     async with (

@@ -35,10 +35,9 @@ def populated_root(tmp_path):
     root = tmp_path / "source"
     root.mkdir()
     (root / "investorch.toml").write_text(
-        'config_version = 1\n[paths]\nstate = "records"\nworkspace = "research"\n'
-        '[secrets]\nprovider = "secret-sentinel"\n'
+        '[paths]\nstate = "records"\nworkspace = "research"\n[secrets]\nprovider = "secret-sentinel"\n'
     )
-    config = load_config(root, migrate=False)
+    config = load_config(root)
     initialize(config)
     (config.mcp_config_path).write_text('[servers.private]\nurl = "https://example.org?token=mcp-sentinel"\n')
     (config.workspace_dir / "strategy.py").write_text("print('research')\n")
@@ -89,7 +88,7 @@ def test_backup_restores_actual_custom_layout_and_logical_state(tmp_path):
             destination = target / entry["path"]
             destination.parent.mkdir(parents=True, exist_ok=True)
             destination.write_bytes(archive.read(entry["path"]))
-    restored = load_config(target, migrate=False)
+    restored = load_config(target)
     with closing(sqlite3.connect(restored.sessions_db)) as db:
         assert db.execute("SELECT * FROM recovery_probe").fetchall() == [("session-a", "preserved")]
     assert (restored.session_journal_dir / "session-a.jsonl").read_bytes() == (

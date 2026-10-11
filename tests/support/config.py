@@ -41,7 +41,7 @@ def make_test_config(
     merge(data, local)
     if overrides:
         root.mkdir(parents=True)
-        (root / "investorch.toml").write_text(tomlkit.dumps({"config_version": 1, **local}), encoding="utf-8")
+        (root / "investorch.toml").write_text(tomlkit.dumps(local), encoding="utf-8")
         config = load_config(root=root)
     else:
         config = AppConfig(data, local_overrides=local)

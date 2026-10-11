@@ -50,7 +50,7 @@ def test_update_installs_and_repairs_only_builtins_without_model_credentials(tmp
     assert skill.read_text(encoding="utf-8") == original
 
 
-def test_update_does_not_migrate_existing_configuration_or_database(tmp_path: Path) -> None:
+def test_update_does_not_rewrite_existing_configuration_or_database(tmp_path: Path) -> None:
     root = tmp_path / ".investorch"
     (root / "state").mkdir(parents=True)
     config = root / "investorch.toml"
@@ -67,4 +67,3 @@ def test_update_does_not_migrate_existing_configuration_or_database(tmp_path: Pa
     assert result.returncode == 0, result.stderr
     assert config.read_text() == '[secrets]\nDEEPSEEK_API_KEY = "unused-secret"\n'
     assert database.read_bytes() == b"preserve incompatible database"
-    assert not (root / "investorch.toml.pre-schema.bak").exists()
