@@ -36,8 +36,8 @@ def test_doctor_reports_bad_config_without_echoing_or_changing_it(tmp_path: Path
 def test_doctor_reports_actionable_config_fields_without_secret_values(tmp_path: Path) -> None:
     path = tmp_path / "investorch.toml"
     path.write_text(
-        'config_version = 1\n[web]\ndefault_port = 70000\n'
-        '[observability]\nsummary_enabled = true\n'
+        "config_version = 1\n[web]\ndefault_port = 70000\n"
+        "[observability]\nsummary_enabled = true\n"
         '[secrets]\nVALID_KEY = "private-config-value"\nINVALID_KEY = ["private-invalid-value"]\n'
     )
     before = _files(tmp_path)

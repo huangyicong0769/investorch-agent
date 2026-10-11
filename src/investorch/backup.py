@@ -252,6 +252,7 @@ def create_backup(
                         return
                     if any(directory == skip or directory.is_relative_to(skip) for skip in excluded_directories):
                         return
+
                     def fail_walk(error: OSError) -> None:
                         raise error
 
