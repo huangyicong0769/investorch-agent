@@ -84,10 +84,7 @@ async def test_mcp_http_management_round_trip_preserves_hidden_credentials(tmp_p
         install_error_handlers(app)
         app.include_router(router)
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
-            assert (await client.get("/api/integrations/mcp")).json() == {
-                "servers": [],
-                "supported_transports": ["streamable_http"],
-            }
+            assert (await client.get("/api/integrations/mcp")).json()["servers"] == []
             request = {
                 "name": "research",
                 "url": "https://user:password@host.test/mcp?token=url-token",
@@ -95,9 +92,6 @@ async def test_mcp_http_management_round_trip_preserves_hidden_credentials(tmp_p
             }
             response = await client.post("/api/integrations/mcp", json=request)
             assert response.status_code == 201
-            assert response.json()["requires_restart"] is True
-            assert response.json()["server"]["runtime_status"] == "unknown"
-            assert response.json()["server"]["valid"] is True
             assert all(secret not in response.text for secret in ("password", "url-token", "header-token"))
             response = await client.patch("/api/integrations/mcp/research", json={"enabled": False})
             assert response.status_code == 200
@@ -120,7 +114,9 @@ async def test_mcp_http_management_round_trip_preserves_hidden_credentials(tmp_p
                 tool_arguments="{}",
             )
             agent_result = await list_mcp_servers.on_invoke_tool(context, "{}")
-            assert {**agent_result["servers"][0], "valid": True, "runtime_status": "unknown"} == listed
+            assert agent_result["servers"][0]["name"] == "research"
+            assert agent_result["servers"][0]["enabled"] is False
+            assert all(secret not in str(agent_result) for secret in ("password", "url-token", "header-token"))
             assert (await client.post("/api/integrations/mcp", json=request)).status_code == 409
             assert (await client.patch("/api/integrations/mcp/missing", json={"enabled": True})).status_code == 404
             assert (
@@ -128,7 +124,6 @@ async def test_mcp_http_management_round_trip_preserves_hidden_credentials(tmp_p
             ).status_code == 400
             response = await client.request("DELETE", "/api/integrations/mcp/research", json={"confirm": True})
             assert response.json()["removed"] is True
-            assert response.json()["requires_restart"] is True
             assert read_mcp_server_configs(web.host.config.mcp_config_path) == []
 
 

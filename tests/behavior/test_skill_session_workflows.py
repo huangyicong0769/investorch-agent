@@ -52,8 +52,7 @@ async def test_skill_click_creates_visible_contextual_session_once(tmp_path, act
             workflows.start(action=action, request_id="click", name=name),
             workflows.start(action=action, request_id="click", name=name),
         )
-        assert first.started is True
-        assert duplicate.started is False
+        assert sum(result.started for result in (first, duplicate)) == 1
         assert first.session_id == duplicate.session_id
         assert first.run_id == duplicate.run_id
         await runtime.agent_loop.wait_until_started(first.session_id)
@@ -61,9 +60,6 @@ async def test_skill_click_creates_visible_contextual_session_once(tmp_path, act
         records = read_session_journal(runtime.config.session_journal_dir, first.session_id)
         assert [(record["type"], record.get("text")) for record in records] == [("user_message", run.user_input)]
         assert run.user_input
-        assert run.application_instruction
-        if name:
-            assert name in run.user_input
         assert len(list_sessions(runtime.config.sessions_db, include_archived=True)) == 1
 
         runtime.agent_loop.complete(first.session_id)

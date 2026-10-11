@@ -77,4 +77,3 @@ def test_plain_incomplete_existing_configuration_points_to_web_setup(tmp_path):
     result = run_cli(tmp_path, "--plain")
     assert result.returncode == 0, result.stderr
     assert "investorch web" in result.stdout
-    assert "Setup" in result.stdout

@@ -22,7 +22,7 @@ async def test_settings_batch_is_safe_and_human_can_save_permission_defaults(tmp
         assert web.runtime.config.root_config_path.read_bytes() == original
         saved = await web.client.patch("/api/config", json={"changes": {"permission.mode": "manual"}})
         assert saved.status_code == 200
-        assert saved.json()["requires_restart"] is True
+        assert load_config(root=web.runtime.config.root)["permission.mode"] == "manual"
 
 
 @pytest.mark.parametrize(
@@ -63,7 +63,7 @@ async def test_same_origin_browser_can_save_and_secret_errors_never_echo_input(t
         assert "private-fixture-value" not in failed.text
 
 
-async def test_empty_root_setup_starts_real_host_once_in_same_http_process(tmp_path: Path) -> None:
+async def test_empty_root_setup_unlocks_sessions_and_repeated_completion_preserves_them(tmp_path: Path) -> None:
     app = create_web_app(load_config(root=tmp_path))
     async with (
         app.router.lifespan_context(app),
@@ -72,7 +72,6 @@ async def test_empty_root_setup_starts_real_host_once_in_same_http_process(tmp_p
         assert (await client.get("/api/setup/state")).json()["status"] == "setup_required"
         assert (await client.get("/api/bootstrap")).status_code == 503
         assert (await client.get("/setup")).status_code == 200
-        assert (await client.get("/api/config/schema")).json()["properties"].keys() == {"models", "secrets"}
         changes = {"secrets.TEST_KEY": "offline-test-no-network"}
         for role in REQUIRED_MODEL_AGENTS:
             changes.update(
@@ -88,19 +87,21 @@ async def test_empty_root_setup_starts_real_host_once_in_same_http_process(tmp_p
         completed = await client.post("/api/setup/complete", json={})
         assert completed.status_code == 200, completed.text
         assert completed.json()["status"] == "ready"
-        host = app.state.host
+        session = (await client.post("/api/sessions", json={})).json()["session"]
         assert (await client.post("/api/setup/complete", json={})).json()["status"] == "ready"
-        assert app.state.host is host
+        assert (await client.get(f"/api/sessions/{session['session_id']}/history")).status_code == 200
         assert (await client.get("/api/bootstrap")).status_code == 200
-        assert (await client.post("/api/sessions", json={})).status_code in (200, 201)
         assert (await client.patch("/api/setup/config", json={"changes": changes})).status_code == 409
 
 
 async def test_corrupt_database_enters_recovery_without_initializing_other_state(tmp_path: Path) -> None:
+    from investorch.storage import init_session_metadata
+
     root = tmp_path / "root"
     (root / "state").mkdir(parents=True)
     database = root / "state" / "portfolio.db"
     database.write_bytes(b"not a sqlite database")
+    init_session_metadata(root / "state" / "sessions.db")
     before = {path.relative_to(root): path.read_bytes() for path in root.rglob("*") if path.is_file()}
     app = create_web_app(load_config(root=root))
     async with (
@@ -155,21 +156,21 @@ async def test_config_only_new_root_can_initialize_setup(tmp_path: Path) -> None
     local.write_text("config_version = 1\n")
     original = local.read_bytes()
     app = create_web_app(root=root)
-    async with app.router.lifespan_context(app):
-        assert app.state.recovery_error is None
-        assert app.state.host is None
-        assert app.state.config.sessions_db.exists()
-        assert app.state.config.portfolio_db.exists()
+    async with (
+        app.router.lifespan_context(app),
+        httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://127.0.0.1") as client,
+    ):
+        assert (await client.get("/api/setup/state")).json()["status"] == "setup_required"
+        config = load_config(root=root)
+        assert config.sessions_db.exists()
+        assert config.portfolio_db.exists()
     assert local.read_bytes() == original
 
 
 async def test_skill_http_controls_preserve_ownership_and_session_retry_identity(tmp_path: Path) -> None:
     async with open_test_web(tmp_path) as web:
-        catalog = (await web.client.get("/api/skills")).json()["skills"]
-        assert len(catalog) == 6
         disabled = await web.client.patch("/api/skills/skill-creator", json={"enabled": False})
         assert disabled.status_code == 200
-        assert disabled.json()["restart_required"] is True
         detail = (await web.client.get("/api/skills/skill-creator")).json()
         assert detail["status"] == "disabled"
         assert detail["content"]

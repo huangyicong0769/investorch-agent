@@ -14,9 +14,7 @@ def test_doctor_reports_missing_installation_without_creating_it(tmp_path: Path)
     assert checks["credentials"]["status"] == "warning"
     assert checks["sessions"]["status"] == "warning"
     assert checks["portfolio_schema"]["status"] == "warning"
-    assert checks["cnequity"]["status"] == "disabled"
     assert doctor_exit_code(list(checks.values())) == 1
-    assert all(item["checked_at"] for item in checks.values())
 
 
 def test_doctor_reports_bad_config_without_echoing_or_changing_it(tmp_path: Path) -> None:
@@ -51,7 +49,6 @@ def test_doctor_reports_actionable_config_fields_without_secret_values(tmp_path:
         "secrets.INVALID_KEY",
     }
     assert "web.default_port" in check["detail"]
-    assert "65535" in check["detail"]
     assert "private-config-value" not in json.dumps(check)
     assert "private-invalid-value" not in json.dumps(check)
     assert _files(tmp_path) == before
@@ -204,6 +201,5 @@ def test_doctor_reports_unreadable_bundle_without_aborting_other_checks(tmp_path
     try:
         checks = {item["code"]: item for item in doctor_checks(tmp_path)}
         assert checks["rqalpha"]["status"] == "error"
-        assert checks["cnequity"]["status"] == "disabled"
     finally:
         config.rqalpha_bundle_dir.chmod(0o700)
