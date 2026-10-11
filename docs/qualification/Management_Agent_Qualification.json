@@ -1,5 +1,5 @@
 {
-  "started_at": "2026-10-11T02:15:01.106137+00:00",
+  "started_at": "2026-10-11T02:30:01.461020+00:00",
   "status": "passed",
   "transport": "ASGI HTTP + real ApplicationHost/provider",
   "production_workspace_copied": false,
@@ -21,75 +21,13 @@
   },
   "setup_completed_same_process": true,
   "text_run": {
-    "session_id": "3691cda8d8a2416290c554b8d42c45bc",
+    "session_id": "84c570e1f3eb4b7e912b5e0f45f52455",
     "tools": [],
     "run_statuses": [
       "completed"
     ],
     "review_verdicts": [],
     "approvals": []
-  },
-  "workflows": {
-    "create": {
-      "session_id": "0d4ee4c4a4a9592796a49d08b08a4eb4",
-      "idempotent": true,
-      "visible_intent": "Help me create a new reusable Skill. Ask me what it should do and what inputs and outputs I need.",
-      "agent_asked_for_requirements": true,
-      "tools": [],
-      "run_statuses": [
-        "completed"
-      ],
-      "review_verdicts": [],
-      "approvals": [],
-      "assistant_response_excerpt": "I'd be glad to help you create a new reusable Skill. Before I load the skill-creator workflow and start drafting, let me collect the requirements.\n\nHere's what I need from you:\n\n**1. Purpose and scope**\n- What should this Skill do, in one or two sentences?\n- When should it trigger (what kinds of user requests or situations)?\n- What's explicitly *out of scope* for it?\n\n**2. Inputs**\n- What does the user supply when invoking it? (e.g., a file path, ticker symbol, date range, strategy code, free-text thesis)\n- Which inputs are required vs. optional, and what are the expected formats/types?\n- Any "
-    },
-    "install": {
-      "session_id": "740e0cb0e3d4516d85ce60fcc91d0a14",
-      "idempotent": true,
-      "visible_intent": "Help me install a Skill. Ask me for its source and guide me through review and approval.",
-      "agent_asked_for_requirements": true,
-      "tools": [
-        "load_skill"
-      ],
-      "run_statuses": [
-        "completed"
-      ],
-      "review_verdicts": [],
-      "approvals": [],
-      "assistant_response_excerpt": "I have the installer workflow loaded. Before I acquire anything, I need its source.\n\n## What I need from you\n\n**Please tell me the source of the Skill you want to install.** For example:\n\n- **A Workspace path** \u2014 a directory or archive already in your workspace (e.g. `downloads/my-skill.zip` or `skills-staging/foo/`)\n- **A URL or repository** \u2014 a Git repo, release archive, or raw `SKILL.md` link\n- **A description** \u2014 if you want me to help you *create* a new Skill from scratch instead of installing an existing one (that would use the skill-creator workflow instead)\n\nIf you have a URL/repo/arch"
-    },
-    "edit": {
-      "session_id": "f186afab943a590b9ab1833b42e2df16",
-      "idempotent": true,
-      "visible_intent": "Help me edit the installed Skill 'qualification-greeting'. Ask me what changes I want.",
-      "agent_asked_for_requirements": true,
-      "tools": [
-        "load_skill",
-        "inspect_skill"
-      ],
-      "run_statuses": [
-        "completed"
-      ],
-      "review_verdicts": [],
-      "approvals": [],
-      "assistant_response_excerpt": "I've loaded the skill-creator workflow and inspected the installed Skill. Here's where things stand \u2014 but before I change anything, I need your input.\n\n**Current installed Skill**\n\n| Field | Value |\n|---|---|\n| Name | `qualification-greeting` |\n| Version | `1.0.0` |\n| Source type | `created` (custom, not built-in) |\n| Enabled | Yes |\n| Status | available |\n| Description | \"Render a supplied name in uppercase for a greeting when the user requests this qualification greeting.\" |\n| Resources | none (no `references/`, `scripts/`, or `assets/`) |\n\n**What I need from you**\n\n1. **What change do you w"
-    },
-    "fork": {
-      "session_id": "dc4951c2f5b458099343750630a80435",
-      "idempotent": true,
-      "visible_intent": "Help me fork the installed Skill 'investorch-configuration' under a new name. Ask me how I want to customize it.",
-      "agent_asked_for_requirements": true,
-      "tools": [
-        "load_skill",
-        "inspect_skill"
-      ],
-      "run_statuses": [
-        "completed"
-      ],
-      "review_verdicts": [],
-      "approvals": [],
-      "assistant_response_excerpt": "I have the workflow and source Skill inspected. Before I stage anything, I need your decisions.\n\n**About the source Skill** (`investorch-configuration`, v1.1.0, builtin):\n> \"Inspect or change InvestOrch configuration, models, secrets, MCP connections, or restart-required settings. Use when configuring the application or diagnosing effective policy.\"\n- Resources: `references/configuration.md`\n- Provenance: builtin \u2014 this means it **cannot be removed or replaced**, and `investorch --update` will overwrite it from the package. So your customization must live in a separately named fork (which is e"
-    }
   },
   "created_skill_install": {
     "tools": [
@@ -123,25 +61,371 @@
     "name": "qualification-greeting",
     "inspect_status": "available"
   },
+  "unauthorized_command_approved": false,
   "source_configuration_sha256_after": "30d2b15d2e357ad85ad3f02da002c9a72b4e2e1657743ff4143fbe49776c8dc0",
   "source_configuration_unchanged": true,
-  "finished_at": "2026-10-11T02:15:32.085763+00:00",
-  "isolated_root_retained": true,
-  "source_revision": "c03ec1d",
-  "scope_notes": [
-    "Real ApplicationHost and configured model through ASGI HTTP; browser UI is qualified separately.",
-    "Create includes real candidate creation, independent PASS review, manual approval and installation.",
-    "Install, Edit and Fork cover real clarification starts and idempotency, not completed modifications.",
-    "WARN/BLOCK remain fixture coverage; no real WARN/BLOCK model verdict was induced.",
-    "Strict production load remains rejected until the operator repairs observability.summary_enabled."
+  "finished_at": "2026-10-11T02:30:38.250761+00:00",
+  "source_revision": "91bef660cb412f1cb6405502adf9fabfb7944814",
+  "qualification_script_sha256": "3ae5e7c9a8c2cce6b62a3131d3932e2285dd0736451eee4e7ad49abc23dfb22f",
+  "scope": "Final backend real-provider qualification; HTTP ASGI, real ApplicationHost, SDK and independent Skill Review; no browser claim.",
+  "harness_refinement": "Specify JSON null for origin; preserve approval allowlist; wait for denied operations to complete dialogue with a three-denial cap; allow one recorded visible user correction of the already authorized exact installation.",
+  "interventions": [],
+  "previous_full_pass": {
+    "source_revision": "c03ec1d",
+    "status": "passed",
+    "started_at": "2026-10-11T02:15:01.106137+00:00",
+    "finished_at": "2026-10-11T02:15:32.085763+00:00",
+    "scope": "Earlier backend revision completed four real workflow entries; not proof of full completion on final revision."
+  },
+  "preceding_final_backend_attempts": [
+    {
+      "started_at": "2026-10-11T02:25:36.381578+00:00",
+      "status": "failed",
+      "transport": "ASGI HTTP + real ApplicationHost/provider",
+      "production_workspace_copied": false,
+      "mocks": false,
+      "source_projection": "read-only legacy model/secret projection after strict loader rejection",
+      "source_validation_rejection": "observability.summary_enabled: Extra inputs are not permitted",
+      "source_requires_operator_recovery": true,
+      "model_roles": {
+        "main": "deepseek-flash",
+        "title": "deepseek-flash",
+        "activity": "deepseek-flash",
+        "permission": "deepseek-flash",
+        "compact": "deepseek-flash"
+      },
+      "source_configuration_sha256_before": "30d2b15d2e357ad85ad3f02da002c9a72b4e2e1657743ff4143fbe49776c8dc0",
+      "setup_model_test": {
+        "ok": true,
+        "message": "The model responded successfully."
+      },
+      "setup_completed_same_process": true,
+      "text_run": {
+        "session_id": "3b9d7da54ef74950b19ebd03e2dcb2a1",
+        "tools": [],
+        "run_statuses": [
+          "completed"
+        ],
+        "review_verdicts": [],
+        "approvals": []
+      },
+      "source_configuration_sha256_after": "30d2b15d2e357ad85ad3f02da002c9a72b4e2e1657743ff4143fbe49776c8dc0",
+      "source_configuration_unchanged": true,
+      "error_type": "QualificationFailure",
+      "error": "Agent requested an operation outside the harmless fixture allowlist",
+      "finished_at": "2026-10-11T02:26:00.538954+00:00",
+      "attempt": 1,
+      "observed_stop_reason": "Edit workflow requested exec_command outside the fixed fixture allowlist; approval was denied and the harness stopped.",
+      "workflows": {
+        "create": {
+          "session_id": "0d4ee4c4a4a9592796a49d08b08a4eb4",
+          "idempotent": true,
+          "agent_asked_for_requirements": true,
+          "tools": [
+            "load_skill"
+          ],
+          "run_statuses": [
+            "completed"
+          ],
+          "review_verdicts": [],
+          "approvals": []
+        },
+        "install": {
+          "session_id": "740e0cb0e3d4516d85ce60fcc91d0a14",
+          "idempotent": true,
+          "agent_asked_for_requirements": true,
+          "tools": [
+            "load_skill",
+            "list_skills"
+          ],
+          "run_statuses": [
+            "completed"
+          ],
+          "review_verdicts": [],
+          "approvals": []
+        }
+      },
+      "created_skill_install": {
+        "tools": [
+          "load_skill",
+          "edit",
+          "review_skill_candidate",
+          "install_skill"
+        ],
+        "run_statuses": [
+          "completed",
+          "completed"
+        ],
+        "review_verdicts": [
+          "pass"
+        ],
+        "approvals": [
+          {
+            "tool_name": "edit",
+            "approved": true,
+            "source": "user",
+            "review_decision": null
+          },
+          {
+            "tool_name": "install_skill",
+            "approved": true,
+            "source": "user",
+            "review_decision": null
+          }
+        ],
+        "name": "qualification-greeting",
+        "inspect_status": "available"
+      },
+      "create_continuation_observed": {
+        "tools": [
+          "load_skill",
+          "edit",
+          "review_skill_candidate",
+          "install_skill"
+        ],
+        "run_statuses": [
+          "completed",
+          "completed"
+        ],
+        "review_verdicts": [
+          "pass"
+        ],
+        "approvals": [
+          {
+            "tool_name": "edit",
+            "approved": true,
+            "source": "user",
+            "review_decision": null
+          },
+          {
+            "tool_name": "install_skill",
+            "approved": true,
+            "source": "user",
+            "review_decision": null
+          }
+        ]
+      }
+    },
+    {
+      "started_at": "2026-10-11T02:26:28.704485+00:00",
+      "status": "failed",
+      "transport": "ASGI HTTP + real ApplicationHost/provider",
+      "production_workspace_copied": false,
+      "mocks": false,
+      "source_projection": "read-only legacy model/secret projection after strict loader rejection",
+      "source_validation_rejection": "observability.summary_enabled: Extra inputs are not permitted",
+      "source_requires_operator_recovery": true,
+      "model_roles": {
+        "main": "deepseek-flash",
+        "title": "deepseek-flash",
+        "activity": "deepseek-flash",
+        "permission": "deepseek-flash",
+        "compact": "deepseek-flash"
+      },
+      "source_configuration_sha256_before": "30d2b15d2e357ad85ad3f02da002c9a72b4e2e1657743ff4143fbe49776c8dc0",
+      "setup_model_test": {
+        "ok": true,
+        "message": "The model responded successfully."
+      },
+      "setup_completed_same_process": true,
+      "text_run": {
+        "session_id": "0686a3ec58de47a2b395bcdc4e280522",
+        "tools": [],
+        "run_statuses": [
+          "completed"
+        ],
+        "review_verdicts": [],
+        "approvals": []
+      },
+      "source_configuration_sha256_after": "30d2b15d2e357ad85ad3f02da002c9a72b4e2e1657743ff4143fbe49776c8dc0",
+      "source_configuration_unchanged": true,
+      "error_type": "QualificationFailure",
+      "error": "GET /api/skills/qualification-greeting returned HTTP 404",
+      "finished_at": "2026-10-11T02:26:43.763114+00:00",
+      "attempt": 2,
+      "observed_stop_reason": "Agent supplied the string origin=\"None\" for a created Skill; existing domain approval rejected the nonempty origin and installation did not complete.",
+      "workflows": {
+        "create": {
+          "session_id": "0d4ee4c4a4a9592796a49d08b08a4eb4",
+          "idempotent": true,
+          "agent_asked_for_requirements": true,
+          "tools": [],
+          "run_statuses": [
+            "completed"
+          ],
+          "review_verdicts": [],
+          "approvals": []
+        }
+      },
+      "create_continuation_observed": {
+        "tools": [
+          "edit",
+          "review_skill_candidate",
+          "review_skill_candidate",
+          "install_skill"
+        ],
+        "run_statuses": [
+          "completed",
+          "completed"
+        ],
+        "review_verdicts": [
+          "pass"
+        ],
+        "approvals": [
+          {
+            "tool_name": "edit",
+            "approved": true,
+            "source": "user",
+            "review_decision": null
+          },
+          {
+            "tool_name": "install_skill",
+            "approved": false,
+            "source": "permission",
+            "review_decision": "reject"
+          }
+        ]
+      }
+    },
+    {
+      "started_at": "2026-10-11T02:27:22.974229+00:00",
+      "status": "failed",
+      "transport": "ASGI HTTP + real ApplicationHost/provider",
+      "production_workspace_copied": false,
+      "mocks": false,
+      "source_projection": "read-only legacy model/secret projection after strict loader rejection",
+      "source_validation_rejection": "observability.summary_enabled: Extra inputs are not permitted",
+      "source_requires_operator_recovery": true,
+      "model_roles": {
+        "main": "deepseek-flash",
+        "title": "deepseek-flash",
+        "activity": "deepseek-flash",
+        "permission": "deepseek-flash",
+        "compact": "deepseek-flash"
+      },
+      "source_configuration_sha256_before": "30d2b15d2e357ad85ad3f02da002c9a72b4e2e1657743ff4143fbe49776c8dc0",
+      "setup_model_test": {
+        "ok": true,
+        "message": "The model responded successfully."
+      },
+      "setup_completed_same_process": true,
+      "text_run": {
+        "session_id": "7098a94314ee4f2aaa85cc8e1273211a",
+        "tools": [],
+        "run_statuses": [
+          "completed"
+        ],
+        "review_verdicts": [],
+        "approvals": []
+      },
+      "source_configuration_sha256_after": "30d2b15d2e357ad85ad3f02da002c9a72b4e2e1657743ff4143fbe49776c8dc0",
+      "source_configuration_unchanged": true,
+      "error_type": "QualificationFailure",
+      "error": "GET /api/skills/qualification-greeting returned HTTP 404",
+      "finished_at": "2026-10-11T02:27:35.900949+00:00",
+      "attempt": 3,
+      "observed_stop_reason": "Agent again supplied the string origin=\"None\"; existing domain approval rejected installation.",
+      "workflows": {
+        "create": {
+          "session_id": "0d4ee4c4a4a9592796a49d08b08a4eb4",
+          "idempotent": true,
+          "agent_asked_for_requirements": true,
+          "tools": [],
+          "run_statuses": [
+            "completed"
+          ],
+          "review_verdicts": [],
+          "approvals": []
+        }
+      },
+      "create_continuation_observed": {
+        "tools": [
+          "edit",
+          "review_skill_candidate",
+          "review_skill_candidate",
+          "install_skill"
+        ],
+        "run_statuses": [
+          "completed",
+          "completed"
+        ],
+        "review_verdicts": [
+          "pass"
+        ],
+        "approvals": [
+          {
+            "tool_name": "edit",
+            "approved": true,
+            "source": "user",
+            "review_decision": null
+          },
+          {
+            "tool_name": "install_skill",
+            "approved": false,
+            "source": "permission",
+            "review_decision": "reject"
+          }
+        ]
+      }
+    }
   ],
-  "installed_skill_validation": {
-    "name": "qualification-greeting",
-    "version": "1.0.0",
-    "files": [
-      "SKILL.md"
-    ],
-    "installed_skill_count": 7,
-    "application_log_bytes": 0
+  "workflows": {
+    "create": {
+      "session_id": "0d4ee4c4a4a9592796a49d08b08a4eb4",
+      "idempotent": true,
+      "agent_asked_for_requirements": true,
+      "tools": [
+        "load_skill"
+      ],
+      "run_statuses": [
+        "completed"
+      ],
+      "review_verdicts": [],
+      "approvals": []
+    },
+    "install": {
+      "session_id": "740e0cb0e3d4516d85ce60fcc91d0a14",
+      "idempotent": true,
+      "agent_asked_for_requirements": true,
+      "tools": [
+        "load_skill",
+        "list_skills"
+      ],
+      "run_statuses": [
+        "completed"
+      ],
+      "review_verdicts": [],
+      "approvals": []
+    },
+    "edit": {
+      "session_id": "f186afab943a590b9ab1833b42e2df16",
+      "idempotent": true,
+      "agent_asked_for_requirements": true,
+      "tools": [
+        "load_skill",
+        "inspect_skill",
+        "explore",
+        "explore"
+      ],
+      "run_statuses": [
+        "completed"
+      ],
+      "review_verdicts": [],
+      "approvals": []
+    },
+    "fork": {
+      "session_id": "dc4951c2f5b458099343750630a80435",
+      "idempotent": true,
+      "agent_asked_for_requirements": true,
+      "tools": [
+        "load_skill",
+        "inspect_skill"
+      ],
+      "run_statuses": [
+        "completed"
+      ],
+      "review_verdicts": [],
+      "approvals": []
+    }
   }
 }
