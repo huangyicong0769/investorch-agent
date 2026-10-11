@@ -11,6 +11,7 @@ from agents import set_tracing_disabled
 from fastapi import FastAPI
 
 from investorch.application import open_application_host
+from investorch.application.skills import SkillOperations
 from investorch.config import AppConfig, ConfigError, load_config
 from investorch.config_schema import AppConfigSchema
 from investorch.diagnostics import doctor_checks
@@ -36,10 +37,15 @@ WEB_HOST = "127.0.0.1"
 
 def _recovery_reason(config: AppConfig) -> str | None:
     for check in doctor_checks(config.root):
-        if check["code"] not in {"config", "sessions", "portfolio_schema", "filesystem"}:
+        if check["code"] not in {"config", "sessions", "portfolio_schema", "filesystem", "skills"}:
             continue
         if check["status"] == "error":
             return f"{check['summary']}. {check['remediation']} Run investorch doctor for details."
+        if check["code"] == "skills" and (config.state_dir / "skills.json").exists():
+            try:
+                SkillOperations(config=config).enabled_catalog()
+            except (ValueError, OSError):
+                return "Installed Skills cannot be loaded. Inspect System Status and run investorch doctor; repair the reported issue, then restart InvestOrch."
         if check["code"] == "portfolio_schema" and check.get("source_schema_version") in (3, 4, 5):
             return "This Portfolio database requires explicit migration. Stop InvestOrch, back up offline, then run investorch migrate portfolio."
     return None
@@ -97,7 +103,7 @@ def create_web_app(
                         )
                     except Exception as exc:
                         logger.error("Application host startup failed (%s)", type(exc).__name__)
-                        app.state.startup_error = "The application could not start. Saved configuration was retained; inspect System Status and retry."
+                        app.state.startup_error = "The application could not start. Saved configuration was retained; inspect System Status, repair the reported issue, then restart InvestOrch."
                         raise APIError(503, "host_start_failed", app.state.startup_error) from None
                     app.state.host = host
                     app.state.startup_error = None
@@ -118,7 +124,7 @@ def create_web_app(
                             if not loaded.readiness():
                                 await start_host()
                     except APIError:
-                        pass  # Keep the saved setup editable after a failed Host start.
+                        pass  # Keep diagnostics available after a failed Host start.
                     except Exception as exc:
                         logger.error("Instance initialization failed (%s)", type(exc).__name__)
                         app.state.recovery_error = (

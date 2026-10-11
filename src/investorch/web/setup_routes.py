@@ -17,17 +17,14 @@ router = APIRouter(prefix="/api/setup")
 
 def setup_state(request: Request) -> dict[str, Any]:
     state = request.app.state
-    if state.recovery_error:
-        return {"status": "recovery_required", "missing": [], "error": state.recovery_error}
+    if state.recovery_error or state.startup_error:
+        return {"status": "recovery_required", "missing": [], "error": state.recovery_error or state.startup_error}
     if state.host is not None:
         return {"status": "ready", "missing": []}
-    result: dict[str, Any] = {
+    return {
         "status": "setup_required",
         "missing": state.config.readiness(saved=True) if state.config else [],
     }
-    if state.startup_error:
-        result["error"] = state.startup_error
-    return result
 
 
 def require_setup(request: Request) -> None:
