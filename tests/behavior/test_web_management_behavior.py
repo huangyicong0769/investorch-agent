@@ -113,3 +113,35 @@ async def test_corrupt_database_enters_recovery_without_initializing_other_state
         assert (await client.post("/api/setup/complete", json={})).status_code == 409
     after = {path.relative_to(root): path.read_bytes() for path in root.rglob("*") if path.is_file()}
     assert after == before
+
+
+async def test_skill_http_controls_preserve_ownership_and_session_retry_identity(tmp_path: Path) -> None:
+    async with open_test_web(tmp_path) as web:
+        catalog = (await web.client.get("/api/skills")).json()["skills"]
+        assert len(catalog) == 6
+        disabled = await web.client.patch("/api/skills/skill-creator", json={"enabled": False})
+        assert disabled.status_code == 200
+        assert disabled.json()["restart_required"] is True
+        detail = (await web.client.get("/api/skills/skill-creator")).json()
+        assert detail["status"] == "disabled"
+        assert detail["content"]
+        assert (await web.client.get("/api/skills/unknown")).status_code == 404
+        assert (
+            await web.client.request("DELETE", "/api/skills/skill-creator", json={"confirm": True})
+        ).status_code == 422
+        rejected = await web.client.post(
+            "/api/skill-sessions", json={"request_id": "edit", "action": "edit", "name": "skill-creator"}
+        )
+        assert rejected.status_code == 422
+        body = {"request_id": "fork-once", "action": "fork", "name": "skill-creator"}
+        started = (await web.client.post("/api/skill-sessions", json=body)).json()
+        duplicate = (await web.client.post("/api/skill-sessions", json=body)).json()
+        assert started["started"] is True
+        assert duplicate["started"] is False
+        assert started["session"]["session_id"] == duplicate["session"]["session_id"]
+        session_id = started["session"]["session_id"]
+        await web.runtime.agent_loop.wait_until_started(session_id)
+        history = (await web.client.get(f"/api/sessions/{session_id}/history")).json()
+        assert any(item["type"] == "user_message" for item in history["records"])
+        web.runtime.agent_loop.complete(session_id)
+        await web.runtime.wait_for_run_ended(session_id)
