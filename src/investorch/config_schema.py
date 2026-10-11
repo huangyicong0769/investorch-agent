@@ -173,7 +173,7 @@ class LoggingConfig(ConfigSection):
 
 
 class RuntimeConfig(ConfigSection):
-    default_timezone: NonEmptyString = hot("Asia/Shanghai")
+    default_timezone: NonEmptyString = restart("Asia/Shanghai")
     max_turns: PositiveInt = hot(100)
 
     @field_validator("default_timezone")
