@@ -199,7 +199,7 @@ export function SessionSidebar({
   return (
     <aside
       className={cn(
-        'fixed inset-y-0 z-40 flex h-dvh w-72 max-w-[calc(100vw-3rem)] shrink-0 flex-col border-r border-border bg-card px-3 py-4 shadow-xl md:static md:z-auto md:h-screen md:max-w-none md:shadow-none',
+        'fixed inset-y-0 z-40 flex h-dvh w-72 max-w-[calc(100vw-3rem)] shrink-0 flex-col border-r border-border bg-card px-3 py-4 shadow-xl md:sticky md:top-0 md:z-auto md:max-w-none md:self-start md:shadow-none',
         mobileOpen ? 'visible left-0' : 'invisible -left-full md:visible',
       )}
       id="session-sidebar"
