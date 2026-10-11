@@ -59,7 +59,7 @@ The current QMT route is Agent-generated strategy artifact → human review → 
 
 One feature branch brings together Python Schema configuration, Web Settings and first-run Setup, Skill management through existing Agent Sessions and approvals, MCP registry management, shared System Status/Doctor checks, explicit managed Skill updates, and offline Backup Create/Verify. Portfolio schema v6 and existing migration boundaries stay in place.
 
-Local evidence for real Agent operation, frontend and package verification, and recovery rehearsal is in [the acceptance report](qualification/Management_Acceptance.md). An implemented endpoint or passing fixture is not a substitute for these gates. There is no automatic built-in update, Web restart button, online restore, general Restore CLI, Provider Marketplace, or remote Web authentication in this scope.
+There is no automatic built-in update, Web restart button, online restore, general Restore CLI, Provider Marketplace, or remote Web authentication in this scope.
 
 ## Confirmed direction: unified investment data
 

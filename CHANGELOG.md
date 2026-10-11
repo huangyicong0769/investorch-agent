@@ -4,8 +4,6 @@
 
 ## 0.2.0 (unreleased)
 
-D/E management and recovery is implemented on the feature branch. Local validation and its limits are recorded in [the acceptance report](docs/qualification/Management_Acceptance.md); user review and remote CI remain pending.
-
 - Replace packaged default TOML with strict Python Schema semantics, provider-neutral new installs, atomic configuration updates/reset and one-time historical model-default migration with an original-file backup.
 - Add Web Setup before Agent startup, persistent Settings with backend field metadata, and separate process-local future-Run overrides.
 - Add Skills catalog/details and Create/Install/Edit/Fork Session entry points while preserving independent review and approval.

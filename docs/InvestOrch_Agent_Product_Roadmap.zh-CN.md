@@ -59,7 +59,7 @@ InvestOrch Agent 的目标是成为面向个人投资者的本地优先、human-
 
 同一功能分支完成 Python Schema 配置、Web Settings 与首次 Setup、复用现有 Agent Session 和审批的 Skill 管理、MCP registry 管理、共享 System Status/Doctor、显式受管 Skill 更新，以及离线 Backup Create/Verify。Portfolio schema v6 与既有迁移边界保持。
 
-真实 Agent 运行、前端与发行包验证、恢复演练的本地证据见[验收报告](qualification/Management_Acceptance.md)；已实现端点或通过 fixture 不能替代这些门槛。本范围不包含启动时自动更新内置 Skill、Web 重启按钮、在线恢复、通用 Restore CLI、Provider Marketplace 或远程 Web 鉴权。
+本范围不包含启动时自动更新内置 Skill、Web 重启按钮、在线恢复、通用 Restore CLI、Provider Marketplace 或远程 Web 鉴权。
 
 ## 已确认方向：统一投资数据
 
