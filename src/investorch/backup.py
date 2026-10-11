@@ -252,7 +252,10 @@ def create_backup(
                         return
                     if any(directory == skip or directory.is_relative_to(skip) for skip in excluded_directories):
                         return
-                    for current, dirs, files in os.walk(directory, followlinks=False):
+                    def fail_walk(error: OSError) -> None:
+                        raise error
+
+                    for current, dirs, files in os.walk(directory, followlinks=False, onerror=fail_walk):
                         parent = Path(current)
                         for child in list(dirs):
                             path = parent / child

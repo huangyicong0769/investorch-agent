@@ -232,6 +232,23 @@ def test_backup_refuses_an_external_workspace_writer(tmp_path):
             child.communicate(timeout=5)
 
 
+@pytest.mark.skipif(os.name != "posix" or os.geteuid() == 0, reason="Requires enforced POSIX permissions")
+def test_unreadable_workspace_directory_fails_without_publishing_archive(tmp_path):
+    config = populated_root(tmp_path)
+    directory = config.workspace_dir / "private"
+    directory.mkdir()
+    (directory / "report.txt").write_text("must not be silently omitted")
+    output = tmp_path / "failed.zip"
+    directory.chmod(0)
+    try:
+        with pytest.raises(BackupError, match="PermissionError"):
+            create_backup(config, output)
+        assert not output.exists()
+        assert not list(tmp_path.glob(".failed.zip.incomplete-*"))
+    finally:
+        directory.chmod(0o700)
+
+
 def test_failed_database_backup_leaves_no_final_or_incomplete_archive(tmp_path):
     config = populated_root(tmp_path)
     config.portfolio_db.write_bytes(b"broken database")
