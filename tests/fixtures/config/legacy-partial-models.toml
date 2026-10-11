@@ -1,0 +1,8 @@
+[models.main]
+name = "custom-main"
+base_url = "https://models.example.test/v1"
+api_key_secret = "CUSTOM_KEY"
+
+[secrets]
+CUSTOM_KEY = "fixture-custom-key"
+DEEPSEEK_API_KEY = "fixture-legacy-key"

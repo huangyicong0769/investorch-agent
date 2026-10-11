@@ -1,0 +1,35 @@
+[models.main]
+name = "custom-main"
+base_url = "https://models.example.test/v1"
+api_key_secret = "CUSTOM_KEY"
+reasoning_effort = "medium"
+context_window_tokens = 64000
+
+[models.title]
+name = "custom-title"
+base_url = "https://models.example.test/v1"
+api_key_secret = "CUSTOM_KEY"
+reasoning_effort = "low"
+
+[models.activity]
+name = "custom-activity"
+base_url = "https://models.example.test/v1"
+api_key_secret = "CUSTOM_KEY"
+reasoning_effort = "none"
+
+[models.permission]
+name = "custom-review"
+base_url = "https://review.example.test/v1"
+api_key_secret = "REVIEW_KEY"
+reasoning_effort = "high"
+
+[models.compact]
+name = "custom-compact"
+base_url = "https://models.example.test/v1"
+api_key_secret = "CUSTOM_KEY"
+reasoning_effort = "medium"
+context_window_tokens = 64000
+
+[secrets]
+CUSTOM_KEY = "fixture-custom-key"
+REVIEW_KEY = "fixture-review-key"
