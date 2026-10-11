@@ -94,7 +94,7 @@ export interface McpChanges {
   enabled?: boolean
   cache_tools_list?: boolean
   headers?: Record<string, string>
-  timeout?: number
+  timeout?: number | null
   transport?: string
 }
 

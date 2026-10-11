@@ -28,6 +28,7 @@ function McpForm({ server, transports, onSaved, onCancel }: { server: McpServer 
     const changes: McpChanges = { enabled, cache_tools_list: cacheTools, transport }
     if (!server || url) changes.url = url
     if (timeout) changes.timeout = Number(timeout)
+    else if (server?.timeout != null) changes.timeout = null
     if (headers.trim()) {
       try {
         const parsed: unknown = JSON.parse(headers)
