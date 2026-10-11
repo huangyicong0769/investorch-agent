@@ -17,7 +17,6 @@ import logging
 import os
 import tempfile
 import time
-import tomllib
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -25,9 +24,7 @@ from typing import Any
 import httpx
 from agents import set_tracing_disabled
 
-from investorch.config import REQUIRED_MODEL_AGENTS, ConfigError, load_config
-from investorch.config_legacy import legacy_model_overrides
-from investorch.config_schema import ModelSchema
+from investorch.config import REQUIRED_MODEL_AGENTS, load_config
 from investorch.web.server import create_web_app
 
 SKILL_NAME = "qualification-greeting"
@@ -189,30 +186,11 @@ async def qualify(report: dict[str, Any], root: Path) -> None:
     source_path = Path.home() / ".investorch/investorch.toml"
     source_bytes = source_path.read_bytes()
     before = hashlib.sha256(source_bytes).hexdigest()
-    try:
-        source = load_config(migrate=False)
-        if source.readiness():
-            raise QualificationFailure("Existing model configuration is not ready for real-provider qualification")
-        models = {role: source.get(f"models.{role}") for role in REQUIRED_MODEL_AGENTS}
-        source_secrets = source.secrets
-        report["source_projection"] = "load_config(migrate=False)"
-    except ConfigError as error:
-        # Explicit QA-only fallback for this owner's obsolete setting. Keep the
-        # production loader strict, and never persist a pruned source document.
-        paths = {item["path"] for item in error.errors}
-        if paths != {"observability.summary_enabled"}:
-            raise QualificationFailure("Source configuration has an unapproved validation failure") from None
-        raw = tomllib.loads(source_bytes.decode())
-        if "config_version" in raw:
-            raise QualificationFailure("QA fallback is limited to the identified historical configuration") from None
-        models = legacy_model_overrides()["models"]
-        for role in REQUIRED_MODEL_AGENTS:
-            models[role].update(raw.get("models", {}).get(role, {}))
-            models[role] = ModelSchema.model_validate(models[role]).model_dump()
-        source_secrets = raw.get("secrets", {})
-        report["source_projection"] = "read-only legacy model/secret projection after strict loader rejection"
-        report["source_validation_rejection"] = "observability.summary_enabled: Extra inputs are not permitted"
-        report["source_requires_operator_recovery"] = True
+    source = load_config()
+    if source.readiness():
+        raise QualificationFailure("Existing model configuration is not ready for real-provider qualification")
+    models = {role: source.get(f"models.{role}") for role in REQUIRED_MODEL_AGENTS}
+    source_secrets = source.secrets
     credentials = {}
     for model in models.values():
         secret = source_secrets.get(model["api_key_secret"])

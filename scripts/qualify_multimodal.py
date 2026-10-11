@@ -48,7 +48,7 @@ def red_png() -> bytes:
 
 async def qualify() -> None:
     set_tracing_disabled(True)
-    source = load_config(migrate=False)
+    source = load_config()
     with tempfile.TemporaryDirectory(prefix="investorch-image-qualification-") as directory:
         data = source.public()
         data["secrets"] = source.secrets

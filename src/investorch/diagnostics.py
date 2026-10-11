@@ -6,7 +6,6 @@ import importlib.util
 import os
 import platform
 import sqlite3
-import tomllib
 from contextlib import closing
 from datetime import UTC, datetime
 from importlib.metadata import PackageNotFoundError, version
@@ -68,7 +67,7 @@ def doctor_checks(root: Path | None = None, upgrade: bool = False) -> list[dict[
     config = None
     local = root / "investorch.toml"
     try:
-        config = load_config(root=root, migrate=False)
+        config = load_config(root=root)
         missing = config.readiness()
         add(
             "config",
@@ -91,23 +90,6 @@ def doctor_checks(root: Path | None = None, upgrade: bool = False) -> list[dict[
             "Presence only; provider connectivity has not been tested.",
             configured=configured,
         )
-        if upgrade:
-            raw = tomllib.loads(local.read_text(encoding="utf-8")) if local.exists() else {}
-            legacy = local.exists() and "config_version" not in raw
-            add(
-                "config_upgrade",
-                "warning" if legacy else "ok",
-                "Legacy configuration compatibility required"
-                if legacy
-                else "Configuration format is current"
-                if local.exists()
-                else "New installation",
-                "Historical model defaults are projected in memory only; explicit overrides are retained."
-                if legacy
-                else "",
-                "Back up offline before normal startup writes the migrated configuration." if legacy else "",
-                affected_settings=[f"models.{role}" for role in roles] if legacy else [],
-            )
     except (ConfigError, OSError, ValueError, TypeError) as exc:
         # AppConfig's structured errors exclude raw inputs and validation context.
         # Never stringify an arbitrary parser or filesystem exception here.
@@ -118,7 +100,7 @@ def doctor_checks(root: Path | None = None, upgrade: bool = False) -> list[dict[
             "Configuration cannot be read or validated",
             "; ".join(f"{error['path']}: {error['message']}" for error in errors)
             if errors
-            else "Check Local TOML syntax, format version, readability and configured paths.",
+            else "Check Local TOML syntax, readability and configured paths.",
             f"Repair {local}, preserving existing values, or restore a known-good offline backup; then rerun investorch doctor.",
             path=str(local),
             errors=errors,

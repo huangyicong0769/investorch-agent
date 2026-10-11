@@ -31,10 +31,7 @@ from investorch.config_schema import (
 )
 
 REDACTED = "<redacted>"
-CONFIG_VERSION = 1
-LOCAL_CONFIG_TEMPLATE = (
-    "# Local InvestOrch configuration: overrides Python Schema defaults.\nconfig_version = 1\n\n[secrets]\n"
-)
+LOCAL_CONFIG_TEMPLATE = "# Local InvestOrch configuration: overrides Python Schema defaults.\n\n[secrets]\n"
 
 
 @dataclass(frozen=True, slots=True)
@@ -256,7 +253,6 @@ class AppConfig:
                     f"{self.root_config_path} changed outside this configuration instance; restart before saving"
                 )
             document = tomlkit.parse(current_bytes.decode()) if current_bytes is not None else tomlkit.document()
-            document["config_version"] = CONFIG_VERSION
             for key, value in changes.items():
                 if value is None:
                     _delete_config_value(document, _split_key(key))
@@ -290,7 +286,7 @@ class AppConfig:
         return resolve_under_root(self.root, self[key], key)
 
 
-def load_config(root: Path | None = None, *, migrate: bool = True) -> AppConfig:
+def load_config(root: Path | None = None) -> AppConfig:
     root = Path(root).expanduser() if root is not None else Path.home() / ".investorch"
     if not root.is_absolute():
         raise ConfigError("paths.root must be absolute")
@@ -300,31 +296,7 @@ def load_config(root: Path | None = None, *, migrate: bool = True) -> AppConfig:
     path = root / "investorch.toml"
     source = path.read_bytes() if path.exists() else None
     overrides = _local_data(source, path) if source is not None else {}
-    legacy = source is not None and "config_version" not in _read_toml_bytes(source, path)
-    if legacy:
-        # Legacy-only compatibility: preserve the old effective model values once.
-        from investorch.config_legacy import legacy_model_overrides
-
-        overrides = _merge(legacy_model_overrides(), overrides)
     data = _effective(root, overrides)
-    if legacy and migrate:
-        backup = path.with_name("investorch.toml.pre-schema.bak")
-        if backup.exists() and backup.read_bytes() != source:
-            raise ConfigError(
-                f"Cannot migrate {path}: existing backup differs at {backup}; preserve it before retrying"
-            )
-        if not backup.exists():
-            _atomic_write(backup, source)
-        document = tomlkit.parse(source.decode())
-        document["config_version"] = CONFIG_VERSION
-        for role, values in overrides["models"].items():
-            for field, value in values.items():
-                if field not in document.get("models", {}).get(role, {}):
-                    _set_config_value(document, ("models", role, field), value)
-        encoded = tomlkit.dumps(document).encode()
-        _effective(root, _local_data(encoded, path))
-        _atomic_write(path, encoded)
-        source = encoded
     return AppConfig(data, local_overrides=overrides, source_bytes=source)
 
 
@@ -337,9 +309,6 @@ def _read_toml_bytes(source: bytes, path: Path) -> dict[str, Any]:
 
 def _local_data(source: bytes, path: Path) -> dict[str, Any]:
     data = _read_toml_bytes(source, path)
-    version = data.pop("config_version", CONFIG_VERSION)
-    if type(version) is not int or version != CONFIG_VERSION:
-        raise ConfigError(f"Unsupported configuration format in {path}")
     if isinstance(data.get("paths"), dict) and "root" in data["paths"]:
         raise ConfigError("paths.root cannot be redirected by Local TOML")
     return data

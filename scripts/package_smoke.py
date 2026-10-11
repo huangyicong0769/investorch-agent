@@ -160,7 +160,7 @@ def main() -> None:
             assert b"<html" in request(origin, "/setup")
             schema = request(origin, "/api/config/schema")
             assert "properties" in schema
-            config = load_config(root=root, migrate=False)
+            config = load_config(root=root)
             assert config["runtime.max_turns"] == 100
             assert config["models.main.name"] is None
             assert config.readiness()

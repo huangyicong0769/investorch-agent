@@ -116,7 +116,7 @@ def entrypoint() -> None:
     if startup_options.update:
         from investorch.skills.bundled import update_builtins
 
-        config = load_config(migrate=False)
+        config = load_config()
         result = update_builtins(config)
         print(
             f"Built-in Skills updated: installed={result['installed']} "

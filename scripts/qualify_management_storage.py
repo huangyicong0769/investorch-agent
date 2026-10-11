@@ -22,8 +22,7 @@ from package_smoke import request, running_web
 
 from investorch.application.skills import SkillOperations
 from investorch.backup import create_backup, verify_backup
-from investorch.config import load_config
-from investorch.config_legacy import legacy_model_overrides
+from investorch.config import REQUIRED_MODEL_AGENTS, load_config
 from investorch.initializer import initialize
 from investorch.portfolio import init_portfolio_storage, list_ledger_entries, list_portfolios
 from investorch.portfolio.migration import migrate_portfolio
@@ -42,12 +41,20 @@ def files_digest(root: Path) -> dict[str, str]:
     }
 
 
-def legacy_home(base: Path, name: str, values: dict | None = None) -> Path:
+def configured_home(base: Path, name: str) -> Path:
     home = base / name
     root = home / ".investorch"
     root.mkdir(parents=True)
+    models = {
+        role: {
+            "name": "qualification-model",
+            "base_url": "http://127.0.0.1:9/v1",
+            "api_key_secret": "QUALIFICATION_KEY",
+        }
+        for role in REQUIRED_MODEL_AGENTS
+    }
     (root / "investorch.toml").write_text(
-        tomlkit.dumps({"secrets": {"DEEPSEEK_API_KEY": KEY}, **(values or {})}), encoding="utf-8"
+        tomlkit.dumps({"models": models, "secrets": {"QUALIFICATION_KEY": KEY}}), encoding="utf-8"
     )
     return home
 
@@ -80,33 +87,14 @@ def main() -> None:
     executable = shutil.which("investorch")
     assert executable
     report = {
-        "source": "synthetic legacy TOML and literal historical Portfolio SQL fixtures",
+        "source": "explicit model configuration and literal historical Portfolio SQL fixtures",
         "provider_requests": 0,
         "checks": {},
     }
     checks = report["checks"]
     with tempfile.TemporaryDirectory(prefix="investorch-management-qualification-") as temporary:
         base = Path(temporary)
-        profiles = {
-            "secret_only": {},
-            "partial": {"models": {"main": {"name": "explicit-main"}}},
-            "full": legacy_model_overrides(),
-        }
-        for name, values in profiles.items():
-            home = legacy_home(base, name, values)
-            root = home / ".investorch"
-            local = root / "investorch.toml"
-            original = local.read_bytes()
-            expected = load_config(root, migrate=False).public()
-            with running_web(executable, home) as (_, origin):
-                assert request(origin, "/api/setup/state")["status"] == "ready"
-                assert request(origin, "/api/sessions", method="POST")["session"]["session_id"]
-            actual = load_config(root, migrate=False).public()
-            assert expected == actual
-            assert local.with_name("investorch.toml.pre-schema.bak").read_bytes() == original
-            checks[f"legacy_{name}"] = "ready; effective configuration preserved; original TOML backed up"
-
-        bad_home = legacy_home(base, "bad-config")
+        bad_home = configured_home(base, "bad-config")
         bad_root = bad_home / ".investorch"
         (bad_root / "investorch.toml").write_text("[broken TOML")
         before = files_digest(bad_root)
@@ -117,7 +105,7 @@ def main() -> None:
         checks["invalid_toml"] = "HTTP recovery; source files unchanged"
 
         for version in range(1, 7):
-            home = legacy_home(base, f"portfolio-v{version}")
+            home = configured_home(base, f"portfolio-v{version}")
             root = home / ".investorch"
             database = root / "state/portfolio.db"
             historical_database(database, min(version, 2) if version == 6 else version, paired_session=True)
@@ -140,7 +128,7 @@ def main() -> None:
                 assert connection.execute("PRAGMA user_version").fetchone() == (6,)
             checks[f"portfolio_v{version}"] = "ready on v6; fixture financial rows preserved"
 
-        active_home = legacy_home(base, "active-v5")
+        active_home = configured_home(base, "active-v5")
         active_root = active_home / ".investorch"
         active_db = active_root / "state/portfolio.db"
         historical_database(active_db, 5, paired_session=True)
@@ -158,7 +146,7 @@ def main() -> None:
         checks["active_legacy_live"] = "HTTP recovery; migration blocked; source files unchanged"
 
         for failure in ("unknown_schema", "corrupt_database"):
-            home = legacy_home(base, failure)
+            home = configured_home(base, failure)
             root = home / ".investorch"
             database = root / "state/portfolio.db"
             historical_database(database, 2, paired_session=True)
@@ -174,7 +162,7 @@ def main() -> None:
             checks[failure] = "HTTP recovery; source files unchanged"
 
         for missing in ("sessions_db", "portfolio_db"):
-            home = legacy_home(base, f"missing-{missing}")
+            home = configured_home(base, f"missing-{missing}")
             root = home / ".investorch"
             config = load_config(root)
             initialize(config)
@@ -185,7 +173,7 @@ def main() -> None:
             assert files_digest(root) == before
             checks[f"missing_{missing}"] = "HTTP recovery; missing database not recreated; source files unchanged"
 
-        source_home = legacy_home(base, "backup-source")
+        source_home = configured_home(base, "backup-source")
         source_root = source_home / ".investorch"
         config = load_config(source_root)
         initialize(config)
@@ -226,7 +214,7 @@ def main() -> None:
             check=True,
             timeout=30,
         )
-        restored = load_config(restored_root, migrate=False)
+        restored = load_config(restored_root)
         assert get_session(restored.sessions_db, "recovery-session") == get_session(
             config.sessions_db, "recovery-session"
         )

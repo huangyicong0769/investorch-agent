@@ -18,7 +18,7 @@ from urllib.parse import urlsplit
 
 import tomlkit
 
-from investorch.config import CONFIG_VERSION, AppConfig
+from investorch.config import AppConfig
 
 
 class BackupError(ValueError):
@@ -122,7 +122,7 @@ def _snapshot_database(path: Path, scratch: Path) -> tuple[Path, int]:
 
 def _safe_config(config: AppConfig) -> bytes:
     effective = config.public(saved=True)
-    local: dict = {"config_version": CONFIG_VERSION}
+    local: dict = {}
     for key in config.override_keys():
         parts = key.split(".")
         if parts[0] == "secrets" or key == "paths.root":

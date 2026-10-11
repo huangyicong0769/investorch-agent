@@ -106,12 +106,11 @@ def create_web_app(
             try:
                 if not app.state.recovery_error:
                     try:
-                        loaded = app.state.config or await asyncio.to_thread(load_config, instance_root, migrate=False)
+                        loaded = app.state.config or await asyncio.to_thread(load_config, instance_root)
                         reason = await asyncio.to_thread(_recovery_reason, loaded)
                         if reason:
                             app.state.recovery_error = reason
                         else:
-                            loaded = await asyncio.to_thread(load_config, instance_root)
                             await asyncio.to_thread(initialize, loaded)
                             app.state.config = loaded
                             set_tracing_disabled(not loaded["observability.sdk_tracing_enabled"])
@@ -159,7 +158,7 @@ def create_web_app(
 def run_web(*, port: int | None = None) -> None:
     root = Path.home() / ".investorch"
     try:
-        config = load_config(root=root, migrate=False)
+        config = load_config(root=root)
         recovery_error = None
     except (ConfigError, OSError):
         config = None

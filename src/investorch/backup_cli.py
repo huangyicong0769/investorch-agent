@@ -33,7 +33,7 @@ def run_backup_cli(arguments: list[str]) -> None:
         if options.include_sensitive_config:
             print("Warning: this unencrypted backup will contain raw configuration credentials.", file=sys.stderr)
         result = create_backup(
-            load_config(options.root, migrate=False),
+            load_config(options.root),
             options.output,
             include_sensitive_config=options.include_sensitive_config,
             exclude_artifacts=options.exclude_artifacts,
