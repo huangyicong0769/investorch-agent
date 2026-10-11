@@ -13,13 +13,14 @@ interface SchemaFieldProps {
   root: ConfigSchema
   value: JsonValue | undefined
   disabled?: boolean
+  showApplyMode?: boolean
   overridden?: boolean
   error?: string
   onChange: (value: JsonValue) => void
   onReset?: () => void
 }
 
-export function SchemaField({ path, schema: raw, root, value, disabled, overridden, error, onChange, onReset }: SchemaFieldProps) {
+export function SchemaField({ path, schema: raw, root, value, disabled, showApplyMode = true, overridden, error, onChange, onReset }: SchemaFieldProps) {
   const id = useId()
   const schema = resolveSchema(raw, root)
   const nullable = nullableSchema(raw)
@@ -53,7 +54,7 @@ export function SchemaField({ path, schema: raw, root, value, disabled, overridd
         }} placeholder={nullable ? 'Not set' : undefined} step={type === 'integer' ? 1 : 'any'} type={type === 'number' || type === 'integer' ? 'number' : 'text'} value={value == null ? '' : String(value)} />
       )}
       {description || error ? <p className={`text-xs ${error ? 'text-destructive' : 'text-muted-foreground'}`} id={`${id}-description`}>{error ?? description}</p> : null}
-      <p className="text-[11px] text-muted-foreground">{immutable ? 'Read only' : schema.apply_mode === 'restart_required' ? 'Restart required after saving' : 'Applies to future work'}{overridden ? ' · Local override' : ''}</p>
+      {showApplyMode ? <p className="text-[11px] text-muted-foreground">{immutable ? 'Read only' : schema.apply_mode === 'restart_required' ? 'Restart required after saving' : 'Applies to future work'}{overridden ? ' · Local override' : ''}</p> : null}
     </div>
   )
 }

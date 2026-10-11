@@ -197,7 +197,7 @@ function StartupGate() {
     <p className="mt-6 text-sm text-muted-foreground">Offline checks: <code>investorch doctor</code> · <code>investorch upgrade check</code></p>
   </div>
   if (location.pathname !== '/setup') return <Navigate replace to="/setup" />
-  return <SetupPage />
+  return <SetupPage startupError={state.data.error} />
 }
 
 const router = createBrowserRouter([

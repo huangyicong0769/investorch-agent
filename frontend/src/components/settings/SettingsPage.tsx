@@ -55,7 +55,7 @@ function SettingsEditor({ saved, schema }: { saved: SavedConfig; schema: ConfigS
   const renderFields = (path: string, omit: string[] = []): ReactNode => {
     const raw = schemaAtPath(schema, path)
     const field = resolveSchema(raw, schema)
-    if (field.properties || typeof field.additionalProperties === 'object') {
+    if (field.properties || field.patternProperties || typeof field.additionalProperties === 'object') {
       const entries = Object.keys(field.properties ?? objectValue(configValue(saved.values, path))).filter((key) => !omit.includes(key))
       return <div className="grid min-w-0 gap-5 sm:grid-cols-2">{entries.map((key) => {
         const child = schemaAtPath(schema, `${path}.${key}`)

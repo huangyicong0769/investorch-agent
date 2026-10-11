@@ -11,6 +11,7 @@ export interface ConfigSchema {
   description?: string
   type?: string
   properties?: Record<string, ConfigSchema>
+  patternProperties?: Record<string, ConfigSchema>
   additionalProperties?: ConfigSchema | boolean
   anyOf?: ConfigSchema[]
   enum?: JsonValue[]
@@ -148,8 +149,8 @@ export function resetConfig(keys: string[]): Promise<ConfigUpdate> {
 export function completeSetup(): Promise<SetupState> {
   return request('/api/setup/complete', { method: 'POST', body: {} })
 }
-export function testModel(body: { name: string; base_url: string; api_key: string; reasoning_effort?: string }): Promise<{ ok: boolean; message: string }> {
-  return request('/api/setup/test-model', { method: 'POST', body })
+export function testModel(body: { name: string; base_url: string; api_key: string; reasoning_effort?: string }, signal?: AbortSignal): Promise<{ ok: boolean; message: string }> {
+  return request('/api/setup/test-model', { method: 'POST', body, signal })
 }
 export function startSkillSession(body: { request_id: string; action: SkillAction; name?: string }): Promise<PortfolioSessionResponse> {
   return request('/api/skill-sessions', { method: 'POST', body })

@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 
@@ -19,6 +19,8 @@ function SetupForm({ saved, schema }: { saved: SavedConfig; schema: ConfigSchema
   const [keyValues, setKeyValues] = useState<Record<string, string>>({})
   const [notice, setNotice] = useState('')
   const [primaryApplied, setPrimaryApplied] = useState(false)
+  const probeController = useRef<AbortController | null>(null)
+  useEffect(() => () => probeController.current?.abort(), [])
   const value = (path: string) => path in changes ? changes[path] : configValue(saved.values, path)
   const keyName = String(value('models.main.api_key_secret') ?? '')
   const keyValue = keyValues[keyName] ?? ''
@@ -35,7 +37,7 @@ function SetupForm({ saved, schema }: { saved: SavedConfig; schema: ConfigSchema
     onSuccess: async (state) => {
       setKeyValues({})
       setChanges({})
-      setNotice(state.status === 'ready' ? 'Setup complete. Opening InvestOrch…' : 'Configuration saved. Complete the remaining settings below.')
+      setNotice(state.error ?? (state.status === 'ready' ? 'Setup complete. Opening InvestOrch…' : 'Configuration saved. Complete the remaining settings below.'))
       queryClient.setQueryData(managementKeys.setup(), state)
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: managementKeys.config() }),
@@ -48,7 +50,15 @@ function SetupForm({ saved, schema }: { saved: SavedConfig; schema: ConfigSchema
     },
   })
   const probe = useMutation({
-    mutationFn: () => testModel({ name: String(value('models.main.name') ?? ''), base_url: String(value('models.main.base_url') ?? ''), api_key: keyValue, reasoning_effort: String(value('models.main.reasoning_effort') ?? '') }),
+    mutationFn: async () => {
+      probeController.current = new AbortController()
+      try {
+        return await testModel({ name: String(value('models.main.name') ?? ''), base_url: String(value('models.main.base_url') ?? ''), api_key: keyValue, reasoning_effort: String(value('models.main.reasoning_effort') ?? '') }, probeController.current.signal)
+      } catch (error) {
+        if (error instanceof DOMException && error.name === 'AbortError') return { ok: false, message: 'Connection test canceled. Your settings have not changed.' }
+        throw error
+      } finally { probeController.current = null }
+    },
   })
   const errors = fieldErrors(save.error)
   const busy = save.isPending || probe.isPending
@@ -61,7 +71,7 @@ function SetupForm({ saved, schema }: { saved: SavedConfig; schema: ConfigSchema
       <div className="flex items-center gap-3"><span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold">1</span><h2 className="font-semibold">Primary model</h2></div>
       <p className="mt-2 text-sm text-muted-foreground">Enter an OpenAI-compatible endpoint and the model you want to use.</p>
       <div className="mt-5 grid gap-5 sm:grid-cols-2">
-        {Object.entries(modelSchema.properties ?? {}).map(([key, field]) => <SchemaField disabled={busy} error={errors[`models.main.${key}`]} key={key} onChange={(next) => set(`models.main.${key}`, next)} path={`models.main.${key}`} root={schema} schema={field} value={value(`models.main.${key}`)} />)}
+        {Object.entries(modelSchema.properties ?? {}).map(([key, field]) => <SchemaField showApplyMode={false} disabled={busy} error={errors[`models.main.${key}`]} key={key} onChange={(next) => set(`models.main.${key}`, next)} path={`models.main.${key}`} root={schema} schema={field} value={value(`models.main.${key}`)} />)}
       </div>
       {!keyName ? <Button className="mt-3" disabled={busy} onClick={() => set('models.main.api_key_secret', 'PRIMARY_API_KEY')} size="sm" type="button" variant="outline">Use suggested key reference: PRIMARY_API_KEY</Button> : null}
     </section>
@@ -82,27 +92,28 @@ function SetupForm({ saved, schema }: { saved: SavedConfig; schema: ConfigSchema
         <summary className="cursor-pointer rounded-md py-2 text-sm font-medium focus-visible:outline-ring">Review and customize other roles</summary>
         <div className="mt-3 space-y-5">{roles.filter((role) => role !== 'main').map((role) => <fieldset className="rounded-lg border border-border p-4" key={role}>
           <legend className="px-2 text-sm font-medium">{fieldLabel(role)}</legend>
-          <div className="grid gap-4 sm:grid-cols-2">{Object.entries(modelSchema.properties ?? {}).map(([key, field]) => <SchemaField disabled={busy} error={errors[`models.${role}.${key}`]} key={key} onChange={(next) => set(`models.${role}.${key}`, next)} path={`models.${role}.${key}`} root={schema} schema={field} value={value(`models.${role}.${key}`)} />)}</div>
+          <div className="grid gap-4 sm:grid-cols-2">{Object.entries(modelSchema.properties ?? {}).map(([key, field]) => <SchemaField showApplyMode={false} disabled={busy} error={errors[`models.${role}.${key}`]} key={key} onChange={(next) => set(`models.${role}.${key}`, next)} path={`models.${role}.${key}`} root={schema} schema={field} value={value(`models.${role}.${key}`)} />)}</div>
         </fieldset>)}</div>
       </details>
     </section>
     <section className="space-y-4 rounded-xl border border-border bg-card p-5 sm:p-6">
       <div className="flex items-center gap-3"><span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold">3</span><h2 className="font-semibold">Check and finish</h2></div>
       <p className="text-sm text-muted-foreground">Connection testing is optional. It uses the key entered above for one request to your endpoint.</p>
-      {saved.missing.length ? <p className="break-words text-xs text-muted-foreground">Still required in saved settings: {saved.missing.join(', ')}</p> : null}
+      {saved.missing.length ? <p className="text-xs text-muted-foreground">Saved setup is incomplete. Saving will validate the model roles and keys together.</p> : null}
       <ErrorNotice error={probe.error} fallback="The connection test failed. Your settings have not been changed." />
       {probe.data ? <p className={`text-sm ${probe.data.ok ? 'text-muted-foreground' : 'text-destructive'}`} role="status">{probe.data.message}</p> : null}
       <ErrorNotice error={save.error} fallback="Setup could not finish. Your saved configuration has been retained." />
       {notice ? <p className="text-sm" role="status">{notice}</p> : null}
       <div className="flex flex-wrap gap-3">
         <Button disabled={busy || !keyValue} onClick={() => probe.mutate()} type="button" variant="outline">{probe.isPending ? 'Testing…' : 'Test connection'}</Button>
+        {probe.isPending ? <Button onClick={() => probeController.current?.abort()} type="button" variant="ghost">Cancel test</Button> : null}
         <Button disabled={busy} type="submit">{save.isPending ? 'Opening InvestOrch…' : 'Save and open InvestOrch'}</Button>
       </div>
     </section>
   </form>
 }
 
-export function SetupPage() {
+export function SetupPage({ startupError }: { startupError?: string }) {
   const config = useQuery(configQueryOptions())
   const schema = useQuery(schemaQueryOptions())
   return <div className="mx-auto max-w-3xl px-4 py-10 sm:px-6 sm:py-16">
@@ -111,6 +122,7 @@ export function SetupPage() {
       <h1 className="mt-3 text-3xl font-semibold tracking-tight">Set up your workspace</h1>
       <p className="mt-3 text-sm leading-6 text-muted-foreground">Connect your model service to start. You can change individual roles and other preferences in Settings later.</p>
     </header>
+    {startupError ? <p className="mb-5 rounded-lg border border-destructive/25 bg-destructive/5 p-4 text-sm text-destructive" role="alert">{startupError}</p> : null}
     <ErrorNotice error={config.error ?? schema.error} fallback="Setup settings could not be loaded." />
     {config.isPending || schema.isPending ? <p role="status" className="text-sm text-muted-foreground">Loading setup…</p> : null}
     {config.data && schema.data ? <SetupForm saved={config.data} schema={schema.data} /> : null}

@@ -30,7 +30,8 @@ export function schemaAtPath(root: ConfigSchema, path: string): ConfigSchema {
   let current = root
   for (const part of path.split('.')) {
     const schema = resolveSchema(current, root)
-    current = schema.properties?.[part] ?? (typeof schema.additionalProperties === 'object' ? schema.additionalProperties : {})
+    const matchingPattern = Object.entries(schema.patternProperties ?? {}).find(([pattern]) => new RegExp(pattern).test(part))?.[1]
+    current = schema.properties?.[part] ?? matchingPattern ?? (typeof schema.additionalProperties === 'object' ? schema.additionalProperties : {})
   }
   return current
 }
