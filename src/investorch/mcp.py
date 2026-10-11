@@ -74,6 +74,7 @@ def configure_mcp_server_config(
     cache_tools_list: bool | None = None,
     headers: dict[str, str] | None = None,
     timeout: float | None = None,
+    clear_timeout: bool = False,
     transport: str | None = None,
     operation: Literal["upsert", "create", "update"] = "upsert",
 ) -> dict[str, Any]:
@@ -138,7 +139,9 @@ def configure_mcp_server_config(
         else:
             server.pop("headers", None)
 
-    if timeout is not None:
+    if clear_timeout:
+        server.pop("timeout", None)
+    elif timeout is not None:
         server["timeout"] = timeout
 
     _validate_server_config(server)

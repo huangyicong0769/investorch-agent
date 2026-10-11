@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import httpx
@@ -16,7 +17,7 @@ from investorch.mcp import (
     public_mcp_server_config,
     read_mcp_server_configs,
 )
-from investorch.tools.mcp import list_mcp_servers
+from investorch.tools.mcp import configure_mcp_server, list_mcp_servers
 from investorch.web.errors import install_error_handlers
 from tests.support.web import open_test_web
 
@@ -72,6 +73,55 @@ def test_invalid_updates_do_not_modify_mcp_file(tmp_path: Path, changes: dict) -
     with pytest.raises((ValueError, TypeError, NotImplementedError)):
         configure_mcp_server_config(path, "first", **changes)
     assert path.read_bytes() == before
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("changes", [{"enabled": False}, {"timeout": 24}, {"timeout": None}])
+async def test_mcp_http_timeout_omission_replacement_and_clear(tmp_path: Path, changes: dict) -> None:
+    async with open_test_web(tmp_path) as web:
+        path = web.host.config.mcp_config_path
+        original = configure_mcp_server_config(
+            path, "research", url="https://host.test/mcp", headers={"Authorization": "secret"}, timeout=12.5
+        )
+        neighbor = configure_mcp_server_config(path, "neighbor", url="https://neighbor.test/mcp", timeout=20)
+        response = await web.client.patch("/api/integrations/mcp/research", json=changes)
+        assert response.status_code == 200
+        assert response.json()["requires_restart"] is True
+        expected = {**original, **changes}
+        if changes.get("timeout", 12.5) is None:
+            expected.pop("timeout")
+        assert read_mcp_server_configs(path) == [expected, neighbor]
+        public = response.json()["server"]
+        assert public.get("timeout") == expected.get("timeout")
+        assert "secret" not in response.text
+        listed = (await web.client.get("/api/integrations/mcp")).json()["servers"][0]
+        assert listed == public
+
+
+@pytest.mark.parametrize("timeout_arguments", [{}, {"timeout": None}])
+async def test_agent_mcp_tool_unspecified_timeout_preserves_saved_value(
+    tmp_path: Path, timeout_arguments: dict
+) -> None:
+    async with open_test_web(tmp_path) as web:
+        path = web.host.config.mcp_config_path
+        original = configure_mcp_server_config(path, "research", url="https://host.test/mcp", timeout=12.5)
+        context = ToolContext(
+            context=AgentContext(
+                config=web.host.config,
+                execution=web.host.execution,
+                session_id="mcp-test",
+                run_id="mcp-test",
+                portfolios=web.host.portfolios,
+            ),
+            tool_name="configure_mcp_server",
+            tool_call_id="mcp-configure",
+            tool_arguments="{}",
+        )
+        result = await configure_mcp_server.on_invoke_tool(
+            context, json.dumps({"name": "research", "enabled": False, **timeout_arguments})
+        )
+        assert result["server"]["timeout"] == 12.5
+        assert read_mcp_server_configs(path) == [{**original, "enabled": False}]
 
 
 @pytest.mark.asyncio

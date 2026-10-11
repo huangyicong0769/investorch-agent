@@ -82,10 +82,11 @@ def create_server(request: CreateMCPRequest, host: Host) -> dict[str, Any]:
 
 @router.patch("/{name}")
 def update_server(name: str, request: UpdateMCPRequest, host: Host) -> dict[str, Any]:
+    changes = request.model_dump(exclude_none=True)
+    if "timeout" in request.model_fields_set and request.timeout is None:
+        changes["clear_timeout"] = True
     try:
-        server = configure_mcp_server_config(
-            host.config.mcp_config_path, name, **request.model_dump(exclude_none=True), operation="update"
-        )
+        server = configure_mcp_server_config(host.config.mcp_config_path, name, **changes, operation="update")
     except (OSError, ValueError, TypeError, NotImplementedError) as error:
         _raise_mcp_error(error)
     return {"server": _public_server(server), "persisted": True, "requires_restart": True}
