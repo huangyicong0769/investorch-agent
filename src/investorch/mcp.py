@@ -5,9 +5,14 @@ from collections.abc import Mapping
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
+from urllib.parse import parse_qsl, quote_plus, urlsplit, urlunsplit
 
 import tomlkit
 from agents.mcp import MCPServer, MCPServerStreamableHttp
+
+from investorch.config import REDACTED
+
+_SECRET_PLACEHOLDER_PATTERN = re.compile(r"\$\{[A-Za-z_][A-Za-z0-9_]*\}")
 
 _VARIABLE_PATTERN = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 
@@ -269,3 +274,37 @@ def _write_mcp_server_configs(path: str | Path, servers: list[dict[str, Any]]) -
 
     if os.name == "posix":
         path.chmod(0o600)
+
+
+def public_mcp_server_config(server: dict[str, Any]) -> dict[str, Any]:
+    public = {
+        key: deepcopy(server[key])
+        for key in ("name", "enabled", "transport", "url", "cache_tools_list", "headers", "timeout")
+        if key in server
+    }
+
+    if isinstance(public.get("url"), str):
+        public["url"] = _redact_url(public["url"])
+
+    if isinstance(public.get("headers"), dict):
+        public["headers"] = {name: _public_secret_value(value) for name, value in public["headers"].items()}
+
+    return public
+
+
+def _public_secret_value(value: str) -> str:
+    return value if _SECRET_PLACEHOLDER_PATTERN.fullmatch(value) else REDACTED
+
+
+def _redact_url(url: str) -> str:
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        return REDACTED
+    netloc = f"{REDACTED}@{parts.netloc.rsplit('@', 1)[1]}" if "@" in parts.netloc else parts.netloc
+    query = "&".join(
+        f"{quote_plus(name)}={_public_secret_value(value)}"
+        for name, value in parse_qsl(parts.query, keep_blank_values=True)
+    )
+    fragment = _public_secret_value(parts.fragment) if parts.fragment else ""
+    return urlunsplit((parts.scheme, netloc, parts.path, query, fragment))
