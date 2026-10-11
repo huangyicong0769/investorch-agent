@@ -19,11 +19,11 @@ export default defineConfig({
     proxy: {
       '/api': {
         target: backendTarget,
-        changeOrigin: true,
+        changeOrigin: false,
       },
       '/ws': {
         target: backendTarget,
-        changeOrigin: true,
+        changeOrigin: false,
         ws: true,
       },
     },
