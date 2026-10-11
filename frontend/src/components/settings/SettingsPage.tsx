@@ -85,7 +85,7 @@ function SettingsEditor({ saved, schema }: { saved: SavedConfig; schema: ConfigS
         </> : null}
         {category === 'Models' ? <>
           {section('Model roles', 'models', 'Each role has its own model, endpoint, key reference and reasoning settings. Multiple roles can share a key reference.')}
-          <section className="rounded-xl border border-border bg-card p-5"><h2 className="font-semibold">API keys</h2><div className="mt-5"><SecretFields allowNew configured={saved.secrets} disabled={busy} names={[...Object.keys(saved.secrets), ...referencedSecrets]} onChange={(name, key) => { setSecrets((current) => ({ ...current, [name]: key })); setNotice('') }} values={secrets} /></div></section>
+          <section className="rounded-xl border border-border bg-card p-5"><h2 className="font-semibold">API keys</h2><p className="mt-2 text-sm text-muted-foreground">Restart InvestOrch after saving replacement keys so model clients use the new credentials.</p><div className="mt-5"><SecretFields allowNew configured={saved.secrets} disabled={busy} names={[...Object.keys(saved.secrets), ...referencedSecrets]} onChange={(name, key) => { setSecrets((current) => ({ ...current, [name]: key })); setNotice('') }} values={secrets} /></div></section>
         </> : null}
         {category === 'Safety & Approval' ? <>
           {section('Approval policy', 'permission', 'Saved defaults for future runs. Changes to the approval policy take effect after restart.')}
