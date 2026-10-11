@@ -1,0 +1,28 @@
+{
+  "checkedAt": "2026-10-11T02:28:10.131Z",
+  "base": "http://127.0.0.1:18844",
+  "browser": "Chromium / Microsoft Edge",
+  "viewports": [
+    {
+      "width": 1440,
+      "height": 1000
+    },
+    {
+      "width": 390,
+      "height": 844
+    }
+  ],
+  "simulatedProvider": true,
+  "evidence": [
+    "Connection test failed, then a real request reached a deliberately waiting loopback provider and was canceled in the UI; retry failed with all drafts retained.",
+    "Fresh Setup completed through the real UI in the same server process; failed model probe retained inputs without echoing its key.",
+    "The real application Host creates a Session after Setup; no provider inference claimed for fixture credentials.",
+    "Settings saves persist; reset removes the override; navigation warns and supports keeping or discarding draft edits.",
+    "Six built-ins are listed; built-in menu offers only Fork; disabled Skills retain content/resource previews; enabled state persists with restart guidance.",
+    "Role-specific model edits report restart; replacement keys are absent from reads and inputs clear after successful save.",
+    "A replacement key saved without any model edit independently requires restart and is never echoed.",
+    "MCP create/toggle/edit/confirmed remove use actual HTTP persistence; masked endpoints and headers never populate replacement inputs.",
+    "System Status refresh reads the local checks; all captured pages fit 390px and the mobile sidebar supports Escape/focus."
+  ],
+  "browserErrors": []
+}
