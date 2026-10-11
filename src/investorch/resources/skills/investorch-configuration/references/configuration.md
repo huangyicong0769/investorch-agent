@@ -22,7 +22,7 @@ A persistent runtime update is written to `<root>/investorch.toml` and therefore
 | lifecycle | keys | behavior |
 | --- | --- | --- |
 | immutable | `paths.root` | Cannot be changed through runtime configuration. |
-| restart-required | `paths.workspace`, `paths.state`, `models.*`, `permission.*`, `tui.*`, `web.*`, `images.*`, `logging.*`, `mcp.*`, `cnequity.*`, `backtest.use_cnequity`, `backtest.rqalpha_bundle_dir`, `observability.sdk_tracing_enabled` | `persist=false` is rejected. `persist=true` writes the next-start value but does not change the current runtime; restart InvestOrch Agent to apply it. |
+| restart-required | `paths.workspace`, `paths.state`, `models.*`, `secrets.*`, `permission.*`, `tui.*`, `web.*`, `images.*`, `logging.*`, `mcp.*`, `cnequity.*`, `backtest.use_cnequity`, `backtest.rqalpha_bundle_dir`, `observability.sdk_tracing_enabled` | `persist=false` is rejected. `persist=true` writes the next-start value but does not change the current runtime; restart InvestOrch Agent to apply it. |
 | hot | `runtime.*`, `activity.*`, `compaction.*`, execution/explore/calculate limits, `backtest.artifact_dir`, and backtest execution policy | Validated and applied to the current `AppConfig`; persistence is optional. The next applicable operation uses the new value. |
 
 `get_config` reports the value currently used by this process. A persisted restart-required update therefore continues to report the old value until the application is restarted.

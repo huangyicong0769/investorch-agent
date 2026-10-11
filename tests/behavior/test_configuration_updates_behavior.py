@@ -87,6 +87,19 @@ def test_reset_removes_override_and_preserves_comments_secrets_and_snapshot(tmp_
     assert "sensitive-test-token" not in repr(config.public()) + repr(config.describe())
 
 
+def test_replacing_credentials_reports_restart_and_retains_active_key(tmp_path: Path) -> None:
+    local = tmp_path / "investorch.toml"
+    local.write_text('config_version = 1\n[secrets]\nKEY = "original-test-key"\n')
+    config = load_config(root=tmp_path)
+    result = config.update_many({"secrets.KEY": "replacement-test-key"})
+    assert result["requires_restart"] is True
+    assert result["fields"]["secrets.KEY"]["applied"] is False
+    assert config.secret("KEY") == "original-test-key"
+    assert load_config(root=tmp_path).secret("KEY") == "replacement-test-key"
+    with pytest.raises(ConfigError):
+        config.update_many({"secrets.KEY": "temporary-test-key"}, persist=False)
+
+
 def test_external_edit_is_not_silently_overwritten(tmp_path: Path) -> None:
     config = load_config(root=tmp_path)
     config.ensure_local_file()

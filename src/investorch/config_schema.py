@@ -282,7 +282,7 @@ class AppConfigSchema(ConfigSection):
     cnequity: CNEquityConfig = Field(default_factory=CNEquityConfig)
     images: ImagesConfig = Field(default_factory=ImagesConfig)
     secrets: dict[EntryName, str] = Field(
-        default_factory=dict, json_schema_extra={"apply_mode": "hot", "sensitive": True}
+        default_factory=dict, json_schema_extra={"apply_mode": "restart_required", "sensitive": True}
     )
 
     @field_validator("models")
