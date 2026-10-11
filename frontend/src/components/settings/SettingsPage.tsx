@@ -12,7 +12,6 @@ import { configValue, fieldLabel, objectValue, resolveSchema, schemaAtPath } fro
 import { UnsavedChanges } from '../management/UnsavedChanges'
 import { Button } from '@/components/ui/button'
 import { McpPanel } from './McpPanel'
-import { RunDefaults } from './RunDefaults'
 
 const categories = ['General', 'Models', 'Safety & Approval', 'Context', 'Images', 'Backtesting', 'Integrations', 'Advanced'] as const
 type Category = typeof categories[number]
@@ -81,7 +80,6 @@ function SettingsEditor({ saved, schema }: { saved: SavedConfig; schema: ConfigS
         {category === 'General' ? <>
           {section('General preferences', 'runtime.default_timezone')}
           {section('Saved follow-up preference', 'interaction', 'Your persistent default, shared by Web, TUI and plain-console clients.')}
-          <RunDefaults schema={schema} />
         </> : null}
         {category === 'Models' ? <>
           {section('Model roles', 'models', 'Each role has its own model, endpoint, key reference and reasoning settings. Multiple roles can share a key reference.')}
