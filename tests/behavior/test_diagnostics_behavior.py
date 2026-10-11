@@ -167,3 +167,17 @@ Authorization = "secret-header"
     checks = {item["code"]: item for item in doctor_checks(tmp_path)}
     assert checks["mcp"]["status"] == "error"
     assert "secret-transport" not in json.dumps(checks)
+
+
+def test_doctor_reports_unreadable_bundle_without_aborting_other_checks(tmp_path: Path) -> None:
+    from investorch.config import load_config
+
+    config = load_config(root=tmp_path, migrate=False)
+    config.rqalpha_bundle_dir.mkdir(parents=True)
+    config.rqalpha_bundle_dir.chmod(0)
+    try:
+        checks = {item["code"]: item for item in doctor_checks(tmp_path)}
+        assert checks["rqalpha"]["status"] == "error"
+        assert checks["cnequity"]["status"] == "disabled"
+    finally:
+        config.rqalpha_bundle_dir.chmod(0o700)

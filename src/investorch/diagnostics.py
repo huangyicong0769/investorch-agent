@@ -300,18 +300,26 @@ def _integration_checks(config: Any, add: Any) -> None:
         )
     available = importlib.util.find_spec("rqalpha") is not None
     bundle = config.rqalpha_bundle_dir
-    present = bundle.is_dir() and any(bundle.iterdir())
-    add(
-        "rqalpha",
-        "unknown" if available and present else "warning",
-        "RQAlpha dependency and bundle present; data not loaded"
-        if available and present
-        else "RQAlpha dependency or bundle is missing",
-        "Bundle existence only; market coverage has not been validated.",
-        "Use rqalpha download-bundle after reviewing its download and disk requirements." if not present else "",
-        dependency_available=available,
-        bundle_present=present,
-    )
+    try:
+        present = bundle.is_dir() and any(bundle.iterdir())
+        add(
+            "rqalpha",
+            "unknown" if available and present else "warning",
+            "RQAlpha dependency and bundle present; data not loaded"
+            if available and present
+            else "RQAlpha dependency or bundle is missing",
+            "Bundle existence only; market coverage has not been validated.",
+            "Use rqalpha download-bundle after reviewing its download and disk requirements." if not present else "",
+            dependency_available=available,
+            bundle_present=present,
+        )
+    except OSError:
+        add(
+            "rqalpha",
+            "error",
+            "RQAlpha bundle cannot be read",
+            remediation="Check bundle directory permissions; no download was attempted.",
+        )
     if not config["backtest.use_cnequity"]:
         add("cnequity", "disabled", "CNEquity is disabled")
     else:
