@@ -34,6 +34,7 @@ def available_config(request: Request) -> AppConfig:
 
 
 def apply_changes(config: AppConfig, changes: ConfigChanges) -> dict[str, Any]:
+    require_offline_path_changes(list(changes.changes))
     try:
         return config.update_many(changes.changes, persist=changes.persist)
     except ConfigError as exc:
@@ -42,6 +43,16 @@ def apply_changes(config: AppConfig, changes: ConfigChanges) -> dict[str, Any]:
         raise APIError(
             503, "configuration_write_failed", "Configuration could not be saved; previous values were retained."
         ) from None
+
+
+def require_offline_path_changes(keys: list[str]) -> None:
+    if any(key == "paths" or key.startswith("paths.") for key in keys):
+        raise APIError(
+            422,
+            "offline_migration_required",
+            "Data directories are read-only in Settings. Stop all clients, back up and copy the data, "
+            "then edit the directory configuration offline and run investorch doctor before restarting.",
+        )
 
 
 @router.get("")
@@ -79,6 +90,7 @@ async def update_config(body: ConfigChanges, host: Host) -> dict[str, Any]:
 
 @router.post("/reset")
 async def reset_config(body: ResetConfig, host: Host) -> dict[str, Any]:
+    require_offline_path_changes(body.keys)
     try:
         return host.config.reset(body.keys)
     except ConfigError as exc:

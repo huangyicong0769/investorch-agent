@@ -93,7 +93,17 @@ function SettingsEditor({ saved, schema }: { saved: SavedConfig; schema: ConfigS
         {category === 'Images' ? section('Image inputs', 'images') : null}
         {category === 'Backtesting' ? section('Backtesting preferences', 'backtest') : null}
         {category === 'Integrations' ? <><McpPanel />{section('MCP application policy', 'mcp')}{section('CNEquity', 'cnequity', 'Optional CNEquity data integration is enabled under Backtesting → Use cnequity.')}</> : null}
-        {category === 'Advanced' ? advanced.map((path) => <details className="rounded-xl border border-border bg-card p-5" key={path}><summary className="cursor-pointer text-sm font-semibold focus-visible:outline-ring">{fieldLabel(path)}</summary><div className="mt-5">{renderFields(path, path === 'runtime' ? ['default_timezone'] : [])}</div></details>) : null}
+        {category === 'Advanced' ? advanced.map((path) => <details className="rounded-xl border border-border bg-card p-5" key={path}><summary className="cursor-pointer text-sm font-semibold focus-visible:outline-ring">{fieldLabel(path)}</summary><div className="mt-5">{path === 'paths' ? <section aria-label="Data directories">
+          <h3 className="text-sm font-semibold">Data directories · Read-only</h3>
+          <dl className="mt-4 space-y-3 text-sm">{Object.entries(objectValue(saved.values.paths)).map(([key, directory]) => <div key={key}><dt className="font-medium">{fieldLabel(key)}</dt><dd className="mt-1 break-all font-mono text-muted-foreground">{String(directory)}</dd></div>)}</dl>
+          <p className="mt-4 text-sm text-muted-foreground">Relative directories are resolved under Root. Changing a path does not move existing Sessions, Portfolios or Skills.</p>
+          <h3 className="mt-5 text-sm font-semibold">Offline migration</h3>
+          <ol className="mt-2 list-decimal space-y-2 pl-5 text-sm text-muted-foreground">
+            <li>Stop all Web, TUI and console clients and other writers. Create a backup outside the data root with <code>investorch backup create --output /safe/path/backup.zip</code>, then run <code>investorch backup verify /safe/path/backup.zip</code>.</li>
+            <li>Copy the existing state and workspace directories to the intended locations, retaining the originals. Update <code>paths.state</code> and <code>paths.workspace</code> in <code>investorch.toml</code> while the application is stopped. Root is selected at startup, not through this file.</li>
+            <li>Run <code>investorch doctor --root /path/to/root</code> before restarting. After startup, verify your Sessions, Portfolios and Skills before removing any original data.</li>
+          </ol>
+        </section> : renderFields(path, path === 'runtime' ? ['default_timezone'] : [])}</div></details>) : null}
         <div className="sticky bottom-0 z-10 space-y-3 border-t border-border bg-background/95 py-4 backdrop-blur">
           <ErrorNotice error={save.error ?? reset.error} fallback="Configuration could not be saved." />
           {notice ? <p className="text-sm" role="status">{notice}</p> : null}
