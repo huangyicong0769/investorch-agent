@@ -47,7 +47,9 @@ class ModelConfig:
 
 
 class ConfigError(ValueError):
-    pass
+    def __init__(self, message: str, *, errors: list[dict[str, str]] | None = None) -> None:
+        super().__init__(message)
+        self.errors = errors or []
 
 
 def _validated(data: dict[str, Any]) -> dict[str, Any]:
@@ -56,9 +58,8 @@ def _validated(data: dict[str, Any]) -> dict[str, Any]:
     except ValidationError as exc:
         # Pydantic's default exception includes input values, including secrets.
         errors = exc.errors(include_input=False, include_context=False, include_url=False)
-        raise ConfigError(
-            "; ".join(f"{'.'.join(map(str, error['loc']))}: {error['msg']}" for error in errors)
-        ) from None
+        fields = [{"path": ".".join(map(str, error["loc"])), "message": error["msg"]} for error in errors]
+        raise ConfigError("; ".join(f"{item['path']}: {item['message']}" for item in fields), errors=fields) from None
 
 
 class AppConfig:
@@ -147,15 +148,16 @@ class AppConfig:
     def secret(self, name: str) -> str:
         return self[f"secrets.{name}"]
 
-    def readiness(self) -> list[str]:
+    def readiness(self, *, saved: bool = False) -> list[str]:
+        data = self._saved_data if saved else self._data
         missing = []
         for role in REQUIRED_MODEL_AGENTS:
-            model = self._data["models"][role]
+            model = data["models"][role]
             for field in ("name", "base_url", "api_key_secret"):
                 if not model[field]:
                     missing.append(f"models.{role}.{field}")
             name = model["api_key_secret"]
-            if name and not self._data["secrets"].get(name, "").strip():
+            if name and not data["secrets"].get(name, "").strip():
                 missing.append(f"secrets.{name}")
         return list(dict.fromkeys(missing))
 

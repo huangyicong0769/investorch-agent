@@ -49,6 +49,7 @@ from .portfolio_sessions import PortfolioSessionWorkflows
 from .portfolios import PortfolioOperations
 from .presentation_state import SessionPresentationStore
 from .sessions import SessionOperations
+from .skill_sessions import SkillSessionWorkflows
 from .skills import SkillOperations
 
 logger = logging.getLogger(__name__)
@@ -97,6 +98,7 @@ class ApplicationHost:
     portfolios: PortfolioOperations
     skills: SkillOperations
     portfolio_sessions: PortfolioSessionWorkflows
+    skill_sessions: SkillSessionWorkflows
     approvals: ApprovalCoordinator
     activity: ActivityCoordinator | None
     presentation_state: SessionPresentationStore
@@ -176,8 +178,6 @@ async def open_application_host(
         config=config,
         execution=execution,
         selected_session_id=selected_session_id,
-        main_reasoning_effort=config.model("main").reasoning_effort,
-        permission_mode=config["permission.mode"],
     )
 
     async def record_user_message(session_id: str, user_input: UserInput) -> int:
@@ -321,6 +321,9 @@ async def open_application_host(
                     sessions=sessions,
                     portfolios=portfolios,
                     portfolio_sessions=portfolio_sessions,
+                    skill_sessions=SkillSessionWorkflows(
+                        state=state, runtime=runtime, sessions=sessions, skills=skills
+                    ),
                     skills=skills,
                     approvals=approvals,
                     activity=activity,
