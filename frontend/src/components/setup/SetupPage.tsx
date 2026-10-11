@@ -45,8 +45,11 @@ function SetupForm({ saved, schema }: { saved: SavedConfig; schema: ConfigSchema
       ])
     },
     onError: async () => {
-      // A save can succeed before runtime startup fails; keep the values available for repair.
-      await queryClient.invalidateQueries({ queryKey: managementKeys.config() })
+      // A save can succeed before startup fails; route storage failures to recovery.
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: managementKeys.config() }),
+        queryClient.invalidateQueries({ queryKey: managementKeys.setup() }),
+      ])
     },
   })
   const probe = useMutation({
