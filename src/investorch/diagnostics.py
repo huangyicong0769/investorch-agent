@@ -79,7 +79,7 @@ def doctor_checks(root: Path | None = None, upgrade: bool = False) -> list[dict[
         )
         roles = ("main", "title", "activity", "permission", "compact")
         configured = {
-            role: bool(config.secret(config[f"models.{role}.api_key_secret"]))
+            role: bool(config.secrets.get(config[f"models.{role}.api_key_secret"], "").strip())
             if config[f"models.{role}.api_key_secret"]
             else False
             for role in roles
