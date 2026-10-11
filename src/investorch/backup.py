@@ -304,8 +304,25 @@ def verify_backup(path: Path) -> dict:
             if "manifest.json" not in names:
                 raise BackupError("Archive is missing manifest.json")
             manifest = json.loads(archive.read("manifest.json"))
-            if not isinstance(manifest, dict) or manifest.get("format_version") != 1:
+            if (
+                not isinstance(manifest, dict)
+                or type(manifest.get("format_version")) is not int
+                or manifest["format_version"] != 1
+            ):
                 raise BackupError("Unsupported or invalid backup manifest")
+            if any(type(manifest.get(key)) is not bool for key in ("sensitive_config_included", "artifacts_excluded")):
+                raise BackupError("Manifest configuration and artifact flags must be booleans")
+            layout = manifest.get("layout")
+            if not isinstance(layout, dict) or set(layout) != {
+                "state",
+                "workspace",
+                "sessions_db",
+                "portfolio_db",
+                "journals",
+            }:
+                raise BackupError("Manifest recovery layout is invalid")
+            for location in layout.values():
+                _safe_path(location)
             records = manifest.get("files")
             if not isinstance(records, list):
                 raise BackupError("Manifest files must be a list")
@@ -323,12 +340,22 @@ def verify_backup(path: Path) -> dict:
                     raise BackupError(f"Invalid file size in manifest: {name}")
                 digest = hashlib.sha256()
                 size = 0
+                header = b""
                 with archive.open(name) as source:
                     while chunk := source.read(1024 * 1024):
+                        if not header:
+                            header = chunk[:100]
                         digest.update(chunk)
                         size += len(chunk)
                 if size != record["size"] or digest.hexdigest() != record.get("sha256"):
                     raise BackupError(f"Archive size or SHA-256 mismatch: {name}")
+                if "sqlite_schema_version" in record and (
+                    type(record["sqlite_schema_version"]) is not int
+                    or len(header) < 100
+                    or header[:16] != b"SQLite format 3\0"
+                    or int.from_bytes(header[60:64], "big") != record["sqlite_schema_version"]
+                ):
+                    raise BackupError(f"SQLite schema version does not match manifest: {name}")
             if set(names) != expected:
                 raise BackupError("Archive contains files not listed in its manifest")
             return manifest

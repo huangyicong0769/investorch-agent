@@ -8,13 +8,27 @@ import sys
 import tomllib
 import zipfile
 from contextlib import closing
+from dataclasses import replace
+from datetime import UTC, datetime
+from decimal import Decimal
 
 import pytest
 
 from investorch.backup import BackupError, create_backup, verify_backup
 from investorch.config import load_config
 from investorch.initializer import initialize
-from investorch.skills.registry import read_registry
+from investorch.portfolio import (
+    LedgerEntry,
+    LedgerEntryType,
+    OpeningCash,
+    Portfolio,
+    append_ledger_operation,
+    create_portfolio,
+    get_portfolio_state,
+    list_ledger_entries,
+)
+from investorch.skills.registry import read_registry, write_registry
+from investorch.storage import create_session, get_session, set_session_title
 
 
 def populated_root(tmp_path):
@@ -29,6 +43,29 @@ def populated_root(tmp_path):
     (config.mcp_config_path).write_text('[servers.private]\nurl = "https://example.org?token=mcp-sentinel"\n')
     (config.workspace_dir / "strategy.py").write_text("print('research')\n")
     (config.session_journal_dir / "session-a.jsonl").write_text('{"type":"user_message","text":"local note"}\n')
+    create_session(config.sessions_db, "session-a")
+    set_session_title(config.sessions_db, "session-a", "Recovery conversation")
+    now = datetime(2026, 10, 11, tzinfo=UTC)
+    create_portfolio(config.portfolio_db, Portfolio("portfolio-a", "Recovery", "CNY", now, now))
+    append_ledger_operation(
+        config.portfolio_db,
+        [
+            LedgerEntry(
+                "entry-a",
+                "operation-a",
+                "portfolio-a",
+                1,
+                LedgerEntryType.OPENING_CASH,
+                now,
+                now,
+                "qualification",
+                OpeningCash("CNY", Decimal("1234.56")),
+            )
+        ],
+    )
+    registry = read_registry(config.state_dir / "skills.json")
+    registry["skill-creator"] = replace(registry["skill-creator"], enabled=False)
+    write_registry(config.state_dir / "skills.json", registry)
     with closing(sqlite3.connect(config.sessions_db)) as db:
         db.execute("CREATE TABLE recovery_probe (id TEXT PRIMARY KEY, note TEXT)")
         db.execute("INSERT INTO recovery_probe VALUES ('session-a', 'preserved')")
@@ -61,6 +98,15 @@ def test_backup_restores_actual_custom_layout_and_logical_state(tmp_path):
     assert read_registry(restored.state_dir / "skills.json") == read_registry(config.state_dir / "skills.json")
     assert (restored.workspace_dir / "strategy.py").read_bytes() == (config.workspace_dir / "strategy.py").read_bytes()
     assert restored.portfolio_db.exists()
+    assert get_session(restored.sessions_db, "session-a") == get_session(config.sessions_db, "session-a")
+    assert list_ledger_entries(restored.portfolio_db, "portfolio-a") == list_ledger_entries(
+        config.portfolio_db, "portfolio-a"
+    )
+    assert get_portfolio_state(restored.portfolio_db, "portfolio-a") == get_portfolio_state(
+        config.portfolio_db, "portfolio-a"
+    )
+    assert not read_registry(restored.state_dir / "skills.json")["skill-creator"].enabled
+    assert (restored.workspace_dir / "MEMORY.md").read_bytes() == (config.workspace_dir / "MEMORY.md").read_bytes()
     assert restored.secrets == {}
     assert not restored.mcp_config_path.exists()
     if os.name == "posix":
@@ -110,7 +156,10 @@ def test_backup_preserves_committed_wal_rows_without_checkpointing_source(tmp_pa
             assert db.execute("SELECT note FROM recovery_probe WHERE id='wal-row'").fetchone() == ("committed",)
 
 
-@pytest.mark.parametrize("damage", ["missing", "extra", "duplicate", "modified", "traversal", "manifest"])
+@pytest.mark.parametrize(
+    "damage",
+    ["missing", "extra", "duplicate", "modified", "traversal", "manifest", "layout", "sqlite_version", "flags"],
+)
 def test_verify_rejects_archive_damage_without_configuration(tmp_path, damage):
     config = populated_root(tmp_path)
     original = tmp_path / "original.zip"
@@ -124,10 +173,18 @@ def test_verify_rejects_archive_damage_without_configuration(tmp_path, damage):
                     continue
                 if damage == "modified":
                     data += b"modified"
-            if name == "manifest.json" and damage in ("traversal", "manifest"):
+            if name == "manifest.json" and damage in ("traversal", "manifest", "layout", "sqlite_version", "flags"):
                 manifest = json.loads(data)
                 if damage == "traversal":
                     manifest["files"][0]["path"] = "../outside"
+                elif damage == "layout":
+                    manifest["layout"]["workspace"] = "/outside"
+                elif damage == "sqlite_version":
+                    next(record for record in manifest["files"] if "sqlite_schema_version" in record)[
+                        "sqlite_schema_version"
+                    ] += 1
+                elif damage == "flags":
+                    manifest["sensitive_config_included"] = "false"
                 else:
                     manifest["format_version"] = 999
                 data = json.dumps(manifest).encode()
