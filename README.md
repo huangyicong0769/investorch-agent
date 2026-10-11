@@ -79,7 +79,7 @@ Open <http://127.0.0.1:1334>. A fresh instance keeps serving the Setup page with
 
 The optional connection test sends a small real model request and reports its result. Saving configuration alone does not establish connectivity. Complete Setup to start the ApplicationHost and open Chats. Invalid configuration or incompatible existing data opens a recovery state with repair guidance instead of overwriting the instance.
 
-Existing pre-Schema instances preserve their former effective model settings through a one-time Local TOML migration, backed up as `investorch.toml.pre-schema.bak`. Existing per-field overrides take precedence. See [Upgrade](docs/Upgrade.md).
+Model endpoints, names, and secret references must be configured explicitly. Missing model settings open Setup; unknown fields or invalid values fail current Schema validation. See [Upgrade](docs/Upgrade.md).
 
 ### 3. Start an interface
 

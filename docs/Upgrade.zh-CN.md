@@ -22,13 +22,11 @@ investorch upgrade check --json
 
 从源码仓库运行时，在命令前加 `uv run --locked`。
 
-## Local TOML 兼容
+## Local TOML 配置
 
-默认值来自 Python Schema，`~/.investorch/investorch.toml` 保存用户覆盖和 Secrets。已有无版本号 TOML 会识别为旧配置；正常加载会将原始字节备份为 `investorch.toml.pre-schema.bak`，保留显式覆盖，补全历史模型默认值，并写入 `config_version = 1`。新安装没有隐含 Provider，通过 Web Setup 设置。
+默认值来自 Python Schema，`~/.investorch/investorch.toml` 保存用户覆盖和 Secrets。所有配置均按当前 Schema 校验。模型 Endpoint、名称与 Secret 引用须显式配置；应用不恢复历史 Provider 默认值，也不迁移 Local TOML。
 
-`doctor`、`upgrade check`、`backup create` 和 `--update` 均禁用配置迁移，可以读取旧配置的有效值而不重写文件。如果 pre-schema 备份已存在且内容不同，正常启动会拒绝覆盖；保留两份配置并处理差异后再重试。
-
-TOML 损坏或字段非法时，修复原文件或恢复有效备份。不要为绕过启动错误删除 Root 或数据库。模型信息/凭据缺失可运行 `investorch web` 完成 Setup；TUI/plain 也会显示这条指引。
+TOML 损坏、含未知字段或字段值非法时，修复原文件或恢复有效备份。不要为绕过启动错误删除 Root 或数据库。模型信息/凭据缺失可运行 `investorch web` 完成 Setup；TUI/plain 也会显示这条指引。
 
 ## Portfolio v1–v6
 
@@ -56,6 +54,6 @@ Dry-run 不创建归档、不写文件。WAL 模式会被拒绝，因为 SQLite 
 investorch --update
 ```
 
-它用当前包内容替换 managed built-in Skills，保留 enabled 状态和自定义 Skills，报告 installed/updated/unchanged 数量。不初始化或迁移 Session/Portfolio 数据库，不迁移 Local TOML。新 Root 中只创建更新 Skill 所需目录和 Registry；正常启动不会自动替换内置内容。
+它用当前包内容替换 managed built-in Skills，保留 enabled 状态和自定义 Skills，报告 installed/updated/unchanged 数量。不初始化或迁移 Session/Portfolio 数据库，不重写 Local TOML。新 Root 中只创建更新 Skill 所需目录和 Registry；正常启动不会自动替换内置内容。
 
 需要定制内置 Skill 时应 Fork 为新名。Doctor 检查缺失、非法和内容差异，版本字符串相同的内容变化也能被发现。管理操作后需重启；同一进程中新开 Session 不会刷新启动时的 catalog。

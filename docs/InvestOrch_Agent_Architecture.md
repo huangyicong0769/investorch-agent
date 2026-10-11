@@ -132,7 +132,7 @@ CNEquity is optional and user-operated. `investorch data` passes arguments to it
 
 Persistent state under the configured root is intentionally split by responsibility:
 
-- `<root>/investorch.toml`: local overrides, secrets and configuration format marker;
+- `<root>/investorch.toml`: local overrides and secrets;
 - `<root>/mcp.toml`: MCP registry;
 - `<root>/workspace/`: user-owned workspace and generated artifacts;
 - `<state>/sessions.db`: Agents SDK continuation plus application session metadata;
@@ -150,7 +150,7 @@ The SQLite continuation is model state and may be compacted. The JSONL journal i
 
 `AppConfig` exposes effective/saved public views, readiness, JSON Schema, atomic batch updates, reset-by-removing-override and independent snapshots. Complete candidate validation precedes writes; comments and neighboring settings are retained. Atomic file replacement and a small write lock protect persistence, and detected external edits reject stale writes. Restart-required changes remain next-start values. AppConfig contains no caller identity or authorization policy: the Agent Tool separately rejects `secrets.*`, `permission.*` and `models.permission.*`, while direct operator writes use the HTTP boundary.
 
-Fresh installations leave model provider fields unset and enter Setup. Historical unversioned Local TOML is backed up before one-time migration that makes former implicit model settings explicit; existing per-field overrides win. Malformed or incompatible configuration remains an error. Field descriptions and public views never include secret values.
+All Local TOML is validated against the current Schema. Model provider fields must be configured explicitly; missing model settings or credentials enter Setup. Malformed TOML, unknown fields, and invalid values remain errors. Field descriptions and public views never include secret values.
 
 `AppState` owns optional process-local reasoning-effort, Permission and follow-up overrides. Unset options fall back to effective AppConfig; explicit overrides survive later configuration edits. `/defaults`, `/effort` and `/permission` do not persist configuration, and active Runs keep their captured `RunOptions`.
 

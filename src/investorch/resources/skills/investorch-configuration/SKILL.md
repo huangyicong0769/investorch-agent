@@ -7,7 +7,7 @@ version: 1.1.0
 # Configure InvestOrch
 
 1. Read `references/configuration.md` for the relevant configuration lifecycle, model, image, MCP, or backtest rules.
-2. Use `get_config` as the authority for effective settings. Python Schema defaults, local `<root>/investorch.toml` overrides, and hot runtime changes form the effective configuration. New installations choose their models through Web Setup; existing installations migrate historical model defaults to explicit overrides.
+2. Use `get_config` as the authority for effective settings. Python Schema defaults, local `<root>/investorch.toml` overrides, and hot runtime changes form the effective configuration. Models require explicit provider settings; direct operators to Web Setup when required model settings or credentials are missing.
 3. Use `update_config` for approved normal settings. Validate type/range and whether the key is hot, immutable, or restart-required. For restart-required changes use `persist=true` and report that the running process still uses its prior snapshot.
 4. Manage MCP entries with `list_mcp_servers`, `configure_mcp_server`, and `remove_mcp_server`. Their registry is `<root>/mcp.toml`, separate from application MCP policy.
 5. Direct operators to Web Settings for secrets and Permission settings, and to System Status or `investorch doctor` for offline diagnosis. Skills pages start normal Agent Sessions; their preset instructions do not grant approval.

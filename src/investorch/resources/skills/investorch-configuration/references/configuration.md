@@ -13,7 +13,7 @@ Effective application configuration is built from these layers, from lowest to h
 2. Local instance configuration at `<root>/investorch.toml`
 3. Runtime-only changes to the current `AppConfig`
 
-Python Schema is the sole authority for types, defaults, constraints, sensitivity and `apply_mode`. There is no packaged default TOML. Local TOML stores overrides, credentials and the lightweight `config_version` format marker. `AppConfig` reads, validates, snapshots and writes configuration without knowing the caller identity.
+Python Schema is the sole authority for types, defaults, constraints, sensitivity and `apply_mode`. There is no packaged default TOML. Local TOML stores overrides and credentials. `AppConfig` reads, validates, snapshots and writes configuration without knowing the caller identity.
 
 A persistent runtime update is written to `<root>/investorch.toml` and therefore becomes part of the local instance configuration for later processes.
 
@@ -80,11 +80,11 @@ They are validated at startup and again before an update is persisted. `backgrou
 
 Each Agent owns an independent `[models.<agent>]` table represented by `ModelConfig`. The five required roles are `main`, `title`, `activity`, `permission`, and `compact`; additional named roles are allowed. A configured model defines `name`, `base_url`, `api_key_secret`, and `reasoning_effort`; the secret field names a key in the local `[secrets]` table rather than containing a credential. Supported reasoning effort values are `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, and `max`; `none` is the instant/non-thinking setting. A model may also define `context_window_tokens`, and `models.main.context_window_tokens` is required for the Main Agent capacity shown by the TUI. Adding another required Agent means registering its name once, adding its model table, and calling `AppConfig.model(agent)`; validation and restart handling apply to every model table without another list of model fields. Normal startup constructs Main, Title, Permission, and Compact models; Textual mode additionally constructs Activity. The independent Skill Review Agent reuses the Permission model configuration. All model settings are restart-required.
 
-## First-run Setup and Historical Instances
+## Model readiness and Setup
 
 A fresh configuration is structurally valid with unset provider fields. `AppConfig.readiness()` identifies the missing model fields and secret references before any Agent is constructed. `investorch web` keeps serving `/setup` so an operator can supply the endpoint, model and credential, optionally request a small real model test, save, and start the ApplicationHost. Each role remains independently editable after setup. TUI/plain users receive Web Setup guidance until models are ready.
 
-Historical Local TOML without the format marker is validated against its former effective model settings. Migration preserves a `.pre-schema.bak` copy, respects existing field overrides, writes formerly implicit model settings explicitly, and records `config_version`. New installations never inherit a historical provider. Bad TOML, unknown fields, escaping paths or incompatible state require repair; they are not treated as an empty installation.
+Every Local TOML is validated against the current Schema. Model endpoints, names, and secret references are explicit configuration; complete missing settings through Setup. Bad TOML, unknown fields, escaping paths or incompatible state require repair; they are not treated as an empty installation.
 
 ## Tool Permission Review
 

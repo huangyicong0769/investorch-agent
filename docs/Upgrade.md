@@ -22,13 +22,11 @@ Both commands are offline and read-only. They do not create an ApplicationHost, 
 
 In a source checkout, prefix commands with `uv run --locked`.
 
-## Local configuration compatibility
+## Local configuration
 
-Python Schema supplies defaults; `~/.investorch/investorch.toml` supplies user overrides and secrets. Existing unversioned Local TOML is recognized as legacy. Normal configuration loading saves the original bytes as `investorch.toml.pre-schema.bak`, retains explicit overrides, materializes the historical model defaults and writes `config_version = 1`. New installations have no implicit Provider and use Web Setup.
+Python Schema supplies defaults; `~/.investorch/investorch.toml` supplies user overrides and secrets. Every configuration is validated against the current Schema. Model endpoints, names, and secret references must be configured explicitly; the application does not restore historical provider defaults or migrate Local TOML.
 
-`doctor`, `upgrade check`, `backup create` and `--update` load with migration disabled. They can inspect the legacy effective configuration without rewriting it. If the pre-schema backup already exists with different content, normal startup refuses to replace it; retain both configurations and resolve the discrepancy before retrying.
-
-Invalid TOML and invalid values must be repaired or restored from a known-good backup. Do not delete the root or its databases to make startup succeed. Missing model configuration or credentials can be completed through `investorch web`; TUI/plain points to Setup.
+Invalid TOML, unknown fields, and invalid values must be repaired or restored from a known-good backup. Do not delete the root or its databases to make startup succeed. Missing model configuration or credentials can be completed through `investorch web`; TUI/plain points to Setup.
 
 ## Portfolio v1–v6
 
@@ -56,6 +54,6 @@ Legacy `PREPARED`/`ACTIVE` live deployments block migration. Use the old version
 investorch --update
 ```
 
-This replaces managed built-in contents with the installed package's copies, preserves enabled state and custom Skills, and reports installed/updated/unchanged counts. It does not initialize or migrate Session/Portfolio databases, or migrate Local TOML. In a new root it creates only the directories and Skill registry needed for the update. Normal startup never updates installed built-in contents automatically.
+This replaces managed built-in contents with the installed package's copies, preserves enabled state and custom Skills, and reports installed/updated/unchanged counts. It does not initialize or migrate Session/Portfolio databases, or rewrite Local TOML. In a new root it creates only the directories and Skill registry needed for the update. Normal startup never updates installed built-in contents automatically.
 
 Fork built-ins under a new name for customization. Doctor reports missing/invalid Skills and content drift, including changes whose version string stayed the same. Restart after management changes: opening a new Session in the same process does not refresh the startup catalog.

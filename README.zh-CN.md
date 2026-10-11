@@ -79,7 +79,7 @@ uv run investorch web
 
 可选的连接测试会发送一次小型真实模型请求并报告结果；保存配置本身不代表连接成功。完成 Setup 后启动 ApplicationHost 并进入 Chats。配置错误或旧数据不兼容时，页面进入恢复状态并提供修复指引，不会覆盖原实例。
 
-Schema 改造前的旧实例通过一次性 Local TOML 迁移保留原有效模型设置，原配置保存为 `investorch.toml.pre-schema.bak`，已有逐字段覆盖优先。详见[升级说明](docs/Upgrade.zh-CN.md)。
+模型 Endpoint、名称与 Secret 引用须显式配置。缺少模型设置时进入 Setup；未知字段或无效值无法通过当前 Schema 校验。详见[升级说明](docs/Upgrade.zh-CN.md)。
 
 ### 3. 启动界面
 

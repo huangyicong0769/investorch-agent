@@ -4,7 +4,7 @@
 
 ## 0.2.0（未发布）
 
-- 使用严格 Python Schema 替代随包默认 TOML；新安装不预设 Provider，支持原子配置更新/重置，历史隐含模型默认值在备份原文件后一次性迁移。
+- 使用严格 Python Schema 校验替代随包默认 TOML；Provider 须显式配置，支持原子配置更新/重置。
 - 新增 Agent 启动前的 Web Setup、使用后端字段元数据的持久 Settings，以及独立的进程级未来 Run 临时覆盖。
 - 新增 Skills 列表/详情及 Create/Install/Edit/Fork Session 入口，保留独立审查与审批。
 - 新增共享安全脱敏的 MCP Integrations 管理，修改重启后生效。

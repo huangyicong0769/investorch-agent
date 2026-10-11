@@ -132,7 +132,7 @@ CNEquity 是可选且由用户运维的后端。`investorch data` 把参数传�
 
 配置 root 下的持久化状态按职责分开：
 
-- `<root>/investorch.toml`：本地 overrides、secrets 与配置格式标记；
+- `<root>/investorch.toml`：本地 overrides 与 secrets；
 - `<root>/mcp.toml`：MCP registry；
 - `<root>/workspace/`：用户拥有的 Workspace 与生成 artifacts；
 - `<state>/sessions.db`：Agents SDK continuation 与 Application Session metadata；
@@ -150,7 +150,7 @@ SQLite continuation 是 model state，可以被压缩；JSONL Journal 是 replay
 
 `AppConfig` 提供有效/已保存公开视图、readiness、JSON Schema、原子批量修改、通过移除覆盖实现的 reset，以及独立 snapshot。完整候选通过验证后才写盘，保留注释与相邻设置；原子替换与小范围写锁保护落盘，检测到外部修改时拒绝旧视图覆盖。需要重启的修改保存为下次启动值。AppConfig 不识别调用者或执行授权策略：Agent Tool 在边界拒绝 `secrets.*`、`permission.*` 和 `models.permission.*`，用户直接操作则由 HTTP 边界保护。
 
-新安装保留未设置的 Provider 字段并进入 Setup。历史无格式标记的 Local TOML 先备份，再一次性把原隐含模型设置写成显式覆盖；用户已有逐字段覆盖优先。损坏或不兼容配置保持报错。字段描述与公开视图不包含 Secret 明文。
+所有 Local TOML 均按当前 Schema 校验。模型 Provider 字段须显式配置；缺少模型设置或凭据时进入 Setup。TOML 格式错误、未知字段和无效值保持报错。字段描述与公开视图不包含 Secret 明文。
 
 `AppState` 保存可选的进程级 reasoning effort、Permission 和 follow-up 覆盖；无覆盖时读取有效 AppConfig，显式覆盖不被后续配置修改抹掉。`/defaults`、`/effort`、`/permission` 不持久化配置，已启动 Run 保持捕获的 `RunOptions`。
 

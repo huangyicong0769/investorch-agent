@@ -4,7 +4,7 @@
 
 ## 0.2.0 (unreleased)
 
-- Replace packaged default TOML with strict Python Schema semantics, provider-neutral new installs, atomic configuration updates/reset and one-time historical model-default migration with an original-file backup.
+- Replace packaged default TOML with strict Python Schema validation, explicit provider configuration, and atomic configuration updates/reset.
 - Add Web Setup before Agent startup, persistent Settings with backend field metadata, and separate process-local future-Run overrides.
 - Add Skills catalog/details and Create/Install/Edit/Fork Session entry points while preserving independent review and approval.
 - Add shared, credential-safe MCP integration management; changes apply after restart.
