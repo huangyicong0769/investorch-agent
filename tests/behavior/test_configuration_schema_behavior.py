@@ -27,6 +27,14 @@ def test_schema_describes_lifecycle_and_secret_sensitivity() -> None:
     assert config_field_metadata("secrets.PROVIDER_KEY")["type"] == "string"
 
 
+def test_schema_exposes_standard_numeric_bounds_for_generated_forms() -> None:
+    ratio = config_field_metadata("compaction.trigger_ratio")
+    assert ratio["exclusiveMinimum"] == 0
+    assert ratio["exclusiveMaximum"] == 1
+    assert config_field_metadata("mcp.default_timeout_seconds")["exclusiveMinimum"] == 0
+    assert config_field_metadata("backtest.slippage")["minimum"] == 0
+
+
 @pytest.mark.parametrize(
     ("section", "overrides", "message"),
     [

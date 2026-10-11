@@ -29,9 +29,8 @@ def validate_number(value: Any) -> int | float:
     return value
 
 
-Number = Annotated[float, BeforeValidator(validate_number)]
-PositiveNumber = Annotated[Number, Field(gt=0)]
-NonNegativeNumber = Annotated[Number, Field(ge=0)]
+PositiveNumber = Annotated[float, Field(gt=0), BeforeValidator(validate_number)]
+NonNegativeNumber = Annotated[float, Field(ge=0), BeforeValidator(validate_number)]
 
 
 def hot(default: Any, **kwargs: Any) -> Any:
@@ -77,7 +76,7 @@ class ModelSchema(ConfigSection):
 
 class CompactionConfig(ConfigSection):
     auto_enabled: bool = hot(True)
-    trigger_ratio: Annotated[Number, Field(gt=0, lt=1)] = hot(0.80)
+    trigger_ratio: Annotated[float, Field(gt=0, lt=1), BeforeValidator(validate_number)] = hot(0.80)
     max_output_tokens: PositiveInt = hot(16384)
 
 
