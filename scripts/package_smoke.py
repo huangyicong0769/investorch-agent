@@ -3,10 +3,15 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import socket
 import subprocess
 import tempfile
+import time
+from contextlib import contextmanager
 from importlib.metadata import PackageNotFoundError, distribution
 from pathlib import Path
+from urllib.error import URLError
+from urllib.request import ProxyHandler, Request, build_opener
 
 import investorch
 from investorch.config import load_config
@@ -25,6 +30,67 @@ BUILTIN_SKILLS = (
 
 def _run(command: list[str], *, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
     return subprocess.run(command, check=True, env=env, text=True, capture_output=True, timeout=60)
+
+
+def request(origin: str, path: str, *, method: str = "GET", body: dict | None = None):
+    data = json.dumps(body).encode() if body is not None else None
+    headers = {"Origin": origin, **({"Content-Type": "application/json"} if data is not None else {})}
+    message = Request(origin + path, data=data, headers=headers, method=method)
+    with build_opener(ProxyHandler({})).open(message, timeout=30) as response:
+        payload = response.read()
+        return json.loads(payload) if "application/json" in response.headers.get("Content-Type", "") else payload
+
+
+@contextmanager
+def running_web(executable: str, home: Path):
+    """Run the installed production entrypoint under a disposable HOME."""
+    with socket.socket() as socket_:
+        socket_.bind(("127.0.0.1", 0))
+        port = socket_.getsockname()[1]
+    origin = f"http://127.0.0.1:{port}"
+    with tempfile.TemporaryFile(mode="w+b") as log:
+        process = subprocess.Popen(
+            [executable, "web", "--port", str(port)],
+            env={**os.environ, "HOME": str(home)},
+            stdout=log,
+            stderr=log,
+        )
+        try:
+            deadline = time.monotonic() + 45
+            while True:
+                if process.poll() is not None:
+                    log.seek(0)
+                    raise AssertionError(f"Web exited before readiness: {log.read().decode(errors='replace')}")
+                try:
+                    request(origin, "/api/setup/state")
+                    break
+                except URLError:
+                    if time.monotonic() >= deadline:
+                        raise AssertionError("Web did not start within 45 seconds") from None
+                    time.sleep(0.1)
+            yield process, origin
+        finally:
+            process.terminate()
+            try:
+                process.wait(timeout=15)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=5)
+                raise AssertionError("Web failed to shut down gracefully") from None
+
+
+def complete_neutral_setup(origin: str) -> None:
+    changes = {"secrets.PACKAGE_SMOKE_KEY": "not-a-real-provider-key"}
+    for role in ("main", "title", "activity", "permission", "compact"):
+        changes.update(
+            {
+                f"models.{role}.name": "package-smoke-model",
+                f"models.{role}.base_url": "http://127.0.0.1:9/v1",
+                f"models.{role}.api_key_secret": "PACKAGE_SMOKE_KEY",
+            }
+        )
+    request(origin, "/api/setup/config", method="PATCH", body={"changes": changes})
+    assert request(origin, "/api/setup/complete", method="POST")["status"] == "ready"
 
 
 def main() -> None:
@@ -87,17 +153,23 @@ def main() -> None:
         temp = Path(temp_dir)
         home = temp / "home"
         home.mkdir()
-        env = os.environ.copy()
-        env["HOME"] = str(home)
-
-        initialized = _run([executable, "web"], env=env)
         root = home / ".investorch"
-        config = load_config(root=root)
-        assert config["runtime.max_turns"] == 100
-        assert config["models.main.name"] is None
-        assert config.readiness()
-        assert initialized.returncode == 0
-        assert "InvestOrch Agent initialized" in initialized.stdout
+        with running_web(executable, home) as (process, origin):
+            pid = process.pid
+            assert request(origin, "/api/setup/state")["status"] == "setup_required"
+            assert b"<html" in request(origin, "/setup")
+            schema = request(origin, "/api/config/schema")
+            assert "properties" in schema
+            config = load_config(root=root, migrate=False)
+            assert config["runtime.max_turns"] == 100
+            assert config["models.main.name"] is None
+            assert config.readiness()
+            complete_neutral_setup(origin)
+            assert request(origin, "/api/setup/state")["status"] == "ready"
+            assert process.pid == pid and process.poll() is None
+            created = request(origin, "/api/sessions", method="POST")
+            assert created["session"]["session_id"]
+            assert request(origin, "/api/setup/complete", method="POST")["status"] == "ready"
         assert (root / "investorch.toml").is_file()
         assert (root / "mcp.toml").is_file()
         assert (root / "state").is_dir()
@@ -121,6 +193,11 @@ def main() -> None:
                 assert (workspace / "skills" / name / relative_path).read_bytes() == (
                     bundled_skills / name / relative_path
                 ).read_bytes()
+    print(
+        json.dumps(
+            {"package": "passed", "production_setup": "passed", "same_process_host": "passed", "provider_requests": 0}
+        )
+    )
 
 
 if __name__ == "__main__":
