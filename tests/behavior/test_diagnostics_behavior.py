@@ -33,6 +33,30 @@ def test_doctor_reports_bad_config_without_echoing_or_changing_it(tmp_path: Path
     assert set(tmp_path.rglob("*")) == before
 
 
+def test_doctor_reports_actionable_config_fields_without_secret_values(tmp_path: Path) -> None:
+    path = tmp_path / "investorch.toml"
+    path.write_text(
+        'config_version = 1\n[web]\ndefault_port = 70000\n'
+        '[observability]\nsummary_enabled = true\n'
+        '[secrets]\nVALID_KEY = "private-config-value"\nINVALID_KEY = ["private-invalid-value"]\n'
+    )
+    before = _files(tmp_path)
+    check = next(item for item in doctor_checks(tmp_path) if item["code"] == "config")
+    assert check["status"] == "error"
+    assert check["path"] == str(path)
+    assert str(path) in check["remediation"]
+    assert {item["path"] for item in check["errors"]} == {
+        "web.default_port",
+        "observability.summary_enabled",
+        "secrets.INVALID_KEY",
+    }
+    assert "web.default_port" in check["detail"]
+    assert "65535" in check["detail"]
+    assert "private-config-value" not in json.dumps(check)
+    assert "private-invalid-value" not in json.dumps(check)
+    assert _files(tmp_path) == before
+
+
 def test_missing_legacy_credentials_are_setup_warning_not_config_failure(tmp_path: Path) -> None:
     path = tmp_path / "investorch.toml"
     path.write_text('[secrets]\nUNUSED_NAME = "secret-value"\n')

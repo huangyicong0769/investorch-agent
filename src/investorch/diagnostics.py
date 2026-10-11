@@ -108,14 +108,20 @@ def doctor_checks(root: Path | None = None, upgrade: bool = False) -> list[dict[
                 "Back up offline before normal startup writes the migrated configuration." if legacy else "",
                 affected_settings=[f"models.{role}" for role in roles] if legacy else [],
             )
-    except (ConfigError, OSError, ValueError, TypeError):
-        # Validation errors can contain arbitrary user values (including credentials).
+    except (ConfigError, OSError, ValueError, TypeError) as exc:
+        # AppConfig's structured errors exclude raw inputs and validation context.
+        # Never stringify an arbitrary parser or filesystem exception here.
+        errors = exc.errors if isinstance(exc, ConfigError) else []
         add(
             "config",
             "error",
             "Configuration cannot be read or validated",
-            "Local TOML or its values are invalid.",
-            "Repair investorch.toml using the Settings schema or restore a known-good offline backup.",
+            "; ".join(f"{error['path']}: {error['message']}" for error in errors)
+            if errors
+            else "Check Local TOML syntax, format version, readability and configured paths.",
+            f"Repair {local}, preserving existing values, or restore a known-good offline backup; then rerun investorch doctor.",
+            path=str(local),
+            errors=errors,
         )
         add("credentials", "unknown", "Credential presence unavailable", "Repair configuration first.")
 
