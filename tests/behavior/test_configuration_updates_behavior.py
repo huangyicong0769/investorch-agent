@@ -40,7 +40,7 @@ def test_loading_config_rejects_workspace_escape_without_changing_files(tmp_path
     local = root / "investorch.toml"
     original = f'[paths]\nworkspace = "{"linked" if symlink else "../outside"}"\n'.encode()
     local.write_bytes(original)
-    with pytest.raises(ConfigError, match="escapes paths.root"):
+    with pytest.raises(ConfigError, match=r"escapes paths\.root"):
         load_config(root=root)
     assert local.read_bytes() == original
     assert marker.read_text() == "existing workspace data"
