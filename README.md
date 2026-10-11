@@ -4,7 +4,7 @@
 
 InvestOrch Agent is a local-first, human-in-the-loop investment orchestration agent for an individual investor. Its long-term goal is to support the full path from research, strategy development, and backtesting to portfolio decisions, trading, position monitoring, and review.
 
-Version 0.1.0 is an early preview of that product direction. It is not yet an end-to-end trading system.
+The published 0.1.0 release is an early preview. The current source tree includes unreleased 0.2.0 work; its D/E management and recovery changes are awaiting final acceptance. InvestOrch does not execute live trades.
 
 ## What 0.1.0 includes
 
@@ -17,7 +17,7 @@ Version 0.1.0 is an early preview of that product direction. It is not yet an en
 - Daily stock backtesting with [RQAlpha 6.3.0](https://github.com/ricequant/rqalpha), reproducibility metadata, and workspace-relative artifacts.
 - An optional [CNEquity](https://github.com/rootSunc/cnequity) extra for the existing RQAlpha data overlay and read-only MCP integration.
 
-Portfolio/account access, a QMT gateway, live trading, a unified investment data layer, and Multi-Agent orchestration remain future work. See the [Product Roadmap](docs/InvestOrch_Agent_Product_Roadmap.md) for the next directions.
+The current source also includes Portfolio schema v6, six managed Skills, and image conversations. Broker/account mirroring, a QMT gateway, live trading, a unified investment data layer, and Multi-Agent orchestration remain future work. See the [Product Roadmap](docs/InvestOrch_Agent_Product_Roadmap.md) for the next directions.
 
 ## Status and compatibility
 
@@ -29,9 +29,9 @@ The core is currently validated on macOS locally and Ubuntu in CI, and targets m
 
 - Python 3.12 or newer
 - [uv](https://docs.astral.sh/uv/)
-- A [DeepSeek API key](https://platform.deepseek.com/api_keys) for the bundled model configuration
+- A Responses-compatible model endpoint, model name, and API credential for Agent operation
 
-The runtime uses the [OpenAI Agents SDK](https://github.com/openai/openai-agents-python) Responses model adapter. The bundled configuration uses [DeepSeek](https://api-docs.deepseek.com/) by default. All bundled Agent roles read the API key from the local secret named `DEEPSEEK_API_KEY`.
+The runtime uses the [OpenAI Agents SDK](https://github.com/openai/openai-agents-python) Responses model adapter. Fresh source installations have no preselected provider. Web Setup accepts the initial model connection and credential; Settings allows the Main, Title, Activity, Permission and Compact roles to use independent configurations.
 
 ## Installation
 
@@ -53,7 +53,7 @@ Then install the wheel as a uv-managed tool:
 uv tool install ./investorch-0.1.0-py3-none-any.whl
 ```
 
-The installed command is `investorch`.
+The installed command is `investorch`. This published 0.1.0 wheel follows its [release instructions](docs/releases/0.1.0.md); the Setup and management instructions below describe the current unreleased source.
 
 ### Source checkout
 
@@ -67,34 +67,23 @@ The examples below use the source-checkout form `uv run investorch`. When using 
 
 ## First run
 
-### 1. Initialize local state
+### 1. Open Web Setup
 
 ```bash
 uv run investorch web
 ```
 
-The first run creates the local configuration, workspace, and state directories under `~/.investorch`, then exits. This is expected.
+Open <http://127.0.0.1:1334>. A fresh instance keeps serving the Setup page without starting an Agent. Enter the provider endpoint, model and API key, choose the initial role settings, and save. Credentials remain in `~/.investorch/investorch.toml`; the browser does not receive them on subsequent reads.
 
-### 2. Configure the required API key
+### 2. Test and start
 
-Create an API key in the [DeepSeek platform](https://platform.deepseek.com/api_keys). Open `~/.investorch/investorch.toml` with a text editor and add the key below the existing `[secrets]` heading:
+The optional connection test sends a small real model request and reports its result. Saving configuration alone does not establish connectivity. Complete Setup to start the ApplicationHost and open Chats. Invalid configuration or incompatible existing data opens a recovery state with repair guidance instead of overwriting the instance.
 
-```toml
-[secrets]
-DEEPSEEK_API_KEY = "replace-with-your-api-key"
-```
-
-Replace the example value with the real key. Keep the quotation marks and do not share or commit this file. The bundled Main, Title, Activity, Bootstrap, Permission, and Compact Agent configurations all use this secret.
+Existing pre-Schema instances preserve their former effective model settings through a one-time Local TOML migration, backed up as `investorch.toml.pre-schema.bak`. Existing per-field overrides take precedence. See [Upgrade](docs/Upgrade.md).
 
 ### 3. Start an interface
 
-Run the Web interface again after saving the configuration:
-
-```bash
-uv run investorch web
-```
-
-The Web client listens on loopback only. Its bundled default address is <http://127.0.0.1:1334>:
+Subsequent Web starts use the saved settings. The server listens on loopback only; its Python Schema default address is <http://127.0.0.1:1334>:
 
 ```bash
 uv run investorch web
@@ -103,7 +92,7 @@ uv run investorch web --port 8000
 
 Web conversations accept JPEG, PNG, GIF and WebP by selection, paste or drop, including image-only messages. Images stay with Session history; `explore` lets the Agent read Workspace images. External images require a click to load. Configure limits under `[images]` and restart to apply them; see the [image architecture](docs/InvestOrch_Agent_Architecture.md#image-conversation-content).
 
-The TUI is an equally supported interface:
+After model setup, the TUI is an equally supported interface:
 
 ```bash
 uv run investorch
@@ -123,11 +112,26 @@ Fresh initialization creates `MEMORY.md` and installs six built-in Skills under 
 uv run investorch --update
 ```
 
-This deterministically replaces package-managed built-ins, preserves enabled state, and exits without model calls. Package content wins over local edits and versions; customize a built-in by forking it under a new name. External/created Skills and user Memory are untouched.
+Run this explicitly after reviewing managed Skill differences in System Status or `investorch upgrade check`. It deterministically replaces package-managed built-ins, preserves enabled state, and exits without model calls or Portfolio initialization. Package content wins over local edits and versions; customize a built-in by forking it under a new name. External/created Skills and user Memory are untouched.
 
 The Main Agent receives metadata at application startup and loads relevant Skills on demand. Install, replace, enable, disable, remove, and update require an application restart before catalog changes take effect. External/created candidates undergo independent safety review and normal approval; warnings require manual approval and blocked candidates cannot be installed. Installing a Skill does not authorize running its scripts.
 
 QMT guidance creates strategy artifacts for human review and deployment in Big QMT; InvestOrch does not execute QMT orders.
+
+## Settings and System Status
+
+- **Settings** edits persistent configuration using the Python Schema for types, defaults, constraints and lifecycle. Reset removes a local override. Hot changes apply to future applicable operations; restart-required changes are saved for the next start. Temporary Run defaults remain process-local.
+- **Integrations** manages the separate `mcp.toml` registry. Only `streamable_http` is supported. Hidden URL/header credentials are preserved when left unchanged, and edits require restart. An untested connection is shown as unknown.
+- **Skills** lists and inspects installed content. Create/Install and per-Skill Edit/Fork open Agent Sessions with normal review and approval. Operators can directly enable, disable, or confirm removal of custom Skills.
+- **System Status** presents the same local checks as the offline CLI:
+
+```bash
+uv run investorch doctor
+uv run investorch doctor --json
+uv run investorch upgrade check
+```
+
+Doctor is read-only and does not call model providers, connect MCP servers, update Skills or migrate databases. Exit codes are `0` for healthy/disabled, `1` for warning/unknown, and `2` for error. Follow [Upgrade](docs/Upgrade.md) and [Backup and Recovery](docs/Backup_and_Recovery.md) for offline backups, verification, and recovery into a separate root. Raw credential configuration is excluded from default backups.
 
 ## Optional CNEquity integration
 
@@ -149,7 +153,7 @@ CNEquity is an optional data backend. Broader integration is deferred until its 
 
 ### RQAlpha bundle
 
-Native RQAlpha backtests read the bundle configured by `backtest.rqalpha_bundle_dir`. The bundled configuration resolves it to `~/.investorch/.rqalpha/bundle`. RQAlpha's `-d` option takes the parent directory and appends `bundle` itself, so the matching CLI path is `~/.investorch/.rqalpha`.
+Native RQAlpha backtests read the bundle configured by `backtest.rqalpha_bundle_dir`. The Python Schema default resolves it to `~/.investorch/.rqalpha/bundle`. RQAlpha's `-d` option takes the parent directory and appends `bundle` itself, so the matching CLI path is `~/.investorch/.rqalpha`.
 
 Download RQAlpha's monthly bundle and check it before running a backtest:
 
@@ -197,7 +201,7 @@ Use `uv run investorch data --help` and `<command> --help` for backfill, retry, 
 
 ## Local-first boundary
 
-Configuration, workspace files, session metadata, journals, logs, and generated artifacts are stored locally by default. Configured model endpoints and MCP servers receive the content required for their calls. The Web server listens on loopback only in 0.1.0.
+Configuration, workspace files, session metadata, journals, logs, and generated artifacts are stored locally by default. Configured model endpoints and MCP servers receive the content required for their calls. The Web server listens on loopback only. HTTP writes enforce the local Host, same-origin browser requests and JSON content; this does not provide authenticated LAN serving.
 
 ## Frontend development
 

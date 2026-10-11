@@ -4,7 +4,7 @@
 
 ## Scope
 
-This document describes the architecture through the 0.2.0 Skill Component. Future product directions are recorded in the [Product Roadmap](InvestOrch_Agent_Product_Roadmap.md).
+This document describes the current source architecture, including unreleased 0.2.0 management and recovery work. Final D/E acceptance is still pending. Future product directions are recorded in the [Product Roadmap](InvestOrch_Agent_Product_Roadmap.md).
 
 ## System context
 
@@ -50,6 +50,10 @@ The host owns process-lifetime resources. A Run never owns the workspace, MCP ma
 
 `investorch web` runs a FastAPI application on `127.0.0.1`. The server provides REST operations for session and interaction state, paged journal history, defaults, queue, compaction, and approvals. A WebSocket transports live application events. The React frontend consumes these application contracts and uses the Web configuration returned by bootstrap as its source of UI defaults.
 
+Management routes add `/skills`, `/skills/:name`, `/settings`, `/system`, and `/setup`. Fresh configurations can serve Setup and read-only diagnosis before an Agent Host exists. Setup saves model fields and credentials through AppConfig, may test a model with an explicit small request, then starts the Host. Invalid existing configuration or incompatible storage enters recovery instead of being reinitialized.
+
+`web.security` protects HTTP writes at the browser boundary: loopback Host, same-origin browser requests and JSON bodies. Non-browser local clients may omit Origin and Fetch Metadata. Management responses disable caching. This boundary is independent of Agent Tool approval and does not support authenticated remote serving.
+
 ### TUI
 
 `investorch` starts the Textual client. It uses the same application services and Runtime callbacks as Web. Session selection, timeline projection, composer behavior, Queue, Todo, approval, processes, and usage are presentation concerns; they do not own execution state.
@@ -85,7 +89,7 @@ The Main Agent is cloned with captured model settings for each Run. Support agen
 - Permission Agent may return approve, reject, or ask in review mode.
 - Compact Agent replaces SDK continuation history with a marked summary.
 
-The runtime uses the OpenAI Responses model adapter. Bundled configuration currently points all roles to DeepSeek. Model name, base URL, secret name, and reasoning effort come from `AppConfig`.
+The runtime uses the OpenAI Responses model adapter. The Schema defines five independently configurable model roles without a default provider. Model name, base URL, secret reference and reasoning effort come from `AppConfig`; readiness is checked before constructing an Agent. The independent Skill Review Agent reuses the Permission model configuration.
 
 ## Current Tool surface
 
@@ -128,10 +132,12 @@ CNEquity is optional and user-operated. `investorch data` passes arguments to it
 
 Persistent state under the configured root is intentionally split by responsibility:
 
-- `<root>/investorch.toml`: local overrides and secrets;
+- `<root>/investorch.toml`: local overrides, secrets and configuration format marker;
 - `<root>/mcp.toml`: MCP registry;
 - `<root>/workspace/`: user-owned workspace and generated artifacts;
 - `<state>/sessions.db`: Agents SDK continuation plus application session metadata;
+- `<state>/portfolio.db`: Portfolio schema v6;
+- `<state>/skills.json`: Skill registration, enabled state and provenance;
 - `<state>/sessions/<session-id>.jsonl`: append-only user-visible journal;
 - `<state>/logs/investorch.log`: rotating diagnostic log.
 
@@ -140,7 +146,13 @@ The SQLite continuation is model state and may be compacted. The JSONL journal i
 
 ## Configuration
 
-`AppConfig` validates bundled TOML defaults plus local overrides. Some settings are hot for future Runs; composition-changing settings report that restart is required. Agent-facing reads redact secrets, and Agent-facing writes cannot modify secrets.
+`config_schema.AppConfigSchema` is the single authority for field types, defaults, constraints, secret sensitivity and lifecycle (`hot`, `restart_required`, `immutable`). `AppConfig` combines Schema defaults, Local TOML overrides and permitted temporary configuration changes. No packaged default TOML participates at runtime. `paths.root` defaults to `~/.investorch`, accepts explicit programmatic bootstrap injection, and cannot be redirected by Local TOML.
+
+`AppConfig` exposes effective/saved public views, readiness, JSON Schema, atomic batch updates, reset-by-removing-override and independent snapshots. Complete candidate validation precedes writes; comments and neighboring settings are retained. Atomic file replacement and a small write lock protect persistence, and detected external edits reject stale writes. Restart-required changes remain next-start values. AppConfig contains no caller identity or authorization policy: the Agent Tool separately rejects `secrets.*`, `permission.*` and `models.permission.*`, while direct operator writes use the HTTP boundary.
+
+Fresh installations leave model provider fields unset and enter Setup. Historical unversioned Local TOML is backed up before one-time migration that makes former implicit model settings explicit; existing per-field overrides win. Malformed or incompatible configuration remains an error. Field descriptions and public views never include secret values.
+
+`AppState` owns optional process-local reasoning-effort, Permission and follow-up overrides. Unset options fall back to effective AppConfig; explicit overrides survive later configuration edits. `/defaults`, `/effort` and `/permission` do not persist configuration, and active Runs keep their captured `RunOptions`.
 
 The configured model and MCP endpoints are external trust boundaries. Local-first means state and workspace ownership are local by default; it does not mean model or MCP traffic stays on the machine.
 
@@ -177,7 +189,21 @@ The application host freezes the enabled catalog and loadable names at startup. 
 
 Non-built-in installation validates then independently reviews the current candidate using the Permission model configuration, with no reviewer tools. PASS proceeds through normal approval, WARN requires manual approval, and BLOCK cannot install. Dedicated mutation tools change durable behavior; installed built-ins cannot be removed or Agent-replaced. Fork to customize.
 
-`investorch --update` deterministically replaces managed built-ins from the package and preserves enabled state without models, merge, backup, or dirty detection. Normal startup does not update content. Invalid/missing built-ins fail startup with update/reinstall guidance; invalid/missing custom Skills are excluded and remain inspectable. `MEMORY.md` is created only if absent; existing user files are retained.
+`investorch --update` explicitly replaces managed built-ins from the package and preserves enabled state without model calls or Portfolio initialization. Doctor/System Status compare installed and packaged content and report differences; differences are not permission to replace files automatically. Normal startup does not update content. Invalid/missing built-ins fail startup with update/reinstall guidance; invalid/missing custom Skills are excluded and remain inspectable. `MEMORY.md` is created only if absent; existing user files are retained.
+
+## Management and recovery responsibilities
+
+| Surface | Owner and behavior |
+| --- | --- |
+| Settings `/api/config` and Schema description | AppConfig validates and persists; frontend chooses layout from backend field semantics. |
+| Setup `/api/setup` | Saves initial model/secret configuration before Host creation; an optional real request tests connectivity. |
+| Skill catalog and detail | SkillOperations reads installed content without loading it into Agent context. |
+| Skill Create / Install / Edit / Fork | SkillSessionWorkflows creates a Session with an explicit operation prompt; ordinary review and approvals remain required. |
+| MCP `/api/integrations/mcp` | Shared `mcp.py` validation, registry persistence and secret-safe presentation; next-start changes, unknown runtime status unless observed. |
+| System `/api/system`, `doctor`, `upgrade check` | Shared read-only diagnostics; no provider calls, MCP connection, initialization or migration. |
+| Offline Backup Create / Verify | Snapshot and manifest verification; default archives omit raw credential configuration. |
+
+Portfolio migration stays in the existing Portfolio migration module, including schema v6 and explicit retirement of legacy live state. The management layer reports required action instead of migrating. Restore is an operator procedure into a separate root while the application is stopped; there is no general Restore CLI or automatic rollback. See [Upgrade](Upgrade.md) and [Backup and Recovery](Backup_and_Recovery.md).
 
 ## Image conversation content
 

@@ -4,7 +4,7 @@
 
 ## 范围
 
-本文描述截至 0.2.0 Skill Component 的架构。未来产品方向记录在[产品路线图](InvestOrch_Agent_Product_Roadmap.zh-CN.md)。
+本文描述当前源码架构，包含尚未发布的 0.2.0 管理与恢复工作。D/E 最终验收仍待完成。未来产品方向记录在[产品路线图](InvestOrch_Agent_Product_Roadmap.zh-CN.md)。
 
 ## 系统上下文
 
@@ -50,6 +50,10 @@ Host 拥有进程生命周期资源。Run 不拥有 Workspace、MCP manager 或�
 
 `investorch web` 在 `127.0.0.1` 运行 FastAPI application。Server 通过 REST 提供 Session 与交互状态、分页 Journal 历史、默认值、Queue、压缩和审批操作，通过 WebSocket 传输 live application events。React 前端使用这些 Application 接口，并以 bootstrap 返回的 Web 配置作为 UI defaults 的来源。
 
+管理入口包括 `/skills`、`/skills/:name`、`/settings`、`/system` 和 `/setup`。新实例在 Agent Host 建立前即可提供 Setup 和只读诊断。Setup 经 AppConfig 保存模型字段及凭据，可由用户主动发起小型模型测试，随后启动 Host。旧配置或存储不兼容时进入恢复状态，而不是重新初始化。
+
+`web.security` 在浏览器 HTTP 边界检查 loopback Host、浏览器同源和 JSON 写请求。非浏览器本地客户端可省略 Origin 与 Fetch Metadata；管理接口禁止缓存。该边界独立于 Agent Tool 审批，也不提供经过认证的远程服务。
+
 ### TUI
 
 `investorch` 启动 Textual 客户端。它与 Web 使用相同的 Application services 和 Runtime callbacks。Session 选择、Timeline projection、Composer、Queue、Todo、审批、进程和用量展示属于 Presentation，不拥有执行状态。
@@ -85,7 +89,7 @@ Main Agent 会为每个 Run 使用已捕获 model settings 进行 clone。辅助
 - Permission Agent 在 review 模式下可以返回 approve、reject 或 ask。
 - Compact Agent 用带标记的 summary 替换 SDK continuation history。
 
-Runtime 使用 OpenAI Responses model adapter。随包配置当前把所有角色指向 DeepSeek。Model name、base URL、secret name 和 reasoning effort 来自 `AppConfig`。
+Runtime 使用 OpenAI Responses model adapter。Schema 定义五个独立可配置的模型角色，不预设 Provider。Model name、base URL、secret reference 和 reasoning effort 来自 `AppConfig`，构造 Agent 前检查 readiness。独立 Skill Review Agent 复用 Permission 模型配置。
 
 ## 当前 Tool Surface
 
@@ -128,10 +132,12 @@ CNEquity 是可选且由用户运维的后端。`investorch data` 把参数传�
 
 配置 root 下的持久化状态按职责分开：
 
-- `<root>/investorch.toml`：本地 overrides 与 secrets；
+- `<root>/investorch.toml`：本地 overrides、secrets 与配置格式标记；
 - `<root>/mcp.toml`：MCP registry；
 - `<root>/workspace/`：用户拥有的 Workspace 与生成 artifacts；
 - `<state>/sessions.db`：Agents SDK continuation 与 Application Session metadata；
+- `<state>/portfolio.db`：Portfolio schema v6；
+- `<state>/skills.json`：Skill 注册、启停与来源；
 - `<state>/sessions/<session-id>.jsonl`：追加式用户可见 Journal；
 - `<state>/logs/investorch.log`：轮转诊断日志。
 
@@ -140,7 +146,13 @@ SQLite continuation 是 model state，可以被压缩；JSONL Journal 是 replay
 
 ## 配置
 
-`AppConfig` 验证随包 TOML defaults 与本地 overrides。部分设置对未来 Run 热更新；会改变 composition 的设置报告需要重启。Agent-facing 读取会隐藏 secrets，Agent-facing 写入不能修改 secrets。
+`config_schema.AppConfigSchema` 是字段类型、默认值、约束、敏感属性和生命周期（`hot`、`restart_required`、`immutable`）的唯一权威。`AppConfig` 合并 Schema defaults、Local TOML overrides 与允许的临时配置变化；运行时不再读取随包默认 TOML。`paths.root` 默认 `~/.investorch`，可通过程序化 bootstrap 注入，Local TOML 不能重定向自身 Root。
+
+`AppConfig` 提供有效/已保存公开视图、readiness、JSON Schema、原子批量修改、通过移除覆盖实现的 reset，以及独立 snapshot。完整候选通过验证后才写盘，保留注释与相邻设置；原子替换与小范围写锁保护落盘，检测到外部修改时拒绝旧视图覆盖。需要重启的修改保存为下次启动值。AppConfig 不识别调用者或执行授权策略：Agent Tool 在边界拒绝 `secrets.*`、`permission.*` 和 `models.permission.*`，用户直接操作则由 HTTP 边界保护。
+
+新安装保留未设置的 Provider 字段并进入 Setup。历史无格式标记的 Local TOML 先备份，再一次性把原隐含模型设置写成显式覆盖；用户已有逐字段覆盖优先。损坏或不兼容配置保持报错。字段描述与公开视图不包含 Secret 明文。
+
+`AppState` 保存可选的进程级 reasoning effort、Permission 和 follow-up 覆盖；无覆盖时读取有效 AppConfig，显式覆盖不被后续配置修改抹掉。`/defaults`、`/effort`、`/permission` 不持久化配置，已启动 Run 保持捕获的 `RunOptions`。
 
 已配置 model 与 MCP endpoints 是外部信任边界。本地优先表示状态和 Workspace 默认由本地拥有，不表示 model 或 MCP traffic 留在本机。
 
@@ -177,7 +189,21 @@ ApplicationHost 在启动时固定 enabled catalog 与可加载名称。`load_sk
 
 安装非内置候选时先验证，再复用 Permission 模型配置进行独立安全审查，审查 Agent 无 Tools。PASS 仍走正常授权，WARN 必须人工审批，BLOCK 禁止安装。专用管理工具修改未来行为；内置 Skill 禁止 Agent 删除或替换，定制需 fork。
 
-`investorch --update` 以随包内容确定性替换内置 Skill 并保留 enabled，不调用模型、不 merge/backup/dirty-detect。普通启动不更新内容。内置缺失/无效导致启动失败并提示更新/重装；外部/自建缺失或无效时排除出 catalog，仍可 inspect。仅在缺失时创建 `MEMORY.md`，已有用户文件保留。
+`investorch --update` 显式以随包内容替换受管内置 Skill 并保留 enabled，不调用模型或初始化 Portfolio。Doctor/System Status 比较已安装内容与随包内容并报告差异；检测出差异并不自动授权覆盖。普通启动不更新内容。内置缺失/无效导致启动失败并提示更新/重装；外部/自建缺失或无效时排除出 catalog，仍可 inspect。仅在缺失时创建 `MEMORY.md`，已有用户文件保留。
+
+## 管理与恢复的职责
+
+| 入口 | 所有者与行为 |
+| --- | --- |
+| Settings `/api/config` 与 Schema 描述 | AppConfig 验证并持久化，前端根据后端字段语义决定布局。 |
+| Setup `/api/setup` | Host 构造前保存初始模型与 Secret；可选真实请求验证连接。 |
+| Skill catalog 与详情 | SkillOperations 读取已安装内容，不加载到 Agent context。 |
+| Skill Create / Install / Edit / Fork | SkillSessionWorkflows 带明确操作指令创建 Session，保留正常审查与审批。 |
+| MCP `/api/integrations/mcp` | 共享 `mcp.py` 验证、registry 持久化与安全展示；重启生效，未观察到连接时显示 Unknown。 |
+| System `/api/system`、`doctor`、`upgrade check` | 共享只读诊断，不调用 Provider、连接 MCP、初始化或迁移。 |
+| 离线 Backup Create / Verify | 快照与 manifest 验证；默认排除包含原始凭据的配置。 |
+
+Portfolio 迁移仍由现有模块负责，保留 schema v6 与旧 live 状态显式退役规则；管理层报告所需行动而不自行迁移。恢复由用户在停止应用后向独立 Root 执行，没有通用 Restore CLI 或自动回滚。详见[升级说明](Upgrade.zh-CN.md)和[备份与恢复](Backup_and_Recovery.zh-CN.md)。
 
 ## 对话图片内容
 

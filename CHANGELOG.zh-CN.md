@@ -4,6 +4,15 @@
 
 ## 0.2.0（未发布）
 
+以下 D/E 管理与恢复工作在功能分支实施；最终集成、真实 Agent 与恢复验收仍待完成。
+
+- 使用严格 Python Schema 替代随包默认 TOML；新安装不预设 Provider，支持原子配置更新/重置，历史隐含模型默认值在备份原文件后一次性迁移。
+- 新增 Agent 启动前的 Web Setup、使用后端字段元数据的持久 Settings，以及独立的进程级未来 Run 临时覆盖。
+- 新增 Skills 列表/详情及 Create/Install/Edit/Fork Session 入口，保留独立审查与审批。
+- 新增共享安全脱敏的 MCP Integrations 管理，修改重启后生效。
+- 新增只读 System Status、`doctor` 和 `upgrade check`，报告受管内置 Skill 差异；`--update` 仍需显式执行，且不初始化 Portfolio。
+- 新增离线 Backup Create/Verify，默认排除凭据配置并提供人工恢复指引；Portfolio v6 迁移保持独立。
+
 - 新增端到端图片对话、explore Workspace 读图、内联历史与点击加载外部图片。
 
 - 新增六个带版本的 Workspace Skill、注册/来源记录、启动发现和按需加载。
