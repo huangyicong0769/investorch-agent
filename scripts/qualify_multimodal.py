@@ -48,7 +48,7 @@ def red_png() -> bytes:
 
 async def qualify() -> None:
     set_tracing_disabled(True)
-    source = load_config()
+    source = load_config(migrate=False)
     with tempfile.TemporaryDirectory(prefix="investorch-image-qualification-") as directory:
         data = source.public()
         data["secrets"] = source.secrets
@@ -56,7 +56,7 @@ async def qualify() -> None:
         data["backtest"]["use_cnequity"] = False
         for role in ("main", "title", "compact"):
             data["models"][role]["name"] = "deepseek-flash"
-        config = AppConfig(data, source.project_config_path)
+        config = AppConfig(data)
         initialize(config)
         image_bytes = red_png()
         (config.workspace_dir / "sample.png").write_bytes(image_bytes)

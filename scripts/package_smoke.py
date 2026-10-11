@@ -9,7 +9,7 @@ from importlib.metadata import PackageNotFoundError, distribution
 from pathlib import Path
 
 import investorch
-from investorch.config import PROJECT_CONFIG_PATH
+from investorch.config import load_config
 from investorch.skills.validation import validate_skill
 from investorch.web.assets import STATIC_DIR
 
@@ -65,9 +65,8 @@ def main() -> None:
     assert not (Path.cwd() / "pyproject.toml").exists()
     assert not (Path.cwd() / "src").exists()
 
-    resources = PROJECT_CONFIG_PATH.parent
-    assert PROJECT_CONFIG_PATH.is_file()
-    assert PROJECT_CONFIG_PATH.is_relative_to(package_file.parent)
+    resources = package_file.parent / "resources"
+    assert not (resources / "investorch.toml").exists()
     assert (resources / "MEMORY.md.template").is_file()
     bundled_skills = resources / "skills"
     assert sorted(path.name for path in bundled_skills.iterdir() if path.is_dir()) == list(BUILTIN_SKILLS)
@@ -93,6 +92,10 @@ def main() -> None:
 
         initialized = _run([executable, "web"], env=env)
         root = home / ".investorch"
+        config = load_config(root=root)
+        assert config["runtime.max_turns"] == 100
+        assert config["models.main.name"] is None
+        assert config.readiness()
         assert initialized.returncode == 0
         assert "InvestOrch Agent initialized" in initialized.stdout
         assert (root / "investorch.toml").is_file()
