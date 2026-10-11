@@ -98,12 +98,14 @@ def test_upgrade_checks_historical_portfolios_without_migration(tmp_path: Path) 
     from contextlib import closing
 
     from investorch.config import load_config
+    from investorch.storage import init_session_metadata
     from tests.support.portfolio_migration import load_legacy_portfolio_fixture
 
     for version in (1, 2, 3, 4, 5):
         root = tmp_path / str(version)
         config = load_config(root=root, migrate=False)
         config.state_dir.mkdir(parents=True)
+        init_session_metadata(config.sessions_db)
         load_legacy_portfolio_fixture(config.portfolio_db, version)
         before = _files(root)
         checks = {item["code"]: item for item in doctor_checks(root, upgrade=True)}

@@ -13,7 +13,7 @@ from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any
 
-from investorch.config import ConfigError, load_config
+from investorch.config import AppConfig, ConfigError, load_config
 from investorch.mcp import read_mcp_server_configs
 from investorch.portfolio.migration import migrate_portfolio
 from investorch.portfolio.schema import PortfolioStorageError
@@ -128,7 +128,7 @@ def doctor_checks(root: Path | None = None, upgrade: bool = False) -> list[dict[
                 remediation="Repair configuration and run investorch doctor again.",
             )
     else:
-        _storage_checks(config.sessions_db, config.portfolio_db, add)
+        _storage_checks(config, add)
         _skill_checks(config.state_dir / "skills.json", config.workspace_dir / "skills", add)
         _integration_checks(config, add)
         inaccessible = []
@@ -169,14 +169,23 @@ def doctor_checks(root: Path | None = None, upgrade: bool = False) -> list[dict[
     return checks
 
 
-def _storage_checks(sessions: Path, portfolio: Path, add: Any) -> None:
+def _storage_checks(config: AppConfig, add: Any) -> None:
+    sessions, portfolio = config.sessions_db, config.portfolio_db
+    existing_state = (
+        sessions.exists()
+        or portfolio.exists()
+        or (config.state_dir / "skills.json").exists()
+        or any(config.session_journal_dir.glob("*.jsonl"))
+    )
     for code, path in (("sessions", sessions), ("portfolio_schema", portfolio)):
         if not path.exists():
             add(
                 code,
-                "warning",
-                "Database has not been created",
-                remediation="Complete Setup for a new installation; restore missing existing data from backup.",
+                "error" if existing_state else "warning",
+                "An existing instance is missing a database" if existing_state else "Database has not been created",
+                remediation=f"Preserve existing state and restore {path} from a verified offline backup."
+                if existing_state
+                else "Complete Setup for a new installation.",
             )
             continue
         try:

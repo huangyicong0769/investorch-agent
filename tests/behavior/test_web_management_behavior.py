@@ -115,6 +115,54 @@ async def test_corrupt_database_enters_recovery_without_initializing_other_state
     assert after == before
 
 
+@pytest.mark.parametrize("evidence", ["sessions", "portfolio", "journal", "registry"])
+async def test_missing_existing_database_requires_recovery_without_writes(tmp_path: Path, evidence: str) -> None:
+    from investorch.diagnostics import doctor_checks
+    from investorch.portfolio import init_portfolio_storage
+    from investorch.storage import init_session_metadata
+
+    root = tmp_path / "root"
+    config = load_config(root=root)
+    config.state_dir.mkdir(parents=True)
+    if evidence == "sessions":
+        init_session_metadata(config.sessions_db)
+    elif evidence == "portfolio":
+        init_portfolio_storage(config.portfolio_db)
+    elif evidence == "journal":
+        config.session_journal_dir.mkdir()
+        (config.session_journal_dir / "existing-session.jsonl").write_text('{"type":"user_message"}\n')
+    else:
+        (config.state_dir / "skills.json").write_text("{}")
+    before = {path.relative_to(root): path.read_bytes() for path in root.rglob("*") if path.is_file()}
+    checks = {item["code"]: item for item in doctor_checks(root)}
+    missing = "portfolio_schema" if evidence == "sessions" else "sessions"
+    assert checks[missing]["status"] == "error"
+    app = create_web_app(root=root)
+    async with (
+        app.router.lifespan_context(app),
+        httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://127.0.0.1") as client,
+    ):
+        assert (await client.get("/api/setup/state")).json()["status"] == "recovery_required"
+        assert (await client.post("/api/setup/complete", json={})).status_code == 409
+    after = {path.relative_to(root): path.read_bytes() for path in root.rglob("*") if path.is_file()}
+    assert after == before
+
+
+async def test_config_only_new_root_can_initialize_setup(tmp_path: Path) -> None:
+    root = tmp_path / "root"
+    root.mkdir()
+    local = root / "investorch.toml"
+    local.write_text("config_version = 1\n")
+    original = local.read_bytes()
+    app = create_web_app(root=root)
+    async with app.router.lifespan_context(app):
+        assert app.state.recovery_error is None
+        assert app.state.host is None
+        assert app.state.config.sessions_db.exists()
+        assert app.state.config.portfolio_db.exists()
+    assert local.read_bytes() == original
+
+
 async def test_skill_http_controls_preserve_ownership_and_session_retry_identity(tmp_path: Path) -> None:
     async with open_test_web(tmp_path) as web:
         catalog = (await web.client.get("/api/skills")).json()["skills"]
