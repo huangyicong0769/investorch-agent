@@ -42,7 +42,7 @@ export interface SavedConfig {
 }
 
 export interface ConfigUpdate {
-  updated: boolean
+  updated: string[]
   persisted: boolean
   applied: boolean
   requires_restart: boolean
