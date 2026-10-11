@@ -9,7 +9,7 @@ This document records completed work, confirmed directions, open decisions, and 
 The roadmap uses five states:
 
 - **Completed**: implemented and supported by code or tests.
-- **Implementation / acceptance pending**: scope is settled and work is in progress; final delivery evidence and human review remain open.
+- **Implemented / review pending**: implementation and local qualification are recorded; human review and remote CI remain open.
 - **Confirmed direction**: a chosen product direction whose version, sequence, and implementation remain open.
 - **Open decision**: a question to resolve when its surrounding work begins.
 - **Candidate theme**: an idea to revisit when real usage provides a trigger.
@@ -48,7 +48,7 @@ Version 0.1.0 includes:
 | Transition | Complete on feature base | Portfolio schema v6 and legacy live schema retirement |
 | 0.2.0.B | Complete | Skill Component and six built-in workflows |
 | 0.2.0.C | Implemented on source base | Multimodal Image Support |
-| 0.2.0.D + E | Implementation / acceptance pending | Product Control Plane, First-run Setup, Upgrade & Recovery |
+| 0.2.0.D + E | Implemented / review pending | Product Control Plane, First-run Setup, Upgrade & Recovery |
 | Release | After D/E acceptance | 0.2.0 hardening, version/tag/release as a separate action |
 | QMT strategy qualification | Side track; no committed schedule | Agent-authored strategies and human Big QMT deployment |
 | Old direct QMT live execution | Blocked / archived | Feasibility work; not a supported execution route |
@@ -59,7 +59,7 @@ The current QMT route is Agent-generated strategy artifact → human review → 
 
 One feature branch brings together Python Schema configuration, Web Settings and first-run Setup, Skill management through existing Agent Sessions and approvals, MCP registry management, shared System Status/Doctor checks, explicit managed Skill updates, and offline Backup Create/Verify. Portfolio schema v6 and existing migration boundaries stay in place.
 
-Final acceptance requires real Agent operation, frontend and package verification, and a recovery rehearsal. An implemented endpoint or passing fixture is not a substitute for these gates. There is no automatic built-in update, Web restart button, online restore, general Restore CLI, Provider Marketplace, or remote Web authentication in this scope.
+Local evidence for real Agent operation, frontend and package verification, and recovery rehearsal is in [the acceptance report](qualification/Management_Acceptance.md). An implemented endpoint or passing fixture is not a substitute for these gates. There is no automatic built-in update, Web restart button, online restore, general Restore CLI, Provider Marketplace, or remote Web authentication in this scope.
 
 ## Confirmed direction: unified investment data
 

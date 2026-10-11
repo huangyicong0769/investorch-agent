@@ -9,7 +9,7 @@
 路线图使用五种状态：
 
 - **已完成**：已有代码或测试支持的功能。
-- **实施中 / 待验收**：范围已确定、正在实施，完整交付证据与人工审查仍待完成。
+- **已实现 / 待 review**：实现与本地验证已有记录，人工审查与远端 CI 尚待完成。
 - **已确认方向**：已经选择的产品方向，具体版本、顺序与实现仍待决定。
 - **待决策事项**：在相关工作开始时解决的问题。
 - **候选主题**：在真实使用提供触发条件时重新评估的想法。
@@ -48,7 +48,7 @@ InvestOrch Agent 的目标是成为面向个人投资者的本地优先、human-
 | Transition | 当前 feature base 已完成 | Portfolio schema v6 与旧 live schema 退役 |
 | 0.2.0.B | 完成 | Skill Component 与六个内置工作流 |
 | 0.2.0.C | 源码基线已实现 | Multimodal Image Support（多模态图片支持） |
-| 0.2.0.D + E | 实施中 / 待验收 | Product Control Plane、First-run Setup、Upgrade & Recovery |
+| 0.2.0.D + E | 已实现 / 待 review | Product Control Plane、First-run Setup、Upgrade & Recovery |
 | Release | D/E 验收后 | 0.2.0 hardening；版本号、tag 与发布另行执行 |
 | QMT 策略 qualification | 支线；无承诺排期 | Agent 编写策略与人工大 QMT 部署 |
 | 旧 direct QMT live execution | 阻塞 / 已归档 | 可行性工作，不是受支持的执行路径 |
@@ -59,7 +59,7 @@ InvestOrch Agent 的目标是成为面向个人投资者的本地优先、human-
 
 同一功能分支完成 Python Schema 配置、Web Settings 与首次 Setup、复用现有 Agent Session 和审批的 Skill 管理、MCP registry 管理、共享 System Status/Doctor、显式受管 Skill 更新，以及离线 Backup Create/Verify。Portfolio schema v6 与既有迁移边界保持。
 
-最终验收包含真实 Agent 运行、前端与发行包验证、恢复演练；已实现端点或通过 fixture 不能替代这些门槛。本范围不包含启动时自动更新内置 Skill、Web 重启按钮、在线恢复、通用 Restore CLI、Provider Marketplace 或远程 Web 鉴权。
+真实 Agent 运行、前端与发行包验证、恢复演练的本地证据见[验收报告](qualification/Management_Acceptance.md)；已实现端点或通过 fixture 不能替代这些门槛。本范围不包含启动时自动更新内置 Skill、Web 重启按钮、在线恢复、通用 Restore CLI、Provider Marketplace 或远程 Web 鉴权。
 
 ## 已确认方向：统一投资数据
 
