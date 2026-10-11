@@ -14,6 +14,8 @@ import { PortfolioIndexPage } from '../components/portfolio/PortfolioIndexPage'
 import { SessionSidebar } from '../components/sidebar/SessionSidebar'
 import { LiveWebSocketProvider } from '../websocket/LiveWebSocketProvider'
 import { Button } from '@/components/ui/button'
+import { SkillsPage } from '../components/skills/SkillsPage'
+import { SkillDetailPage } from '../components/skills/SkillDetailPage'
 import { SettingsPage } from '../components/settings/SettingsPage'
 import { SetupPage } from '../components/setup/SetupPage'
 import { SystemPage } from '../components/system/SystemPage'
@@ -212,6 +214,8 @@ const router = createBrowserRouter([
           { path: 'portfolios/:portfolioId', element: <PortfolioDetailPage /> },
           { path: 'system', element: <SystemPage /> },
           { path: 'settings', element: <SettingsPage /> },
+          { path: 'skills', element: <SkillsPage /> },
+          { path: 'skills/:name', element: <SkillDetailPage /> },
           { path: '*', element: <NotFoundRoute /> },
         ],
       },

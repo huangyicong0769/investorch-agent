@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Activity, Archive, BriefcaseBusiness, Plus, Search, Settings, X } from 'lucide-react'
+import { Activity, Archive, BriefcaseBusiness, Plus, Puzzle, Search, Settings, X } from 'lucide-react'
 import { NavLink, useNavigate } from 'react-router-dom'
 
 import { archiveSession, createSession, deleteSession } from '../../api/client'
@@ -248,6 +248,8 @@ export function SessionSidebar({
         <BriefcaseBusiness aria-hidden="true" size={16} />
         Portfolios
       </NavLink>
+
+      <NavLink className={({ isActive }) => cn('mt-1 flex items-center gap-2 rounded-lg px-3 py-2 text-sm outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/40', isActive ? 'bg-muted font-medium' : 'text-muted-foreground')} onClick={onMobileClose} to="/skills"><Puzzle aria-hidden="true" size={16} />Skills</NavLink>
 
       <div className="relative mt-3">
         <Search

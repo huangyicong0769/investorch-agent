@@ -154,10 +154,10 @@ export function testModel(body: { name: string; base_url: string; api_key: strin
 export function startSkillSession(body: { request_id: string; action: SkillAction; name?: string }): Promise<PortfolioSessionResponse> {
   return request('/api/skill-sessions', { method: 'POST', body })
 }
-export function setSkillEnabled(name: string, enabled: boolean): Promise<{ requires_restart: boolean }> {
+export function setSkillEnabled(name: string, enabled: boolean): Promise<{ name: string; restart_required: boolean; message: string }> {
   return request(`/api/skills/${encodeURIComponent(name)}`, { method: 'PATCH', body: { enabled } })
 }
-export function removeSkill(name: string): Promise<{ removed: boolean; requires_restart: boolean }> {
+export function removeSkill(name: string): Promise<{ name: string; restart_required: boolean; message: string }> {
   return request(`/api/skills/${encodeURIComponent(name)}`, { method: 'DELETE', body: { confirm: true } })
 }
 export function saveMcp(name: string, changes: McpChanges, existing: boolean): Promise<{ server: McpServer; requires_restart: boolean }> {
