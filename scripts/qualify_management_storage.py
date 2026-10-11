@@ -27,7 +27,7 @@ from investorch.config_legacy import legacy_model_overrides
 from investorch.initializer import initialize
 from investorch.portfolio import init_portfolio_storage, list_ledger_entries, list_portfolios
 from investorch.portfolio.migration import migrate_portfolio
-from investorch.storage import create_session, get_session, set_session_title
+from investorch.storage import create_session, get_session, init_session_metadata, set_session_title
 
 PROJECT = Path(__file__).resolve().parents[1]
 FIXTURES = PROJECT / "tests/behavior/fixtures"
@@ -52,10 +52,14 @@ def legacy_home(base: Path, name: str, values: dict | None = None) -> Path:
     return home
 
 
-def historical_database(path: Path, version: int) -> None:
+def historical_database(path: Path, version: int, *, paired_session: bool = False) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with closing(sqlite3.connect(path)) as connection:
         connection.executescript((FIXTURES / f"portfolio_schema_v{version}.sql").read_text())
+    if paired_session:
+        sessions = path.with_name("sessions.db")
+        init_session_metadata(sessions)
+        create_session(sessions, "historical-session")
 
 
 def sql_economics(path: Path) -> dict:
@@ -116,7 +120,7 @@ def main() -> None:
             home = legacy_home(base, f"portfolio-v{version}")
             root = home / ".investorch"
             database = root / "state/portfolio.db"
-            historical_database(database, min(version, 2) if version == 6 else version)
+            historical_database(database, min(version, 2) if version == 6 else version, paired_session=True)
             if version == 6:
                 init_portfolio_storage(database)
             before = sql_economics(database)
@@ -139,7 +143,7 @@ def main() -> None:
         active_home = legacy_home(base, "active-v5")
         active_root = active_home / ".investorch"
         active_db = active_root / "state/portfolio.db"
-        historical_database(active_db, 5)
+        historical_database(active_db, 5, paired_session=True)
         with closing(sqlite3.connect(active_db)) as connection:
             connection.execute(
                 "UPDATE live_deployments SET status = 'ACTIVE' "
@@ -157,7 +161,7 @@ def main() -> None:
             home = legacy_home(base, failure)
             root = home / ".investorch"
             database = root / "state/portfolio.db"
-            historical_database(database, 2)
+            historical_database(database, 2, paired_session=True)
             if failure == "unknown_schema":
                 with closing(sqlite3.connect(database)) as connection:
                     connection.execute("PRAGMA user_version=99")
@@ -168,6 +172,18 @@ def main() -> None:
                 assert request(origin, "/api/setup/state")["status"] == "recovery_required"
             assert files_digest(root) == before
             checks[failure] = "HTTP recovery; source files unchanged"
+
+        for missing in ("sessions_db", "portfolio_db"):
+            home = legacy_home(base, f"missing-{missing}")
+            root = home / ".investorch"
+            config = load_config(root)
+            initialize(config)
+            getattr(config, missing).unlink()
+            before = files_digest(root)
+            with running_web(executable, home) as (_, origin):
+                assert request(origin, "/api/setup/state")["status"] == "recovery_required"
+            assert files_digest(root) == before
+            checks[f"missing_{missing}"] = "HTTP recovery; missing database not recreated; source files unchanged"
 
         source_home = legacy_home(base, "backup-source")
         source_root = source_home / ".investorch"
