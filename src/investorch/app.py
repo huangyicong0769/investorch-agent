@@ -94,8 +94,10 @@ async def run_app(plain: bool = False) -> None:
 async def _run_configured_app(ui: ConsoleUI, config: AppConfig, initialized: bool, plain: bool) -> None:
     if initialized:
         logger.info("First initialization completed at %s", config.root)
+    if config.readiness():
         ui.write(
-            f"InvestOrch Agent initialized at {config.root}\nPlease configure required secrets in {config.root_config_path} and start InvestOrch Agent again."
+            "Complete Setup with `investorch web`, then start InvestOrch Agent again.\n"
+            f"You can also configure model roles and their secrets in {config.root_config_path}."
         )
         return
 
