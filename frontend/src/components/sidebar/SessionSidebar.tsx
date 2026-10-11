@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Archive, BriefcaseBusiness, Plus, Search, X } from 'lucide-react'
+import { Activity, Archive, BriefcaseBusiness, Plus, Search, Settings, X } from 'lucide-react'
 import { NavLink, useNavigate } from 'react-router-dom'
 
 import { archiveSession, createSession, deleteSession } from '../../api/client'
@@ -21,7 +21,6 @@ import { errorMessage } from '../../lib/errors'
 import { sessionMatches, sessionPath } from '../../lib/session'
 import { cn } from '../../lib/utils'
 import { ProcessesSheet } from '../processes/ProcessesSheet'
-import { GlobalSettingsPopover } from '../settings/GlobalSettingsPopover'
 import { ArchivedSessionsDialog } from './ArchivedSessionsDialog'
 import { SessionItem } from './SessionItem'
 import { Button } from '@/components/ui/button'
@@ -346,7 +345,8 @@ export function SessionSidebar({
           <Archive aria-hidden="true" size={16} />
           Archived
         </Button>
-        <GlobalSettingsPopover />
+        <NavLink className={({ isActive }) => cn('flex items-center gap-2 rounded-lg px-3 py-2 text-sm outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/40', isActive && 'bg-muted font-medium')} onClick={onMobileClose} to="/settings"><Settings aria-hidden="true" size={16} />Settings</NavLink>
+        <NavLink className={({ isActive }) => cn('flex items-center gap-2 rounded-lg px-3 py-2 text-sm outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/40', isActive && 'bg-muted font-medium')} onClick={onMobileClose} to="/system"><Activity aria-hidden="true" size={16} />System Status</NavLink>
         <ProcessesSheet />
       </div>
 
