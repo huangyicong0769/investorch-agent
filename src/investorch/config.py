@@ -317,7 +317,10 @@ def load_config(root: Path | None = None, *, migrate: bool = True) -> AppConfig:
             _atomic_write(backup, source)
         document = tomlkit.parse(source.decode())
         document["config_version"] = CONFIG_VERSION
-        document["models"] = overrides["models"]
+        for role, values in overrides["models"].items():
+            for field, value in values.items():
+                if field not in document.get("models", {}).get(role, {}):
+                    _set_config_value(document, ("models", role, field), value)
         encoded = tomlkit.dumps(document).encode()
         _effective(root, _local_data(encoded, path))
         _atomic_write(path, encoded)
@@ -343,8 +346,7 @@ def _local_data(source: bytes, path: Path) -> dict[str, Any]:
 
 
 def _effective(root: Path, overrides: dict[str, Any]) -> dict[str, Any]:
-    defaults = AppConfigSchema().model_dump()
-    defaults["paths"]["root"] = str(root)
+    defaults = AppConfigSchema(paths={"root": str(root)}).model_dump()
     return _validated(_merge(defaults, overrides))
 
 

@@ -96,3 +96,29 @@ def test_external_edit_is_not_silently_overwritten(tmp_path: Path) -> None:
         config.update("runtime.max_turns", 15)
     assert config.root_config_path.read_bytes() == before
     assert config["runtime.max_turns"] == 100
+
+
+def test_failed_atomic_replace_leaves_file_memory_and_no_incomplete_output(tmp_path: Path, monkeypatch) -> None:
+    import os
+
+    config = load_config(root=tmp_path)
+    config.ensure_local_file()
+    original = config.root_config_path.read_bytes()
+
+    def fail_replace(_source, _target):
+        raise OSError("simulated filesystem failure")
+
+    monkeypatch.setattr(os, "replace", fail_replace)
+    with pytest.raises(OSError, match="filesystem failure"):
+        config.update_many({"runtime.max_turns": 12, "secrets.NEW_KEY": "private-value"})
+    assert config.root_config_path.read_bytes() == original
+    assert config["runtime.max_turns"] == 100
+    assert "NEW_KEY" not in config.secret_status()
+    assert sorted(path.name for path in tmp_path.iterdir()) == ["investorch.toml"]
+
+
+def test_legacy_model_migration_preserves_field_comments(tmp_path: Path) -> None:
+    local = tmp_path / "investorch.toml"
+    local.write_text('[models.main]\nname = "custom" # my chosen model\n')
+    load_config(root=tmp_path)
+    assert "# my chosen model" in local.read_text()
