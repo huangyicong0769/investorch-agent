@@ -56,7 +56,7 @@ async def qualify() -> None:
         data["backtest"]["use_cnequity"] = False
         for role in ("main", "title", "compact"):
             data["models"][role]["name"] = "deepseek-flash"
-        config = AppConfig(data, source.project_config_path)
+        config = AppConfig(data)
         initialize(config)
         image_bytes = red_png()
         (config.workspace_dir / "sample.png").write_bytes(image_bytes)

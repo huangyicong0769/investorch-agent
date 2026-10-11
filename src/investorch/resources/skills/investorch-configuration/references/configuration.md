@@ -9,11 +9,11 @@ Never store secret values in this file.
 
 Effective application configuration is built from these layers, from lowest to highest priority:
 
-1. Bundled application defaults
+1. Python `AppConfigSchema` defaults and constraints
 2. Local instance configuration at `<root>/investorch.toml`
 3. Runtime-only changes to the current `AppConfig`
 
-Project defaults have no Python fallback.
+Python Schema is the sole authority for types, defaults, constraints, sensitivity and `apply_mode`. There is no packaged default TOML. Local TOML stores overrides and credentials. `AppConfig` reads, validates, snapshots and writes configuration without knowing the caller identity.
 
 A persistent runtime update is written to `<root>/investorch.toml` and therefore becomes part of the local instance configuration for later processes.
 
@@ -22,7 +22,7 @@ A persistent runtime update is written to `<root>/investorch.toml` and therefore
 | lifecycle | keys | behavior |
 | --- | --- | --- |
 | immutable | `paths.root` | Cannot be changed through runtime configuration. |
-| restart-required | `paths.workspace`, `paths.state`, `models.*`, `permission.*`, `tui.*`, `web.*`, `images.*`, `logging.*`, `mcp.*`, `cnequity.*`, `backtest.use_cnequity`, `backtest.rqalpha_bundle_dir`, `observability.sdk_tracing_enabled` | `persist=false` is rejected. `persist=true` writes the next-start value but does not change the current runtime; restart InvestOrch Agent to apply it. |
+| restart-required | `paths.workspace`, `paths.state`, `models.*`, `secrets.*`, `permission.*`, `tui.*`, `web.*`, `images.*`, `logging.*`, `mcp.*`, `cnequity.*`, `backtest.use_cnequity`, `backtest.rqalpha_bundle_dir`, `observability.sdk_tracing_enabled` | `persist=false` is rejected. `persist=true` writes the next-start value but does not change the current runtime; restart InvestOrch Agent to apply it. |
 | hot | `runtime.*`, `activity.*`, `compaction.*`, execution/explore/calculate limits, `backtest.artifact_dir`, and backtest execution policy | Validated and applied to the current `AppConfig`; persistence is optional. The next applicable operation uses the new value. |
 
 `get_config` reports the value currently used by this process. A persisted restart-required update therefore continues to report the old value until the application is restarted.
@@ -31,7 +31,7 @@ A persistent runtime update is written to `<root>/investorch.toml` and therefore
 
 ## Root Directory
 
-The bundled project defaults define `paths.root`.
+Python defaults select `~/.investorch`; tests and embedded callers may inject an explicit root through `load_config(root=...)`.
 `paths.root` is bootstrap configuration.
 The local `<root>/investorch.toml` must not redefine it.
 The root contains local InvestOrch Agent state including:
@@ -48,18 +48,17 @@ These files are outside the Git repository.
 `paths.workspace`, `paths.state`, `cnequity.config_path`, and `backtest.rqalpha_bundle_dir` are relative to `paths.root`.
 They must not be absolute and must not escape the root.
 The workspace and state paths must be strict subdirectories of the root and must not equal or contain one another after path resolution.
-`backtest.artifact_dir` is relative to the configured workspace and must remain inside it.
+`backtest.artifact_dir` and `execution.background_job_dir` are relative to the configured workspace and must remain inside it. Path checks resolve symlinks before checking containment.
 These paths may be absent when configuration is loaded; the operation that uses one validates its availability or creates the artifact directory.
 The SQLite session database is stored under the state directory.
 Long-term Agent memory does not use a database.
 Long-term memory is maintained as Markdown in the workspace, with `MEMORY.md` as the entry point.
 
-## Project Configuration
+## Configuration Schema
 
-Bundled application defaults are package-owned and read-only.
-Project configuration may be committed to Git and must not contain secrets.
+`AppConfig.describe()` returns JSON Schema, including field lifecycle and sensitivity. Settings obtains its field types, enums, defaults and constraints from this description. Schema contains configuration semantics; the frontend owns page layout.
 
-The runtime policy sections below are TOML-only and must be present in the effective configuration:
+The effective configuration includes the following policy sections; Local TOML only needs to contain explicit overrides:
 
 - `[runtime].default_timezone`
 - `[models.<agent>]` model connection settings
@@ -79,7 +78,13 @@ The runtime policy sections below are TOML-only and must be present in the effec
 
 They are validated at startup and again before an update is persisted. `background_job_dir` and `backtest.artifact_dir` must remain relative to the configured workspace.
 
-Each Agent owns an independent `[models.<agent>]` table represented by `ModelConfig`. Every model defines `name`, `base_url`, `api_key_secret`, and `reasoning_effort`; the secret field names a key in the local `[secrets]` table rather than containing a credential. Supported reasoning effort values are `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, and `max`; `none` is the instant/non-thinking setting. A model may also define `context_window_tokens`, and `models.main.context_window_tokens` is required for the Main Agent capacity shown by the TUI. Adding another required Agent means registering its name once, adding its model table, and calling `AppConfig.model(agent)`; validation and restart handling apply to every model table without another list of model fields. Normal startup constructs Main, Title, Permission, and Compact models; Textual mode additionally constructs Activity. The independent Skill Review Agent reuses the Permission model configuration. All model settings are restart-required.
+Each Agent owns an independent `[models.<agent>]` table represented by `ModelConfig`. The five required roles are `main`, `title`, `activity`, `permission`, and `compact`; additional named roles are allowed. A configured model defines `name`, `base_url`, `api_key_secret`, and `reasoning_effort`; the secret field names a key in the local `[secrets]` table rather than containing a credential. Supported reasoning effort values are `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, and `max`; `none` is the instant/non-thinking setting. A model may also define `context_window_tokens`, and `models.main.context_window_tokens` is required for the Main Agent capacity shown by the TUI. Adding another required Agent means registering its name once, adding its model table, and calling `AppConfig.model(agent)`; validation and restart handling apply to every model table without another list of model fields. Normal startup constructs Main, Title, Permission, and Compact models; Textual mode additionally constructs Activity. The independent Skill Review Agent reuses the Permission model configuration. All model settings are restart-required.
+
+## Model readiness and Setup
+
+A fresh configuration is structurally valid with unset provider fields. `AppConfig.readiness()` identifies the missing model fields and secret references before any Agent is constructed. `investorch web` keeps serving `/setup` so an operator can supply the endpoint, model and credential, optionally request a small real model test, save, and start the ApplicationHost. Each role remains independently editable after setup. TUI/plain users receive Web Setup guidance until models are ready.
+
+Every Local TOML is validated against the current Schema. Model endpoints, names, and secret references are explicit configuration; complete missing settings through Setup. Bad TOML, unknown fields, escaping paths or incompatible state require repair; they are not treated as an empty installation.
 
 ## Tool Permission Review
 
@@ -204,11 +209,15 @@ Rules:
 - Values must retain their expected type. Strings, booleans, integers, and floating-point values are supported.
 - Root-relative paths are validated before being applied.
 - Runtime policy values must satisfy their type, range, and cross-field constraints before being applied.
-- `persist=true` writes the override to `<root>/investorch.toml`.
+- `persist=true` validates the whole candidate before atomically replacing `<root>/investorch.toml`; failed validation or writes preserve prior state. Changes made outside the process require reload/restart, and conflicting writes are rejected.
 - `persist=false` only changes the current `AppConfig`.
 
 The Agent-facing config tool does not modify secrets.
-Secrets must currently be edited outside that tool.
+Operators replace secrets through Setup or Settings, or edit Local TOML while the application is stopped. Reads expose only masks or configured status. AppConfig itself permits valid secret and Permission updates; the Agent Tool enforces the caller-specific prohibition.
+
+`update_many` validates a batch as one candidate. Settings reset removes Local Overrides so the current Schema default applies. Restart-required changes remain saved next-start values; `requires_restart` describes the current operation, not a global restart tracker.
+
+`AppState` holds temporary reasoning-effort, Permission and follow-up overrides. Without an override it reads the effective configuration; `/defaults`, `/effort` and `/permission` affect future Runs without changing Local TOML or AppConfig. Each Run captures its own immutable options.
 
 ## Application MCP Policy
 
@@ -233,7 +242,7 @@ Use:
 - `configure_mcp_server` to add or update a server
 - `remove_mcp_server` to remove a server
 
-MCP configuration changes require user approval.
+Agent MCP configuration changes require user approval. Operators may manage the same registry in Settings → Integrations. Agent and Web use shared domain validation and serialization. Edits persist for the next application restart; the page reports runtime status as unknown when no connection has been observed.
 
 ## MCP Secrets
 
@@ -242,26 +251,20 @@ Reference configured secrets with placeholders such as:
 `${TAVILY_API_KEY}`
 The real value belongs in the `[secrets]` table of `<root>/investorch.toml`.
 MCP loading expands these placeholders from AppConfig secrets.
-Per-server URLs, headers, enabled state, timeout, and tools-list caching remain registry concerns in `mcp.toml`; they are not duplicated in AppConfig.
+Per-server URLs, headers, enabled state, timeout, and tools-list caching remain registry concerns in `mcp.toml`; they are not duplicated in AppConfig. Public reads mask literal header values and URL userinfo/query values. Omit unchanged URL/header fields when editing; replace them with complete new values to change them. Display masks are rejected as replacements.
 
 ## Initialization
 
 Persistent local runtime state is initialized separately from configuration loading.
 Fresh initialization creates MEMORY.md only when absent and installs the six bundled Skills into workspace/skills with state/skills.json registration. Normal startup preserves workspace content. `investorch --update` replaces only managed built-ins from the package, preserving enabled state; restart to use the new catalog.
 
-## Design Principles
+## Management and Recovery
 
-Keep the configuration system explicit and small.
-
-Prefer:
-
-- bundled defaults
-- local overrides
-- runtime mutation
-- explicit Agent tools
-- user approval for side effects
-
-Do not introduce Provider, Registry, Adapter, or Manager layers unless a concrete requirement makes them necessary.
+- Settings owns persistent configuration and MCP entries; lifecycle metadata explains when changes apply.
+- Skills supports read-only inspection and explicit enable/disable/custom removal. Create, Install, Edit and Fork open normal Agent Sessions with the existing independent Skill Review and approval chain.
+- System Status and offline `investorch doctor` share read-only checks. `investorch upgrade check` adds upgrade guidance, including managed built-in differences and Portfolio migration requirements. They do not initialize or repair state.
+- `investorch --update` updates only package-managed built-ins, retaining their enabled state and leaving custom Skills and user Memory intact. It does not initialize the Portfolio database.
+- Backup creation and verification are offline CLI operations. Default archives exclude raw credential configuration; restore follows the operator recovery guide in a separate root with the application stopped. Portfolio schema migration remains owned by the existing Portfolio migration commands.
 
 ## Images
 

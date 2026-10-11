@@ -823,6 +823,8 @@ def _validate_utf8_file(path: Path) -> None:
 
 
 async def start_execution(execution: ExecutionState, workspace: Path) -> None:
+    if sys.platform != "darwin":
+        return
     await _ensure_sandbox(execution, workspace.expanduser().resolve())
 
 

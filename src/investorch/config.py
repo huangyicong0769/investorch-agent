@@ -1,53 +1,37 @@
 from __future__ import annotations
 
-import math
 import os
+import tempfile
+import threading
 import tomllib
 from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import tomlkit
+from pydantic import ValidationError
+
+from investorch.config_schema import (
+    FOLLOW_UP_BEHAVIORS as FOLLOW_UP_BEHAVIORS,
+)
+from investorch.config_schema import (
+    PERMISSION_MODES as PERMISSION_MODES,
+)
+from investorch.config_schema import (
+    REASONING_EFFORTS as REASONING_EFFORTS,
+)
+from investorch.config_schema import (
+    REQUIRED_MODEL_AGENTS as REQUIRED_MODEL_AGENTS,
+)
+from investorch.config_schema import (
+    AppConfigSchema,
+    config_field_metadata,
+    resolve_under_root,
+)
 
 REDACTED = "<redacted>"
-PROJECT_CONFIG_PATH = Path(__file__).resolve().parent / "resources" / "investorch.toml"
-REQUIRED_MODEL_AGENTS = ("main", "title", "activity", "permission", "compact")
-REASONING_EFFORTS = ("none", "minimal", "low", "medium", "high", "xhigh", "max")
-PERMISSION_MODES = ("manual", "review")
-FOLLOW_UP_BEHAVIORS = ("steer", "queue")
-
-RESTART_REQUIRED_KEYS = {
-    "backtest.rqalpha_bundle_dir",
-    "backtest.use_cnequity",
-    "cnequity.config_path",
-    "cnequity.mcp_cache_tools_list",
-    "logging.backup_count",
-    "logging.level",
-    "logging.max_bytes",
-    "mcp.default_timeout_seconds",
-    "mcp.drop_failed_servers",
-    "mcp.include_server_in_tool_names",
-    "observability.sdk_tracing_enabled",
-    "paths.state",
-    "paths.workspace",
-    "tui.activity_detail_max_height",
-    "tui.activity_panel_max_height",
-    "tui.approval_arguments_max_height",
-    "tui.composer_height",
-    "tui.interaction_scroll_max_height",
-    "tui.message_author_margin_bottom",
-    "tui.message_author_margin_top",
-    "tui.queue_panel_max_height",
-    "tui.queue_preview_count",
-    "tui.run_timer_interval_seconds",
-    "tui.sidebar_min_width",
-    "tui.sidebar_width",
-    "tui.todo_collapsible_max_height",
-    "tui.todo_contents_max_height",
-    "tui.todo_panel_max_height",
-}
+LOCAL_CONFIG_TEMPLATE = "# Local InvestOrch configuration: overrides Python Schema defaults.\n\n[secrets]\n"
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,17 +44,31 @@ class ModelConfig:
 
 
 class ConfigError(ValueError):
-    pass
+    def __init__(self, message: str, *, errors: list[dict[str, str]] | None = None) -> None:
+        super().__init__(message)
+        self.errors = errors or []
+
+
+def _validated(data: dict[str, Any]) -> dict[str, Any]:
+    try:
+        return AppConfigSchema.model_validate(data).model_dump()
+    except ValidationError as exc:
+        # Pydantic's default exception includes input values, including secrets.
+        errors = exc.errors(include_input=False, include_context=False, include_url=False)
+        fields = [{"path": ".".join(map(str, error["loc"])), "message": error["msg"]} for error in errors]
+        raise ConfigError("; ".join(f"{item['path']}: {item['message']}" for item in fields), errors=fields) from None
 
 
 class AppConfig:
-    def __init__(self, data: dict[str, Any], project_config_path: Path) -> None:
-        self._data = data
-        self.project_config_path = project_config_path
-
-        self.root = Path(self._data["paths"]["root"]).expanduser().resolve()
-
-        self._validate_data(self._data)
+    def __init__(
+        self, data: dict[str, Any], *, local_overrides: dict[str, Any] | None = None, source_bytes: bytes | None = None
+    ) -> None:
+        self._data = _validated(data)
+        self.root = Path(self._data["paths"]["root"])
+        self._saved_data = deepcopy(self._data)
+        self._overrides = deepcopy(local_overrides or {})
+        self._source_bytes = source_bytes
+        self._lock = threading.RLock()
 
     @property
     def root_config_path(self) -> Path:
@@ -90,7 +88,7 @@ class AppConfig:
 
     @property
     def background_job_dir(self) -> Path:
-        return _resolve_under_root(
+        return resolve_under_root(
             self.workspace_dir, self["execution.background_job_dir"], "execution.background_job_dir"
         )
 
@@ -104,7 +102,7 @@ class AppConfig:
 
     @property
     def backtest_artifact_dir(self) -> Path:
-        return _resolve_under_root(self.workspace_dir, self["backtest.artifact_dir"], "backtest.artifact_dir")
+        return resolve_under_root(self.workspace_dir, self["backtest.artifact_dir"], "backtest.artifact_dir")
 
     @property
     def sessions_db(self) -> Path:
@@ -131,528 +129,254 @@ class AppConfig:
         return dict(self._data.get("secrets", {}))
 
     def __getitem__(self, key: str) -> Any:
-        """
-        Access internal configuration.
-
-        Example:
-            config["models.main.name"]
-        """
         return self.get(key, redact=False)
 
     def get(self, key: str, *, redact: bool = True) -> Any:
         parts = _split_key(key)
         value = _config_value(self._data, parts, key)
-
-        if redact and parts[0] == "secrets":
-            return REDACTED
-
-        return value
+        return REDACTED if redact and parts[0] == "secrets" else deepcopy(value)
 
     def model(self, agent: str) -> ModelConfig:
         raw = self[f"models.{agent}"]
-
-        if not isinstance(raw, dict):
-            raise ConfigError(f"models.{agent} must be a table")
-
-        return ModelConfig(
-            name=raw["name"],
-            base_url=raw["base_url"],
-            api_key_secret=raw["api_key_secret"],
-            reasoning_effort=raw["reasoning_effort"],
-            context_window_tokens=raw.get("context_window_tokens"),
-        )
+        if any(raw[field] is None for field in ("name", "base_url", "api_key_secret")):
+            raise ConfigError(f"models.{agent} is not configured; run investorch web to complete Setup")
+        return ModelConfig(**raw)
 
     def secret(self, name: str) -> str:
-        """
-        Return an internal secret.
+        return self[f"secrets.{name}"]
 
-        Secrets should never be returned directly
-        by Agent-facing tools.
-        """
-        value = self[f"secrets.{name}"]
+    def readiness(self, *, saved: bool = False) -> list[str]:
+        data = self._saved_data if saved else self._data
+        missing = []
+        for role in REQUIRED_MODEL_AGENTS:
+            model = data["models"][role]
+            for field in ("name", "base_url", "api_key_secret"):
+                if not model[field]:
+                    missing.append(f"models.{role}.{field}")
+            name = model["api_key_secret"]
+            if name and not data["secrets"].get(name, "").strip():
+                missing.append(f"secrets.{name}")
+        return list(dict.fromkeys(missing))
 
-        if not isinstance(value, str):
-            raise ConfigError(f"Secret must be a string: {name}")
-
-        return value
-
-    def public(self) -> dict[str, Any]:
-        """Return the effective configuration with secrets redacted."""
-        data = deepcopy(self._data)
-
-        if "secrets" in data:
-            data["secrets"] = {key: REDACTED for key in data["secrets"]}
-
+    def public(self, *, saved: bool = False) -> dict[str, Any]:
+        data = deepcopy(self._saved_data if saved else self._data)
+        data["secrets"] = {key: REDACTED for key in data["secrets"]}
         return data
 
+    def secret_status(self) -> dict[str, bool]:
+        return {key: bool(value.strip()) for key, value in self._saved_data["secrets"].items()}
+
+    def describe(self) -> dict[str, Any]:
+        return AppConfigSchema.model_json_schema()
+
+    def override_keys(self) -> list[str]:
+        def leaves(table: dict, prefix: str = "") -> list[str]:
+            keys = []
+            for name, value in table.items():
+                key = f"{prefix}.{name}" if prefix else name
+                keys.extend(leaves(value, key) if isinstance(value, dict) else [key])
+            return keys
+
+        return leaves(self._overrides)
+
     def snapshot(self) -> AppConfig:
-        return deepcopy(self)
+        with self._lock:
+            result = AppConfig(self._data, local_overrides=self._overrides, source_bytes=self._source_bytes)
+            result._saved_data = deepcopy(self._saved_data)
+            return result
+
+    def ensure_local_file(self) -> bool:
+        with self._lock:
+            if self.root_config_path.exists():
+                return False
+            document = tomlkit.parse(LOCAL_CONFIG_TEMPLATE)
+            for key, value in self._overrides.items():
+                document[key] = value
+            _atomic_write(self.root_config_path, tomlkit.dumps(document).encode())
+            self._source_bytes = self.root_config_path.read_bytes()
+            return True
 
     def update(self, key: str, value: Any, *, persist: bool = True) -> dict[str, Any]:
-        """
-        Update one config value.
+        result = self.update_many({key: value}, persist=persist)
+        field = result["fields"][key]
+        return {"key": key, "value": REDACTED if key.startswith("secrets.") else value, "persisted": persist, **field}
 
-        persist=False:
-            only update the current AppConfig.
+    def update_many(self, changes: dict[str, Any], *, persist: bool = True) -> dict[str, Any]:
+        with self._lock:
+            return self._update(changes, persist=persist)
 
-        persist=True:
-            also write the override to <root>/investorch.toml.
-        """
-        if key == "paths.root":
-            raise ConfigError("paths.root cannot be changed at runtime")
+    def reset(self, keys: list[str]) -> dict[str, Any]:
+        with self._lock:
+            return self._update({}, persist=True, reset_keys=keys)
 
-        if _requires_restart(key) and not persist:
-            raise ConfigError(f"{key} requires persist=true and an application restart")
+    def _update(self, changes: dict[str, Any], *, persist: bool, reset_keys: list[str] | None = None) -> dict[str, Any]:
+        keys = list(changes) + list(reset_keys or [])
+        if not keys:
+            raise ConfigError("Provide at least one configuration field")
+        modes = {}
+        for key in keys:
+            _split_key(key)
+            try:
+                modes[key] = config_field_metadata(key).get("apply_mode", "hot")
+            except (KeyError, ValueError) as exc:
+                raise ConfigError(f"Unknown config key: {key}") from exc
+            if modes[key] == "immutable":
+                raise ConfigError(f"{key} cannot be changed at runtime")
+            if modes[key] == "restart_required" and not persist:
+                raise ConfigError(f"{key} requires persist=true and an application restart")
+        if any(a != b and b.startswith(a + ".") for a in keys for b in keys):
+            raise ConfigError("Configuration changes must not contain overlapping keys")
 
-        parts = _split_key(key)
-        section = parts[0]
-
-        # New arbitrary config fields are not allowed.
-        # New secrets are allowed.
-        if section != "secrets":
-            current = _config_value(self._data, parts, key)
-
-            if key == "mcp.default_timeout_seconds":
-                if isinstance(value, bool) or not isinstance(value, (int, float)):
-                    raise ConfigError(f"{key} must be int or float")
-            elif type(value) is not type(current):
-                raise ConfigError(f"{key} must be {type(current).__name__}")
-
-        else:
-            if len(parts) != 2:
-                raise ConfigError(f"Invalid secret key: {key}")
-            if not isinstance(value, str):
-                raise ConfigError("Secrets must be strings")
-
-        candidate = deepcopy(self._data)
-        _set_config_value(candidate, parts, value)
-
-        # Validate the complete candidate before touching memory or disk.
-        self._validate_data(candidate)
-
-        # Write disk first. If writing fails,
-        # runtime config remains unchanged.
+        overrides = deepcopy(self._overrides)
+        for key, value in changes.items():
+            _set_config_value(overrides, _split_key(key), value)
+        for key in reset_keys or []:
+            _delete_config_value(overrides, _split_key(key))
+        saved = _effective(self.root, overrides) if persist else deepcopy(self._saved_data)
+        active = deepcopy(self._data)
+        for key in keys:
+            if modes[key] == "hot":
+                if key in changes:
+                    value = changes[key]
+                else:
+                    try:
+                        value = _config_value(saved, _split_key(key), key)
+                    except ConfigError:
+                        _delete_config_value(active, _split_key(key))
+                        continue
+                _set_config_value(active, _split_key(key), value)
+        active = _validated(active)
         if persist:
-            self._persist(key, value)
-
-        requires_restart = _requires_restart(key)
-
-        if not requires_restart:
-            self._data = candidate
-
+            current_bytes = self.root_config_path.read_bytes() if self.root_config_path.exists() else None
+            if current_bytes != self._source_bytes:
+                raise ConfigError(
+                    f"{self.root_config_path} changed outside this configuration instance; restart before saving"
+                )
+            document = tomlkit.parse(current_bytes.decode()) if current_bytes is not None else tomlkit.document()
+            for key, value in changes.items():
+                if value is None:
+                    _delete_config_value(document, _split_key(key))
+                else:
+                    _set_config_value(document, _split_key(key), value)
+            for key in reset_keys or []:
+                _delete_config_value(document, _split_key(key))
+            # TOML has no null: null clears a nullable override to its Schema default.
+            encoded = tomlkit.dumps(document).encode()
+            roundtrip = _effective(self.root, _local_data(encoded, self.root_config_path))
+            if roundtrip != saved:
+                raise ConfigError("Use reset to remove an override; null must resolve to the Schema default")
+            _atomic_write(self.root_config_path, encoded)
+            self._source_bytes = encoded
+            self._saved_data = saved
+            self._overrides = _local_data(encoded, self.root_config_path)
+        self._data = active
+        fields = {
+            key: {"applied": mode == "hot", "requires_restart": mode == "restart_required"}
+            for key, mode in modes.items()
+        }
         return {
-            "key": key,
-            "value": REDACTED if section == "secrets" else value,
+            "updated": keys,
             "persisted": persist,
-            "applied": not requires_restart,
-            "requires_restart": requires_restart,
+            "applied": all(v["applied"] for v in fields.values()),
+            "requires_restart": any(v["requires_restart"] for v in fields.values()),
+            "fields": fields,
         }
 
-    def _validate_data(self, data: dict[str, Any]) -> None:
-        _validate_config_data(data, self.root)
-
     def _resolve_root_path(self, key: str) -> Path:
-        return _resolve_under_root(self.root, self[key], key)
-
-    def _persist(self, key: str, value: Any) -> None:
-        path = self.root_config_path
-
-        document = tomlkit.parse(path.read_text(encoding="utf-8")) if path.exists() else tomlkit.document()
-
-        parts = _split_key(key)
-        table = document
-
-        for part in parts[:-1]:
-            if part not in table:
-                table[part] = tomlkit.table()
-            table = table[part]
-
-        table[parts[-1]] = value
-
-        path.write_text(tomlkit.dumps(document), encoding="utf-8")
-
-        # root/investorch.toml contains secrets.
-        if os.name == "posix":
-            path.chmod(0o600)
+        return resolve_under_root(self.root, self[key], key)
 
 
-def load_config(project_config_path: str | Path | None = None) -> AppConfig:
-    project_path = (
-        PROJECT_CONFIG_PATH if project_config_path is None else Path(project_config_path).expanduser().resolve()
-    )
-
-    if not project_path.is_file():
-        raise ConfigError(f"Project config not found: {project_path}")
-
-    project_data = _read_toml(project_path)
-
-    # Secrets must live outside the bundled project defaults.
-    if project_data.get("secrets"):
-        raise ConfigError("[secrets] must not appear in the project defaults")
-
-    root_value = project_data.get("paths", {}).get("root")
-
-    if not isinstance(root_value, str):
-        raise ConfigError("Project defaults must define paths.root")
-
-    root = Path(root_value).expanduser()
-
+def load_config(root: Path | None = None) -> AppConfig:
+    root = Path(root).expanduser() if root is not None else Path.home() / ".investorch"
     if not root.is_absolute():
         raise ConfigError("paths.root must be absolute")
-
     root = root.resolve()
-
     if root.exists() and not root.is_dir():
         raise ConfigError(f"paths.root is not a directory: {root}")
-
-    root_config_path = root / "investorch.toml"
-
-    if root_config_path.exists():
-        if not root_config_path.is_file():
-            raise ConfigError(f"Local config path is not a file: {root_config_path}")
-
-        root_data = _read_toml(root_config_path)
-    else:
-        root_data = {}
-
-    # root/investorch.toml cannot redirect itself.
-    if "root" in root_data.get("paths", {}):
-        raise ConfigError("paths.root must only be defined in the project defaults")
-
-    data = _merge(project_data, root_data)
-
-    # The project root always wins.
-    data.setdefault("paths", {})["root"] = str(root)
-
-    return AppConfig(data=data, project_config_path=project_path)
+    path = root / "investorch.toml"
+    source = path.read_bytes() if path.exists() else None
+    overrides = _local_data(source, path) if source is not None else {}
+    data = _effective(root, overrides)
+    return AppConfig(data, local_overrides=overrides, source_bytes=source)
 
 
-def _read_toml(path: Path) -> dict[str, Any]:
+def _read_toml_bytes(source: bytes, path: Path) -> dict[str, Any]:
     try:
-        with path.open("rb") as file:
-            return tomllib.load(file)
+        return tomllib.loads(source.decode("utf-8"))
+    except (tomllib.TOMLDecodeError, UnicodeDecodeError):
+        raise ConfigError(f"Invalid TOML in {path}; correct the file before starting InvestOrch") from None
 
-    except tomllib.TOMLDecodeError as exc:
-        raise ConfigError(f"Invalid TOML in {path}: {exc}") from exc
+
+def _local_data(source: bytes, path: Path) -> dict[str, Any]:
+    data = _read_toml_bytes(source, path)
+    if isinstance(data.get("paths"), dict) and "root" in data["paths"]:
+        raise ConfigError("paths.root cannot be redirected by Local TOML")
+    return data
+
+
+def _effective(root: Path, overrides: dict[str, Any]) -> dict[str, Any]:
+    defaults = AppConfigSchema(paths={"root": str(root)}).model_dump()
+    return _validated(_merge(defaults, overrides))
 
 
 def _merge(*configs: dict[str, Any]) -> dict[str, Any]:
-    """
-    Merge TOML tables recursively.
-
-    Later configs override earlier configs.
-    """
     result: dict[str, Any] = {}
-
     for config in configs:
-        for section, values in config.items():
-            if not isinstance(values, dict):
-                raise ConfigError(f"Config section [{section}] must be a table")
-
-            existing = result.get(section)
-            if existing is None:
-                result[section] = deepcopy(values)
-            elif isinstance(existing, dict):
-                _merge_table(existing, values)
+        for key, value in config.items():
+            if isinstance(value, dict) and isinstance(result.get(key), dict):
+                result[key] = _merge(result[key], value)
             else:
-                raise ConfigError(f"Config section [{section}] must be a table")
-
+                result[key] = deepcopy(value)
     return result
-
-
-def _merge_table(target: dict[str, Any], override: dict[str, Any]) -> None:
-    for key, value in override.items():
-        current = target.get(key)
-        if isinstance(current, dict) and isinstance(value, dict):
-            _merge_table(current, value)
-        else:
-            target[key] = deepcopy(value)
 
 
 def _split_key(key: str) -> tuple[str, ...]:
     parts = tuple(key.split("."))
-
     if len(parts) < 2 or any(not part for part in parts):
         raise ConfigError(f"Invalid config key: {key}")
-
     return parts
 
 
 def _config_value(data: dict[str, Any], parts: tuple[str, ...], key: str) -> Any:
     value: Any = data
-
     for part in parts:
         if not isinstance(value, dict) or part not in value:
             raise ConfigError(f"Unknown config key: {key}")
         value = value[part]
-
     return value
 
 
 def _set_config_value(data: dict[str, Any], parts: tuple[str, ...], value: Any) -> None:
     table = data
-
     for part in parts[:-1]:
-        child = table.setdefault(part, {})
+        if part not in table:
+            table[part] = {}
+        child = table[part]
         if not isinstance(child, dict):
             raise ConfigError(f"Config key is not a table: {part}")
         table = child
-
-    table[parts[-1]] = value
-
-
-def _requires_restart(key: str) -> bool:
-    return key in RESTART_REQUIRED_KEYS or key.startswith(("models.", "permission.", "web.", "images."))
+    table[parts[-1]] = deepcopy(value)
 
 
-def _required_config_value(data: dict[str, Any], key: str) -> Any:
+def _delete_config_value(data: dict[str, Any], parts: tuple[str, ...]) -> None:
+    table = data
+    for part in parts[:-1]:
+        if part not in table:
+            return
+        table = table[part]
+        if not isinstance(table, dict):
+            return
+    table.pop(parts[-1], None)
+
+
+def _atomic_write(path: Path, content: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
     try:
-        return _config_value(data, _split_key(key), key)
-    except ConfigError as exc:
-        raise ConfigError(f"Missing required config key: {key}") from exc
-
-
-def _require_string(data: dict[str, Any], key: str) -> str:
-    value = _required_config_value(data, key)
-
-    if not isinstance(value, str) or not value.strip():
-        raise ConfigError(f"{key} must be a non-empty string")
-
-    return value
-
-
-def _require_int(data: dict[str, Any], key: str, *, minimum: int = 0) -> int:
-    value = _required_config_value(data, key)
-
-    if type(value) is not int or value < minimum:
-        raise ConfigError(f"{key} must be an integer >= {minimum}")
-
-    return value
-
-
-def _require_bool(data: dict[str, Any], key: str) -> bool:
-    value = _required_config_value(data, key)
-
-    if type(value) is not bool:
-        raise ConfigError(f"{key} must be a boolean")
-
-    return value
-
-
-def _require_number(data: dict[str, Any], key: str, *, minimum: float = 0) -> int | float:
-    value = _required_config_value(data, key)
-
-    if (
-        isinstance(value, bool)
-        or not isinstance(value, (int, float))
-        or (isinstance(value, float) and not math.isfinite(value))
-        or value < minimum
-    ):
-        raise ConfigError(f"{key} must be a finite number >= {minimum}")
-
-    return value
-
-
-def _require_ratio(data: dict[str, Any], key: str) -> int | float:
-    value = _required_config_value(data, key)
-
-    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not 0 < value < 1:
-        raise ConfigError(f"{key} must be a finite number greater than 0 and less than 1")
-
-    return value
-
-
-def _validate_config_data(data: dict[str, Any], root: Path) -> None:
-    for key in ("max_images_per_input", "max_image_bytes", "max_total_image_bytes"):
-        _require_int(data, f"images.{key}", minimum=1)
-    if _require_string(data, "images.default_detail") not in ("auto", "low", "high", "original"):
-        raise ConfigError("images.default_detail is not supported")
-
-    _require_string(data, "paths.root")
-    all_models = data.get("models")
-    if not isinstance(all_models, dict):
-        raise ConfigError("models must be a table")
-    for agent in REQUIRED_MODEL_AGENTS:
-        if agent not in all_models:
-            raise ConfigError(f"Missing required model: {agent}")
-    for agent, model in all_models.items():
-        if not isinstance(agent, str) or not agent or "." in agent or not isinstance(model, dict):
-            raise ConfigError("models entries must be named tables")
-        _require_string(data, f"models.{agent}.name")
-        _require_string(data, f"models.{agent}.base_url")
-        _require_string(data, f"models.{agent}.api_key_secret")
-        reasoning_effort = _require_string(data, f"models.{agent}.reasoning_effort")
-        if reasoning_effort not in REASONING_EFFORTS:
-            raise ConfigError(f"models.{agent}.reasoning_effort is not supported")
-        if "context_window_tokens" in model:
-            _require_int(data, f"models.{agent}.context_window_tokens", minimum=1)
-    _require_int(data, "models.main.context_window_tokens", minimum=1)
-
-    _require_int(data, "activity.max_user_message_chars", minimum=1)
-    _require_int(data, "activity.max_reasoning_chars", minimum=1)
-    _require_int(data, "activity.max_argument_chars", minimum=1)
-    _require_int(data, "activity.max_label_chars", minimum=1)
-
-    _require_bool(data, "compaction.auto_enabled")
-    _require_ratio(data, "compaction.trigger_ratio")
-    _require_int(data, "compaction.max_output_tokens", minimum=1)
-
-    permission = data.get("permission")
-    if isinstance(permission, dict) and "max_user_message_chars" in permission:
-        raise ConfigError("permission.max_user_message_chars was renamed to permission.max_user_instruction_chars")
-    permission_mode = _require_string(data, "permission.mode")
-    if permission_mode not in PERMISSION_MODES:
-        raise ConfigError(f"permission.mode must be one of {', '.join(PERMISSION_MODES)}")
-    max_user_instruction_chars = _require_int(data, "permission.max_user_instruction_chars", minimum=1)
-    max_compacted_instruction_chars = _require_int(data, "permission.max_compacted_instruction_chars", minimum=1)
-    if max_compacted_instruction_chars > max_user_instruction_chars:
-        raise ConfigError("permission.max_compacted_instruction_chars must be <= permission.max_user_instruction_chars")
-    _require_int(data, "permission.max_tool_arguments_chars", minimum=1)
-    _require_int(data, "permission.max_reason_chars", minimum=1)
-
-    follow_up_behavior = _require_string(data, "interaction.follow_up_behavior")
-    if follow_up_behavior not in FOLLOW_UP_BEHAVIORS:
-        raise ConfigError(f"interaction.follow_up_behavior must be one of {', '.join(FOLLOW_UP_BEHAVIORS)}")
-
-    sidebar_width = _require_int(data, "tui.sidebar_width", minimum=1)
-    sidebar_min_width = _require_int(data, "tui.sidebar_min_width", minimum=1)
-    if sidebar_min_width > sidebar_width:
-        raise ConfigError("tui.sidebar_min_width must be <= tui.sidebar_width")
-    _require_int(data, "tui.composer_height", minimum=4)
-    _require_int(data, "tui.activity_panel_max_height", minimum=1)
-    _require_int(data, "tui.activity_detail_max_height", minimum=1)
-    _require_int(data, "tui.approval_arguments_max_height", minimum=1)
-    _require_int(data, "tui.interaction_scroll_max_height", minimum=1)
-    _require_int(data, "tui.queue_panel_max_height", minimum=1)
-    _require_int(data, "tui.queue_preview_count", minimum=1)
-    todo_panel_max_height = _require_int(data, "tui.todo_panel_max_height", minimum=1)
-    todo_collapsible_max_height = _require_int(data, "tui.todo_collapsible_max_height", minimum=1)
-    todo_contents_max_height = _require_int(data, "tui.todo_contents_max_height", minimum=1)
-    if todo_collapsible_max_height > todo_panel_max_height:
-        raise ConfigError("tui.todo_collapsible_max_height must be <= tui.todo_panel_max_height")
-    if todo_contents_max_height > todo_collapsible_max_height:
-        raise ConfigError("tui.todo_contents_max_height must be <= tui.todo_collapsible_max_height")
-    message_author_margin_top = _require_int(data, "tui.message_author_margin_top", minimum=1)
-    message_author_margin_bottom = _require_int(data, "tui.message_author_margin_bottom", minimum=1)
-    if message_author_margin_top <= message_author_margin_bottom:
-        raise ConfigError("tui.message_author_margin_top must be > tui.message_author_margin_bottom")
-    run_timer_interval = _require_number(data, "tui.run_timer_interval_seconds", minimum=0.0)
-    if run_timer_interval <= 0:
-        raise ConfigError("tui.run_timer_interval_seconds must be greater than 0")
-
-    web_port = _require_int(data, "web.default_port", minimum=1)
-    if web_port > 65535:
-        raise ConfigError("web.default_port must be <= 65535")
-    _require_int(data, "web.connection_queue_capacity", minimum=1)
-    _require_int(data, "web.history_page_size", minimum=1)
-    reconnect_base_delay = _require_int(data, "web.websocket_reconnect_base_delay_ms")
-    reconnect_max_delay = _require_int(data, "web.websocket_reconnect_max_delay_ms")
-    if reconnect_max_delay < reconnect_base_delay:
-        raise ConfigError("web.websocket_reconnect_max_delay_ms must be >= web.websocket_reconnect_base_delay_ms")
-    _require_int(data, "web.max_notices", minimum=1)
-    _require_int(data, "web.composer_max_height_px", minimum=1)
-    _require_int(data, "web.unused_session_discard_delay_ms")
-    _require_int(data, "web.run_timer_interval_ms", minimum=1)
-
-    _require_bool(data, "observability.sdk_tracing_enabled")
-    _require_bool(data, "backtest.use_cnequity")
-    _require_bool(data, "backtest.stock_t1")
-    _require_bool(data, "backtest.dividend_reinvestment")
-    _require_bool(data, "backtest.dividend_tax_enabled")
-    _require_bool(data, "backtest.validate_price")
-    _require_bool(data, "backtest.price_limit")
-    _require_bool(data, "backtest.volume_limit")
-    _require_bool(data, "backtest.inactive_limit")
-    _require_bool(data, "backtest.pit_tax")
-    _require_bool(data, "mcp.drop_failed_servers")
-    _require_bool(data, "mcp.include_server_in_tool_names")
-    _require_bool(data, "cnequity.mcp_cache_tools_list")
-
-    logging_level = _require_string(data, "logging.level")
-    if logging_level not in {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}:
-        raise ConfigError("logging.level must be one of DEBUG, INFO, WARNING, ERROR, CRITICAL")
-
-    _require_int(data, "logging.max_bytes", minimum=1)
-    _require_int(data, "logging.backup_count")
-
-    secrets = data.get("secrets", {})
-    if not isinstance(secrets, dict) or any(not isinstance(value, str) for value in secrets.values()):
-        raise ConfigError("secrets values must be strings")
-
-    workspace = _resolve_under_root(root, _require_string(data, "paths.workspace"), "paths.workspace")
-    state = _resolve_under_root(root, _require_string(data, "paths.state"), "paths.state")
-
-    if workspace == root:
-        raise ConfigError("paths.workspace must be a strict subdirectory of paths.root")
-
-    if state == root:
-        raise ConfigError("paths.state must be a strict subdirectory of paths.root")
-
-    if workspace == state or workspace.is_relative_to(state) or state.is_relative_to(workspace):
-        raise ConfigError("paths.workspace and paths.state must not overlap")
-
-    _resolve_under_root(
-        workspace, _require_string(data, "execution.background_job_dir"), "execution.background_job_dir"
-    )
-    _resolve_under_root(root, _require_string(data, "cnequity.config_path"), "cnequity.config_path")
-    _resolve_under_root(root, _require_string(data, "backtest.rqalpha_bundle_dir"), "backtest.rqalpha_bundle_dir")
-    _resolve_under_root(workspace, _require_string(data, "backtest.artifact_dir"), "backtest.artifact_dir")
-
-    timezone = _require_string(data, "runtime.default_timezone")
-    _require_int(data, "runtime.max_turns", minimum=1)
-
-    try:
-        ZoneInfo(timezone)
-    except (ValueError, ZoneInfoNotFoundError) as exc:
-        raise ConfigError(f"runtime.default_timezone is not a valid IANA timezone: {timezone}") from exc
-
-    default_timeout = _require_int(data, "execution.default_timeout_seconds", minimum=1)
-    max_timeout = _require_int(data, "execution.max_timeout_seconds", minimum=1)
-
-    if max_timeout < default_timeout:
-        raise ConfigError("execution.max_timeout_seconds must be >= execution.default_timeout_seconds")
-
-    _require_int(data, "explore.max_full_read_bytes", minimum=1)
-    _require_int(data, "explore.max_read_chars", minimum=1)
-    _require_int(data, "explore.max_search_results", minimum=1)
-    _require_int(data, "explore.max_search_snippet_chars", minimum=1)
-
-    _require_int(data, "calculate.max_expression_chars", minimum=1)
-    _require_int(data, "calculate.max_nodes", minimum=1)
-    _require_int(data, "calculate.max_integer_bits", minimum=1)
-    _require_int(data, "calculate.max_abs_exponent", minimum=1)
-    initial_cash = _require_number(data, "backtest.default_initial_cash", minimum=0.0)
-    if initial_cash <= 0:
-        raise ConfigError("backtest.default_initial_cash must be greater than 0")
-    _require_int(data, "backtest.inspect_max_symbols", minimum=1)
-    _require_number(data, "backtest.capital_gain_tax_rate", minimum=0.0)
-    _require_number(data, "backtest.slippage", minimum=0.0)
-    _require_number(data, "backtest.stock_min_commission", minimum=0.0)
-    _require_number(data, "backtest.stock_commission_multiplier", minimum=0.0)
-    _require_number(data, "backtest.tax_multiplier", minimum=0.0)
-
-    matching_type = _require_string(data, "backtest.matching_type")
-    if matching_type != "current_bar":
-        raise ConfigError("backtest.matching_type must be current_bar")
-
-    slippage_model = _require_string(data, "backtest.slippage_model")
-    if slippage_model != "PriceRatioSlippage":
-        raise ConfigError("backtest.slippage_model must be PriceRatioSlippage")
-
-    mcp_timeout = _require_number(data, "mcp.default_timeout_seconds", minimum=0.0)
-    if mcp_timeout <= 0:
-        raise ConfigError("mcp.default_timeout_seconds must be greater than 0")
-
-
-def _resolve_under_root(root: Path, value: str, key: str) -> Path:
-    relative = Path(value).expanduser()
-
-    if relative.is_absolute():
-        raise ConfigError(f"{key} must be relative to paths.root")
-
-    resolved = (root / relative).resolve()
-
-    if not resolved.is_relative_to(root):
-        raise ConfigError(f"{key} escapes paths.root: {value}")
-
-    return resolved
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(content)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(name, path)
+    finally:
+        Path(name).unlink(missing_ok=True)

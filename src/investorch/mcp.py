@@ -1,15 +1,30 @@
+import math
 import os
 import re
 import tomllib
 from collections.abc import Mapping
 from copy import deepcopy
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
+from urllib.parse import parse_qsl, quote_plus, urlsplit, urlunsplit
 
 import tomlkit
 from agents.mcp import MCPServer, MCPServerStreamableHttp
 
+from investorch.config import REDACTED
+
+_SECRET_PLACEHOLDER_PATTERN = re.compile(r"\$\{[A-Za-z_][A-Za-z0-9_]*\}")
+
 _VARIABLE_PATTERN = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
+SUPPORTED_MCP_TRANSPORTS = ("streamable_http",)
+
+
+class MCPServerExistsError(ValueError):
+    pass
+
+
+class MCPServerNotFoundError(ValueError):
+    pass
 
 
 def read_mcp_server_configs(path: str | Path) -> list[dict[str, Any]]:
@@ -59,7 +74,14 @@ def configure_mcp_server_config(
     cache_tools_list: bool | None = None,
     headers: dict[str, str] | None = None,
     timeout: float | None = None,
+    clear_timeout: bool = False,
+    transport: str | None = None,
+    operation: Literal["upsert", "create", "update"] = "upsert",
 ) -> dict[str, Any]:
+    if operation not in {"upsert", "create", "update"}:
+        raise ValueError("Unknown MCP configuration operation")
+    if not isinstance(name, str):
+        raise ValueError("MCP server name must be a non-empty string")
     name = name.strip()
 
     if not name:
@@ -74,6 +96,11 @@ def configure_mcp_server_config(
             server_index = index
             break
 
+    if operation == "create" and server_index is not None:
+        raise MCPServerExistsError("An MCP server with this name already exists")
+    if operation == "update" and server_index is None:
+        raise MCPServerNotFoundError("The MCP server does not exist")
+
     if server_index is None:
         if url is None:
             raise ValueError("url is required when adding a new MCP server")
@@ -81,7 +108,7 @@ def configure_mcp_server_config(
         server: dict[str, Any] = {
             "name": name,
             "enabled": True,
-            "transport": "streamable_http",
+            "transport": SUPPORTED_MCP_TRANSPORTS[0],
             "url": url,
             "cache_tools_list": False,
         }
@@ -89,7 +116,12 @@ def configure_mcp_server_config(
         server = deepcopy(servers[server_index])
 
     if url is not None:
+        if isinstance(url, str) and REDACTED in url:
+            raise ValueError("Omit the URL to preserve it, or supply a replacement URL")
         server["url"] = url
+
+    if transport is not None:
+        server["transport"] = transport
 
     if enabled is not None:
         server["enabled"] = enabled
@@ -98,12 +130,18 @@ def configure_mcp_server_config(
         server["cache_tools_list"] = cache_tools_list
 
     if headers is not None:
+        if not isinstance(headers, dict):
+            raise TypeError("MCP server headers must be a table")
+        if any(isinstance(value, str) and REDACTED in value for value in headers.values()):
+            raise ValueError("Omit headers to preserve them, or supply replacement values")
         if headers:
             server["headers"] = dict(headers)
         else:
             server.pop("headers", None)
 
-    if timeout is not None:
+    if clear_timeout:
+        server.pop("timeout", None)
+    elif timeout is not None:
         server["timeout"] = timeout
 
     _validate_server_config(server)
@@ -168,7 +206,7 @@ def load_mcp_servers(
 
         transport = server["transport"]
 
-        if transport != "streamable_http":
+        if transport not in SUPPORTED_MCP_TRANSPORTS:
             raise NotImplementedError(f"Unsupported MCP transport: {transport}")
 
         params: dict[str, Any] = {"url": server["url"]}
@@ -202,7 +240,7 @@ def _validate_server_config(server: dict[str, Any]) -> None:
 
     transport = server.get("transport")
 
-    if transport != "streamable_http":
+    if transport not in SUPPORTED_MCP_TRANSPORTS:
         raise NotImplementedError("Only streamable_http MCP transport is supported")
 
     url = server.get("url")
@@ -231,7 +269,12 @@ def _validate_server_config(server: dict[str, Any]) -> None:
 
     timeout = server.get("timeout")
 
-    if timeout is not None and (isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or timeout <= 0):
+    if timeout is not None and (
+        isinstance(timeout, bool)
+        or not isinstance(timeout, (int, float))
+        or (isinstance(timeout, float) and not math.isfinite(timeout))
+        or timeout <= 0
+    ):
         raise ValueError("MCP timeout must be a positive number")
 
 
@@ -269,3 +312,37 @@ def _write_mcp_server_configs(path: str | Path, servers: list[dict[str, Any]]) -
 
     if os.name == "posix":
         path.chmod(0o600)
+
+
+def public_mcp_server_config(server: dict[str, Any]) -> dict[str, Any]:
+    public = {
+        key: deepcopy(server[key])
+        for key in ("name", "enabled", "transport", "url", "cache_tools_list", "headers", "timeout")
+        if key in server
+    }
+
+    if isinstance(public.get("url"), str):
+        public["url"] = _redact_url(public["url"])
+
+    if isinstance(public.get("headers"), dict):
+        public["headers"] = {name: _public_secret_value(value) for name, value in public["headers"].items()}
+
+    return public
+
+
+def _public_secret_value(value: str) -> str:
+    return value if _SECRET_PLACEHOLDER_PATTERN.fullmatch(value) else REDACTED
+
+
+def _redact_url(url: str) -> str:
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        return REDACTED
+    netloc = f"{REDACTED}@{parts.netloc.rsplit('@', 1)[1]}" if "@" in parts.netloc else parts.netloc
+    query = "&".join(
+        f"{quote_plus(name)}={_public_secret_value(value)}"
+        for name, value in parse_qsl(parts.query, keep_blank_values=True)
+    )
+    fragment = _public_secret_value(parts.fragment) if parts.fragment else ""
+    return urlunsplit((parts.scheme, netloc, parts.path, query, fragment))

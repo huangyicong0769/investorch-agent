@@ -49,6 +49,24 @@ def test_update_replaces_existing_server_without_duplicate(tmp_path: Path) -> No
     assert servers[0]["enabled"] is False
 
 
+def test_clearing_timeout_restores_runtime_default_and_preserves_other_server_fields(tmp_path: Path) -> None:
+    path = tmp_path / "mcp.toml"
+    original = configure_mcp_server_config(
+        path, "research", url="https://example.test/mcp", headers={"X-Key": "secret"}, timeout=12.5
+    )
+    neighbor = configure_mcp_server_config(path, "neighbor", url="https://neighbor.test/mcp", timeout=20)
+    configure_mcp_server_config(path, "research", timeout=None)
+    assert read_mcp_server_configs(path) == [original, neighbor]
+    updated = configure_mcp_server_config(path, "research", timeout=24)
+    assert updated["timeout"] == 24
+    cleared = configure_mcp_server_config(path, "research", clear_timeout=True)
+    expected = {key: value for key, value in original.items() if key != "timeout"}
+    assert cleared == expected
+    assert read_mcp_server_configs(path) == [expected, neighbor]
+    assert load_mcp_servers(path, variables={}, default_timeout_seconds=7)[0].client_session_timeout_seconds == 7
+    assert configure_mcp_server_config(path, "research", clear_timeout=True) == expected
+
+
 def test_duplicate_server_names_are_rejected(tmp_path: Path) -> None:
     path = tmp_path / "mcp.toml"
     path.write_text(

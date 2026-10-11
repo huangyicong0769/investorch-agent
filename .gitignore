@@ -50,6 +50,7 @@ htmlcov/
 dmypy.json
 
 # Test, notebook, and runtime outputs
+/output/playwright/
 .ipynb_checkpoints/
 logs/
 *.log

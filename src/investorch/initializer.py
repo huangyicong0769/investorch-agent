@@ -9,12 +9,6 @@ from investorch.portfolio import init_portfolio_storage
 from investorch.skills.bundled import initialize_skills
 from investorch.storage import init_session_metadata
 
-LOCAL_CONFIG_TEMPLATE = """# Local InvestOrch Agent configuration.
-# Overrides bundled InvestOrch Agent defaults and stores local secrets.
-
-[secrets]
-"""
-
 MCP_CONFIG_TEMPLATE = """# Local MCP server configuration.
 """
 
@@ -27,11 +21,7 @@ def initialize(config: AppConfig) -> bool:
     """
     _ensure_directory(config.root, name="paths.root")
 
-    root_config_created = _ensure_file(
-        config.root_config_path,
-        LOCAL_CONFIG_TEMPLATE,
-        private=True,
-    )
+    root_config_created = config.ensure_local_file()
 
     _ensure_file(config.mcp_config_path, MCP_CONFIG_TEMPLATE, private=True)
 

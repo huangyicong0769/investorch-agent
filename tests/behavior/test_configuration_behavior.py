@@ -41,7 +41,7 @@ def test_local_config_cannot_redirect_project_root(tmp_path: Path) -> None:
     )
 
     with pytest.raises(ConfigError, match=r"paths\.root"):
-        load_config(config.project_config_path)
+        load_config(root=config.root)
 
 
 def test_public_config_redacts_secrets_without_breaking_secret_lookup(tmp_path: Path) -> None:
@@ -67,7 +67,7 @@ def test_hot_update_applies_immediately_and_persists(tmp_path: Path) -> None:
         "requires_restart": False,
     }
     assert config["interaction.follow_up_behavior"] == "queue"
-    assert load_config(config.project_config_path)["interaction.follow_up_behavior"] == "queue"
+    assert load_config(root=config.root)["interaction.follow_up_behavior"] == "queue"
 
 
 def test_restart_required_update_persists_without_mutating_current_config(tmp_path: Path) -> None:
@@ -80,7 +80,39 @@ def test_restart_required_update_persists_without_mutating_current_config(tmp_pa
     assert result["requires_restart"] is True
     assert result["applied"] is False
     assert config["logging.level"] == original
-    assert load_config(config.project_config_path)["logging.level"] == "DEBUG"
+    assert load_config(root=config.root)["logging.level"] == "DEBUG"
+
+
+def test_timezone_save_and_reset_take_effect_only_after_restart(tmp_path: Path) -> None:
+    config = make_test_config(tmp_path)
+    original = config["runtime.default_timezone"]
+
+    result = config.update("runtime.default_timezone", "UTC")
+
+    assert result["requires_restart"] is True
+    assert result["applied"] is False
+    assert config["runtime.default_timezone"] == original
+    assert config.public(saved=True)["runtime"]["default_timezone"] == "UTC"
+    restarted = load_config(root=config.root)
+    assert restarted["runtime.default_timezone"] == "UTC"
+
+    reset = restarted.reset(["runtime.default_timezone"])
+    assert reset["requires_restart"] is True
+    assert reset["applied"] is False
+    assert restarted["runtime.default_timezone"] == "UTC"
+    assert load_config(root=config.root)["runtime.default_timezone"] == original
+
+
+def test_timezone_rejects_temporary_override_without_changing_disk_or_runtime(tmp_path: Path) -> None:
+    config = make_test_config(tmp_path)
+    original = config["runtime.default_timezone"]
+    before = config.root_config_path.read_bytes()
+
+    with pytest.raises(ConfigError, match="requires persist=true"):
+        config.update("runtime.default_timezone", "UTC", persist=False)
+
+    assert config["runtime.default_timezone"] == original
+    assert config.root_config_path.read_bytes() == before
 
 
 def test_invalid_update_leaves_memory_and_disk_unchanged(tmp_path: Path) -> None:
@@ -93,7 +125,7 @@ def test_invalid_update_leaves_memory_and_disk_unchanged(tmp_path: Path) -> None
 
     assert config["interaction.follow_up_behavior"] == original_value
     assert config.root_config_path.read_text(encoding="utf-8") == original_file
-    assert load_config(config.project_config_path)["interaction.follow_up_behavior"] == original_value
+    assert load_config(root=config.root)["interaction.follow_up_behavior"] == original_value
 
 
 def test_review_compaction_budget_cannot_exceed_raw_instruction_budget(tmp_path: Path) -> None:

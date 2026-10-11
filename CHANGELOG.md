@@ -4,6 +4,13 @@
 
 ## 0.2.0 (unreleased)
 
+- Replace packaged default TOML with strict Python Schema validation, explicit provider configuration, and atomic configuration updates/reset.
+- Add Web Setup before Agent startup, persistent Settings with backend field metadata, and separate process-local future-Run overrides.
+- Add Skills catalog/details and Create/Install/Edit/Fork Session entry points while preserving independent review and approval.
+- Add shared, credential-safe MCP integration management; changes apply after restart.
+- Add read-only System Status, `doctor` and `upgrade check`, including managed built-in differences; `--update` remains explicit and avoids Portfolio initialization.
+- Add offline Backup Create/Verify with default credential exclusion and operator recovery guidance; Portfolio v6 migration remains separate.
+
 - Add end-to-end image conversations, Workspace image reading through explore, inline history and gated external image display.
 
 - Add six versioned Workspace Skills, registration/provenance, startup discovery, and on-demand loading.

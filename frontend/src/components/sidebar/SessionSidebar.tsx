@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Archive, BriefcaseBusiness, Plus, Search, X } from 'lucide-react'
+import { Activity, Archive, BriefcaseBusiness, Plus, Puzzle, Search, Settings, X } from 'lucide-react'
 import { NavLink, useNavigate } from 'react-router-dom'
 
 import { archiveSession, createSession, deleteSession } from '../../api/client'
@@ -21,7 +21,6 @@ import { errorMessage } from '../../lib/errors'
 import { sessionMatches, sessionPath } from '../../lib/session'
 import { cn } from '../../lib/utils'
 import { ProcessesSheet } from '../processes/ProcessesSheet'
-import { GlobalSettingsPopover } from '../settings/GlobalSettingsPopover'
 import { ArchivedSessionsDialog } from './ArchivedSessionsDialog'
 import { SessionItem } from './SessionItem'
 import { Button } from '@/components/ui/button'
@@ -200,7 +199,7 @@ export function SessionSidebar({
   return (
     <aside
       className={cn(
-        'fixed inset-y-0 z-40 flex h-dvh w-72 max-w-[calc(100vw-3rem)] shrink-0 flex-col border-r border-border bg-card px-3 py-4 shadow-xl md:static md:z-auto md:h-screen md:max-w-none md:shadow-none',
+        'fixed inset-y-0 z-40 flex h-dvh w-72 max-w-[calc(100vw-3rem)] shrink-0 flex-col border-r border-border bg-card px-3 py-4 shadow-xl md:sticky md:top-0 md:z-auto md:max-w-none md:self-start md:shadow-none',
         mobileOpen ? 'visible left-0' : 'invisible -left-full md:visible',
       )}
       id="session-sidebar"
@@ -249,6 +248,8 @@ export function SessionSidebar({
         <BriefcaseBusiness aria-hidden="true" size={16} />
         Portfolios
       </NavLink>
+
+      <NavLink className={({ isActive }) => cn('mt-1 flex items-center gap-2 rounded-lg px-3 py-2 text-sm outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/40', isActive ? 'bg-muted font-medium' : 'text-muted-foreground')} onClick={onMobileClose} to="/skills"><Puzzle aria-hidden="true" size={16} />Skills</NavLink>
 
       <div className="relative mt-3">
         <Search
@@ -346,7 +347,8 @@ export function SessionSidebar({
           <Archive aria-hidden="true" size={16} />
           Archived
         </Button>
-        <GlobalSettingsPopover />
+        <NavLink className={({ isActive }) => cn('flex items-center gap-2 rounded-lg px-3 py-2 text-sm outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/40', isActive && 'bg-muted font-medium')} onClick={onMobileClose} to="/settings"><Settings aria-hidden="true" size={16} />Settings</NavLink>
+        <NavLink className={({ isActive }) => cn('flex items-center gap-2 rounded-lg px-3 py-2 text-sm outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/40', isActive && 'bg-muted font-medium')} onClick={onMobileClose} to="/system"><Activity aria-hidden="true" size={16} />System Status</NavLink>
         <ProcessesSheet />
       </div>
 

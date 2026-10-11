@@ -6,6 +6,7 @@ import shutil
 from dataclasses import asdict, replace
 from pathlib import Path
 from typing import Literal
+from urllib.parse import urlsplit
 
 from agents import Agent
 
@@ -13,10 +14,26 @@ from investorch.agents.skill_review import SkillReviewResult, review_skill
 from investorch.config import AppConfig
 from investorch.skills.domain import SkillRegistration, SkillSource, ValidatedSkill
 from investorch.skills.registry import read_registry, write_registry
-from investorch.skills.validation import validate_name, validate_skill
+from investorch.skills.validation import MAX_FILE_BYTES, validate_name, validate_skill
 
 logger = logging.getLogger(__name__)
 CustomSource = Literal["created", "external"]
+
+
+def _public_source(source: SkillSource) -> dict:
+    origin = None
+    if source.origin:
+        # Provenance identifies the source, without publishing local paths or URL credentials.
+        try:
+            parts = urlsplit(source.origin)
+            if parts.scheme in ("http", "https") and parts.hostname:
+                hostname = f"[{parts.hostname}]" if ":" in parts.hostname else parts.hostname
+                origin = f"{parts.scheme}://{hostname}"
+            else:
+                origin = "[configured]"
+        except ValueError:
+            origin = "[configured]"
+    return dict(type=source.type, origin=origin)
 
 
 class SkillOperations:
@@ -44,7 +61,7 @@ class SkillOperations:
             name=name,
             version=None,
             description=None,
-            source=asdict(record.source),
+            source=_public_source(record.source),
             enabled=record.enabled,
             resources=[],
             status="missing",
@@ -66,6 +83,35 @@ class SkillOperations:
 
     def list(self) -> list[dict]:
         return [self.inspect(name) for name in sorted(read_registry(self.registry_path))]
+
+    def inspect_content(self, name: str, resource: str | None = None) -> dict:
+        """Preview registered content independently of the Agent's startup catalog."""
+        detail = self.inspect(name)
+        detail.update(content=None, resource=resource or "SKILL.md", truncated=False)
+        if detail["status"] in ("missing", "invalid"):
+            return detail
+        record = read_registry(self.registry_path)[name]
+        path = self._installed_path(name)
+        skill = validate_skill(path, source_type=record.source.type)
+        if resource is None or resource == "SKILL.md":
+            detail["content"] = skill.content
+            return detail
+        if resource not in skill.resources:
+            raise ValueError("Resource is not in the installed Skill inventory")
+        maximum = min(MAX_FILE_BYTES, self.config["explore.max_full_read_bytes"])
+        with (path / resource).open("rb") as file:
+            raw = file.read(maximum + 1)
+        if len(raw) > maximum:
+            raise ValueError("Skill resource exceeds the text preview size limit")
+        try:
+            content = raw.decode("utf-8")
+        except UnicodeError as exc:
+            raise ValueError("Skill resource is not UTF-8 text") from exc
+        if "\0" in content:
+            raise ValueError("Skill resource is not text")
+        limit = self.config["explore.max_read_chars"]
+        detail.update(content=content[:limit], truncated=len(content) > limit)
+        return detail
 
     def enabled_catalog(self) -> tuple[dict, ...]:
         if self._catalog is None:

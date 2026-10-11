@@ -17,6 +17,7 @@ from investorch.application import (
 )
 from investorch.application.presentation_state import SessionPresentationStore
 from investorch.application.sessions import SessionOperations
+from investorch.application.skill_sessions import SkillSessionWorkflows
 from investorch.application.skills import SkillOperations
 from investorch.context import AppState
 from investorch.web.approvals import WebApprovalBroker
@@ -66,6 +67,7 @@ async def open_test_web(
         permission_mode="manual",
     )
     portfolios = PortfolioOperations(config=runtime.config)
+    skills = SkillOperations(config=runtime.config)
     host = ApplicationHost(
         config=runtime.config,
         state=state,
@@ -74,7 +76,8 @@ async def open_test_web(
         runtime=runtime.runtime,
         sessions=sessions,
         portfolios=portfolios,
-        skills=SkillOperations(config=runtime.config),
+        skills=skills,
+        skill_sessions=SkillSessionWorkflows(state=state, runtime=runtime.runtime, sessions=sessions, skills=skills),
         portfolio_sessions=PortfolioSessionWorkflows(
             state=state,
             runtime=runtime.runtime,
@@ -95,7 +98,7 @@ async def open_test_web(
     app.state.connections = connections
     client = httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app, raise_app_exceptions=raise_app_exceptions),
-        base_url="http://test",
+        base_url="http://127.0.0.1",
     )
     try:
         yield WebHarness(runtime=runtime, host=host, client=client)

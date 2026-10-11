@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-import shutil
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
 import tomlkit
 
-from investorch.config import PROJECT_CONFIG_PATH, AppConfig, load_config
+from investorch.config import REQUIRED_MODEL_AGENTS, AppConfig, load_config
 from investorch.initializer import initialize
 
 
@@ -16,20 +16,35 @@ def make_test_config(
     *,
     initialize_state: bool = True,
 ) -> AppConfig:
-    project_dir = tmp_path / "project"
-    shutil.copytree(PROJECT_CONFIG_PATH.parent, project_dir)
+    root = (tmp_path / "root").resolve()
+    data = load_config(root=root).public()
+    local: dict[str, Any] = {
+        "models": {
+            role: {
+                "name": "test-model",
+                "base_url": "https://provider.example.test/v1",
+                "api_key_secret": "TEST_API_KEY",
+            }
+            for role in REQUIRED_MODEL_AGENTS
+        },
+        "secrets": {"TEST_API_KEY": "fixture-key-never-used-for-network"},
+    }
 
-    project_config_path = project_dir / PROJECT_CONFIG_PATH.name
-    project_document = tomlkit.parse(project_config_path.read_text(encoding="utf-8"))
-    root = tmp_path / "root"
-    project_document["paths"]["root"] = str(root)
-    project_config_path.write_text(tomlkit.dumps(project_document), encoding="utf-8")
+    def merge(target: dict[str, Any], source: dict[str, Any]) -> None:
+        for key, value in source.items():
+            if isinstance(value, dict) and isinstance(target.get(key), dict):
+                merge(target[key], value)
+            else:
+                target[key] = deepcopy(value)
 
+    merge(local, overrides or {})
+    merge(data, local)
     if overrides:
         root.mkdir(parents=True)
-        (root / "investorch.toml").write_text(tomlkit.dumps(overrides), encoding="utf-8")
-
-    config = load_config(project_config_path)
+        (root / "investorch.toml").write_text(tomlkit.dumps(local), encoding="utf-8")
+        config = load_config(root=root)
+    else:
+        config = AppConfig(data, local_overrides=local)
     if initialize_state:
         initialize(config)
     return config

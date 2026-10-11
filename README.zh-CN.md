@@ -4,7 +4,7 @@
 
 InvestOrch Agent 是面向个人投资者的本地优先、human-in-the-loop 投资编排 Agent。长期目标是支持从研究、策略开发和回测，到组合决策、交易、持仓监控与复盘的完整流程。
 
-0.1.0 是这一产品方向的早期预览，目前还不是端到端交易系统。
+已发布的 0.1.0 是早期预览。当前源码包含尚未发布的 0.2.0 功能。InvestOrch 不执行实盘交易。
 
 ## 0.1.0 已包含
 
@@ -17,7 +17,7 @@ InvestOrch Agent 是面向个人投资者的本地优先、human-in-the-loop 投
 - 基于 [RQAlpha 6.3.0](https://github.com/ricequant/rqalpha) 的日频股票回测、可复现元数据和 Workspace 相对 artifact。
 - 可选 [CNEquity](https://github.com/rootSunc/cnequity) extra，用于现有 RQAlpha 数据覆盖层和只读 MCP 集成。
 
-组合/账户访问、QMT Gateway、实盘交易、统一投资数据层和 Multi-Agent 编排属于后续工作。具体方向见[产品路线图](docs/InvestOrch_Agent_Product_Roadmap.zh-CN.md)。
+当前源码还包含 Portfolio schema v6、六个受管 Skill 与图片对话。券商账户镜像、QMT Gateway、实盘交易、统一投资数据层和 Multi-Agent 编排属于后续工作。具体方向见[产品路线图](docs/InvestOrch_Agent_Product_Roadmap.zh-CN.md)。
 
 ## 状态与兼容性
 
@@ -29,9 +29,9 @@ InvestOrch Agent 是面向个人投资者的本地优先、human-in-the-loop 投
 
 - Python 3.12 或更高版本
 - [uv](https://docs.astral.sh/uv/)
-- 用于随包模型配置的 [DeepSeek API Key](https://platform.deepseek.com/api_keys)
+- 用于 Agent 运行的 Responses 兼容模型 Endpoint、模型名称和 API 凭据
 
-Runtime 使用 [OpenAI Agents SDK](https://github.com/openai/openai-agents-python) 的 Responses 模型适配器。随包配置默认使用 [DeepSeek](https://api-docs.deepseek.com/)，所有随包 Agent 角色都从名为 `DEEPSEEK_API_KEY` 的本地 secret 读取 API Key。
+Runtime 使用 [OpenAI Agents SDK](https://github.com/openai/openai-agents-python) 的 Responses 模型适配器。源码新安装不预选 Provider；Web Setup 接收初始模型连接和凭据，随后可在 Settings 为 Main、Title、Activity、Permission、Compact 各角色独立设置。
 
 ## 安装
 
@@ -53,7 +53,7 @@ grep 'investorch-0.1.0-py3-none-any.whl$' SHA256SUMS | sha256sum -c -
 uv tool install ./investorch-0.1.0-py3-none-any.whl
 ```
 
-安装后的命令是 `investorch`。
+安装后的命令是 `investorch`。这个已发布的 0.1.0 wheel 按其[发行说明](docs/releases/0.1.0.zh-CN.md)初始化；下方 Setup 与管理说明适用于当前未发布源码。
 
 ### 从源码检出
 
@@ -67,34 +67,23 @@ uv sync --locked
 
 ## 首次运行
 
-### 1. 初始化本地状态
+### 1. 打开 Web Setup
 
 ```bash
 uv run investorch web
 ```
 
-首次运行会在 `~/.investorch` 下创建本地配置、Workspace 和状态目录，然后退出。这是正常的初始化流程。
+打开 <http://127.0.0.1:1334>。新实例会持续提供 Setup 页面，此时尚未启动 Agent。填写 Provider Endpoint、模型名称和 API Key，选择初始角色配置并保存。凭据保存在 `~/.investorch/investorch.toml`，后续读取不会向浏览器回显明文。
 
-### 2. 配置必需的 API Key
+### 2. 测试并启动
 
-先在 [DeepSeek 开放平台](https://platform.deepseek.com/api_keys) 创建 API Key。然后用文本编辑器打开 `~/.investorch/investorch.toml`，在已有的 `[secrets]` 标题下添加：
+可选的连接测试会发送一次小型真实模型请求并报告结果；保存配置本身不代表连接成功。完成 Setup 后启动 ApplicationHost 并进入 Chats。配置错误或旧数据不兼容时，页面进入恢复状态并提供修复指引，不会覆盖原实例。
 
-```toml
-[secrets]
-DEEPSEEK_API_KEY = "替换为你的API-Key"
-```
-
-将示例值替换为真实 API Key，保留两侧引号，不要分享或提交此文件。随包配置中的 Main、Title、Activity、Bootstrap、Permission 和 Compact Agent 都使用这个 secret。
+模型 Endpoint、名称与 Secret 引用须显式配置。缺少模型设置时进入 Setup；未知字段或无效值无法通过当前 Schema 校验。详见[升级说明](docs/Upgrade.zh-CN.md)。
 
 ### 3. 启动界面
 
-保存配置后，再次启动 Web 界面：
-
-```bash
-uv run investorch web
-```
-
-Web 客户端只监听 loopback；随包默认地址为 <http://127.0.0.1:1334>：
+后续 Web 启动使用已保存设置。Server 只监听 loopback；Python Schema 的默认地址为 <http://127.0.0.1:1334>：
 
 ```bash
 uv run investorch web
@@ -103,7 +92,7 @@ uv run investorch web --port 8000
 
 Web 对话支持选择、粘贴或拖放 JPEG、PNG、GIF、WebP，也支持纯图片消息。图片随 Session 历史保存，Agent 可通过 `explore` 读取 Workspace 图片；外部图片经点击才加载。图片限制在 `[images]` 中配置，重启生效，详见[图片架构说明](docs/InvestOrch_Agent_Architecture.zh-CN.md#对话图片内容)。
 
-TUI 是同等支持的一级界面：
+模型设置完成后，TUI 是同等支持的一级界面：
 
 ```bash
 uv run investorch
@@ -123,11 +112,26 @@ uv run investorch --plain
 uv run investorch --update
 ```
 
-该命令以随包内容确定性替换内置 Skill，保留启停状态，不调用模型，完成后退出。随包内容优先于本地修改和版本；定制内置 Skill 应 fork 为新名称。外部/自建 Skill 和用户 Memory 不受影响。
+在 System Status 或 `investorch upgrade check` 查看受管 Skill 差异后，显式运行此命令。它以随包内容确定性替换内置 Skill，保留启停状态，不调用模型或初始化 Portfolio，完成后退出。随包内容优先于本地修改和版本；定制内置 Skill 应 fork 为新名称。外部/自建 Skill 和用户 Memory 不受影响。
 
 Main Agent 在应用启动时获得 metadata，并按需加载正文。安装、替换、启停、删除和更新后，须重启应用才能刷新 catalog。外部/自建候选需要独立安全审查和正常审批；WARN 必须人工审批，BLOCK 禁止安装。安装不授予脚本执行权限。
 
 QMT Skill 生成供用户审查、人工部署到大 QMT 的策略产物；InvestOrch 不执行 QMT 下单。
+
+## Settings 与 System Status
+
+- **Settings** 使用 Python Schema 提供的类型、默认值、约束和生命周期编辑持久配置。Reset 删除本地覆盖；热更新影响后续适用操作，需要重启的修改保存为下次启动值。临时 Run 默认值仅属于当前进程。
+- **Integrations** 管理独立的 `mcp.toml`，仅支持 `streamable_http`。未修改的 URL/Header 隐藏凭据会保留，修改需要重启。未实际探测的连接显示为 Unknown。
+- **Skills** 展示与检查已安装内容。Create/Install 及具体 Skill 的 Edit/Fork 打开正常 Agent Session，沿用现有审查与审批。用户可直接启停，或确认删除自定义 Skill。
+- **System Status** 展示与离线 CLI 相同的本地检查：
+
+```bash
+uv run investorch doctor
+uv run investorch doctor --json
+uv run investorch upgrade check
+```
+
+Doctor 只读，不调用模型、连接 MCP、更新 Skill 或迁移数据库。退出码 `0` 表示 healthy/disabled，`1` 表示 warning/unknown，`2` 表示 error。离线备份、验证与向独立 Root 恢复参见[升级说明](docs/Upgrade.zh-CN.md)和[备份与恢复](docs/Backup_and_Recovery.zh-CN.md)。默认备份排除包含原始凭据的配置。
 
 ## 可选 CNEquity 集成
 
@@ -149,7 +153,7 @@ CNEquity 是可选数据后端。更广泛的集成要等待上游行为足够�
 
 ### RQAlpha bundle
 
-原生 RQAlpha 回测读取 `backtest.rqalpha_bundle_dir` 指定的 bundle。随包配置会将其解析为 `~/.investorch/.rqalpha/bundle`。RQAlpha 的 `-d` 参数接收父目录，并在其下自动追加 `bundle`，因此对应的命令行路径是 `~/.investorch/.rqalpha`。
+原生 RQAlpha 回测读取 `backtest.rqalpha_bundle_dir` 指定的 bundle。Python Schema 默认将其解析为 `~/.investorch/.rqalpha/bundle`。RQAlpha 的 `-d` 参数接收父目录，并在其下自动追加 `bundle`，因此对应的命令行路径是 `~/.investorch/.rqalpha`。
 
 下载 RQAlpha 每月更新的 bundle，并在回测前检查数据：
 
@@ -197,7 +201,7 @@ uv run investorch data clean --dry-run
 
 ## 本地优先边界
 
-配置、Workspace 文件、Session 元数据、Journal、日志和生成的 artifact 默认保存在本地。已配置的模型 endpoint 与 MCP server 会接收其调用所需内容。0.1.0 的 Web server 只监听 loopback。
+配置、Workspace 文件、Session 元数据、Journal、日志和生成的 artifact 默认保存在本地。已配置的模型 endpoint 与 MCP server 会接收其调用所需内容。Web server 只监听 loopback；HTTP 写请求要求本地 Host、浏览器同源与 JSON 内容，这不构成经过认证的 LAN 服务。
 
 ## 前端开发
 

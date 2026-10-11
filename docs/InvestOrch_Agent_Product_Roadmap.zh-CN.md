@@ -39,19 +39,23 @@ InvestOrch Agent 的目标是成为面向个人投资者的本地优先、human-
 - 带可复现元数据与 artifact 输出的 RQAlpha 日频股票回测；
 - 用于现有覆盖层和只读 MCP 路径的可选 CNEquity 集成。
 
-## 0.2.0 交付顺序
+## 0.2.0 功能
 
-| 阶段 | 状态 | 范围 |
-| --- | --- | --- |
-| 0.2.0.A | 完成 | Portfolio/User domain |
-| Transition | 当前 feature base 已完成 | Portfolio schema v6 与旧 live schema 退役 |
-| 0.2.0.B | 完成 | Skill Component 与六个内置工作流 |
-| 0.2.0.C | 当前 | Multimodal Image Support（多模态图片支持） |
-| Release | 下一步 | 0.2.0 hardening |
-| QMT 策略 qualification | 支线；无承诺排期 | Agent 编写策略与人工大 QMT 部署 |
-| 旧 direct QMT live execution | 阻塞 / 已归档 | 可行性工作，不是受支持的执行路径 |
+| 功能 | 范围 |
+| --- | --- |
+| Portfolio | User 与 Portfolio 领域、schema v6，以及旧 live 状态的显式退役 |
+| Skills | Skill 管理与六个内置工作流 |
+| 图片 | 多模态图片输入、Workspace 读图与内联历史 |
+| 配置 | Python Schema、持久化 Web Settings 与首次 Setup |
+| 运维 | MCP registry 管理、System Status、升级预检与离线备份恢复 |
 
 当前 QMT 路线是 Agent 生成策略产物 → 人工审查 → 人工在大 QMT 部署/运行。Skill 基础设施不恢复 Gateway、远程执行、下单桥接、实盘 Broker、账户镜像或自动结算对账。
+
+## 配置、管理与恢复
+
+Web Settings 与首次 Setup 使用 Python Schema 配置，Skill 管理复用现有 Agent Session 和审批。MCP registry 管理、共享 System Status/Doctor、显式受管 Skill 更新，以及离线 Backup Create/Verify 支持本地运维与恢复。Portfolio schema v6 及其迁移规则保持独立。
+
+本范围不包含启动时自动更新内置 Skill、Web 重启按钮、在线恢复、通用 Restore CLI、Provider Marketplace 或远程 Web 鉴权。
 
 ## 已确认方向：统一投资数据
 

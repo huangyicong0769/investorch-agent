@@ -1,21 +1,16 @@
-import re
-from copy import deepcopy
 from typing import Any
-from urllib.parse import parse_qsl, quote_plus, urlsplit, urlunsplit
 
 from agents import RunContextWrapper
 from agents.decorators import tool
 from pydantic import BaseModel
 
-from investorch.config import REDACTED
 from investorch.context import AgentContext
 from investorch.mcp import (
     configure_mcp_server_config,
+    public_mcp_server_config,
     read_mcp_server_configs,
     remove_mcp_server_config,
 )
-
-_SECRET_PLACEHOLDER_PATTERN = re.compile(r"\$\{[A-Za-z_][A-Za-z0-9_]*\}")
 
 
 class MCPHeader(BaseModel):
@@ -38,7 +33,7 @@ def list_mcp_servers(
     config = context.context.config
 
     return {
-        "servers": [_public_mcp_server_config(server) for server in read_mcp_server_configs(config.mcp_config_path)],
+        "servers": [public_mcp_server_config(server) for server in read_mcp_server_configs(config.mcp_config_path)],
     }
 
 
@@ -92,7 +87,7 @@ def configure_mcp_server(
     )
 
     return {
-        "server": _public_mcp_server_config(server),
+        "server": public_mcp_server_config(server),
         "persisted": True,
         "requires_restart": True,
     }
@@ -124,30 +119,3 @@ def remove_mcp_server(context: RunContextWrapper[AgentContext], name: str) -> di
         "removed": removed,
         "requires_restart": removed,
     }
-
-
-def _public_mcp_server_config(server: dict[str, Any]) -> dict[str, Any]:
-    public = deepcopy(server)
-
-    if isinstance(public.get("url"), str):
-        public["url"] = _redact_url(public["url"])
-
-    if isinstance(public.get("headers"), dict):
-        public["headers"] = {name: _public_secret_value(value) for name, value in public["headers"].items()}
-
-    return public
-
-
-def _public_secret_value(value: str) -> str:
-    return value if _SECRET_PLACEHOLDER_PATTERN.fullmatch(value) else REDACTED
-
-
-def _redact_url(url: str) -> str:
-    parts = urlsplit(url)
-    netloc = re.sub(r"^[^@]+@", f"{REDACTED}@", parts.netloc)
-    query = "&".join(
-        f"{quote_plus(name)}={_public_secret_value(value)}"
-        for name, value in parse_qsl(parts.query, keep_blank_values=True)
-    )
-    fragment = _public_secret_value(parts.fragment) if parts.fragment else ""
-    return urlunsplit((parts.scheme, netloc, parts.path, query, fragment))

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -10,6 +11,7 @@ from agents.tool_context import ToolContext
 
 from investorch.application import PortfolioOperations
 from investorch.context import AgentContext, ExecutionState
+from investorch.tools import base
 from investorch.tools.base import calculate, delete, edit, explore
 from tests.support.config import make_test_config
 
@@ -33,6 +35,32 @@ def make_tool_context(tmp_path: Path, overrides: dict[str, dict[str, Any]] | Non
 
 async def invoke(tool: FunctionTool, context: ToolContext[AgentContext], **arguments: object) -> object:
     return await tool.on_invoke_tool(context, json.dumps(arguments))
+
+
+@pytest.mark.parametrize("platform", ["linux", "win32"])
+async def test_execution_startup_without_sandbox_still_rejects_commands(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, platform: str
+) -> None:
+    monkeypatch.setattr(base, "sys", SimpleNamespace(platform=platform))
+    context = make_tool_context(tmp_path)
+    execution = ExecutionState()
+    context.context.execution = execution
+    workspace = context.context.config.workspace_dir
+    try:
+        await base.start_execution(execution, workspace)
+        assert execution.sandbox is None
+        result = await invoke(
+            base.exec_command,
+            context,
+            command="echo forbidden > command-ran.txt",
+            background=False,
+            timeout_seconds=None,
+        )
+        assert isinstance(result, str)
+        assert "exec_command is currently supported on macOS only" in result
+        assert not (workspace / "command-ran.txt").exists()
+    finally:
+        await base.close_execution(execution)
 
 
 @pytest.mark.asyncio
