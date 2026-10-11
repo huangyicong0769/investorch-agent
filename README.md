@@ -4,7 +4,7 @@
 
 InvestOrch Agent is a local-first, human-in-the-loop investment orchestration agent for an individual investor. Its long-term goal is to support the full path from research, strategy development, and backtesting to portfolio decisions, trading, position monitoring, and review.
 
-The published 0.1.0 release is an early preview. The current source tree includes unreleased 0.2.0 work; its D/E management and recovery changes are awaiting final acceptance. InvestOrch does not execute live trades.
+The published 0.1.0 release is an early preview. The current source tree includes unreleased 0.2.0 features. InvestOrch does not execute live trades.
 
 ## What 0.1.0 includes
 

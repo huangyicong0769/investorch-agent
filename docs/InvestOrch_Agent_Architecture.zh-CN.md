@@ -4,7 +4,7 @@
 
 ## 范围
 
-本文描述当前源码架构，包含尚未发布的 0.2.0 管理与恢复工作。D/E 最终验收仍待完成。未来产品方向记录在[产品路线图](InvestOrch_Agent_Product_Roadmap.zh-CN.md)。
+本文描述当前源码架构。未来产品方向记录在[产品路线图](InvestOrch_Agent_Product_Roadmap.zh-CN.md)。
 
 ## 系统上下文
 

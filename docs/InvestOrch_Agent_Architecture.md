@@ -4,7 +4,7 @@
 
 ## Scope
 
-This document describes the current source architecture, including unreleased 0.2.0 management and recovery work. Final D/E acceptance is still pending. Future product directions are recorded in the [Product Roadmap](InvestOrch_Agent_Product_Roadmap.md).
+This document describes the current source architecture. Future product directions are recorded in the [Product Roadmap](InvestOrch_Agent_Product_Roadmap.md).
 
 ## System context
 

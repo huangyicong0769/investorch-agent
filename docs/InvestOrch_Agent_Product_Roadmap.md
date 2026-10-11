@@ -6,10 +6,9 @@
 
 This document records completed work, confirmed directions, open decisions, and candidate themes. Versions, schedules, and detailed APIs are decided separately.
 
-The roadmap uses five states:
+The roadmap uses four states:
 
 - **Completed**: implemented and supported by code or tests.
-- **Implemented / review pending**: implementation and local qualification are recorded; human review and remote CI remain open.
 - **Confirmed direction**: a chosen product direction whose version, sequence, and implementation remain open.
 - **Open decision**: a question to resolve when its surrounding work begins.
 - **Candidate theme**: an idea to revisit when real usage provides a trigger.
@@ -40,24 +39,21 @@ Version 0.1.0 includes:
 - RQAlpha daily stock backtesting with reproducibility metadata and artifact output;
 - optional CNEquity integration for the existing overlay and read-only MCP path.
 
-## 0.2.0 delivery sequence
+## 0.2.0 features
 
-| Stage | Status | Scope |
-| --- | --- | --- |
-| 0.2.0.A | Complete | Portfolio/User domain |
-| Transition | Complete on feature base | Portfolio schema v6 and legacy live schema retirement |
-| 0.2.0.B | Complete | Skill Component and six built-in workflows |
-| 0.2.0.C | Implemented on source base | Multimodal Image Support |
-| 0.2.0.D + E | Implemented / review pending | Product Control Plane, First-run Setup, Upgrade & Recovery |
-| Release | After D/E acceptance | 0.2.0 hardening, version/tag/release as a separate action |
-| QMT strategy qualification | Side track; no committed schedule | Agent-authored strategies and human Big QMT deployment |
-| Old direct QMT live execution | Blocked / archived | Feasibility work; not a supported execution route |
+| Area | Scope |
+| --- | --- |
+| Portfolio | User and Portfolio domain, schema v6, and explicit retirement of legacy live state |
+| Skills | Skill management and six built-in workflows |
+| Images | Multimodal image input, workspace image reading, and inline history |
+| Configuration | Python Schema, persistent Web Settings, and first-run Setup |
+| Operations | MCP registry management, System Status, upgrade checks, and offline backup and recovery |
 
 The current QMT route is Agent-generated strategy artifact → human review → human deployment/run in Big QMT. Skill infrastructure does not restore a gateway, remote execution, order bridge, live broker, account mirror, or automatic settlement reconciliation.
 
-## Current D/E scope
+## Configuration, management, and recovery
 
-One feature branch brings together Python Schema configuration, Web Settings and first-run Setup, Skill management through existing Agent Sessions and approvals, MCP registry management, shared System Status/Doctor checks, explicit managed Skill updates, and offline Backup Create/Verify. Portfolio schema v6 and existing migration boundaries stay in place.
+Web Settings and first-run Setup use Python Schema configuration. Skill management uses existing Agent Sessions and approvals. MCP registry management, shared System Status/Doctor checks, explicit managed Skill updates, and offline Backup Create/Verify support local operation and recovery. Portfolio schema v6 and its migration rules remain separate.
 
 There is no automatic built-in update, Web restart button, online restore, general Restore CLI, Provider Marketplace, or remote Web authentication in this scope.
 
