@@ -6,7 +6,6 @@ from decimal import Decimal, InvalidOperation
 from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 from agents import RunContextWrapper
-from agents.decorators import tool
 from pydantic import BaseModel, ConfigDict, Field
 
 from investorch.context import AgentContext
@@ -33,6 +32,7 @@ from investorch.portfolio_presentation import (
 from investorch.portfolio_presentation import (
     serialize_portfolio_state as _serialize_state,
 )
+from investorch.tools.errors import tool
 
 if TYPE_CHECKING:
     from investorch.application.portfolios import PortfolioMutationResult

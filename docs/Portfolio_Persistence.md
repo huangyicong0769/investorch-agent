@@ -36,7 +36,7 @@ the target account location. Historical `source="live_execution"` is ordinary au
 ```sh
 investorch migrate portfolio --dry-run
 investorch migrate portfolio
-# Optional explicit target for a qualification copy:
+# Optional explicit target for a separate database:
 investorch migrate portfolio --database /absolute/path/portfolio.db --dry-run
 ```
 

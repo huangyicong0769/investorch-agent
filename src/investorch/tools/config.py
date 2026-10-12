@@ -1,9 +1,9 @@
 from typing import Any
 
 from agents import RunContextWrapper
-from agents.decorators import tool
 
 from investorch.context import AgentContext
+from investorch.tools.errors import tool
 
 
 @tool

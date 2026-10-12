@@ -1,7 +1,7 @@
 from agents import RunContextWrapper
-from agents.decorators import tool
 
 from investorch.context import AgentContext, TodoItem
+from investorch.tools.errors import tool
 
 
 @tool

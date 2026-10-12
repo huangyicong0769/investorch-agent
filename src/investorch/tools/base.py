@@ -15,13 +15,13 @@ from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
 from agents import RunContextWrapper, ToolOutputImage, ToolOutputText
-from agents.decorators import tool
 from agents.sandbox import Manifest
 from agents.sandbox.errors import PtySessionNotFoundError
 from agents.sandbox.sandboxes.unix_local import UnixLocalSandboxClient
 
 from investorch.context import AgentContext, BackgroundJob, ExecutionState
 from investorch.images import detect_image_media_type
+from investorch.tools.errors import tool
 
 BACKGROUND_PID_MARKER = "__INVESTORCH_PID__="
 

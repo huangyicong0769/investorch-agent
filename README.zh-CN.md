@@ -4,9 +4,9 @@
 
 InvestOrch Agent 是面向个人投资者的本地优先、human-in-the-loop 投资编排 Agent。长期目标是支持从研究、策略开发和回测，到组合决策、交易、持仓监控与复盘的完整流程。
 
-已发布的 0.1.0 是早期预览。当前源码包含尚未发布的 0.2.0 功能。InvestOrch 不执行实盘交易。
+InvestOrch Agent **0.2.0** 提供 Web、TUI 和 plain console，支持 Portfolio 会计、受管 Skills、图片对话与配置/恢复工具。
 
-## 0.1.0 已包含
+## 0.2.0 包含
 
 - 基于同一 Application 与 Runtime 的 Web 和 [Textual](https://github.com/Textualize/textual) TUI 两个一级界面。
 - 持久化 Session，支持标题、归档与恢复、稳定头部 Fork、清除和上下文压缩。
@@ -14,63 +14,71 @@ InvestOrch Agent 是面向个人投资者的本地优先、human-in-the-loop 投
 - manual 或模型辅助 review 模式的人工审批。
 - 追加式 JSONL 对话 Journal 与 SQLite 模型 continuation 状态。
 - Workspace 范围内的探索、编辑、删除、计算、前台/后台命令、Todo、配置和 MCP registry Tool。
-- 基于 [RQAlpha 6.3.0](https://github.com/ricequant/rqalpha) 的日频股票回测、可复现元数据和 Workspace 相对 artifact。
+- 基于 [RQAlpha](https://github.com/ricequant/rqalpha) 的日频股票回测、可复现元数据和 Workspace 相对 artifact。
 - 可选 [CNEquity](https://github.com/rootSunc/cnequity) extra，用于现有 RQAlpha 数据覆盖层和只读 MCP 集成。
+- Portfolio 生命周期和持久追加式 Ledger，使用精确十进制数投影持仓与逻辑现金，通过经审批的 Agent 工作流维护，并提供只读 Web 视图。
+- 六个受管 Workspace Skill、按需加载、独立安全审查与显式内置更新。
+- Web 图片对话与 Workspace 读图。
+- Web Setup、持久 Settings、MCP Integrations、System Status、离线诊断与备份创建/验证。
 
-当前源码还包含 Portfolio schema v6、六个受管 Skill 与图片对话。券商账户镜像、QMT Gateway、实盘交易、统一投资数据层和 Multi-Agent 编排属于后续工作。具体方向见[产品路线图](docs/InvestOrch_Agent_Product_Roadmap.zh-CN.md)。
+券商账户镜像、QMT Gateway、实盘交易、统一投资数据层和 Multi-Agent 编排属于后续工作。详见 [0.2.0 发行说明](docs/releases/0.2.0.zh-CN.md)和[产品路线图](docs/InvestOrch_Agent_Product_Roadmap.zh-CN.md)。
 
-## 状态与兼容性
+## 兼容性
 
-0.1.0 是早期预览。CLI、配置、存储格式和 Tool 接口可能在后续 0.x 版本中调整。
+CLI、配置、存储格式和 Tool 接口可能在后续 0.x 版本中调整。已有安装应按[升级说明](docs/Upgrade.zh-CN.md)操作，包括 Portfolio schema v6 的要求。
 
-核心应用目前在 macOS 本机和 Ubuntu CI 中得到验证，运行目标为 macOS 和 Linux 环境。未来通过运行在 Windows/QMT 环境中的 Gateway 连接 QMT。
+核心应用支持 macOS 和 Linux。Agent 的 `exec_command` 命令执行仅支持 macOS。未来通过运行在 Windows/QMT 环境中的 Gateway 连接 QMT。
 
 ## 环境要求
 
-- Python 3.12 或更高版本
+- Python 3.12–3.14（`>=3.12,<3.15`）
 - [uv](https://docs.astral.sh/uv/)
 - 用于 Agent 运行的 Responses 兼容模型 Endpoint、模型名称和 API 凭据
 
 Runtime 使用 [OpenAI Agents SDK](https://github.com/openai/openai-agents-python) 的 Responses 模型适配器。源码新安装不预选 Provider；Web Setup 接收初始模型连接和凭据，随后可在 Settings 为 Main、Title、Activity、Permission、Compact 各角色独立设置。
 
+下方安装命令使用 Python 3.12。
+
 ## 安装
 
-### GitHub Release
+### 源码安装
 
-从 [`v0.1.0` GitHub Release](https://github.com/huangyicong0769/investorch-agent/releases/tag/v0.1.0) 下载 `investorch-0.1.0-py3-none-any.whl` 和 `SHA256SUMS`。在两个文件所在的目录中校验 wheel：
+```bash
+git clone --branch v0.2.0 https://github.com/huangyicong0769/investorch-agent.git
+cd investorch-agent
+uv sync --locked --python 3.12
+```
+
+下文使用源码检出形式 `uv run --locked investorch`。如果通过 wheel 安装，请省略 `uv run --locked`，直接以 `investorch` 开始每条命令。
+
+### 发行 wheel
+
+从 [0.2.0 GitHub Release](https://github.com/huangyicong0769/investorch-agent/releases/tag/v0.2.0) 下载 `investorch-0.2.0-py3-none-any.whl`、`investorch-0.2.0.tar.gz` 和 `SHA256SUMS`。
+
+在 wheel 与校验文件所在的目录中执行：
 
 ```bash
 # macOS
-grep 'investorch-0.1.0-py3-none-any.whl$' SHA256SUMS | shasum -a 256 -c -
+grep 'investorch-0.2.0-py3-none-any.whl$' SHA256SUMS | shasum -a 256 -c -
 
 # Linux
-grep 'investorch-0.1.0-py3-none-any.whl$' SHA256SUMS | sha256sum -c -
+grep 'investorch-0.2.0-py3-none-any.whl$' SHA256SUMS | sha256sum -c -
 ```
 
 校验通过后，将 wheel 安装为由 uv 管理的工具：
 
 ```bash
-uv tool install ./investorch-0.1.0-py3-none-any.whl
+uv tool install --python 3.12 ./investorch-0.2.0-py3-none-any.whl
 ```
 
-安装后的命令是 `investorch`。这个已发布的 0.1.0 wheel 按其[发行说明](docs/releases/0.1.0.zh-CN.md)初始化；下方 Setup 与管理说明适用于当前未发布源码。
-
-### 从源码检出
-
-```bash
-git clone https://github.com/huangyicong0769/investorch-agent.git
-cd investorch-agent
-uv sync --locked
-```
-
-下文使用源码检出形式 `uv run investorch`。如果通过 Release wheel 安装，请省略 `uv run`，直接以 `investorch` 开始每条命令。
+安装后的命令是 `investorch`。替换已有工具安装前，先完成[升级说明](docs/Upgrade.zh-CN.md)中的备份和预检。已发布的 [0.1.0 Release](https://github.com/huangyicong0769/investorch-agent/releases/tag/v0.1.0)保留独立的[历史安装说明](docs/releases/0.1.0.zh-CN.md)。
 
 ## 首次运行
 
 ### 1. 打开 Web Setup
 
 ```bash
-uv run investorch web
+uv run --locked investorch web
 ```
 
 打开 <http://127.0.0.1:1334>。新实例会持续提供 Setup 页面，此时尚未启动 Agent。填写 Provider Endpoint、模型名称和 API Key，选择初始角色配置并保存。凭据保存在 `~/.investorch/investorch.toml`，后续读取不会向浏览器回显明文。
@@ -86,30 +94,36 @@ uv run investorch web
 后续 Web 启动使用已保存设置。Server 只监听 loopback；Python Schema 的默认地址为 <http://127.0.0.1:1334>：
 
 ```bash
-uv run investorch web
-uv run investorch web --port 8000
+uv run --locked investorch web
+uv run --locked investorch web --port 8000
 ```
-
-Web 对话支持选择、粘贴或拖放 JPEG、PNG、GIF、WebP，也支持纯图片消息。图片随 Session 历史保存，Agent 可通过 `explore` 读取 Workspace 图片；外部图片经点击才加载。图片限制在 `[images]` 中配置，重启生效，详见[图片架构说明](docs/InvestOrch_Agent_Architecture.zh-CN.md#对话图片内容)。
 
 模型设置完成后，TUI 是同等支持的一级界面：
 
 ```bash
-uv run investorch
+uv run --locked investorch
 ```
 
 plain console 用于诊断：
 
 ```bash
-uv run investorch --plain
+uv run --locked investorch --plain
 ```
+
+## Portfolio
+
+Portfolio 将实际且已确认的投资事实保存在 `state/portfolio.db`，也可使用配置的 state 目录。Agent Tool 创建和初始化 Portfolio、记录成交/资金流/收入、追加纠错，以及在 Portfolio 之间原子转移持仓或现金。持仓与逻辑现金由追加式 Ledger 重放得到；历史行不修改或删除。每个 Portfolio 使用单一记账币种、精确十进制数，并明确表示未知成本。
+
+Web Portfolios 页面展示元数据、持仓、现金和最近 Ledger。**New Portfolio** 与 **Ask Agent** 进入 Agent 工作流，经济事实变更沿用正常审批路径，关联 Portfolio 身份随 Session 持久化。这些视图不计算市值、NAV、业绩或券商购买力，记录成交也不意味着下单。
+
+详见 [Portfolio 领域模型](docs/Portfolio_Domain_Model.md)、[UI 与 Session 上下文](docs/Portfolio_UI_and_Session_Context.md)及 [schema v6 升级](docs/Upgrade.zh-CN.md#portfolio-v1v6)。
 
 ## Skills
 
 首次初始化创建 `MEMORY.md`，并在 `workspace/skills/` 安装六个内置 Skill：`skill-creator`、`skill-installer`、`investorch-configuration`、`investorch-portfolio`、`rqalpha-strategy`、`qmt-strategy`。Memory 保存用户/项目上下文，Skill 保存可复用工作流。
 
 ```bash
-uv run investorch --update
+uv run --locked investorch --update
 ```
 
 在 System Status 或 `investorch upgrade check` 查看受管 Skill 差异后，显式运行此命令。它以随包内容确定性替换内置 Skill，保留启停状态，不调用模型或初始化 Portfolio，完成后退出。随包内容优先于本地修改和版本；定制内置 Skill 应 fork 为新名称。外部/自建 Skill 和用户 Memory 不受影响。
@@ -117,6 +131,10 @@ uv run investorch --update
 Main Agent 在应用启动时获得 metadata，并按需加载正文。安装、替换、启停、删除和更新后，须重启应用才能刷新 catalog。外部/自建候选需要独立安全审查和正常审批；WARN 必须人工审批，BLOCK 禁止安装。安装不授予脚本执行权限。
 
 QMT Skill 生成供用户审查、人工部署到大 QMT 的策略产物；InvestOrch 不执行 QMT 下单。
+
+## 图片对话
+
+Web 对话支持选择、粘贴或拖放 JPEG、PNG、GIF、WebP，也支持纯图片消息。图片随 Session 历史保存，Agent 可通过 `explore` 读取 Workspace 图片；外部图片经点击才加载。图片限制在 `[images]` 中配置，重启生效，详见[图片架构说明](docs/InvestOrch_Agent_Architecture.zh-CN.md#对话图片内容)。
 
 ## Settings 与 System Status
 
@@ -126,9 +144,9 @@ QMT Skill 生成供用户审查、人工部署到大 QMT 的策略产物；Inves
 - **System Status** 展示与离线 CLI 相同的本地检查：
 
 ```bash
-uv run investorch doctor
-uv run investorch doctor --json
-uv run investorch upgrade check
+uv run --locked investorch doctor
+uv run --locked investorch doctor --json
+uv run --locked investorch upgrade check
 ```
 
 Doctor 只读，不调用模型、连接 MCP、更新 Skill 或迁移数据库。退出码 `0` 表示 healthy/disabled，`1` 表示 warning/unknown，`2` 表示 error。离线备份、验证与向独立 Root 恢复参见[升级说明](docs/Upgrade.zh-CN.md)和[备份与恢复](docs/Backup_and_Recovery.zh-CN.md)。默认备份排除包含原始凭据的配置。
@@ -138,13 +156,13 @@ Doctor 只读，不调用模型、连接 MCP、更新 Skill 或迁移数据库�
 仅在使用当前 CNEquity CLI passthrough、只读 MCP 集成或 RQAlpha 覆盖层时安装可选 extra：
 
 ```bash
-uv sync --locked --extra cnequity
+uv sync --locked --python 3.12 --extra cnequity
 ```
 
-如果使用 GitHub Release wheel，请在安装工具时启用 extra：
+使用 wheel 安装时启用 extra：
 
 ```bash
-uv tool install './investorch-0.1.0-py3-none-any.whl[cnequity]'
+uv tool install --python 3.12 './investorch-0.2.0-py3-none-any.whl[cnequity]'
 ```
 
 CNEquity 是可选数据后端。更广泛的集成要等待上游行为足够稳定后再评估。
@@ -158,11 +176,11 @@ CNEquity 是可选数据后端。更广泛的集成要等待上游行为足够�
 下载 RQAlpha 每月更新的 bundle，并在回测前检查数据：
 
 ```bash
-uv run rqalpha download-bundle -d ~/.investorch/.rqalpha
-uv run rqalpha check-bundle -d ~/.investorch/.rqalpha
+uv run --locked rqalpha download-bundle -d ~/.investorch/.rqalpha
+uv run --locked rqalpha check-bundle -d ~/.investorch/.rqalpha
 ```
 
-RQDatac 用户可以使用 `rqalpha update-bundle` 更新同一目录；连接与并发参数见 `uv run rqalpha update-bundle --help`。
+RQDatac 用户可以使用 `rqalpha update-bundle` 更新同一目录；连接与并发参数见 `uv run --locked rqalpha update-bundle --help`。
 
 ### CNEquity 数据湖
 
@@ -171,33 +189,33 @@ RQDatac 用户可以使用 `rqalpha update-bundle` 更新同一目录；连接�
 初始化并验证数据配置：
 
 ```bash
-uv run investorch data config init
-uv run investorch data config validate
-uv run investorch data doctor
+uv run --locked investorch data config init
+uv run --locked investorch data config validate
+uv run --locked investorch data doctor
 ```
 
 首次建湖。`quick` profile 会获取所有股票最近三年的数据；需要完整历史时使用 `--profile full`：
 
 ```bash
-uv run investorch data init --profile quick
+uv run --locked investorch data init --profile quick
 ```
 
 执行日常维护并检查数据健康状态：
 
 ```bash
-uv run investorch data run daily
-uv run investorch data status --datasets
-uv run investorch data verify
-uv run investorch data audit --full
+uv run --locked investorch data run daily
+uv run --locked investorch data status --datasets
+uv run --locked investorch data verify
+uv run --locked investorch data audit --full
 ```
 
 清理前先预览可删除的 staging 与 snapshot：
 
 ```bash
-uv run investorch data clean --dry-run
+uv run --locked investorch data clean --dry-run
 ```
 
-使用 `uv run investorch data --help` 和 `<command> --help` 查看 backfill、retry、compact、source probe、catalog、stats、query 等上游操作。
+使用 `uv run --locked investorch data --help` 和 `<command> --help` 查看 backfill、retry、compact、source probe、catalog、stats、query 等上游操作。
 
 ## 本地优先边界
 
@@ -255,6 +273,8 @@ InvestOrch Agent 是由人主导、AI 辅助开发的个人研究项目。个人
 
 ## 文档
 
+- [0.2.0 发行说明](docs/releases/0.2.0.zh-CN.md)与[变更记录](CHANGELOG.zh-CN.md)。
+- [升级说明](docs/Upgrade.zh-CN.md)与[备份和恢复](docs/Backup_and_Recovery.zh-CN.md)。
 - [架构](docs/InvestOrch_Agent_Architecture.zh-CN.md)：已实现系统与当前边界。
 - [Runtime / Session 执行模型](docs/Runtime_Session_Execution_Model.zh-CN.md)：生命周期与并发规则。
 - [产品路线图](docs/InvestOrch_Agent_Product_Roadmap.zh-CN.md)：已确认方向、待决策事项和候选主题。

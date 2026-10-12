@@ -1,7 +1,6 @@
 from typing import Any
 
 from agents import RunContextWrapper
-from agents.decorators import tool
 from pydantic import BaseModel
 
 from investorch.context import AgentContext
@@ -11,6 +10,7 @@ from investorch.mcp import (
     read_mcp_server_configs,
     remove_mcp_server_config,
 )
+from investorch.tools.errors import tool
 
 
 class MCPHeader(BaseModel):

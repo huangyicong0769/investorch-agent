@@ -51,6 +51,7 @@ dmypy.json
 
 # Test, notebook, and runtime outputs
 /output/playwright/
+/docs/qualification/
 .ipynb_checkpoints/
 logs/
 *.log

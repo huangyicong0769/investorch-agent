@@ -145,7 +145,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-@radix-ui/primitive@1.1.7
+@radix-ui/primitive@1.2.0
 Installed path: node_modules/@radix-ui/primitive
 License: MIT
 Repository: git+https://github.com/radix-ui/primitives.git
@@ -174,7 +174,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-@radix-ui/react-accessible-icon@1.1.15
+@radix-ui/react-accessible-icon@1.2.0
 Installed path: node_modules/@radix-ui/react-accessible-icon
 License: MIT
 Repository: git+https://github.com/radix-ui/primitives.git
@@ -203,7 +203,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-@radix-ui/react-accordion@1.2.20
+@radix-ui/react-accordion@1.3.0
 Installed path: node_modules/@radix-ui/react-accordion
 License: MIT
 Repository: git+https://github.com/radix-ui/primitives.git
@@ -232,7 +232,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-@radix-ui/react-alert-dialog@1.1.23
+@radix-ui/react-alert-dialog@1.2.0
 Installed path: node_modules/@radix-ui/react-alert-dialog
 License: MIT
 Repository: git+https://github.com/radix-ui/primitives.git
@@ -261,7 +261,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-@radix-ui/react-arrow@1.1.15
+@radix-ui/react-arrow@1.1.17
 Installed path: node_modules/@radix-ui/react-arrow
 License: MIT
 Repository: git+https://github.com/radix-ui/primitives.git
@@ -290,7 +290,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-@radix-ui/react-aspect-ratio@1.1.15
+@radix-ui/react-aspect-ratio@1.2.0
 Installed path: node_modules/@radix-ui/react-aspect-ratio
 License: MIT
 Repository: git+https://github.com/radix-ui/primitives.git
@@ -319,7 +319,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-@radix-ui/react-avatar@1.2.6
+@radix-ui/react-avatar@1.3.0
 Installed path: node_modules/@radix-ui/react-avatar
 License: MIT
 Repository: git+https://github.com/radix-ui/primitives.git
@@ -348,7 +348,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-@radix-ui/react-checkbox@1.3.11
+@radix-ui/react-checkbox@1.4.0
 Installed path: node_modules/@radix-ui/react-checkbox
 License: MIT
 Repository: git+https://github.com/radix-ui/primitives.git
@@ -377,7 +377,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-@radix-ui/react-collapsible@1.1.20
+@radix-ui/react-collapsible@1.2.0
 Installed path: node_modules/@radix-ui/react-collapsible
 License: MIT
 Repository: git+https://github.com/radix-ui/primitives.git
@@ -406,7 +406,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-@radix-ui/react-collection@1.1.15
+@radix-ui/react-collection@1.2.0
 Installed path: node_modules/@radix-ui/react-collection
 License: MIT
 Repository: git+https://github.com/radix-ui/primitives.git
@@ -464,7 +464,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-@radix-ui/react-context@1.2.2
+@radix-ui/react-context@1.3.0
 Installed path: node_modules/@radix-ui/react-context
 License: MIT
 Repository: git+https://github.com/radix-ui/primitives.git
@@ -493,7 +493,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-@radix-ui/react-context-menu@2.3.7
+@radix-ui/react-context-menu@2.4.0
 Installed path: node_modules/@radix-ui/react-context-menu
 License: MIT
 Repository: git+https://github.com/radix-ui/primitives.git
@@ -522,7 +522,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-@radix-ui/react-dialog@1.1.23
+@radix-ui/react-dialog@1.3.0
 Installed path: node_modules/@radix-ui/react-dialog
 License: MIT
 Repository: git+https://github.com/radix-ui/primitives.git
@@ -551,7 +551,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-@radix-ui/react-direction@1.1.4
+@radix-ui/react-direction@1.2.0
 Installed path: node_modules/@radix-ui/react-direction
 License: MIT
 Repository: git+https://github.com/radix-ui/primitives.git
@@ -580,7 +580,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-@radix-ui/react-dismissable-layer@1.1.19
+@radix-ui/react-dismissable-layer@1.2.0
 Installed path: node_modules/@radix-ui/react-dismissable-layer
 License: MIT
 Repository: git+https://github.com/radix-ui/primitives.git
@@ -609,7 +609,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-@radix-ui/react-dropdown-menu@2.1.24
+@radix-ui/react-dropdown-menu@2.2.0
 Installed path: node_modules/@radix-ui/react-dropdown-menu
 License: MIT
 Repository: git+https://github.com/radix-ui/primitives.git
@@ -638,7 +638,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-@radix-ui/react-focus-guards@1.1.6
+@radix-ui/react-focus-guards@1.2.0
 Installed path: node_modules/@radix-ui/react-focus-guards
 License: MIT
 Repository: git+https://github.com/radix-ui/primitives.git
@@ -667,7 +667,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-@radix-ui/react-focus-scope@1.1.16
+@radix-ui/react-focus-scope@1.3.0
 Installed path: node_modules/@radix-ui/react-focus-scope
 License: MIT
 Repository: git+https://github.com/radix-ui/primitives.git
@@ -696,7 +696,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-@radix-ui/react-form@0.1.16
+@radix-ui/react-form@0.3.0
 Installed path: node_modules/@radix-ui/react-form
 License: MIT
 Repository: git+https://github.com/radix-ui/primitives.git
@@ -725,7 +725,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-@radix-ui/react-hover-card@1.1.23
+@radix-ui/react-hover-card@1.2.0
 Installed path: node_modules/@radix-ui/react-hover-card
 License: MIT
 Repository: git+https://github.com/radix-ui/primitives.git
@@ -783,7 +783,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-@radix-ui/react-label@2.1.15
+@radix-ui/react-label@2.1.17
 Installed path: node_modules/@radix-ui/react-label
 License: MIT
 Repository: git+https://github.com/radix-ui/primitives.git
@@ -812,7 +812,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-@radix-ui/react-menu@2.1.24
+@radix-ui/react-menu@2.2.0
 Installed path: node_modules/@radix-ui/react-menu
 License: MIT
 Repository: git+https://github.com/radix-ui/primitives.git
@@ -841,7 +841,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-@radix-ui/react-menubar@1.1.24
+@radix-ui/react-menubar@1.2.0
 Installed path: node_modules/@radix-ui/react-menubar
 License: MIT
 Repository: git+https://github.com/radix-ui/primitives.git
@@ -870,7 +870,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-@radix-ui/react-navigation-menu@1.2.22
+@radix-ui/react-navigation-menu@1.4.0
 Installed path: node_modules/@radix-ui/react-navigation-menu
 License: MIT
 Repository: git+https://github.com/radix-ui/primitives.git
@@ -899,7 +899,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-@radix-ui/react-one-time-password-field@0.1.16
+@radix-ui/react-one-time-password-field@0.2.0
 Installed path: node_modules/@radix-ui/react-one-time-password-field
 License: MIT
 Repository: git+https://github.com/radix-ui/primitives.git
@@ -928,7 +928,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-@radix-ui/react-password-toggle-field@0.1.11
+@radix-ui/react-password-toggle-field@0.2.0
 Installed path: node_modules/@radix-ui/react-password-toggle-field
 License: MIT
 Repository: git+https://github.com/radix-ui/primitives.git
@@ -957,7 +957,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-@radix-ui/react-popover@1.1.23
+@radix-ui/react-popover@1.3.0
 Installed path: node_modules/@radix-ui/react-popover
 License: MIT
 Repository: git+https://github.com/radix-ui/primitives.git
@@ -986,7 +986,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-@radix-ui/react-popper@1.3.7
+@radix-ui/react-popper@1.4.0
 Installed path: node_modules/@radix-ui/react-popper
 License: MIT
 Repository: git+https://github.com/radix-ui/primitives.git
@@ -1015,7 +1015,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-@radix-ui/react-portal@1.1.17
+@radix-ui/react-portal@1.2.0
 Installed path: node_modules/@radix-ui/react-portal
 License: MIT
 Repository: git+https://github.com/radix-ui/primitives.git
@@ -1044,7 +1044,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-@radix-ui/react-presence@1.1.10
+@radix-ui/react-presence@1.1.11
 Installed path: node_modules/@radix-ui/react-presence
 License: MIT
 Repository: git+https://github.com/radix-ui/primitives.git
@@ -1073,7 +1073,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-@radix-ui/react-primitive@2.1.10
+@radix-ui/react-primitive@2.2.0
 Installed path: node_modules/@radix-ui/react-primitive
 License: MIT
 Repository: git+https://github.com/radix-ui/primitives.git
@@ -1102,7 +1102,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-@radix-ui/react-progress@1.1.16
+@radix-ui/react-progress@1.2.0
 Installed path: node_modules/@radix-ui/react-progress
 License: MIT
 Repository: git+https://github.com/radix-ui/primitives.git
@@ -1131,7 +1131,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-@radix-ui/react-radio-group@1.4.7
+@radix-ui/react-radio-group@1.5.0
 Installed path: node_modules/@radix-ui/react-radio-group
 License: MIT
 Repository: git+https://github.com/radix-ui/primitives.git
@@ -1160,7 +1160,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-@radix-ui/react-roving-focus@1.1.19
+@radix-ui/react-roving-focus@1.2.0
 Installed path: node_modules/@radix-ui/react-roving-focus
 License: MIT
 Repository: git+https://github.com/radix-ui/primitives.git
@@ -1189,7 +1189,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-@radix-ui/react-scroll-area@1.2.18
+@radix-ui/react-scroll-area@1.4.0
 Installed path: node_modules/@radix-ui/react-scroll-area
 License: MIT
 Repository: git+https://github.com/radix-ui/primitives.git
@@ -1218,7 +1218,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-@radix-ui/react-select@2.3.7
+@radix-ui/react-select@2.4.0
 Installed path: node_modules/@radix-ui/react-select
 License: MIT
 Repository: git+https://github.com/radix-ui/primitives.git
@@ -1247,7 +1247,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-@radix-ui/react-separator@1.1.15
+@radix-ui/react-separator@1.2.0
 Installed path: node_modules/@radix-ui/react-separator
 License: MIT
 Repository: git+https://github.com/radix-ui/primitives.git
@@ -1276,7 +1276,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-@radix-ui/react-slider@1.4.7
+@radix-ui/react-slider@1.6.0
 Installed path: node_modules/@radix-ui/react-slider
 License: MIT
 Repository: git+https://github.com/radix-ui/primitives.git
@@ -1305,7 +1305,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-@radix-ui/react-slot@1.3.3
+@radix-ui/react-slot@1.5.0
 Installed path: node_modules/@radix-ui/react-slot
 License: MIT
 Repository: git+https://github.com/radix-ui/primitives.git
@@ -1334,7 +1334,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-@radix-ui/react-switch@1.3.7
+@radix-ui/react-switch@1.4.0
 Installed path: node_modules/@radix-ui/react-switch
 License: MIT
 Repository: git+https://github.com/radix-ui/primitives.git
@@ -1363,7 +1363,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-@radix-ui/react-tabs@1.1.21
+@radix-ui/react-tabs@1.2.0
 Installed path: node_modules/@radix-ui/react-tabs
 License: MIT
 Repository: git+https://github.com/radix-ui/primitives.git
@@ -1392,7 +1392,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-@radix-ui/react-toast@1.2.23
+@radix-ui/react-toast@1.3.0
 Installed path: node_modules/@radix-ui/react-toast
 License: MIT
 Repository: git+https://github.com/radix-ui/primitives.git
@@ -1421,7 +1421,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-@radix-ui/react-toggle@1.1.18
+@radix-ui/react-toggle@1.2.0
 Installed path: node_modules/@radix-ui/react-toggle
 License: MIT
 Repository: git+https://github.com/radix-ui/primitives.git
@@ -1450,7 +1450,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-@radix-ui/react-toggle-group@1.1.19
+@radix-ui/react-toggle-group@1.2.0
 Installed path: node_modules/@radix-ui/react-toggle-group
 License: MIT
 Repository: git+https://github.com/radix-ui/primitives.git
@@ -1479,7 +1479,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-@radix-ui/react-toolbar@1.1.19
+@radix-ui/react-toolbar@1.2.0
 Installed path: node_modules/@radix-ui/react-toolbar
 License: MIT
 Repository: git+https://github.com/radix-ui/primitives.git
@@ -1508,7 +1508,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-@radix-ui/react-tooltip@1.2.16
+@radix-ui/react-tooltip@1.4.0
 Installed path: node_modules/@radix-ui/react-tooltip
 License: MIT
 Repository: git+https://github.com/radix-ui/primitives.git
@@ -1537,7 +1537,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-@radix-ui/react-use-callback-ref@1.1.4
+@radix-ui/react-use-callback-ref@1.1.5
 Installed path: node_modules/@radix-ui/react-use-callback-ref
 License: MIT
 Repository: git+https://github.com/radix-ui/primitives.git
@@ -1566,7 +1566,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-@radix-ui/react-use-controllable-state@1.2.6
+@radix-ui/react-use-controllable-state@1.3.0
 Installed path: node_modules/@radix-ui/react-use-controllable-state
 License: MIT
 Repository: git+https://github.com/radix-ui/primitives.git
@@ -1624,7 +1624,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-@radix-ui/react-use-escape-keydown@1.1.5
+@radix-ui/react-use-escape-keydown@1.1.6
 Installed path: node_modules/@radix-ui/react-use-escape-keydown
 License: MIT
 Repository: git+https://github.com/radix-ui/primitives.git
@@ -1769,7 +1769,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-@radix-ui/react-use-size@1.1.4
+@radix-ui/react-use-size@1.1.5
 Installed path: node_modules/@radix-ui/react-use-size
 License: MIT
 Repository: git+https://github.com/radix-ui/primitives.git
@@ -1798,7 +1798,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-@radix-ui/react-visually-hidden@1.2.11
+@radix-ui/react-visually-hidden@1.2.13
 Installed path: node_modules/@radix-ui/react-visually-hidden
 License: MIT
 Repository: git+https://github.com/radix-ui/primitives.git
@@ -1856,7 +1856,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-@tanstack/query-core@5.102.8
+@tanstack/query-core@5.104.2
 Installed path: node_modules/@tanstack/query-core
 License: MIT
 Repository: git+https://github.com/TanStack/query.git
@@ -1885,7 +1885,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-@tanstack/react-query@5.102.8
+@tanstack/react-query@5.104.2
 Installed path: node_modules/@tanstack/react-query
 License: MIT
 Repository: git+https://github.com/TanStack/query.git
@@ -2088,7 +2088,7 @@ LICENSE
     SOFTWARE
 
 ================================================================================
-@types/react@19.2.18
+@types/react@19.3.0
 Installed path: node_modules/@types/react
 License: MIT
 Repository: https://github.com/DefinitelyTyped/DefinitelyTyped.git
@@ -2117,7 +2117,7 @@ LICENSE
     SOFTWARE
 
 ================================================================================
-@types/react-dom@19.2.5
+@types/react-dom@19.3.0
 Installed path: node_modules/@types/react-dom
 License: MIT
 Repository: https://github.com/DefinitelyTyped/DefinitelyTyped.git
@@ -2855,23 +2855,6 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ================================================================================
-escape-string-regexp@5.0.0
-Installed path: node_modules/escape-string-regexp
-License: MIT
-Repository: sindresorhus/escape-string-regexp
---------------------------------------------------------------------------------
-license
-MIT License
-
-Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (https://sindresorhus.com)
-
-Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-
-================================================================================
 estree-util-is-identifier-name@3.0.0
 Installed path: node_modules/estree-util-is-identifier-name
 License: MIT
@@ -3234,7 +3217,7 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ================================================================================
-lucide-react@1.37.0
+lucide-react@1.55.0
 Installed path: node_modules/lucide-react
 License: ISC
 Repository: https://github.com/lucide-icons/lucide.git
@@ -3315,7 +3298,7 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ================================================================================
-mdast-util-find-and-replace@3.0.2
+mdast-util-find-and-replace@3.0.3
 Installed path: node_modules/mdast-util-find-and-replace
 License: MIT
 Repository: syntax-tree/mdast-util-find-and-replace
@@ -3345,7 +3328,24 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ================================================================================
-mdast-util-from-markdown@2.0.3
+escape-string-regexp@5.0.0
+Installed path: node_modules/mdast-util-find-and-replace/node_modules/escape-string-regexp
+License: MIT
+Repository: sindresorhus/escape-string-regexp
+--------------------------------------------------------------------------------
+license
+MIT License
+
+Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (https://sindresorhus.com)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+================================================================================
+mdast-util-from-markdown@2.1.0
 Installed path: node_modules/mdast-util-from-markdown
 License: MIT
 Repository: syntax-tree/mdast-util-from-markdown
@@ -3465,7 +3465,7 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ================================================================================
-mdast-util-gfm-strikethrough@2.0.0
+mdast-util-gfm-strikethrough@2.0.1
 Installed path: node_modules/mdast-util-gfm-strikethrough
 License: MIT
 Repository: syntax-tree/mdast-util-gfm-strikethrough
@@ -3473,7 +3473,7 @@ Repository: syntax-tree/mdast-util-gfm-strikethrough
 license
 (The MIT License)
 
-Copyright (c) 2020 Titus Wormer <tituswormer@gmail.com>
+Copyright (c) Titus Wormer <tituswormer@gmail.com>
 
 Permission is hereby granted, free of charge, to any person obtaining
 a copy of this software and associated documentation files (the
@@ -3706,7 +3706,7 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ================================================================================
-mdast-util-to-markdown@2.1.2
+mdast-util-to-markdown@2.2.0
 Installed path: node_modules/mdast-util-to-markdown
 License: MIT
 Repository: syntax-tree/mdast-util-to-markdown
@@ -3766,7 +3766,7 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ================================================================================
-micromark@4.0.2
+micromark@4.0.3
 Installed path: node_modules/micromark
 License: MIT
 Repository: https://github.com/micromark/micromark/tree/main/packages/micromark
@@ -3796,7 +3796,7 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ================================================================================
-micromark-core-commonmark@2.0.3
+micromark-core-commonmark@2.0.4
 Installed path: node_modules/micromark-core-commonmark
 License: MIT
 Repository: https://github.com/micromark/micromark/tree/main/packages/micromark-core-commonmark
@@ -3946,7 +3946,7 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ================================================================================
-micromark-extension-gfm-table@2.1.1
+micromark-extension-gfm-table@2.1.2
 Installed path: node_modules/micromark-extension-gfm-table
 License: MIT
 Repository: micromark/micromark-extension-gfm-table
@@ -4096,7 +4096,7 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ================================================================================
-micromark-factory-space@2.0.1
+micromark-factory-space@2.1.0
 Installed path: node_modules/micromark-factory-space
 License: MIT
 Repository: https://github.com/micromark/micromark/tree/main/packages/micromark-factory-space
@@ -4366,6 +4366,36 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ================================================================================
+micromark-util-edit-map@1.0.0
+Installed path: node_modules/micromark-util-edit-map
+License: MIT
+Repository: https://github.com/micromark/micromark/tree/main/packages/micromark-util-edit-map
+--------------------------------------------------------------------------------
+license
+(The MIT License)
+
+Copyright (c) Titus Wormer <tituswormer@gmail.com>
+
+Permission is hereby granted, free of charge, to any person obtaining
+a copy of this software and associated documentation files (the
+'Software'), to deal in the Software without restriction, including
+without limitation the rights to use, copy, modify, merge, publish,
+distribute, sublicense, and/or sell copies of the Software, and to
+permit persons to whom the Software is furnished to do so, subject to
+the following conditions:
+
+The above copyright notice and this permission notice shall be
+included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED 'AS IS', WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+================================================================================
 micromark-util-encode@2.0.1
 Installed path: node_modules/micromark-util-encode
 License: MIT
@@ -4576,7 +4606,7 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ================================================================================
-micromark-util-types@2.0.2
+micromark-util-types@2.0.3
 Installed path: node_modules/micromark-util-types
 License: MIT
 Repository: https://github.com/micromark/micromark/tree/main/packages/micromark-util-types
@@ -4724,7 +4754,7 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ================================================================================
-radix-ui@1.6.7
+radix-ui@1.8.0
 Installed path: node_modules/radix-ui
 License: MIT
 Repository: git+https://github.com/radix-ui/primitives.git
@@ -4753,7 +4783,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-react@19.2.8
+react@19.3.0
 Installed path: node_modules/react
 License: MIT
 Repository: https://github.com/react/react.git
@@ -4782,7 +4812,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-react-dom@19.2.8
+react-dom@19.3.0
 Installed path: node_modules/react-dom
 License: MIT
 Repository: https://github.com/react/react.git
@@ -4897,7 +4927,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-react-router@7.18.3
+react-router@7.18.4
 Installed path: node_modules/react-router
 License: MIT
 Repository: https://github.com/remix-run/react-router
@@ -4928,7 +4958,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-react-router-dom@7.18.3
+react-router-dom@7.18.4
 Installed path: node_modules/react-router-dom
 License: MIT
 Repository: https://github.com/remix-run/react-router
@@ -5106,10 +5136,10 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 
 ================================================================================
-scheduler@0.27.0
+scheduler@0.28.0
 Installed path: node_modules/scheduler
 License: MIT
-Repository: https://github.com/facebook/react.git
+Repository: https://github.com/react/react.git
 --------------------------------------------------------------------------------
 LICENSE
 MIT License
@@ -5313,7 +5343,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ================================================================================
-tailwind-merge@3.6.0
+tailwind-merge@3.7.0
 Installed path: node_modules/tailwind-merge
 License: MIT
 Repository: https://github.com/dcastil/tailwind-merge.git
