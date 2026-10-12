@@ -19,6 +19,7 @@ from investorch.backtest import (
 from investorch.backtest import (
     run_backtest as run_rqalpha_backtest,
 )
+from investorch.backtest.errors import BacktestDataError
 from investorch.config import AppConfig
 from investorch.context import AgentContext
 from investorch.tools.errors import tool
@@ -54,7 +55,7 @@ def _inspect_rqalpha_data(
     symbols: list[str] | None = None,
 ) -> dict[str, Any]:
     if config["backtest.use_cnequity"]:
-        raise RuntimeError("inspect_rqalpha_data is unavailable while the CNEquity backtest overlay is enabled")
+        raise BacktestDataError("inspect_rqalpha_data is unavailable while the CNEquity backtest overlay is enabled")
     limit = config["backtest.inspect_max_symbols"]
     if symbols is not None and len(symbols) > limit:
         raise ValueError(f"inspect_rqalpha_data accepts at most {limit} symbols")

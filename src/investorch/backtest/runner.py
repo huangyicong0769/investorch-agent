@@ -3,10 +3,12 @@ from datetime import date
 from pathlib import Path
 
 from rqalpha import run_file
+from rqalpha.utils.exception import CustomException
 
 from investorch.config import AppConfig
 
 from .bundle import validate_rqalpha_bundle
+from .errors import BacktestDataError
 
 _COVERED_DATASETS = ("daily_bars", "adj_factors")
 
@@ -37,18 +39,20 @@ def _validate_cnequity_data(config_path: Path, start_date: date, end_date: date)
     datasets = {row["dataset"]: row for row in list_datasets(config=config).iter_rows(named=True)}
     missing = sorted(set(_COVERED_DATASETS) - datasets.keys())
     if missing:
-        raise RuntimeError(f"CNEquity datasets are unavailable: {', '.join(missing)}")
+        raise BacktestDataError(f"CNEquity datasets are unavailable: {', '.join(missing)}")
     for dataset in _COVERED_DATASETS:
         coverage_start = datasets[dataset]["coverage_start"]
         coverage_end = datasets[dataset]["coverage_end"]
         if coverage_start is None or coverage_end is None:
-            raise RuntimeError(f"CNEquity {dataset} has no data coverage")
+            raise BacktestDataError(f"CNEquity {dataset} has no data coverage")
         if coverage_start > start_date:
-            raise RuntimeError(
+            raise BacktestDataError(
                 f"CNEquity {dataset} coverage starts at {coverage_start}, but backtest requests {start_date}"
             )
         if coverage_end < end_date:
-            raise RuntimeError(f"CNEquity {dataset} coverage ends at {coverage_end}, but backtest requests {end_date}")
+            raise BacktestDataError(
+                f"CNEquity {dataset} coverage ends at {coverage_end}, but backtest requests {end_date}"
+            )
 
 
 def _build_rqalpha_config(
@@ -128,16 +132,22 @@ def run_backtest(
     validate_rqalpha_bundle(rqalpha_bundle_path, start_date, end_date)
     if use_cnequity:
         _validate_cnequity_data(cnequity_config_path, start_date, end_date)
-    return run_file(
-        str(strategy_file),
-        config=_build_rqalpha_config(
-            config,
-            cnequity_config_path,
-            rqalpha_bundle_path,
-            start_date,
-            end_date,
-            initial_cash,
-            benchmark,
-            use_cnequity,
-        ),
-    )
+    try:
+        return run_file(
+            str(strategy_file),
+            config=_build_rqalpha_config(
+                config,
+                cnequity_config_path,
+                rqalpha_bundle_path,
+                start_date,
+                end_date,
+                initial_cash,
+                benchmark,
+                use_cnequity,
+            ),
+        )
+    except CustomException as error:
+        # RQAlpha wraps data-source failures raised during strategy execution.
+        if isinstance(error.error.exc_val, BacktestDataError):
+            raise error.error.exc_val from error
+        raise

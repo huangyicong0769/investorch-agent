@@ -31,6 +31,15 @@ async def test_corrective_feedback_redacts_configured_credentials(tmp_path: Path
     assert "private_credential_canary" not in result
 
 
+async def test_overlapping_credentials_are_redacted_in_full(tmp_path: Path) -> None:
+    context = make_tool_context(tmp_path, {"secrets": {"SHORT": "prefix", "LONG": "prefix_super_secret_canary"}})
+    result = await calculate.on_invoke_tool(context, json.dumps({"expression": "prefix_super_secret_canary"}))
+
+    assert isinstance(result, str)
+    assert "Unknown constant: <redacted>" in result
+    assert "super_secret_canary" not in result
+
+
 async def test_unexpected_tool_exception_does_not_expose_its_details(tmp_path: Path) -> None:
     @tool
     def failing_tool(context: RunContextWrapper[AgentContext]) -> str:

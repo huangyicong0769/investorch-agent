@@ -9,6 +9,8 @@ from rqalpha.const import INSTRUMENT_TYPE, MARKET
 from rqalpha.data.base_data_source import BaseDataSource
 from rqalpha.utils.datetime_func import convert_int_to_date
 
+from .errors import BacktestDataError
+
 
 def _download_command(bundle_path: Path) -> str:
     return f"rqalpha download-bundle -d {bundle_path.parent}"
@@ -21,7 +23,7 @@ def _open_rqalpha_bundle(bundle_path: Path) -> BaseDataSource:
     try:
         return BaseDataSource(SimpleNamespace(data_bundle_path=str(bundle_path), future_info={}))
     except Exception as exc:
-        raise RuntimeError(
+        raise BacktestDataError(
             f"RQAlpha bundle at {bundle_path} cannot be loaded. Run `{download_command}` to replace it."
         ) from exc
 
@@ -33,7 +35,7 @@ def _native_stocks(data_source: BaseDataSource, bundle_path: Path) -> tuple:
         if instrument.market == MARKET.CN
     )
     if not stocks:
-        raise RuntimeError(
+        raise BacktestDataError(
             f"RQAlpha bundle has no native stock metadata. Run `{_download_command(bundle_path)}` to replace it."
         )
     return stocks
@@ -57,12 +59,12 @@ def validate_rqalpha_bundle(
     coverage_end = max(value[1] for value in ranges)
     download_command = _download_command(bundle_path)
     if coverage_start > start_date:
-        raise RuntimeError(
+        raise BacktestDataError(
             f"RQAlpha stock bundle coverage starts at {coverage_start}, but backtest requests "
             f"{start_date}. Run `{download_command}` to update the bundle."
         )
     if coverage_end < end_date:
-        raise RuntimeError(
+        raise BacktestDataError(
             f"RQAlpha stock bundle coverage ends at {coverage_end}, but backtest requests "
             f"{end_date}. Run `{download_command}` to update the bundle."
         )
