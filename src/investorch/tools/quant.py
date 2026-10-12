@@ -12,7 +12,6 @@ from pathlib import Path
 from typing import Any
 
 from agents import RunContextWrapper
-from agents.decorators import tool
 
 from investorch.backtest import (
     inspect_rqalpha_bundle,
@@ -22,6 +21,7 @@ from investorch.backtest import (
 )
 from investorch.config import AppConfig
 from investorch.context import AgentContext
+from investorch.tools.errors import tool
 
 _TABULAR_RESULTS = (
     "portfolio",

@@ -3,9 +3,9 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Literal
 
 from agents import RunContextWrapper
-from agents.decorators import tool
 
 from investorch.context import AgentContext
+from investorch.tools.errors import tool
 
 if TYPE_CHECKING:
     from investorch.application.skills import SkillOperations
