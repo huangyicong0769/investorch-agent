@@ -31,6 +31,7 @@
 
 ### Compatibility
 
+- Refresh Python runtime/tooling and Web dependencies and their lockfiles, including RQAlpha 6.4.1. Keep the optional CNEquity integration pinned to 0.7.3.
 - Allow ApplicationHost startup on Linux while keeping Agent `exec_command` restricted to macOS.
 - Keep Portfolio writes approval-gated, Web Portfolio pages read-only, and QMT deployment human-operated. Live order execution and broker reconciliation are outside this release.
 

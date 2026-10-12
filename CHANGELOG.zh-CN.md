@@ -31,6 +31,7 @@
 
 ### 兼容性
 
+- 更新 Python Runtime/开发工具和 Web 依赖及 lockfile，包括 RQAlpha 6.4.1；可选 CNEquity 集成仍固定为 0.7.3。
 - 允许 Linux 启动 ApplicationHost，Agent `exec_command` 仍只支持 macOS。
 - Portfolio 写入沿用审批，Web Portfolio 页面只读，QMT 部署由人执行。本版本不包含实盘下单和券商对账。
 
