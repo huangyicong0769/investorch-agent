@@ -4,9 +4,9 @@
 
 InvestOrch Agent is a local-first, human-in-the-loop investment orchestration agent for an individual investor. Its long-term goal is to support the full path from research, strategy development, and backtesting to portfolio decisions, trading, position monitoring, and review.
 
-The published 0.1.0 release is an early preview. The current source tree includes unreleased 0.2.0 features. InvestOrch does not execute live trades.
+This branch prepares **0.2.0**, an unreleased preview. The installation and operating instructions below describe 0.2.0. Release publication follows package qualification, real application testing and human review. InvestOrch does not execute live trades.
 
-## What 0.1.0 includes
+## What 0.2.0 includes
 
 - First-class Web and [Textual](https://github.com/Textualize/textual) TUI clients backed by the same application and runtime.
 - Persistent sessions with titles, archive and restore, stable-head fork, clear, and context compaction.
@@ -14,16 +14,20 @@ The published 0.1.0 release is an early preview. The current source tree include
 - Human approval in manual or model-assisted review mode.
 - Append-only JSONL conversation journals and SQLite model-continuation state.
 - Workspace-scoped exploration, editing, deletion, calculation, foreground/background command execution, Todo state, configuration, and MCP registry tools.
-- Daily stock backtesting with [RQAlpha 6.3.0](https://github.com/ricequant/rqalpha), reproducibility metadata, and workspace-relative artifacts.
+- Daily stock backtesting with [RQAlpha](https://github.com/ricequant/rqalpha), reproducibility metadata, and workspace-relative artifacts.
 - An optional [CNEquity](https://github.com/rootSunc/cnequity) extra for the existing RQAlpha data overlay and read-only MCP integration.
+- Portfolio lifecycle and a durable append-only Ledger with exact-decimal holdings and logical cash, approved Agent workflows, and read-only Web views.
+- Six managed Workspace Skills, on-demand loading, independent safety review, and explicit built-in updates.
+- Web image conversations and Workspace image reading.
+- Web Setup, persistent Settings, MCP Integrations, System Status, offline diagnostics, and backup create/verify.
 
-The current source also includes Portfolio schema v6, six managed Skills, and image conversations. Broker/account mirroring, a QMT gateway, live trading, a unified investment data layer, and Multi-Agent orchestration remain future work. See the [Product Roadmap](docs/InvestOrch_Agent_Product_Roadmap.md) for the next directions.
+Broker/account mirroring, a QMT gateway, live trading, a unified investment data layer, and Multi-Agent orchestration remain future work. See the [0.2.0 release preparation notes](docs/releases/0.2.0.md) and [Product Roadmap](docs/InvestOrch_Agent_Product_Roadmap.md).
 
 ## Status and compatibility
 
-0.1.0 is an early preview. The CLI, configuration, storage formats, and Tool interfaces may change in later 0.x releases.
+0.2.0 is a preview. The CLI, configuration, storage formats, and Tool interfaces may change in later 0.x releases. Existing installations should follow [Upgrade](docs/Upgrade.md), including the Portfolio schema v6 requirements.
 
-The core is currently validated on macOS locally and Ubuntu in CI, and targets macOS and Linux environments. Future QMT connectivity will use a gateway running with QMT on Windows.
+The core targets macOS and Linux. Agent shell-command execution through `exec_command` currently requires macOS; Linux startup does not enable that tool. A source build or CI result alone does not establish that every application flow has passed release qualification. Future QMT connectivity will use a gateway running with QMT on Windows.
 
 ## Requirements
 
@@ -35,42 +39,44 @@ The runtime uses the [OpenAI Agents SDK](https://github.com/openai/openai-agents
 
 ## Installation
 
-### GitHub Release
+### 0.2.0 preparation source
 
-Download `investorch-0.1.0-py3-none-any.whl` and `SHA256SUMS` from the [`v0.1.0` GitHub Release](https://github.com/huangyicong0769/investorch-agent/releases/tag/v0.1.0). Verify the downloaded wheel from the directory containing both files:
+```bash
+git clone --branch release/0.2.0-preparation https://github.com/huangyicong0769/investorch-agent.git
+cd investorch-agent
+uv sync --locked
+```
+
+The examples below use the source-checkout form `uv run --locked investorch`. For a wheel tool installation, omit `uv run --locked` and start each command with `investorch`.
+
+### 0.2.0 candidate wheel
+
+The prepared package names are `investorch-0.2.0-py3-none-any.whl`, `investorch-0.2.0.tar.gz` and `SHA256SUMS`. During preparation, use only artifacts produced and qualified from the selected candidate commit. Once published, download them from [GitHub Releases](https://github.com/huangyicong0769/investorch-agent/releases).
+
+From the directory containing the wheel and checksum file:
 
 ```bash
 # macOS
-grep 'investorch-0.1.0-py3-none-any.whl$' SHA256SUMS | shasum -a 256 -c -
+grep 'investorch-0.2.0-py3-none-any.whl$' SHA256SUMS | shasum -a 256 -c -
 
 # Linux
-grep 'investorch-0.1.0-py3-none-any.whl$' SHA256SUMS | sha256sum -c -
+grep 'investorch-0.2.0-py3-none-any.whl$' SHA256SUMS | sha256sum -c -
 ```
 
 Then install the wheel as a uv-managed tool:
 
 ```bash
-uv tool install ./investorch-0.1.0-py3-none-any.whl
+uv tool install ./investorch-0.2.0-py3-none-any.whl
 ```
 
-The installed command is `investorch`. This published 0.1.0 wheel follows its [release instructions](docs/releases/0.1.0.md); the Setup and management instructions below describe the current unreleased source.
-
-### Source checkout
-
-```bash
-git clone https://github.com/huangyicong0769/investorch-agent.git
-cd investorch-agent
-uv sync --locked
-```
-
-The examples below use the source-checkout form `uv run investorch`. When using the release tool installation, omit `uv run` and start each command with `investorch`.
+The installed command is `investorch`. For an existing tool installation, complete the backup and preflight steps in [Upgrade](docs/Upgrade.md) before replacing it. The published [0.1.0 release](https://github.com/huangyicong0769/investorch-agent/releases/tag/v0.1.0) retains its own [historical instructions](docs/releases/0.1.0.md).
 
 ## First run
 
 ### 1. Open Web Setup
 
 ```bash
-uv run investorch web
+uv run --locked investorch web
 ```
 
 Open <http://127.0.0.1:1334>. A fresh instance keeps serving the Setup page without starting an Agent. Enter the provider endpoint, model and API key, choose the initial role settings, and save. Credentials remain in `~/.investorch/investorch.toml`; the browser does not receive them on subsequent reads.
@@ -86,8 +92,8 @@ Model endpoints, names, and secret references must be configured explicitly. Mis
 Subsequent Web starts use the saved settings. The server listens on loopback only; its Python Schema default address is <http://127.0.0.1:1334>:
 
 ```bash
-uv run investorch web
-uv run investorch web --port 8000
+uv run --locked investorch web
+uv run --locked investorch web --port 8000
 ```
 
 Web conversations accept JPEG, PNG, GIF and WebP by selection, paste or drop, including image-only messages. Images stay with Session history; `explore` lets the Agent read Workspace images. External images require a click to load. Configure limits under `[images]` and restart to apply them; see the [image architecture](docs/InvestOrch_Agent_Architecture.md#image-conversation-content).
@@ -95,21 +101,29 @@ Web conversations accept JPEG, PNG, GIF and WebP by selection, paste or drop, in
 After model setup, the TUI is an equally supported interface:
 
 ```bash
-uv run investorch
+uv run --locked investorch
 ```
 
 The plain console is available for diagnostics:
 
 ```bash
-uv run investorch --plain
+uv run --locked investorch --plain
 ```
+
+## Portfolio
+
+Portfolio records actual, user-confirmed investment facts in `state/portfolio.db` (or the configured state directory). Agent Tools create and initialize Portfolios, record trades/cash flows/income, append corrections, and transfer positions or cash atomically between Portfolios. Holdings and logical cash replay from the append-only Ledger; historical rows are not edited or deleted. Each Portfolio uses one base currency, exact-decimal arithmetic and explicit unknown cost.
+
+The Web Portfolios pages show metadata, holdings, cash and recent Ledger entries. **New Portfolio** and **Ask Agent** open Agent workflows; economic mutations use the normal approval path. Related Portfolio identities persist with Sessions. These views do not calculate market value, NAV, performance or broker buying power, and recording a trade does not place an order.
+
+See [Portfolio domain](docs/Portfolio_Domain_Model.md), [UI and Session context](docs/Portfolio_UI_and_Session_Context.md), and [schema v6 upgrade](docs/Upgrade.md#portfolio-v1v6).
 
 ## Skills
 
 Fresh initialization creates `MEMORY.md` and installs six built-in Skills under `workspace/skills/`: `skill-creator`, `skill-installer`, `investorch-configuration`, `investorch-portfolio`, `rqalpha-strategy`, and `qmt-strategy`. Memory holds user/project context; Skills hold reusable workflows.
 
 ```bash
-uv run investorch --update
+uv run --locked investorch --update
 ```
 
 Run this explicitly after reviewing managed Skill differences in System Status or `investorch upgrade check`. It deterministically replaces package-managed built-ins, preserves enabled state, and exits without model calls or Portfolio initialization. Package content wins over local edits and versions; customize a built-in by forking it under a new name. External/created Skills and user Memory are untouched.
@@ -126,9 +140,9 @@ QMT guidance creates strategy artifacts for human review and deployment in Big Q
 - **System Status** presents the same local checks as the offline CLI:
 
 ```bash
-uv run investorch doctor
-uv run investorch doctor --json
-uv run investorch upgrade check
+uv run --locked investorch doctor
+uv run --locked investorch doctor --json
+uv run --locked investorch upgrade check
 ```
 
 Doctor is read-only and does not call model providers, connect MCP servers, update Skills or migrate databases. Exit codes are `0` for healthy/disabled, `1` for warning/unknown, and `2` for error. Follow [Upgrade](docs/Upgrade.md) and [Backup and Recovery](docs/Backup_and_Recovery.md) for offline backups, verification, and recovery into a separate root. Raw credential configuration is excluded from default backups.
@@ -141,10 +155,10 @@ Install the optional extra only when using the current CNEquity CLI passthrough,
 uv sync --locked --extra cnequity
 ```
 
-For a GitHub Release wheel installation, include the extra when installing the tool:
+For a qualified 0.2.0 wheel installation, include the extra when installing the tool:
 
 ```bash
-uv tool install './investorch-0.1.0-py3-none-any.whl[cnequity]'
+uv tool install './investorch-0.2.0-py3-none-any.whl[cnequity]'
 ```
 
 CNEquity is an optional data backend. Broader integration is deferred until its upstream behavior is sufficiently stable.
@@ -158,11 +172,11 @@ Native RQAlpha backtests read the bundle configured by `backtest.rqalpha_bundle_
 Download RQAlpha's monthly bundle and check it before running a backtest:
 
 ```bash
-uv run rqalpha download-bundle -d ~/.investorch/.rqalpha
-uv run rqalpha check-bundle -d ~/.investorch/.rqalpha
+uv run --locked rqalpha download-bundle -d ~/.investorch/.rqalpha
+uv run --locked rqalpha check-bundle -d ~/.investorch/.rqalpha
 ```
 
-RQDatac users can update the same directory with `rqalpha update-bundle`; run `uv run rqalpha update-bundle --help` for its connection and concurrency options.
+RQDatac users can update the same directory with `rqalpha update-bundle`; run `uv run --locked rqalpha update-bundle --help` for its connection and concurrency options.
 
 ### CNEquity lake
 
@@ -171,33 +185,33 @@ RQDatac users can update the same directory with `rqalpha update-bundle`; run `u
 Bootstrap and validate the data configuration:
 
 ```bash
-uv run investorch data config init
-uv run investorch data config validate
-uv run investorch data doctor
+uv run --locked investorch data config init
+uv run --locked investorch data config validate
+uv run --locked investorch data doctor
 ```
 
 Create the initial lake. The `quick` profile fetches the latest three years for every symbol; use `--profile full` when full history is required:
 
 ```bash
-uv run investorch data init --profile quick
+uv run --locked investorch data init --profile quick
 ```
 
 Run routine maintenance and inspect data health:
 
 ```bash
-uv run investorch data run daily
-uv run investorch data status --datasets
-uv run investorch data verify
-uv run investorch data audit --full
+uv run --locked investorch data run daily
+uv run --locked investorch data status --datasets
+uv run --locked investorch data verify
+uv run --locked investorch data audit --full
 ```
 
 Preview removable staging and snapshots before cleanup:
 
 ```bash
-uv run investorch data clean --dry-run
+uv run --locked investorch data clean --dry-run
 ```
 
-Use `uv run investorch data --help` and `<command> --help` for backfill, retry, compaction, source probes, catalog, statistics, query, and other upstream operations.
+Use `uv run --locked investorch data --help` and `<command> --help` for backfill, retry, compaction, source probes, catalog, statistics, query, and other upstream operations.
 
 ## Local-first boundary
 
@@ -255,6 +269,8 @@ InvestOrch Agent is a human-led personal research project developed with AI assi
 
 ## Documentation
 
+- [0.2.0 release preparation](docs/releases/0.2.0.md) and [Changelog](CHANGELOG.md).
+- [Upgrade](docs/Upgrade.md) and [Backup and Recovery](docs/Backup_and_Recovery.md).
 - [Architecture](docs/InvestOrch_Agent_Architecture.md): the implemented system and current boundaries.
 - [Runtime / Session Execution Model](docs/Runtime_Session_Execution_Model.md): lifecycle and concurrency rules.
 - [Product Roadmap](docs/InvestOrch_Agent_Product_Roadmap.md): confirmed directions, open decisions, and candidate themes.
