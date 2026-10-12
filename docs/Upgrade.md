@@ -4,13 +4,15 @@
 
 This guide covers upgrading to the unreleased 0.2.0 candidate. See the [release preparation notes](releases/0.2.0.md) for scope and package names.
 
+Use Python 3.12–3.14 (`>=3.12,<3.15`). Python 3.15 is excluded from this preparation candidate because complete prebuilt upstream dependency coverage is not yet available. The commands below select Python 3.12 explicitly.
+
 ## Choose the preflight command
 
 `doctor`, `upgrade check` and `backup` are new in 0.2.0. When upgrading a 0.1.0 tool installation, leave the previous tool installed and run the candidate's offline commands from the [preparation source checkout](../README.md#020-preparation-source):
 
 ```sh
-uv run --project /path/to/investorch-agent --locked investorch doctor --root "$HOME/.investorch"
-uv run --project /path/to/investorch-agent --locked investorch upgrade check --root "$HOME/.investorch" --json
+uv run --project /path/to/investorch-agent --locked --python 3.12 investorch doctor --root "$HOME/.investorch"
+uv run --project /path/to/investorch-agent --locked --python 3.12 investorch upgrade check --root "$HOME/.investorch" --json
 ```
 
 For an already installed 0.2.0 candidate, run:
@@ -26,7 +28,7 @@ Both commands are offline and read-only. They do not create an ApplicationHost, 
 
 1. Inspect preflight results and stop all clients/writers. Preserve a record of Session IDs/titles, Portfolio IDs/Ledger counts/holdings/cash, Skill enabled state, and important Workspace files for comparison.
 2. Create and verify an [offline backup](Backup_and_Recovery.md) using the candidate's CLI. The output directory must exist and the archive must be outside the Root. Keep the archive and previous package until the upgraded state has been checked. If configuration validation prevents backup creation, first make a complete offline copy of the stopped Root, including all SQLite sidecars, before repairing configuration. That copy includes raw credentials and must be kept private.
-3. Install the selected, checksum-verified candidate using your existing installation method. For a uv tool installation, use `uv tool install --force ./investorch-0.2.0-py3-none-any.whl`; retain `[cnequity]` when replacing a tool that uses that extra. For a source installation, select the preparation branch and run `uv sync --locked` with the same extras. Package installation does not itself migrate application data.
+3. Install the selected, checksum-verified candidate using your existing installation method. For a uv tool installation, use `uv tool install --python 3.12 --force ./investorch-0.2.0-py3-none-any.whl`; retain `[cnequity]` when replacing a tool that uses that extra. For a source installation, select the preparation branch and run `uv sync --locked --python 3.12` with the same extras. Package installation does not itself migrate application data.
 4. Resolve any explicit Portfolio migration requirement below.
 5. Run `investorch --update` when you want the new package's managed built-in Skill contents, then restart.
 6. Run Doctor again, open Web/TUI/plain, and compare the records captured in step 1. Verify the configured model connection and MCP/data integrations separately; offline checks and archive verification do not prove external connectivity.

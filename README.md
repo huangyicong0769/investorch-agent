@@ -31,11 +31,13 @@ The core targets macOS and Linux. Agent shell-command execution through `exec_co
 
 ## Requirements
 
-- Python 3.12 or newer
+- Python 3.12–3.14 (`>=3.12,<3.15`)
 - [uv](https://docs.astral.sh/uv/)
 - A Responses-compatible model endpoint, model name, and API credential for Agent operation
 
 The runtime uses the [OpenAI Agents SDK](https://github.com/openai/openai-agents-python) Responses model adapter. Fresh source installations have no preselected provider. Web Setup accepts the initial model connection and credential; Settings allows the Main, Title, Activity, Permission and Compact roles to use independent configurations.
+
+The preparation candidate does not support Python 3.15: its upstream dependency set does not yet have complete prebuilt wheel coverage. Use Python 3.12 for the installation commands below.
 
 ## Installation
 
@@ -44,7 +46,7 @@ The runtime uses the [OpenAI Agents SDK](https://github.com/openai/openai-agents
 ```bash
 git clone --branch release/0.2.0-preparation https://github.com/huangyicong0769/investorch-agent.git
 cd investorch-agent
-uv sync --locked
+uv sync --locked --python 3.12
 ```
 
 The examples below use the source-checkout form `uv run --locked investorch`. For a wheel tool installation, omit `uv run --locked` and start each command with `investorch`.
@@ -66,7 +68,7 @@ grep 'investorch-0.2.0-py3-none-any.whl$' SHA256SUMS | sha256sum -c -
 Then install the wheel as a uv-managed tool:
 
 ```bash
-uv tool install ./investorch-0.2.0-py3-none-any.whl
+uv tool install --python 3.12 ./investorch-0.2.0-py3-none-any.whl
 ```
 
 The installed command is `investorch`. For an existing tool installation, complete the backup and preflight steps in [Upgrade](docs/Upgrade.md) before replacing it. The published [0.1.0 release](https://github.com/huangyicong0769/investorch-agent/releases/tag/v0.1.0) retains its own [historical instructions](docs/releases/0.1.0.md).
@@ -152,13 +154,13 @@ Doctor is read-only and does not call model providers, connect MCP servers, upda
 Install the optional extra only when using the current CNEquity CLI passthrough, read-only MCP integration, or RQAlpha overlay:
 
 ```bash
-uv sync --locked --extra cnequity
+uv sync --locked --python 3.12 --extra cnequity
 ```
 
 For a qualified 0.2.0 wheel installation, include the extra when installing the tool:
 
 ```bash
-uv tool install './investorch-0.2.0-py3-none-any.whl[cnequity]'
+uv tool install --python 3.12 './investorch-0.2.0-py3-none-any.whl[cnequity]'
 ```
 
 CNEquity is an optional data backend. Broader integration is deferred until its upstream behavior is sufficiently stable.

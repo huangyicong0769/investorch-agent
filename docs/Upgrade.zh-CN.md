@@ -4,13 +4,15 @@
 
 本文适用于尚未发布的 0.2.0 候选版本。版本范围与软件包名称见[发布准备说明](releases/0.2.0.zh-CN.md)。
 
+使用 Python 3.12–3.14（`>=3.12,<3.15`）。本准备版本排除 Python 3.15，因为上游依赖尚无完整预编译 wheel 覆盖。下方命令显式选择 Python 3.12。
+
 ## 选择预检命令
 
 `doctor`、`upgrade check` 和 `backup` 是 0.2.0 新命令。升级 0.1.0 工具安装时，先保留旧工具，从[准备分支源码](../README.zh-CN.md#020-准备分支源码)运行候选版本的离线命令：
 
 ```sh
-uv run --project /path/to/investorch-agent --locked investorch doctor --root "$HOME/.investorch"
-uv run --project /path/to/investorch-agent --locked investorch upgrade check --root "$HOME/.investorch" --json
+uv run --project /path/to/investorch-agent --locked --python 3.12 investorch doctor --root "$HOME/.investorch"
+uv run --project /path/to/investorch-agent --locked --python 3.12 investorch upgrade check --root "$HOME/.investorch" --json
 ```
 
 已经安装 0.2.0 候选版本时，运行：
@@ -26,7 +28,7 @@ investorch upgrade check --json
 
 1. 阅读预检结果，停止所有客户端和其他写入者。记录 Session ID/标题、Portfolio ID/Ledger 数量/持仓/现金、Skill enabled 状态和关键 Workspace 文件，用于升级后比较。
 2. 使用候选版本 CLI 创建并校验[离线备份](Backup_and_Recovery.zh-CN.md)。输出目录须已存在，归档须位于 Root 之外。升级后的数据核对完成前，保留归档和旧软件包。若配置校验阻止备份创建，先完整复制已停止的 Root，包括全部 SQLite sidecar，再修复配置；完整副本包含原始凭据，须私密保存。
-3. 沿用原安装方式安装已校验 checksum 的候选包。uv 工具安装使用 `uv tool install --force ./investorch-0.2.0-py3-none-any.whl`；原工具使用 CNEquity extra 时保留 `[cnequity]`。源码安装切到准备分支，以原 extras 执行 `uv sync --locked`。安装软件包本身不迁移应用数据。
+3. 沿用原安装方式安装已校验 checksum 的候选包。uv 工具安装使用 `uv tool install --python 3.12 --force ./investorch-0.2.0-py3-none-any.whl`；原工具使用 CNEquity extra 时保留 `[cnequity]`。源码安装切到准备分支，以原 extras 执行 `uv sync --locked --python 3.12`。安装软件包本身不迁移应用数据。
 4. 按下文处理 Portfolio 显式迁移要求。
 5. 需要替换为新包内置 Skill 时执行 `investorch --update`，随后重启。
 6. 再运行 Doctor，启动 Web/TUI/plain，与第 1 步记录逐项比较。单独验证模型连接与 MCP/数据集成；离线检查和归档校验不代表外部连接已经成功。

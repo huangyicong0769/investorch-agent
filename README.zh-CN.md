@@ -31,11 +31,13 @@ InvestOrch Agent 是面向个人投资者的本地优先、human-in-the-loop 投
 
 ## 环境要求
 
-- Python 3.12 或更高版本
+- Python 3.12–3.14（`>=3.12,<3.15`）
 - [uv](https://docs.astral.sh/uv/)
 - 用于 Agent 运行的 Responses 兼容模型 Endpoint、模型名称和 API 凭据
 
 Runtime 使用 [OpenAI Agents SDK](https://github.com/openai/openai-agents-python) 的 Responses 模型适配器。源码新安装不预选 Provider；Web Setup 接收初始模型连接和凭据，随后可在 Settings 为 Main、Title、Activity、Permission、Compact 各角色独立设置。
+
+本准备版本不支持 Python 3.15，其上游依赖尚无完整预编译 wheel 覆盖。下方安装命令使用 Python 3.12。
 
 ## 安装
 
@@ -44,7 +46,7 @@ Runtime 使用 [OpenAI Agents SDK](https://github.com/openai/openai-agents-pytho
 ```bash
 git clone --branch release/0.2.0-preparation https://github.com/huangyicong0769/investorch-agent.git
 cd investorch-agent
-uv sync --locked
+uv sync --locked --python 3.12
 ```
 
 下文使用源码检出形式 `uv run --locked investorch`。如果通过 wheel 安装，请省略 `uv run --locked`，直接以 `investorch` 开始每条命令。
@@ -66,7 +68,7 @@ grep 'investorch-0.2.0-py3-none-any.whl$' SHA256SUMS | sha256sum -c -
 校验通过后，将 wheel 安装为由 uv 管理的工具：
 
 ```bash
-uv tool install ./investorch-0.2.0-py3-none-any.whl
+uv tool install --python 3.12 ./investorch-0.2.0-py3-none-any.whl
 ```
 
 安装后的命令是 `investorch`。替换已有工具安装前，先完成[升级说明](docs/Upgrade.zh-CN.md)中的备份和预检。已发布的 [0.1.0 Release](https://github.com/huangyicong0769/investorch-agent/releases/tag/v0.1.0)保留独立的[历史安装说明](docs/releases/0.1.0.zh-CN.md)。
@@ -152,13 +154,13 @@ Doctor 只读，不调用模型、连接 MCP、更新 Skill 或迁移数据库�
 仅在使用当前 CNEquity CLI passthrough、只读 MCP 集成或 RQAlpha 覆盖层时安装可选 extra：
 
 ```bash
-uv sync --locked --extra cnequity
+uv sync --locked --python 3.12 --extra cnequity
 ```
 
 如果使用已验证的 0.2.0 wheel，请在安装工具时启用 extra：
 
 ```bash
-uv tool install './investorch-0.2.0-py3-none-any.whl[cnequity]'
+uv tool install --python 3.12 './investorch-0.2.0-py3-none-any.whl[cnequity]'
 ```
 
 CNEquity 是可选数据后端。更广泛的集成要等待上游行为足够稳定后再评估。
