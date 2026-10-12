@@ -2,7 +2,7 @@
 
 [English](CHANGELOG.md)
 
-## 0.2.0（未发布）
+## 0.2.0
 
 ### Portfolio 与审批
 
@@ -12,12 +12,15 @@
 - 在固定的轮次边界审查完整有效用户指令历史；历史超限时压缩授权上下文，压缩失败转人工审批。要求会计事实有依据、费用显式提供。
 - 使用支持账户归属的 Portfolio schema v6，经备份迁移保留原会计事实。v3–v5 必须先停止旧 live deployment，再显式迁移。
 
-### Skills 与图片
+### Skills
 
 - 新增六个带版本的 Workspace Skill、注册/来源记录、启动发现和按需加载。
 - 新增独立候选安全审查和经过审批的安装、删除与启停工作流，并提供 Web 列表/详情与 Create/Install/Edit/Fork Session 入口。
 - 移除产品指南同步参数 `--sync` / `--sync-force`，使用确定性 `investorch --update` 更新内置 Skill，定制通过 fork 完成；保留用户 Memory。
 - 将配置、Portfolio、RQAlpha 方法从 Memory/Core prompt 迁入 Skill，新增供人工部署的大 QMT 策略编写指导。
+
+### 图片对话
+
 - 新增端到端图片对话、通过 `explore` 读取 Workspace 图片、内联历史与点击加载外部图片。
 
 ### Setup、设置与恢复
@@ -35,7 +38,7 @@
 - 允许 Linux 启动 ApplicationHost，Agent `exec_command` 仍只支持 macOS。
 - Portfolio 写入沿用审批，Web Portfolio 页面只读，QMT 部署由人执行。本版本不包含实盘下单和券商对账。
 
-安装、升级和发布要求见 [0.2.0 发布准备说明](docs/releases/0.2.0.zh-CN.md)。
+安装和升级步骤见 [0.2.0 发行说明](docs/releases/0.2.0.zh-CN.md)。
 
 ## 0.1.0
 

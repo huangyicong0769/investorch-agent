@@ -2,20 +2,20 @@
 
 [简体中文](Upgrade.zh-CN.md)
 
-This guide covers upgrading to the unreleased 0.2.0 candidate. See the [release preparation notes](releases/0.2.0.md) for scope and package names.
+This guide covers upgrading to 0.2.0. See the [release notes](releases/0.2.0.md) for scope and package names.
 
-Use Python 3.12–3.14 (`>=3.12,<3.15`). Python 3.15 is excluded from this preparation candidate because complete prebuilt upstream dependency coverage is not yet available. The commands below select Python 3.12 explicitly.
+Use Python 3.12–3.14 (`>=3.12,<3.15`). The commands below select Python 3.12 explicitly.
 
 ## Choose the preflight command
 
-`doctor`, `upgrade check` and `backup` are new in 0.2.0. When upgrading a 0.1.0 tool installation, leave the previous tool installed and run the candidate's offline commands from the [preparation source checkout](../README.md#020-preparation-source):
+`doctor`, `upgrade check` and `backup` are new in 0.2.0. When upgrading a 0.1.0 tool installation, leave the previous tool installed and run the 0.2.0 offline commands from a [source checkout](../README.md#source-checkout):
 
 ```sh
 uv run --project /path/to/investorch-agent --locked --python 3.12 investorch doctor --root "$HOME/.investorch"
 uv run --project /path/to/investorch-agent --locked --python 3.12 investorch upgrade check --root "$HOME/.investorch" --json
 ```
 
-For an already installed 0.2.0 candidate, run:
+For an already installed 0.2.0 version, run:
 
 ```sh
 investorch doctor
@@ -27,8 +27,8 @@ Both commands are offline and read-only. They do not create an ApplicationHost, 
 ## Recommended sequence
 
 1. Inspect preflight results and stop all clients/writers. Preserve a record of Session IDs/titles, Portfolio IDs/Ledger counts/holdings/cash, Skill enabled state, and important Workspace files for comparison.
-2. Create and verify an [offline backup](Backup_and_Recovery.md) using the candidate's CLI. The output directory must exist and the archive must be outside the Root. Keep the archive and previous package until the upgraded state has been checked. If configuration validation prevents backup creation, first make a complete offline copy of the stopped Root, including all SQLite sidecars, before repairing configuration. That copy includes raw credentials and must be kept private.
-3. Install the selected, checksum-verified candidate using your existing installation method. For a uv tool installation, use `uv tool install --python 3.12 --force ./investorch-0.2.0-py3-none-any.whl`; retain `[cnequity]` when replacing a tool that uses that extra. For a source installation, select the preparation branch and run `uv sync --locked --python 3.12` with the same extras. Package installation does not itself migrate application data.
+2. Create and verify an [offline backup](Backup_and_Recovery.md) using the 0.2.0 CLI. The output directory must exist and the archive must be outside the Root. Keep the archive and previous package until the upgraded state has been checked. If configuration validation prevents backup creation, first make a complete offline copy of the stopped Root, including all SQLite sidecars, before repairing configuration. That copy includes raw credentials and must be kept private.
+3. Install the checksum-verified 0.2.0 package using your existing installation method. For a uv tool installation, use `uv tool install --python 3.12 --force ./investorch-0.2.0-py3-none-any.whl`; retain `[cnequity]` when replacing a tool that uses that extra. For a source installation, check out `v0.2.0` and run `uv sync --locked --python 3.12` with the same extras. Package installation does not itself migrate application data.
 4. Resolve any explicit Portfolio migration requirement below.
 5. Run `investorch --update` when you want the new package's managed built-in Skill contents, then restart.
 6. Run Doctor again, open Web/TUI/plain, and compare the records captured in step 1. Verify the configured model connection and MCP/data integrations separately; offline checks and archive verification do not prove external connectivity.
@@ -79,6 +79,6 @@ Fork built-ins under a new name for customization. Doctor reports missing/invali
 
 If a pre-existing custom/unregistered Skill uses a new built-in name, initialization/update stops rather than overwriting it. Preserve and rename or move that Skill before retrying.
 
-## Roll back a candidate
+## Roll back an upgrade
 
 Stop all writers. Restore a verified pre-upgrade backup into a separate empty Root following [Backup and Recovery](Backup_and_Recovery.md), then reinstall the retained prior package. A default backup requires re-entering excluded credentials and MCP settings. Do not point an older package at upgraded storage or replace individual SQLite files while the application is running. Compare the restored records before using the restored Root as `~/.investorch`.

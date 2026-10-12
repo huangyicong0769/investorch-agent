@@ -2,7 +2,7 @@
 
 [简体中文](CHANGELOG.zh-CN.md)
 
-## 0.2.0 (unreleased)
+## 0.2.0
 
 ### Portfolio and approval
 
@@ -12,12 +12,15 @@
 - Review complete active user instruction history at a frozen turn boundary. Compact oversized authorization history, and require manual review if compaction fails. Require grounded material accounting facts and explicitly supplied fees.
 - Adopt Portfolio schema v6 with account attribution; preserve existing accounting facts through backed-up migration. Schemas v3–v5 require explicit migration after legacy live deployments are stopped.
 
-### Skills and images
+### Skills
 
 - Add six versioned Workspace Skills, registration/provenance, startup discovery, and on-demand loading.
 - Add independent candidate safety review and approved installation, removal, and enablement workflows, plus Web catalog/details and Create/Install/Edit/Fork Session entry points.
 - Remove `--sync` and `--sync-force` product-guide synchronization; use deterministic `investorch --update` for managed built-ins and forks for customization. User Memory is preserved.
 - Move configuration, Portfolio, and RQAlpha methodology out of Memory/Core prompts. Add Big QMT authoring guidance for human deployment.
+
+### Image conversations
+
 - Add end-to-end image conversations, Workspace image reading through `explore`, inline history, and click-to-load external images.
 
 ### Setup, settings and recovery
@@ -35,7 +38,7 @@
 - Allow ApplicationHost startup on Linux while keeping Agent `exec_command` restricted to macOS.
 - Keep Portfolio writes approval-gated, Web Portfolio pages read-only, and QMT deployment human-operated. Live order execution and broker reconciliation are outside this release.
 
-See the [0.2.0 release preparation notes](docs/releases/0.2.0.md) for installation, upgrade and publication requirements.
+See the [0.2.0 release notes](docs/releases/0.2.0.md) for installation and upgrade instructions.
 
 ## 0.1.0
 

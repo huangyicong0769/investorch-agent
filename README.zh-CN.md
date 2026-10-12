@@ -4,7 +4,7 @@
 
 InvestOrch Agent 是面向个人投资者的本地优先、human-in-the-loop 投资编排 Agent。长期目标是支持从研究、策略开发和回测，到组合决策、交易、持仓监控与复盘的完整流程。
 
-本分支正在准备 **0.2.0**，尚未发布。下方安装和操作说明适用于 0.2.0；软件包验证、真实应用测试与人工 review 完成后才进入发布。InvestOrch 不执行实盘交易。
+InvestOrch Agent **0.2.0** 提供 Web、TUI 和 plain console，支持 Portfolio 会计、受管 Skills、图片对话与配置/恢复工具。
 
 ## 0.2.0 包含
 
@@ -21,13 +21,13 @@ InvestOrch Agent 是面向个人投资者的本地优先、human-in-the-loop 投
 - Web 图片对话与 Workspace 读图。
 - Web Setup、持久 Settings、MCP Integrations、System Status、离线诊断与备份创建/验证。
 
-券商账户镜像、QMT Gateway、实盘交易、统一投资数据层和 Multi-Agent 编排属于后续工作。详见 [0.2.0 发布准备说明](docs/releases/0.2.0.zh-CN.md)和[产品路线图](docs/InvestOrch_Agent_Product_Roadmap.zh-CN.md)。
+券商账户镜像、QMT Gateway、实盘交易、统一投资数据层和 Multi-Agent 编排属于后续工作。详见 [0.2.0 发行说明](docs/releases/0.2.0.zh-CN.md)和[产品路线图](docs/InvestOrch_Agent_Product_Roadmap.zh-CN.md)。
 
-## 状态与兼容性
+## 兼容性
 
-0.2.0 是预览版本。CLI、配置、存储格式和 Tool 接口可能在后续 0.x 版本中调整。已有安装应按[升级说明](docs/Upgrade.zh-CN.md)操作，包括 Portfolio schema v6 的要求。
+CLI、配置、存储格式和 Tool 接口可能在后续 0.x 版本中调整。已有安装应按[升级说明](docs/Upgrade.zh-CN.md)操作，包括 Portfolio schema v6 的要求。
 
-核心应用面向 macOS 和 Linux。Agent 的 `exec_command` 命令执行目前仅支持 macOS；Linux 能启动应用不代表支持该 Tool。源码构建或 CI 通过不代表所有应用流程已经完成发布验收。未来通过运行在 Windows/QMT 环境中的 Gateway 连接 QMT。
+核心应用支持 macOS 和 Linux。Agent 的 `exec_command` 命令执行仅支持 macOS。未来通过运行在 Windows/QMT 环境中的 Gateway 连接 QMT。
 
 ## 环境要求
 
@@ -37,23 +37,23 @@ InvestOrch Agent 是面向个人投资者的本地优先、human-in-the-loop 投
 
 Runtime 使用 [OpenAI Agents SDK](https://github.com/openai/openai-agents-python) 的 Responses 模型适配器。源码新安装不预选 Provider；Web Setup 接收初始模型连接和凭据，随后可在 Settings 为 Main、Title、Activity、Permission、Compact 各角色独立设置。
 
-本准备版本不支持 Python 3.15，其上游依赖尚无完整预编译 wheel 覆盖。下方安装命令使用 Python 3.12。
+下方安装命令使用 Python 3.12。
 
 ## 安装
 
-### 0.2.0 准备分支源码
+### 源码安装
 
 ```bash
-git clone --branch release/0.2.0-preparation https://github.com/huangyicong0769/investorch-agent.git
+git clone --branch v0.2.0 https://github.com/huangyicong0769/investorch-agent.git
 cd investorch-agent
 uv sync --locked --python 3.12
 ```
 
 下文使用源码检出形式 `uv run --locked investorch`。如果通过 wheel 安装，请省略 `uv run --locked`，直接以 `investorch` 开始每条命令。
 
-### 0.2.0 候选 wheel
+### 发行 wheel
 
-准备的软件包名称为 `investorch-0.2.0-py3-none-any.whl`、`investorch-0.2.0.tar.gz` 和 `SHA256SUMS`。准备阶段只使用从选定候选 commit 构建并验证的 artifact；正式发布后从 [GitHub Releases](https://github.com/huangyicong0769/investorch-agent/releases) 下载。
+从 [0.2.0 GitHub Release](https://github.com/huangyicong0769/investorch-agent/releases/tag/v0.2.0) 下载 `investorch-0.2.0-py3-none-any.whl`、`investorch-0.2.0.tar.gz` 和 `SHA256SUMS`。
 
 在 wheel 与校验文件所在的目录中执行：
 
@@ -98,8 +98,6 @@ uv run --locked investorch web
 uv run --locked investorch web --port 8000
 ```
 
-Web 对话支持选择、粘贴或拖放 JPEG、PNG、GIF、WebP，也支持纯图片消息。图片随 Session 历史保存，Agent 可通过 `explore` 读取 Workspace 图片；外部图片经点击才加载。图片限制在 `[images]` 中配置，重启生效，详见[图片架构说明](docs/InvestOrch_Agent_Architecture.zh-CN.md#对话图片内容)。
-
 模型设置完成后，TUI 是同等支持的一级界面：
 
 ```bash
@@ -134,6 +132,10 @@ Main Agent 在应用启动时获得 metadata，并按需加载正文。安装、
 
 QMT Skill 生成供用户审查、人工部署到大 QMT 的策略产物；InvestOrch 不执行 QMT 下单。
 
+## 图片对话
+
+Web 对话支持选择、粘贴或拖放 JPEG、PNG、GIF、WebP，也支持纯图片消息。图片随 Session 历史保存，Agent 可通过 `explore` 读取 Workspace 图片；外部图片经点击才加载。图片限制在 `[images]` 中配置，重启生效，详见[图片架构说明](docs/InvestOrch_Agent_Architecture.zh-CN.md#对话图片内容)。
+
 ## Settings 与 System Status
 
 - **Settings** 使用 Python Schema 提供的类型、默认值、约束和生命周期编辑持久配置。Reset 删除本地覆盖；热更新影响后续适用操作，需要重启的修改保存为下次启动值。临时 Run 默认值仅属于当前进程。
@@ -157,7 +159,7 @@ Doctor 只读，不调用模型、连接 MCP、更新 Skill 或迁移数据库�
 uv sync --locked --python 3.12 --extra cnequity
 ```
 
-如果使用已验证的 0.2.0 wheel，请在安装工具时启用 extra：
+使用 wheel 安装时启用 extra：
 
 ```bash
 uv tool install --python 3.12 './investorch-0.2.0-py3-none-any.whl[cnequity]'
@@ -271,7 +273,7 @@ InvestOrch Agent 是由人主导、AI 辅助开发的个人研究项目。个人
 
 ## 文档
 
-- [0.2.0 发布准备](docs/releases/0.2.0.zh-CN.md)与[变更记录](CHANGELOG.zh-CN.md)。
+- [0.2.0 发行说明](docs/releases/0.2.0.zh-CN.md)与[变更记录](CHANGELOG.zh-CN.md)。
 - [升级说明](docs/Upgrade.zh-CN.md)与[备份和恢复](docs/Backup_and_Recovery.zh-CN.md)。
 - [架构](docs/InvestOrch_Agent_Architecture.zh-CN.md)：已实现系统与当前边界。
 - [Runtime / Session 执行模型](docs/Runtime_Session_Execution_Model.zh-CN.md)：生命周期与并发规则。

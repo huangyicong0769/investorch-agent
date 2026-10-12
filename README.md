@@ -4,7 +4,7 @@
 
 InvestOrch Agent is a local-first, human-in-the-loop investment orchestration agent for an individual investor. Its long-term goal is to support the full path from research, strategy development, and backtesting to portfolio decisions, trading, position monitoring, and review.
 
-This branch prepares **0.2.0**, an unreleased preview. The installation and operating instructions below describe 0.2.0. Release publication follows package qualification, real application testing and human review. InvestOrch does not execute live trades.
+InvestOrch Agent **0.2.0** provides Web, TUI and plain-console clients, Portfolio accounting, managed Skills, image conversations, and configuration/recovery tools.
 
 ## What 0.2.0 includes
 
@@ -21,13 +21,13 @@ This branch prepares **0.2.0**, an unreleased preview. The installation and oper
 - Web image conversations and Workspace image reading.
 - Web Setup, persistent Settings, MCP Integrations, System Status, offline diagnostics, and backup create/verify.
 
-Broker/account mirroring, a QMT gateway, live trading, a unified investment data layer, and Multi-Agent orchestration remain future work. See the [0.2.0 release preparation notes](docs/releases/0.2.0.md) and [Product Roadmap](docs/InvestOrch_Agent_Product_Roadmap.md).
+Broker/account mirroring, a QMT gateway, live trading, a unified investment data layer, and Multi-Agent orchestration remain future work. See the [0.2.0 release notes](docs/releases/0.2.0.md) and [Product Roadmap](docs/InvestOrch_Agent_Product_Roadmap.md).
 
-## Status and compatibility
+## Compatibility
 
-0.2.0 is a preview. The CLI, configuration, storage formats, and Tool interfaces may change in later 0.x releases. Existing installations should follow [Upgrade](docs/Upgrade.md), including the Portfolio schema v6 requirements.
+The CLI, configuration, storage formats, and Tool interfaces may change in later 0.x releases. Existing installations should follow [Upgrade](docs/Upgrade.md), including the Portfolio schema v6 requirements.
 
-The core targets macOS and Linux. Agent shell-command execution through `exec_command` currently requires macOS; Linux startup does not enable that tool. A source build or CI result alone does not establish that every application flow has passed release qualification. Future QMT connectivity will use a gateway running with QMT on Windows.
+The core supports macOS and Linux. Agent shell-command execution through `exec_command` supports macOS only. Future QMT connectivity will use a gateway running with QMT on Windows.
 
 ## Requirements
 
@@ -37,23 +37,23 @@ The core targets macOS and Linux. Agent shell-command execution through `exec_co
 
 The runtime uses the [OpenAI Agents SDK](https://github.com/openai/openai-agents-python) Responses model adapter. Fresh source installations have no preselected provider. Web Setup accepts the initial model connection and credential; Settings allows the Main, Title, Activity, Permission and Compact roles to use independent configurations.
 
-The preparation candidate does not support Python 3.15: its upstream dependency set does not yet have complete prebuilt wheel coverage. Use Python 3.12 for the installation commands below.
+The installation commands below select Python 3.12.
 
 ## Installation
 
-### 0.2.0 preparation source
+### Source checkout
 
 ```bash
-git clone --branch release/0.2.0-preparation https://github.com/huangyicong0769/investorch-agent.git
+git clone --branch v0.2.0 https://github.com/huangyicong0769/investorch-agent.git
 cd investorch-agent
 uv sync --locked --python 3.12
 ```
 
 The examples below use the source-checkout form `uv run --locked investorch`. For a wheel tool installation, omit `uv run --locked` and start each command with `investorch`.
 
-### 0.2.0 candidate wheel
+### Release wheel
 
-The prepared package names are `investorch-0.2.0-py3-none-any.whl`, `investorch-0.2.0.tar.gz` and `SHA256SUMS`. During preparation, use only artifacts produced and qualified from the selected candidate commit. Once published, download them from [GitHub Releases](https://github.com/huangyicong0769/investorch-agent/releases).
+Download `investorch-0.2.0-py3-none-any.whl`, `investorch-0.2.0.tar.gz` and `SHA256SUMS` from the [0.2.0 GitHub Release](https://github.com/huangyicong0769/investorch-agent/releases/tag/v0.2.0).
 
 From the directory containing the wheel and checksum file:
 
@@ -98,8 +98,6 @@ uv run --locked investorch web
 uv run --locked investorch web --port 8000
 ```
 
-Web conversations accept JPEG, PNG, GIF and WebP by selection, paste or drop, including image-only messages. Images stay with Session history; `explore` lets the Agent read Workspace images. External images require a click to load. Configure limits under `[images]` and restart to apply them; see the [image architecture](docs/InvestOrch_Agent_Architecture.md#image-conversation-content).
-
 After model setup, the TUI is an equally supported interface:
 
 ```bash
@@ -134,6 +132,10 @@ The Main Agent receives metadata at application startup and loads relevant Skill
 
 QMT guidance creates strategy artifacts for human review and deployment in Big QMT; InvestOrch does not execute QMT orders.
 
+## Image conversations
+
+Web conversations accept JPEG, PNG, GIF and WebP by selection, paste or drop, including image-only messages. Images stay with Session history; `explore` lets the Agent read Workspace images. External images require a click to load. Configure limits under `[images]` and restart to apply them; see the [image architecture](docs/InvestOrch_Agent_Architecture.md#image-conversation-content).
+
 ## Settings and System Status
 
 - **Settings** edits persistent configuration using the Python Schema for types, defaults, constraints and lifecycle. Reset removes a local override. Hot changes apply to future applicable operations; restart-required changes are saved for the next start. Temporary Run defaults remain process-local.
@@ -157,7 +159,7 @@ Install the optional extra only when using the current CNEquity CLI passthrough,
 uv sync --locked --python 3.12 --extra cnequity
 ```
 
-For a qualified 0.2.0 wheel installation, include the extra when installing the tool:
+For a wheel installation, include the extra when installing the tool:
 
 ```bash
 uv tool install --python 3.12 './investorch-0.2.0-py3-none-any.whl[cnequity]'
@@ -271,7 +273,7 @@ InvestOrch Agent is a human-led personal research project developed with AI assi
 
 ## Documentation
 
-- [0.2.0 release preparation](docs/releases/0.2.0.md) and [Changelog](CHANGELOG.md).
+- [0.2.0 release notes](docs/releases/0.2.0.md) and [Changelog](CHANGELOG.md).
 - [Upgrade](docs/Upgrade.md) and [Backup and Recovery](docs/Backup_and_Recovery.md).
 - [Architecture](docs/InvestOrch_Agent_Architecture.md): the implemented system and current boundaries.
 - [Runtime / Session Execution Model](docs/Runtime_Session_Execution_Model.md): lifecycle and concurrency rules.
