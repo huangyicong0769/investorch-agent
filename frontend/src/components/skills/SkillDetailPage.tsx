@@ -11,6 +11,17 @@ import { RemoveSkillDialog, SkillActions } from './SkillActions'
 import { useSkillWorkflow } from './useSkillWorkflow'
 import { Button } from '@/components/ui/button'
 
+function SkillPreview({ text }: { text: string }) {
+  const frontmatter = /^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/.exec(text)?.[0]
+  return <>
+    {frontmatter ? <details className="mb-4 overflow-hidden rounded-lg border border-border bg-muted/30">
+      <summary className="cursor-pointer px-3 py-2 text-xs font-medium">Skill metadata</summary>
+      <pre className="max-h-64 max-w-full overflow-auto whitespace-pre-wrap break-words px-3 pb-3 text-xs leading-5 text-muted-foreground">{frontmatter}</pre>
+    </details> : null}
+    <MarkdownMessage text={frontmatter ? text.slice(frontmatter.length) : text} />
+  </>
+}
+
 function SkillDetail({ name }: { name: string }) {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
@@ -50,7 +61,7 @@ function SkillDetail({ name }: { name: string }) {
         <ErrorNotice error={content.error} fallback="This resource cannot be previewed as bounded UTF-8 text." />
         {content.isPending ? <p className="text-sm text-muted-foreground" role="status">Loading resource…</p> : null}
         {content.data?.truncated ? <p className="mb-3 text-xs text-muted-foreground">Preview truncated to the configured text limit.</p> : null}
-        {content.data?.content != null ? resource === 'SKILL.md' ? <MarkdownMessage text={content.data.content} /> : <pre className="max-w-full overflow-x-auto whitespace-pre-wrap break-words rounded-lg bg-muted p-4 text-xs leading-6">{content.data.content}</pre> : null}
+        {content.data?.content != null ? resource === 'SKILL.md' ? <SkillPreview text={content.data.content} /> : <pre className="max-w-full overflow-x-auto whitespace-pre-wrap break-words rounded-lg bg-muted p-4 text-xs leading-6">{content.data.content}</pre> : null}
       </section>}
       <RemoveSkillDialog error={remove.error} onClose={() => setConfirmRemoval(false)} onConfirm={() => remove.mutate()} pending={remove.isPending} skill={confirmRemoval ? skill : null} />
     </> : null}

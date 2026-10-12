@@ -129,6 +129,16 @@ try {
   const name = 'investorch-configuration'
   await page.getByRole('link', { name, exact: true }).click()
   await page.getByRole('heading', { name, exact: true }).waitFor()
+  const skillContent = (await json(`/api/skills/${name}`)).content
+  const frontmatter = /^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/.exec(skillContent)?.[0]
+  assert(frontmatter, 'The installed Skill must expose its original metadata')
+  assert.equal(await page.getByRole('heading', { name: /^name:/ }).count(), 0, 'Skill metadata must not become a Markdown heading')
+  const metadata = page.locator('details').filter({ hasText: 'Skill metadata' })
+  await metadata.locator('summary').click()
+  assert.equal(await metadata.locator('pre').textContent(), frontmatter, 'The metadata preview must preserve its complete original text')
+  await page.getByRole('heading', { name: 'Configure InvestOrch', exact: true }).waitFor()
+  await snapshot('skill-detail-metadata')
+  await metadata.locator('summary').click()
   if (!await page.getByLabel('Enabled', { exact: true }).isChecked()) {
     await change(`/api/skills/${name}`, 'PATCH', () => page.getByLabel('Enabled', { exact: true }).click())
     await page.getByText('Available', { exact: true }).waitFor()
@@ -146,7 +156,7 @@ try {
   await page.getByLabel('File', { exact: true }).selectOption('references/configuration.md')
   await page.locator('pre').filter({ hasText: 'Configuration' }).first().waitFor()
   await change(`/api/skills/${name}`, 'PATCH', () => page.getByLabel('Enabled', { exact: true }).click())
-  evidence.push('Six built-ins are listed; built-in menu offers only Fork; disabled Skills retain content/resource previews; enabled state persists with restart guidance.')
+  evidence.push('Six built-ins are listed; the complete original Skill metadata appears as compact plain text with a Markdown body; built-in menu offers only Fork; disabled Skills retain content/resource previews; enabled state persists with restart guidance.')
 
   await page.getByRole('link', { name: 'Settings', exact: true }).click()
   await page.getByRole('button', { name: 'Models', exact: true }).click()
@@ -215,7 +225,17 @@ try {
 
   await page.getByRole('link', { name: 'System Status', exact: true }).click()
   await page.getByRole('heading', { name: 'System Status', exact: true }).waitFor()
-  await change('/api/system', 'GET', () => page.getByRole('button', { name: 'Refresh', exact: true }).click())
+  const diagnostics = await change('/api/system', 'GET', () => page.getByRole('button', { name: 'Refresh', exact: true }).click())
+  const skillCheck = diagnostics.checks.find((check) => check.code === 'skills')
+  assert(skillCheck, 'System Status must inspect the installed Skills')
+  for (const [field, label] of [['invalid', 'Invalid Skills'], ['missing', 'Missing Skills'], ['builtin_drift', 'Changed built-ins']]) {
+    const names = skillCheck[field] ?? []
+    if (names.length) {
+      const list = page.getByRole('list', { name: label, exact: true })
+      await list.waitFor()
+      for (const name of names) await list.getByText(name, { exact: true }).waitFor()
+    }
+  }
   await page.setViewportSize({ width: 1440, height: 800 })
   await page.mouse.move(1000, 600)
   await page.mouse.wheel(0, 500)

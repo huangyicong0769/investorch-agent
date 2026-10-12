@@ -2,10 +2,30 @@ import { useQuery } from '@tanstack/react-query'
 import { RefreshCw } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
-import { systemQueryOptions } from '../../api/management'
+import { systemQueryOptions, type DiagnosticCheck } from '../../api/management'
 import { ErrorNotice } from '../management/Feedback'
 import { Button } from '@/components/ui/button'
 import { cn } from '../../lib/utils'
+
+type SkillDiagnosticCheck = DiagnosticCheck & {
+  invalid?: string[]
+  missing?: string[]
+  builtin_drift?: string[]
+}
+
+function SkillIssues({ check }: { check: SkillDiagnosticCheck }) {
+  if (check.code !== 'skills') return null
+  const groups = [
+    { label: 'Invalid Skills', names: check.invalid },
+    { label: 'Missing Skills', names: check.missing },
+    { label: 'Changed built-ins', names: check.builtin_drift },
+  ].filter((group) => group.names?.length)
+  if (!groups.length) return null
+  return <dl className="mt-3 space-y-3 text-sm">{groups.map(({ label, names }) => <div key={label}>
+    <dt className="font-medium">{label}</dt>
+    <dd className="mt-1"><ul aria-label={label} className="flex flex-wrap gap-1.5">{names?.map((name) => <li className="max-w-full break-all rounded bg-muted/60 px-2 py-1 text-xs" key={name}>{name}</li>)}</ul></dd>
+  </div>)}</dl>
+}
 
 export function SystemPage({ standalone = false }: { standalone?: boolean }) {
   const query = useQuery(systemQueryOptions())
@@ -29,6 +49,7 @@ export function SystemPage({ standalone = false }: { standalone?: boolean }) {
           <span className={cn('rounded-md px-2 py-1 text-[11px] font-semibold uppercase', check.status === 'error' ? 'bg-destructive/10 text-destructive' : check.status === 'warning' ? 'bg-amber-500/10 text-amber-700 dark:text-amber-400' : 'bg-muted text-muted-foreground')}>{check.status}</span>
         </div>
         {check.detail ? <p className="mt-2 break-words text-sm text-muted-foreground">{check.detail}</p> : null}
+        <SkillIssues check={check} />
         {check.remediation ? <p className="mt-3 break-words rounded-lg bg-muted/60 p-3 text-sm">{check.remediation}</p> : null}
       </section>)}
     </div>
