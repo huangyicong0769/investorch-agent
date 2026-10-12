@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import shutil
@@ -94,6 +95,13 @@ def complete_neutral_setup(origin: str) -> None:
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description="Smoke-test an installed InvestOrch distribution in disposable state.")
+    parser.add_argument(
+        "--expect-cnequity",
+        action="store_true",
+        help="Validate an explicit CNEquity extra installation; core installs must omit CNEquity by default.",
+    )
+    options = parser.parse_args()
     package_file = Path(investorch.__file__ or "").resolve()
     package_distribution = distribution("investorch")
     installed_package = Path(package_distribution.locate_file("investorch")).resolve()
@@ -122,12 +130,15 @@ def main() -> None:
     assert len(cnequity_requirements) == 1
     assert "cnequity==0.7.3" in cnequity_requirements[0]
     assert "extra ==" in cnequity_requirements[0]
+    cnequity_version = None
     try:
-        distribution("cnequity")
+        cnequity_distribution = distribution("cnequity")
     except PackageNotFoundError:
-        pass
+        assert not options.expect_cnequity, "Explicit CNEquity extra installation is missing"
     else:
-        raise AssertionError("CNEquity must not be installed by default")
+        assert options.expect_cnequity, "CNEquity must not be installed by default"
+        cnequity_version = cnequity_distribution.version
+        assert cnequity_version == "0.7.3", "Explicit CNEquity extra must remain at version 0.7.3"
     assert not (Path.cwd() / "pyproject.toml").exists()
     assert not (Path.cwd() / "src").exists()
 
@@ -195,7 +206,17 @@ def main() -> None:
                 ).read_bytes()
     print(
         json.dumps(
-            {"package": "passed", "production_setup": "passed", "same_process_host": "passed", "provider_requests": 0}
+            {
+                "package": "passed",
+                "production_setup": "passed",
+                "same_process_host": "passed",
+                "provider_requests": 0,
+                "cnequity": {
+                    "expected": options.expect_cnequity,
+                    "installed": cnequity_version is not None,
+                    "version": cnequity_version,
+                },
+            }
         )
     )
 
