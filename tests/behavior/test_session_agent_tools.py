@@ -143,3 +143,49 @@ async def test_sdk_output_stays_bounded_when_python_representation_expands_quote
     assert result["has_older"] is True
     assert [record["seq"] for record in result["records"]] == [3]
     await harness.runtime.aclose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("terminal_status", ["cancelled", "failed"])
+async def test_paused_accepted_queue_is_pending_but_host_restart_reports_current_idle(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, terminal_status: str
+) -> None:
+    harness = make_runtime_harness(
+        tmp_path, config_overrides={"backtest": {"use_cnequity": False}}, journal_run_ended=True
+    )
+    create_session(harness.config.sessions_db, "a")
+    set_session_title(harness.config.sessions_db, "a", "Persisted")
+    if terminal_status == "failed":
+        harness.agent_loop.fail_input("initial")
+    active = harness.runtime.start_run("a", "initial", run_options("queue"))
+    await harness.agent_loop.wait_until_started("a")
+    await harness.runtime.submit_follow_up("a", "accepted queue", run_options("queue"))
+    if terminal_status == "cancelled":
+        harness.runtime.cancel_run("a")
+        with pytest.raises(asyncio.CancelledError):
+            await active.task
+    else:
+        harness.agent_loop.complete("a")
+        with pytest.raises(RuntimeError, match="controlled Agent failure"):
+            await active.task
+    reads = SessionReadOperations(
+        config=harness.config, journal=harness.journal, get_runtime_snapshot=harness.runtime.session_snapshot
+    )
+    assert (await reads.list_sessions())["sessions"][0]["status"] == "pending"
+    assert harness.runtime.session_snapshot("a").queue_paused is True
+    assert (await reads.read_session("a"))["records"][0]["text"] == "initial"
+    await harness.runtime.aclose()
+
+    def unused_model(_config: object, _role: str) -> tuple:
+        return ScriptedModel(), ModelSettings()
+
+    async def unused_approval(_request: object, _reason: str | None) -> bool:
+        raise AssertionError("Reading after restart must not request approval")
+
+    monkeypatch.setattr("investorch.application.host.create_model", unused_model)
+    async with open_application_host(
+        harness.config, manual_approval_handler=unused_approval, create_initial_session=False, enable_activity=False
+    ) as host:
+        assert (await host.session_reads.list_sessions())["sessions"][0]["status"] == "idle"
+        history = await host.session_reads.read_session("a", view="events")
+        assert history["records"][-1]["status"] == terminal_status

@@ -1,3 +1,4 @@
+import asyncio
 import json
 import sqlite3
 from dataclasses import replace
@@ -9,9 +10,10 @@ from investorch.application.session_reads import SessionReadError, SessionReadOp
 from investorch.images import ImageContent, UserInput
 from investorch.journal import read_session_journal
 from investorch.output import AssistantMessage, ToolCalled, ToolOutput
-from investorch.storage import archive_session, create_session, set_session_branch_from, set_session_title
+from investorch.storage import archive_session, create_session, get_session, set_session_branch_from, set_session_title
 from tests.support.runtime import make_runtime_harness
 from tests.support.session_history import record_mixed_history
+from tests.support.sessions import make_session_harness
 
 
 @pytest.mark.asyncio
@@ -260,6 +262,9 @@ async def test_empty_history_is_distinct_from_an_unknown_exact_id_and_empty_snap
     assert await reads.read_session("session-exact") == expected
     with pytest.raises(SessionReadError, match="session_not_found"):
         await reads.read_session("session")
+    await harness.journal.record_user_message("orphan", "not a valid Session")
+    with pytest.raises(SessionReadError, match="session_not_found"):
+        await reads.read_session("orphan")
     await harness.journal.record_user_message("session-exact", "later")
     assert await reads.read_session("session-exact", snapshot_seq=0) == expected
     empty = await reads.read_session("session-exact", before_seq=1)
@@ -471,3 +476,40 @@ async def test_raw_events_preserve_unrecognized_fields_without_interpreting_them
     assert result["records"] == [event]
     assert result["omitted_fields"] == 0
     await harness.runtime.aclose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("operation", ["archive", "delete"])
+async def test_application_reads_race_with_lifecycle_operations_without_recreating_sessions(
+    tmp_path: Path, operation: str
+) -> None:
+    harness = make_session_harness(tmp_path)
+    session_id = await harness.operations.create()
+    await harness.runtime.journal.record_user_message(session_id, "durable input")
+    reads = SessionReadOperations(
+        config=harness.runtime.config,
+        journal=harness.runtime.journal,
+        get_runtime_snapshot=harness.runtime.runtime.session_snapshot,
+    )
+    mutation = harness.operations.archive if operation == "archive" else harness.operations.delete
+
+    result, mutation_result = await asyncio.gather(
+        reads.read_session(session_id), mutation(session_id), return_exceptions=True
+    )
+
+    assert mutation_result is None
+    if isinstance(result, SessionReadError):
+        assert operation == "delete"
+        assert result.code in {"session_not_found", "journal_unavailable"}
+    else:
+        assert isinstance(result, dict)
+        assert result["records"][0]["text"] == "durable input"
+    if operation == "delete":
+        assert get_session(harness.runtime.config.sessions_db, session_id) is None
+        assert await harness.runtime.journal.session_exists(session_id) is False
+        with pytest.raises(SessionReadError, match="session_not_found"):
+            await reads.read_session(session_id)
+    else:
+        assert (await reads.list_sessions())["sessions"] == []
+        assert (await reads.list_sessions(include_archived=True))["sessions"][0]["archived"] is True
+    await harness.runtime.runtime.aclose()
