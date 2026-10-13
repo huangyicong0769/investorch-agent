@@ -162,7 +162,7 @@ def _parse_journal_line(line: str | bytes, previous_seq: int, line_number: int, 
     if not complete:
         raise JournalInvalidError(f"Session journal has an incomplete line {line_number}: {location}")
     try:
-        record = json.loads(line)
+        record = json.loads(line.decode("utf-8") if isinstance(line, bytes) else line)
     except (json.JSONDecodeError, UnicodeDecodeError) as exc:
         raise JournalInvalidError(f"Session journal has invalid JSON on line {line_number}: {location}") from exc
     if not isinstance(record, dict):

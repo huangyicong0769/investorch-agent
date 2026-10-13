@@ -104,3 +104,12 @@ async def test_missing_history_is_empty_but_committed_partial_lines_and_symlinks
     (tmp_path / "link.jsonl").symlink_to(tmp_path / "partial.jsonl")
     with pytest.raises(JournalInvalidError, match="regular file"):
         await journal.read_snapshot("link", lambda s: list(s.iter_records()))
+
+
+@pytest.mark.asyncio
+async def test_captured_journal_keeps_the_existing_utf8_json_validation_contract(tmp_path: Path) -> None:
+    journal = SessionJournal(tmp_path, ZoneInfo("UTC"))
+    (tmp_path / "a.jsonl").write_bytes(b'\xef\xbb\xbf{"seq":1,"type":"reasoning"}\n')
+
+    with pytest.raises(JournalInvalidError, match="invalid JSON"):
+        await journal.read_snapshot("a", lambda s: list(s.iter_records()))
