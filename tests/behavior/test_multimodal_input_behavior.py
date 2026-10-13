@@ -307,4 +307,7 @@ async def test_terminal_composer_still_submits_and_renders_text(tmp_path: Path) 
             await app.on_composer_submitted(Composer.Submitted("Hello from terminal"))
             await web.runtime.agent_loop.wait_until_started(session_id)
             assert web.runtime.agent_loop.input_for(session_id).structured_input == UserInput("Hello from terminal")
+            # This RuntimeHarness exposes the UI notification boundary directly; a real Host emits it after commit.
+            seq = read_session_journal(web.host.config.session_journal_dir, session_id)[-1]["seq"]
+            await app.handle_user_input_committed(session_id, UserInput("Hello from terminal"), seq)
             assert app.query_one(".user-message .message-content", Static).content == "Hello from terminal"

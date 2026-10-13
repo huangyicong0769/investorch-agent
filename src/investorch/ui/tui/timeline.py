@@ -46,7 +46,10 @@ class UserMessageWidget(Vertical):
     ) -> None:
         author = Label(author_label, markup=False, classes="message-author")
         if source_session_id is not None:
-            author.tooltip = f"Source Session: {source_session_id}\nUse /resume {source_session_id} to open it."
+            author.tooltip = (
+                f"Source Session: {source_session_id}\nUse /resume {source_session_id} to open it.\n"
+                f"If archived, restore it with /unarchive {source_session_id}."
+            )
         author.styles.margin = (author_margin_top, 0, author_margin_bottom, 0)
         super().__init__(author, Static(text, markup=False, classes="message-content"), classes="user-message")
 
