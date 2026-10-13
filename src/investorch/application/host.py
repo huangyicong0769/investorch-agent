@@ -7,6 +7,7 @@ import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from functools import partial
 from zoneinfo import ZoneInfo
 
 from agents import ModelSettings, OpenAIResponsesModel
@@ -36,8 +37,9 @@ from investorch.runtime import (
     RuntimeSessionSnapshot,
 )
 from investorch.storage import create_session, delete_unused_session, list_sessions
-from investorch.tools import close_execution, start_execution
+from investorch.tools import close_execution, make_session_tools, start_execution
 
+from . import session_queries
 from .activity import ActivityCoordinator, ActivityLabelEvent, ActivityLabelHandler, _ignore_activity_label
 from .approval import ApprovalCoordinator, ApprovalResolvedHandler, ManualApprovalHandler, _ignore_approval_resolved
 from .portfolio_context import (
@@ -233,6 +235,7 @@ async def open_application_host(
 
     runtime: AgentRuntime | None = None
     activity: ActivityCoordinator | None = None
+
     try:
         await start_execution(execution, config.workspace_dir)
         mcp_servers = _load_agent_mcp_servers(config)
@@ -290,6 +293,16 @@ async def open_application_host(
                     state_handler=handle_runtime_state,
                     run_ended_handler=handle_run_ended,
                     follow_up_handler=callbacks.handle_follow_up,
+                )
+                agent.tools.extend(
+                    make_session_tools(
+                        list_query=partial(
+                            session_queries.list_sessions, sessions_db=config.sessions_db, runtime=runtime
+                        ),
+                        read_query=partial(
+                            session_queries.read_session, sessions_db=config.sessions_db, journal=journal
+                        ),
+                    )
                 )
                 if enable_activity:
                     activity_model, activity_model_settings = create_model(config, "activity")

@@ -17,10 +17,28 @@ from investorch.storage import create_session, set_session_title
 from investorch.tools import create_portfolio
 from tests.support.config import make_test_config
 from tests.support.runtime import make_runtime_harness, run_options
+from tests.support.session_history import record_mixed_history
 
 
 class ControlledActivationAbort(BaseException):
     pass
+
+
+@pytest.mark.asyncio
+async def test_mixed_history_preserves_effective_instructions_at_the_frozen_review_boundary(tmp_path: Path) -> None:
+    config = make_test_config(tmp_path)
+    journal = SessionJournal(config.session_journal_dir, ZoneInfo("UTC"))
+    boundary = await record_mixed_history(journal, "session-a")
+
+    prepared = await ReviewContext(config=config).prepare("session-a", boundary)
+
+    assert prepared.text == (
+        "[user_message seq=1]\ninitial instruction\n\n"
+        "[user_steer seq=7]\neffective guidance\n\n"
+        "[user_message seq=14]\nnext task"
+    )
+    assert prepared.instruction_count == 3
+    assert prepared.instruction_head_seq == 14
 
 
 @pytest.mark.asyncio

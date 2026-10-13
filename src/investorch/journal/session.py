@@ -3,7 +3,7 @@ import json
 import os
 import stat
 import tempfile
-from collections.abc import Awaitable
+from collections.abc import Awaitable, Callable
 from datetime import datetime
 from pathlib import Path
 from typing import Literal
@@ -11,6 +11,8 @@ from zoneinfo import ZoneInfo
 
 from investorch.images import UserInput, serialize_images
 from investorch.output import OutputEvent, serialize_output_event
+
+from .reader import JournalSnapshot, JournalUnavailableError
 
 
 async def _await_filesystem_operation[T](awaitable: Awaitable[T]) -> T:
@@ -257,6 +259,17 @@ class SessionJournal:
             if not path.is_file():
                 raise RuntimeError(f"Session journal is not a regular file: {path}")
             return True
+
+    async def read_snapshot[T](self, session_id: str, reader: Callable[[JournalSnapshot], T]) -> T:
+        """Capture a committed prefix under the append lock, then scan it in a worker."""
+        async with self._lock:
+            if session_id in self._deleted_sessions:
+                raise JournalUnavailableError("Session journal is being deleted")
+            snapshot = JournalSnapshot.capture(self._session_path(session_id))
+        try:
+            return await _await_filesystem_operation(asyncio.to_thread(reader, snapshot))
+        finally:
+            snapshot.close()
 
     async def _record(self, session_id: str, event: dict[str, object]) -> int:
         async with self._lock:

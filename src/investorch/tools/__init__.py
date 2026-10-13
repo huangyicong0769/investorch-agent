@@ -35,6 +35,7 @@ from .portfolio import (
     update_portfolio,
 )
 from .quant import inspect_rqalpha_data, run_backtest
+from .sessions import make_session_tools
 from .skills import (
     inspect_skill,
     install_skill,
@@ -73,6 +74,7 @@ __all__ = (
     "list_portfolios",
     "list_skills",
     "load_skill",
+    "make_session_tools",
     "record_portfolio_cash_flow",
     "record_portfolio_income",
     "record_portfolio_trade",

@@ -97,13 +97,59 @@ The Main Agent currently receives:
 
 - workspace and execution: `explore`, `edit`, `delete`, `exec_command`;
 - utility and state: `calculate`, `get_current_time`, `write_todos`;
+- Session discovery and history: `list_sessions`, `read_session`;
 - configuration: `get_config`, `update_config`;
 - MCP registry: `list_mcp_servers`, `configure_mcp_server`, `remove_mcp_server`;
 - backtesting: `run_backtest`, and `inspect_rqalpha_data` when the native bundle is selected.
 
-Tool implementation uses Agents SDK Tool definitions directly. Portfolio tools delegate to PortfolioOperations; Skill tools delegate to SkillOperations. Neither adapter writes persistence directly.
+Tool implementation uses Agents SDK Tool definitions directly. Portfolio tools delegate to PortfolioOperations; Skill tools delegate to SkillOperations; Session read tools delegate to stateless Application queries in `session_queries.py`. These adapters do not write persistence directly.
 
 Workspace-changing and execution capabilities enforce workspace boundaries and approval policy. Tool failures surface as explicit exceptions.
+
+## Session access (0.3.0 Stage A)
+
+Read-only Session access follows this boundary:
+
+```text
+Agent Session Tools (Host-bound queries)
+├── Application list_sessions -> Storage metadata + Runtime.session_snapshot(target_id)
+└── Application read_session  -> Storage existence + existing SessionJournal + shared Steer facts
+```
+
+`application.session_queries.list_sessions` and `read_session` are ordinary async functions with explicit dependencies and no hidden read position. The Host constructs `Agent -> AgentLoop -> AgentRuntime`, then binds queries with `functools.partial` and appends `make_session_tools(...)` to the existing Agent once, before yielding the Host. Per-Run Agent clones see that complete Tool list without registration during Runs. Each Host binds its own database, Runtime, and existing Journal; the history query requires no Runtime. Tools only forward validated public arguments to these bound queries. Shared Journal facts resolve Steer activation/discard for both history and Review, while Review retains its strict instruction-boundary policy. No additional history database or Runtime state machine is introduced.
+
+`list_sessions(query=None, include_archived=False, limit=50, offset=0)` lists metadata in the current Root. A blank query leaves titles unfiltered; a nonblank query uses Unicode `casefold()` substring matching on title only. There is no Session-ID or message-content filter. Archived Sessions are excluded by default; `include_archived=True` includes both archived and unarchived Sessions. Rows expose `session_id`, `title`, `archived`, `branch_from_session_id`, `created_at`, `updated_at`, and `status`, ordered by descending `updated_at` with `session_id` breaking ties. Continue with `next_offset` while `has_more` is true. Offset pages reflect the current listing and are best effort during concurrent changes, without a frozen list snapshot.
+
+List status is `running`, `waiting_approval`, or `stopping` for an active Run. Without an active Run it is `pending` when accepted Queue or Steer work remains, otherwise `idle`. Queue counts, pause flags and pending Steer details are not returned. Archive is separate metadata; historical failure or a previous process's active Run does not determine current status. Listing reads metadata and current Runtime snapshots, without scanning Session journals.
+
+`read_session(session_id, view="conversation", before_seq=None, snapshot_seq=None, limit=50)` requires an existing exact Session ID in the current Root, including self, another running Session, or an archived Session. It returns history and paging fields, without Session metadata, current status, or a last-Run outcome. Reads do not change Selection, start a Run or mutate a Session.
+
+The default `conversation` view returns flat `user`, `assistant`, `tool_call`, and `tool_result` records with original Journal `seq` and `timestamp`. Only activated Steers appear, as ordinary `user` records at their original input sequence. Pending/discarded Steers, reasoning, approvals and maintenance events are excluded. A tool result remains a standalone observation even when its call is on another page; no Tool-call ID is fabricated. Images expose sanitized `filename`, `media_type`, `detail` and `image_count` metadata, without URLs or image bytes. Optional `events` preserves validated raw Journal fields and values, including reasoning, approvals and image payloads, subject to the response budget.
+
+History pages return the newest eligible records in ascending source sequence. `limit` counts visible records in Conversation and raw records in Events. The first read captures a committed Journal head as `snapshot_seq`; older pages reuse that value and pass `next_before_seq` as the exclusive `before_seq` cursor. Later appends are outside the frozen history. Activation/discard proof is examined through the entire snapshot even when it follows `before_seq`: a Steer at `seq=10`, activated at `seq=18`, remains visible for `before_seq=15, snapshot_seq=18`. Activation after the snapshot can appear only in a fresh read.
+
+For example, `read_session(session_id="session-b", limit=2)` can return:
+
+```json
+{
+  "session_id": "session-b",
+  "view": "conversation",
+  "snapshot_seq": 73,
+  "records": [
+    {"seq": 70, "timestamp": "2026-10-13T03:00:00+00:00", "type": "tool_result", "output": "Baseline complete."},
+    {"seq": 72, "timestamp": "2026-10-13T03:01:00+00:00", "type": "assistant", "text": "The baseline result is ready."}
+  ],
+  "has_older": true,
+  "next_before_seq": 70,
+  "omitted_fields": 0
+}
+```
+
+Continue with `read_session(session_id="session-b", before_seq=70, snapshot_seq=73, limit=2)`. That page can return `seq=67,69`; appended `seq>73` remains excluded. An existing Session with an absent/empty Journal returns `snapshot_seq=0`, empty records, `has_older=false`, and `next_before_seq=null`.
+
+Both Tools default to 50 records, allow at most 100, and bound JSON-serialized results to 32,000 characters, including escaping. A Conversation page can become shorter to retain complete records; it keeps the newest consecutive eligible suffix so the older-page cursor recovers the remainder. A single `text`, `arguments`, or `output` field above 16,000 characters, or one whose encoded record exceeds the response budget, is explicitly omitted without clipping. The record retains identity/metadata and an `omitted_fields` entry such as `{"field":"output","reason":"size_limit","original_chars":280000}`; the response-level `omitted_fields` counts these entries. The omission row advances pagination. Metadata that cannot fit raises `response_too_large`.
+
+Raw Events are never rewritten to fit: an oversized requested page raises `response_too_large` with guidance to reduce `limit` or use Conversation. A single oversized raw event cannot be retrieved through Events under this budget. Invalid arguments/cursors, missing IDs, malformed committed history, conflicting Steer evidence and unavailable journals return explicit safe errors; absence of a Journal for a valid Session is empty history. Snapshot capture uses a short Journal lock and scans the committed prefix without reserving Runtime maintenance or holding the write lock for the historical scan. Stage A adds no cross-Session messaging or spawn capability.
 
 ## Approval boundary
 

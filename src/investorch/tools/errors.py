@@ -17,6 +17,7 @@ def format_tool_error(context: RunContextWrapper[AgentContext], error: Exception
     """Expose corrective errors without SDK validation inputs or credentials."""
     # Application initialization imports the Agent's tools before its services.
     from investorch.application.portfolios import PortfolioOperationError
+    from investorch.application.session_queries import SessionReadError
     from investorch.backtest.errors import BacktestDataError
 
     validation = error.__cause__ if isinstance(error, ModelBehaviorError) else error
@@ -28,7 +29,15 @@ def format_tool_error(context: RunContextWrapper[AgentContext], error: Exception
         message = str(error).split(":", 1)[0]
     elif isinstance(
         error,
-        (ValueError, TypeError, FileNotFoundError, PortfolioStorageError, PortfolioOperationError, BacktestDataError),
+        (
+            ValueError,
+            TypeError,
+            FileNotFoundError,
+            PortfolioStorageError,
+            PortfolioOperationError,
+            BacktestDataError,
+            SessionReadError,
+        ),
     ) or (isinstance(error, RuntimeError) and str(error) == "exec_command is currently supported on macOS only"):
         message = str(error)
     else:

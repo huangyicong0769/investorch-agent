@@ -97,13 +97,59 @@ Main Agent 当前获得：
 
 - Workspace 与执行：`explore`、`edit`、`delete`、`exec_command`；
 - Utility 与状态：`calculate`、`get_current_time`、`write_todos`；
+- Session 发现与历史：`list_sessions`、`read_session`；
 - 配置：`get_config`、`update_config`；
 - MCP registry：`list_mcp_servers`、`configure_mcp_server`、`remove_mcp_server`；
 - 回测：`run_backtest`，以及选择原生 bundle 时的 `inspect_rqalpha_data`。
 
-Tool 直接使用 Agents SDK Tool definitions。Portfolio Tool 委托 PortfolioOperations，Skill Tool 委托 SkillOperations；adapter 不直接写入持久化状态。
+Tool 直接使用 Agents SDK Tool definitions。Portfolio Tool 委托 PortfolioOperations，Skill Tool 委托 SkillOperations，Session 只读 Tool 委托 `session_queries.py` 中的无状态 Application 查询函数；adapter 不直接写入持久化状态。
 
 会修改 Workspace 或执行代码的能力强制实施 Workspace 边界与审批策略。Tool failure 以明确异常返回。
+
+## Session 访问（0.3.0 Stage A）
+
+只读 Session 访问遵循以下边界：
+
+```text
+Agent Session Tools（Host 已绑定的查询）
+├── Application list_sessions -> Storage metadata + Runtime.session_snapshot(target_id)
+└── Application read_session  -> Storage 存在性检查 + 已有 SessionJournal + 共享 Steer 事实
+```
+
+`application.session_queries.list_sessions` 和 `read_session` 是显式接收依赖、不保存隐式读取位置的普通 async 函数。Host 按 `Agent -> AgentLoop -> AgentRuntime` 顺序构造后，通过 `functools.partial` 绑定查询，并在 yield Host 前向已有 Agent 一次追加 `make_session_tools(...)`。每个 Run 的 Agent clone 都能看到完整 Tool 列表，Run 期间无需重新注册。每个 Host 分别绑定自己的数据库、Runtime 和已有 Journal，历史查询不需要 Runtime。Tool 仅向已绑定的查询转发经过验证的公开参数。共享 Journal 事实为历史读取和 Review 解析 Steer 激活/丢弃证据，Review 保留严格的指令边界策略。不增加历史数据库或 Runtime 状态机。
+
+`list_sessions(query=None, include_archived=False, limit=50, offset=0)` 枚举当前 Root 的元数据。空 query 不过滤标题；非空 query 仅在 title 上进行 Unicode `casefold()` 子串匹配，不支持 Session ID 或消息正文筛选。默认排除归档 Session；`include_archived=True` 同时包含归档与未归档 Session。每行返回 `session_id`、`title`、`archived`、`branch_from_session_id`、`created_at`、`updated_at` 和 `status`，按 `updated_at` 降序排列，时间相同时按 `session_id` 排序。`has_more` 为真时用 `next_offset` 继续。Offset 分页反映当前列表，并发变化时为尽力枚举，不冻结列表快照。
+
+有 active Run 时，列表状态为 `running`、`waiting_approval` 或 `stopping`；没有 active Run、但仍有已接受的 Queue 或 Steer 工作时为 `pending`，否则为 `idle`。不返回队列数量、暂停标记或待处理 Steer 详情。归档是独立元数据，历史失败或上一进程的 active Run 不决定当前状态。列表仅读取元数据和当前 Runtime snapshot，不扫描各 Session Journal。
+
+`read_session(session_id, view="conversation", before_seq=None, snapshot_seq=None, limit=50)` 要求当前 Root 中存在的精确 Session ID，可以读取自身、其他正在运行的 Session 或归档 Session。结果只含历史与分页字段，不含 Session metadata、当前状态或上一次 Run 结果。读取不改变 Selection、不启动 Run、不修改 Session。
+
+默认 `conversation` 返回扁平 `user`、`assistant`、`tool_call` 和 `tool_result` 记录，保留原 Journal `seq` 和 `timestamp`。仅已激活 Steer 以普通 `user` 记录显示，序号仍为原始输入序号。Pending/discarded Steer、reasoning、approval 和维护事件不进入此视图。Tool result 独立存在，即使其 call 位于另一页，也不伪造 Tool-call ID。图片仅含经过清理的 `filename`、`media_type`、`detail` 和 `image_count` 元数据，不含 URL 或图片字节。可选 `events` 在响应预算内保留经过验证的原始 Journal 字段和值，包括 reasoning、approval 和图片 payload。
+
+历史分页选择最新的合格记录，按原始序号升序返回。Conversation 的 `limit` 计数可见记录，Events 则计数原始记录。首次读取捕获已提交 Journal head 为 `snapshot_seq`；后续旧页复用该值，将 `next_before_seq` 传为排他的 `before_seq`。后续追加不进入冻结历史。激活/丢弃证据会检查到整个 snapshot，即使证据位于 `before_seq` 之后：`seq=10` 的 Steer 在 `seq=18` 激活时，`before_seq=15, snapshot_seq=18` 仍显示原输入。Snapshot 之后的激活仅在新的读取中可见。
+
+例如，`read_session(session_id="session-b", limit=2)` 可以返回：
+
+```json
+{
+  "session_id": "session-b",
+  "view": "conversation",
+  "snapshot_seq": 73,
+  "records": [
+    {"seq": 70, "timestamp": "2026-10-13T03:00:00+00:00", "type": "tool_result", "output": "Baseline complete."},
+    {"seq": 72, "timestamp": "2026-10-13T03:01:00+00:00", "type": "assistant", "text": "The baseline result is ready."}
+  ],
+  "has_older": true,
+  "next_before_seq": 70,
+  "omitted_fields": 0
+}
+```
+
+随后调用 `read_session(session_id="session-b", before_seq=70, snapshot_seq=73, limit=2)`。该页可以返回 `seq=67,69`，追加的 `seq>73` 仍被排除。存在的 Session 若 Journal 缺失或为空，返回 `snapshot_seq=0`、空 records、`has_older=false` 和 `next_before_seq=null`。
+
+两个 Tool 默认每页 50 条、最多 100 条，JSON 编码后的整个结果最多 32,000 字符，包含转义开销。Conversation 可以缩短页面以保留完整记录，保留最新连续合格后缀，使旧页 cursor 可以找回其余记录。单个 `text`、`arguments` 或 `output` 超过 16,000 字符，或该记录编码后超出响应预算时，会显式省略字段而不裁剪。记录保留 identity/metadata，并增加 `omitted_fields` 项，例如 `{"field":"output","reason":"size_limit","original_chars":280000}`；响应级 `omitted_fields` 计数这些项。省略占位记录仍推进分页。连元数据也无法容纳时返回 `response_too_large`。
+
+Raw Events 不会为了预算改写：请求页超限时返回 `response_too_large`，提示减小 `limit` 或使用 Conversation。单个超大 raw event 在该预算下无法通过 Events 获取。无效参数/cursor、缺失 ID、已提交历史损坏、矛盾 Steer 证据或 Journal 不可用均返回明确且安全的错误；有效 Session 缺少 Journal 则为空历史。Snapshot 捕获仅短暂持有 Journal 锁，随后扫描已提交前缀，不申请 Runtime maintenance reservation，也不在历史扫描期间持有写锁。Stage A 不增加跨 Session 发消息或 spawn 能力。
 
 ## 审批边界
 

@@ -4,7 +4,7 @@
 
 ## 范围
 
-本文定义 0.1.0 已实现的执行与生命周期规则。更高层组件图见[架构](InvestOrch_Agent_Architecture.zh-CN.md)。
+本文定义 0.1.0 引入的执行与生命周期规则，以及 0.3.0 Stage A 增加的只读 Session 访问边界。更高层组件图见[架构](InvestOrch_Agent_Architecture.zh-CN.md)。
 
 ## Identity 与所有权
 
@@ -37,6 +37,8 @@ Web 客户端发送明确 Session ID，不依赖 Host 选中的 Session。`AppSt
 普通输入以明确 Session ID 进入 `application.interaction.submit_user_input()`。它决定启动 Run 还是提交 Steer/Queue，并返回包含稳定所有权 ID 的 acknowledgement。
 
 Session mutation 进入 `application.sessions.SessionOperations`。它通过 Runtime maintenance reservation 协调 SDK continuation、metadata 和 Journal，覆盖 create、unused cleanup、title、archive、unarchive、fork、clear 与 compact。Presentation client 负责 command parsing、selection 和用户提示。
+
+Agent 的 `list_sessions`、`read_session` 委托 `application.session_queries` 中的无状态函数。Host 将列表查询绑定到自己的数据库与当前 Runtime，将历史查询绑定到自己的数据库与已有 SessionJournal；在 Runtime 构造后、yield 前一次注册已绑定的 Tools。AgentContext 与 AgentLoop 不携带 Session 读取能力或 Provider。列表为每个目标 Session 调用 Runtime public snapshot，历史查询不需要 Runtime，Tool 仅转发公开参数。列表状态概括当前进程：active Run 的 phase、无 active Run 但有已接受 Queue/Steer 工作时的 `pending`，或 `idle`；不暴露队列内部状态或历史 Run 结果。精确 ID 读取只提供历史，包括自身、运行中与归档 Session，不改变 Selection、不创建 Run、不申请 maintenance reservation。Tool 参数、结果预算和分页示例见 [Session 访问](InvestOrch_Agent_Architecture.zh-CN.md#session-访问030-stage-a)。
 
 `presentation.py` 把 Application value 转换为明确的 JSON-safe projection dictionaries。
 
@@ -109,6 +111,8 @@ Fork 复制 SDK continuation、存在时的 Journal、带后缀 title 和直接 
 SDK SQLite Session 是 model-continuation state，可以被压缩。JSONL Journal 是追加式用户可见 replay state。未选中 Session 的 output 仍写 Journal。客户端按原始 Journal sequence 协调分页历史与 live events。
 
 Activity label 是异步 derived annotation，指向 Tool-call sequence。缺少 label 时显示真实 Tool name，不改变执行事实。
+
+Agent Conversation 历史使用独立扁平投影：已接受用户消息、证据确认激活的 Steer（普通 user 记录）、Assistant 消息和 Tool call/result。Reasoning、approval 和 pending/discarded Steer 不进入此视图；可选 raw Events 在响应预算内保留原字段。Conversation 图片仅含元数据。分页冻结已提交 `snapshot_seq`，用排他的 `next_before_seq` 继续；处置证据检查到整个 snapshot，包括位于页面 cursor 之后的证据。Journal snapshot 捕获短暂持锁，后续扫描排除新追加。空历史使用 `snapshot_seq=0`。Web/TUI replay 和 Review 严格授权策略保留各自原有接口。
 
 ## 审批
 
