@@ -13,10 +13,10 @@ class SteerFacts:
     pending: frozenset[int]
 
 
-def interpret_steers(records: Iterable[dict[str, object]], *, through_seq: int) -> SteerFacts:
+def interpret_steers(records: Iterable[dict[str, object]], *, through_seq: int | None = None) -> SteerFacts:
     """Resolve source input sequences using evidence inside a frozen Journal boundary."""
-    if type(through_seq) is not int or through_seq < 0:
-        raise ValueError("through_seq must be a non-negative integer")
+    if through_seq is not None and (type(through_seq) is not int or through_seq < 0):
+        raise ValueError("through_seq must be a non-negative integer or None")
     steers: dict[int, str] = {}
     activated: set[int] = set()
     discarded: set[int] = set()
@@ -24,7 +24,7 @@ def interpret_steers(records: Iterable[dict[str, object]], *, through_seq: int) 
         seq = record["seq"]
         if type(seq) is not int or seq < 1:
             raise JournalInconsistentError("Durable user Steer history has an invalid sequence")
-        if seq > through_seq:
+        if through_seq is not None and seq > through_seq:
             break
         event_type = record["type"]
         if event_type == "user_steer":

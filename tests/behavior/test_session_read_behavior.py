@@ -6,8 +6,11 @@ from pathlib import Path
 import pytest
 
 from investorch.application.session_reads import SessionReadError, SessionReadOperations
+from investorch.journal import read_session_journal
+from investorch.output import AssistantMessage
 from investorch.storage import archive_session, create_session, set_session_branch_from, set_session_title
 from tests.support.runtime import make_runtime_harness
+from tests.support.session_history import record_mixed_history
 
 
 @pytest.mark.asyncio
@@ -143,4 +146,197 @@ async def test_list_rejects_invalid_arguments(tmp_path: Path, arguments: dict[st
     )
     with pytest.raises(ValueError):
         await reads.list_sessions(**arguments)
+    await harness.runtime.aclose()
+
+
+@pytest.mark.asyncio
+async def test_read_projects_flat_effective_history_with_original_identity_and_sanitized_images(tmp_path: Path) -> None:
+    harness = make_runtime_harness(tmp_path)
+    create_session(harness.config.sessions_db, "archived")
+    await record_mixed_history(harness.journal, "archived")
+    archive_session(harness.config.sessions_db, "archived")
+    reads = SessionReadOperations(
+        config=harness.config, journal=harness.journal, get_runtime_snapshot=harness.runtime.session_snapshot
+    )
+    raw = read_session_journal(harness.config.session_journal_dir, "archived")
+
+    result = await reads.read_session("archived")
+
+    assert set(result) == {
+        "session_id",
+        "view",
+        "snapshot_seq",
+        "records",
+        "has_older",
+        "next_before_seq",
+        "omitted_fields",
+    }
+    assert result["view"] == "conversation"
+    assert result["snapshot_seq"] == 16
+    assert [(record["seq"], record["type"]) for record in result["records"]] == [
+        (1, "user"),
+        (2, "assistant"),
+        (4, "tool_call"),
+        (5, "tool_result"),
+        (7, "user"),
+        (14, "user"),
+        (15, "assistant"),
+    ]
+    assert [record["timestamp"] for record in result["records"]] == [
+        raw[i - 1]["timestamp"] for i in [1, 2, 4, 5, 7, 14, 15]
+    ]
+    assert result["records"][0]["images"] == [{"filename": "input.png", "media_type": "image/png", "detail": "auto"}]
+    assert result["records"][0]["image_count"] == 1
+    assert "image_url" not in json.dumps(result)
+    assert "base64" not in json.dumps(result)
+    assert "credential" not in json.dumps(result)
+    assert result["has_older"] is False
+    assert result["next_before_seq"] == 1
+    assert (await reads.read_session("archived", view="events"))["records"] == raw
+    await harness.runtime.aclose()
+
+
+@pytest.mark.asyncio
+async def test_visible_paging_looks_ahead_for_activation_and_keeps_the_same_snapshot_after_appends(
+    tmp_path: Path,
+) -> None:
+    harness = make_runtime_harness(tmp_path)
+    create_session(harness.config.sessions_db, "a")
+    await record_mixed_history(harness.journal, "a")
+    reads = SessionReadOperations(
+        config=harness.config, journal=harness.journal, get_runtime_snapshot=harness.runtime.session_snapshot
+    )
+
+    latest = await reads.read_session("a", limit=3)
+    await harness.journal.record_user_steers_activated("a", "run-b", (16,))
+    await harness.journal.record_output("a", AssistantMessage("new message"))
+    middle = await reads.read_session(
+        "a", limit=3, before_seq=latest["next_before_seq"], snapshot_seq=latest["snapshot_seq"]
+    )
+    oldest = await reads.read_session(
+        "a", limit=3, before_seq=middle["next_before_seq"], snapshot_seq=latest["snapshot_seq"]
+    )
+    unproven = await reads.read_session("a", before_seq=8, snapshot_seq=10)
+    frozen = await reads.read_session("a", snapshot_seq=16)
+    fresh = await reads.read_session("a")
+
+    assert [record["seq"] for record in latest["records"]] == [7, 14, 15]
+    assert latest["next_before_seq"] == 7
+    assert [record["seq"] for record in middle["records"]] == [2, 4, 5]
+    assert middle["records"][-1] == {
+        "seq": 5,
+        "timestamp": middle["records"][-1]["timestamp"],
+        "type": "tool_result",
+        "output": "3",
+    }
+    assert [record["seq"] for record in oldest["records"]] == [1]
+    assert oldest["has_older"] is False
+    assert [record["seq"] for record in unproven["records"]] == [1, 2, 4, 5]
+    assert frozen["records"][-1]["seq"] == 15
+    assert [record["seq"] for record in fresh["records"]][-3:] == [15, 16, 18]
+    assert fresh["snapshot_seq"] == 18
+    await harness.runtime.aclose()
+
+
+@pytest.mark.asyncio
+async def test_empty_history_is_distinct_from_an_unknown_exact_id_and_empty_snapshot_stays_empty(
+    tmp_path: Path,
+) -> None:
+    harness = make_runtime_harness(tmp_path)
+    create_session(harness.config.sessions_db, "session-exact")
+    reads = SessionReadOperations(
+        config=harness.config, journal=harness.journal, get_runtime_snapshot=harness.runtime.session_snapshot
+    )
+    expected = {
+        "session_id": "session-exact",
+        "view": "conversation",
+        "snapshot_seq": 0,
+        "records": [],
+        "has_older": False,
+        "next_before_seq": None,
+        "omitted_fields": 0,
+    }
+    assert await reads.read_session("session-exact") == expected
+    with pytest.raises(SessionReadError, match="session_not_found"):
+        await reads.read_session("session")
+    await harness.journal.record_user_message("session-exact", "later")
+    assert await reads.read_session("session-exact", snapshot_seq=0) == expected
+    empty = await reads.read_session("session-exact", before_seq=1)
+    assert empty["records"] == []
+    assert empty["has_older"] is False
+    assert empty["next_before_seq"] is None
+    await harness.runtime.aclose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        {"session_id": "../a"},
+        {"session_id": ""},
+        {"session_id": 1},
+        {"view": "summary"},
+        {"limit": 0},
+        {"limit": 101},
+        {"before_seq": 0},
+        {"before_seq": True},
+        {"snapshot_seq": -1},
+        {"snapshot_seq": True},
+        {"snapshot_seq": 2},
+        {"snapshot_seq": 1, "before_seq": 3},
+    ],
+)
+async def test_read_rejects_invalid_arguments_and_impossible_boundaries(
+    tmp_path: Path, arguments: dict[str, object]
+) -> None:
+    harness = make_runtime_harness(tmp_path)
+    create_session(harness.config.sessions_db, "a")
+    await harness.journal.record_user_message("a", "first")
+    reads = SessionReadOperations(
+        config=harness.config, journal=harness.journal, get_runtime_snapshot=harness.runtime.session_snapshot
+    )
+    with pytest.raises(ValueError):
+        await reads.read_session(**{"session_id": "a", **arguments})
+    await harness.runtime.aclose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "content",
+    [
+        "not-json\n",
+        '{"seq":1,"type":"user_message"}',
+        '{"seq":true,"type":"user_message"}\n',
+        '{"seq":1,"type":1}\n',
+        '{"seq":2,"type":"user_message"}\n{"seq":1,"type":"user_message"}\n',
+    ],
+)
+async def test_corrupt_history_has_explicit_safe_feedback(tmp_path: Path, content: str) -> None:
+    harness = make_runtime_harness(tmp_path)
+    create_session(harness.config.sessions_db, "a")
+    (harness.config.session_journal_dir / "a.jsonl").write_text(content, encoding="utf-8")
+    reads = SessionReadOperations(
+        config=harness.config, journal=harness.journal, get_runtime_snapshot=harness.runtime.session_snapshot
+    )
+    with pytest.raises(SessionReadError, match="journal_invalid") as error:
+        await reads.read_session("a")
+    assert str(harness.config.root) not in str(error.value)
+    await harness.runtime.aclose()
+
+
+@pytest.mark.asyncio
+async def test_conflicting_disposition_and_delete_fence_return_explicit_errors(tmp_path: Path) -> None:
+    harness = make_runtime_harness(tmp_path)
+    create_session(harness.config.sessions_db, "a")
+    seq = await harness.journal.record_user_steer("a", "run-a", "instruction")
+    await harness.journal.record_user_steers_activated("a", "run-a", (seq,))
+    await harness.journal.record_user_steers_discarded("a", "run-a", (seq,))
+    reads = SessionReadOperations(
+        config=harness.config, journal=harness.journal, get_runtime_snapshot=harness.runtime.session_snapshot
+    )
+    with pytest.raises(SessionReadError, match="journal_inconsistent"):
+        await reads.read_session("a")
+    await harness.journal.prepare_session_delete("a")
+    with pytest.raises(SessionReadError, match="journal_unavailable"):
+        await reads.read_session("a")
     await harness.runtime.aclose()
