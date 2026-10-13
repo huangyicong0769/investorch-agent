@@ -8,6 +8,7 @@ from agents import Agent
 from investorch.agents import TokenUsage, compact_review_instructions
 from investorch.config import AppConfig
 from investorch.journal import read_session_journal
+from investorch.journal.semantics import JournalInconsistentError, interpret_steers
 
 
 class ReviewContextError(RuntimeError):
@@ -78,9 +79,7 @@ def _prepare_records(records: list[dict[str, object]], instruction_head_seq: int
         raise ReviewContextError("Review instruction boundary is not an active user instruction event")
 
     instructions: list[tuple[int, str, str]] = []
-    steers: dict[int, tuple[str, str]] = {}
-    activated: set[int] = set()
-    discarded: set[int] = set()
+    steers: dict[int, str] = {}
     for record in records:
         seq = record["seq"]
         assert isinstance(seq, int)
@@ -88,38 +87,15 @@ def _prepare_records(records: list[dict[str, object]], instruction_head_seq: int
         if event_type == "user_message":
             instructions.append((seq, "user_message", _instruction_text(record)))
         elif event_type == "user_steer":
-            if not isinstance(record.get("run_id"), str) or not record["run_id"]:
-                raise ReviewContextError("Durable user Steer is missing its Run identity")
-            steers[seq] = (record["run_id"], _instruction_text(record))
-        elif event_type == "user_steers_activated":
-            _apply_disposition(record, steers, activated, discarded, label="activation")
-        elif event_type == "user_steers_discarded":
-            _apply_disposition(
-                record,
-                steers,
-                discarded,
-                activated,
-                label="discard",
-                require_source_run=True,
-            )
-        elif event_type == "run_ended" and "discarded_user_steer_seqs" in record:
-            if record.get("status") not in {"cancelled", "failed"}:
-                raise ReviewContextError("Durable Run-end Steer discard has an invalid Run status")
-            _apply_disposition(
-                record,
-                steers,
-                discarded,
-                activated,
-                label="run-end discard",
-                sequence_field="discarded_user_steer_seqs",
-                require_source_run=True,
-                allow_existing=True,
-            )
+            steers[seq] = _instruction_text(record)
 
-    unproven = set(steers) - activated - discarded
-    if unproven:
+    try:
+        facts = interpret_steers(records, through_seq=instruction_head_seq)
+    except JournalInconsistentError as exc:
+        raise ReviewContextError(str(exc)) from exc
+    if facts.pending:
         raise ReviewContextError("Durable user Steer activation or discard cannot be proven at the review boundary")
-    instructions.extend((seq, "user_steer", steers[seq][1]) for seq in activated)
+    instructions.extend((seq, "user_steer", steers[seq]) for seq in facts.activated)
     instructions.sort(key=lambda item: item[0])
     text = "\n\n".join(f"[{event_type} seq={seq}]\n{value}" for seq, event_type, value in instructions)
     return PreparedReviewContext(
@@ -139,33 +115,3 @@ def _instruction_text(record: dict[str, object]) -> str:
     if isinstance(text, str) and isinstance(images, list) and images:
         return f"[{len(images)} images attached]"
     raise ReviewContextError("Durable user instruction text is missing or empty")
-
-
-def _apply_disposition(
-    record: dict[str, object],
-    steers: dict[int, tuple[str, str]],
-    target: set[int],
-    conflicting: set[int],
-    *,
-    label: str,
-    sequence_field: str = "user_steer_seqs",
-    require_source_run: bool = False,
-    allow_existing: bool = False,
-) -> None:
-    run_id = record.get("run_id")
-    if not isinstance(run_id, str) or not run_id:
-        raise ReviewContextError(f"Durable user Steer {label} is missing its Run identity")
-    raw_seqs = record.get(sequence_field)
-    if not isinstance(raw_seqs, list) or not raw_seqs:
-        raise ReviewContextError(f"Durable user Steer {label} has no target sequences")
-    if any(type(seq) is not int or seq < 1 for seq in raw_seqs) or len(set(raw_seqs)) != len(raw_seqs):
-        raise ReviewContextError(f"Durable user Steer {label} has invalid target sequences")
-    for seq in raw_seqs:
-        if (
-            seq not in steers
-            or (require_source_run and steers[seq][0] != run_id)
-            or (seq in target and not allow_existing)
-            or seq in conflicting
-        ):
-            raise ReviewContextError(f"Durable user Steer {label} does not match pending instruction history")
-        target.add(seq)
