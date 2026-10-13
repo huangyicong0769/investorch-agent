@@ -11,6 +11,7 @@ from investorch.application.messaging import send_message
 from investorch.application.session_queries import read_session
 from investorch.images import ImageContent, UserInput
 from investorch.output import ToolOutput
+from investorch.runtime import RunOptions
 from investorch.storage import create_session, set_session_title
 from tests.support.config import make_test_config
 from tests.support.runtime import run_options
@@ -187,6 +188,73 @@ async def test_real_sdk_promotes_origin_without_duplicating_target_input(tmp_pat
         raw = await read_session("target", sessions_db=config.sessions_db, journal=host.journal, view="events")
         assert sum(record["type"] in {"user_message", "user_steer"} for record in raw["records"]) == 2
         model.assert_complete()
+
+
+async def test_active_agent_steer_reaches_sdk_and_frozen_permission_review_in_the_same_run(tmp_path, monkeypatch):
+    config = make_test_config(tmp_path, {"backtest": {"use_cnequity": False}, "compaction": {"auto_enabled": False}})
+    for session_id in ("sender", "target"):
+        create_session(config.sessions_db, session_id)
+        set_session_title(config.sessions_db, session_id, session_id)
+    started, release = asyncio.Event(), asyncio.Event()
+
+    async def first(_call):
+        started.set()
+        await release.wait()
+        return (function_call("calculate", {"expression": "1+1"}, call_id="calculate"),)
+
+    model = ScriptedModel(
+        (
+            ModelStep.respond(first),
+            (
+                function_call(
+                    "edit", {"path": "reviewed.txt", "operation": "write", "content": "approved"}, call_id="edit"
+                ),
+            ),
+            (assistant_message("done"),),
+        )
+    )
+    permission = ScriptedModel(((assistant_message('{"decision":"approve","reason":"effective instruction"}'),),))
+
+    def model_for_role(_config, role):
+        return (model if role == "main" else permission if role == "permission" else ScriptedModel()), ModelSettings()
+
+    monkeypatch.setattr("investorch.application.host.create_model", model_for_role)
+
+    async def no_manual(_request, _reason):
+        raise AssertionError("The existing Permission model approved this Tool")
+
+    async with open_application_host(
+        config, manual_approval_handler=no_manual, create_initial_session=False, enable_activity=False
+    ) as host:
+        active = host.runtime.start_run("target", "human instruction", RunOptions("none", "review", "steer"))
+        await asyncio.wait_for(started.wait(), 3)
+        receipt = await send_message(
+            state=host.state,
+            runtime=host.runtime,
+            journal=host.journal,
+            source_session_id="sender",
+            source_run_id="sender-run",
+            target_session_id="target",
+            text="write reviewed.txt",
+        )
+        assert receipt.disposition == "steer_submitted"
+        release.set()
+        await asyncio.wait_for(active.task, 3)
+        raw = await read_session("target", sessions_db=config.sessions_db, journal=host.journal, view="events")
+        activation = next(record for record in raw["records"] if record["type"] == "user_steers_activated")
+        approval = next(record for record in raw["records"] if record["type"] == "approval")
+        assert activation["run_id"] == approval["run_id"] == active.run_id
+        assert approval["instruction_head_seq"] == activation["seq"]
+        assert approval["source"] == "permission" and approval["approved"] is True
+        assert (config.workspace_dir / "reviewed.txt").read_text() == "approved"
+        assert sum(record["type"] == "run_ended" for record in raw["records"]) == 1
+        sdk_users = [item for item in model.calls[1].input if item.get("role") == "user"]
+        assert sdk_users[-1]["content"][1] == {"type": "input_text", "text": "write reviewed.txt"}
+        assert 'Session: "sender"' in sdk_users[-1]["content"][0]["text"]
+        evidence = str(permission.calls[0].input)
+        assert "origin=agent" in evidence and "sender-run" in evidence and "write reviewed.txt" in evidence
+        model.assert_complete()
+        permission.assert_complete()
 
 
 @pytest.mark.parametrize("source", ["workspace", "session_event"])
