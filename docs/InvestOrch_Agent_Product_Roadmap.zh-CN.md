@@ -51,17 +51,17 @@ InvestOrch Agent 的目标是成为面向个人投资者的本地优先、human-
 
 当前 QMT 路线是 Agent 生成策略产物 → 人工审查 → 人工在大 QMT 部署/运行。Skill 基础设施不恢复 Gateway、远程执行、下单桥接、实盘 Broker、账户镜像或自动结算对账。
 
-## 0.3.0 Stage A：Session 访问
+## 0.3.0 Session 访问
 
-Stage A 已合并到 main，0.3.0 尚未发布。只读 `list_sessions` Tool 通过标题筛选、归档开关及有界分页发现当前 Root 的 Session，返回包含 `pending` 的简短当前状态。`read_session` 用精确 ID 读取扁平 Conversation 或 raw Events，支持冻结快照分页、超大字段显式省略及 Conversation 图片元数据。
+0.3.0 尚未发布。只读 `list_sessions` Tool 通过标题筛选、归档开关及有界分页发现当前 Root 的 Session，返回包含 `pending` 的简短当前状态。`read_session` 用精确 ID 读取扁平 Conversation 或 raw Events，支持冻结快照分页、超大字段显式省略及 Conversation 图片元数据。
 
 Tool 委托无状态 Application 查询，由 Host 在首个 Run 前绑定并一次注册。列表使用已有 Storage 元数据与该 Host 的 Runtime snapshot；历史使用 Storage 存在性检查与该 Host 的已有 Journal，不需要 Runtime。实现复用共享 Steer 事实并保留 Review 严格策略。Tool 契约和示例见[架构](InvestOrch_Agent_Architecture.zh-CN.md#session-访问030-stage-a)。
 
-## 0.3.0 Session 消息：待 review
+## 0.3.0 Session 消息
 
-Stage B 已在消息工作分支实现，等待用户 review 与验收。`send_message` 需要发送方审批，文本/图片沿用现有 Run/Steer/Queue 路由，可信来源进入模型输入、Review、历史、Web 和 TUI。图片引用覆盖 Workspace 文件与发送方已提交附件。回执只确认提交，Queue 仅保存在进程内。详见[Session 消息](InvestOrch_Agent_Architecture.zh-CN.md#session-消息)。
+`send_message` 需要发送方审批，文本/图片沿用现有 Run/Steer/Queue 路由，可信来源进入模型输入、Review、历史、Web 和 TUI。图片引用覆盖 Workspace 文件与发送方已提交附件。回执只确认提交，Queue 仅保存在进程内。详见[Session 消息](InvestOrch_Agent_Architecture.zh-CN.md#session-消息)。
 
-Stage C（spawn）、D（Agent as MCP）和 E（PyPI 分发）仍属于未来工作。不增加自动回复、等待/完成机制或持久 Mailbox。
+Session 派生、Agent as MCP 和 PyPI 分发仍属于未来工作。不增加自动回复、等待/完成机制或持久 Mailbox。
 
 ## 配置、管理与恢复
 
