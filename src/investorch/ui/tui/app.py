@@ -804,7 +804,9 @@ class InvestOrchAgentTUI(App[None]):
                 event.session_id, set()
             ):
                 return
-            await self.query_one(ChatTimeline).add_steer_message(input_summary(event.user_input))
+            await self.query_one(ChatTimeline).add_steer_message(
+                input_summary(event.user_input), origin=event.user_input.origin
+            )
             if event.journal_seq is not None:
                 self._rendered_steer_seqs[event.session_id].add(event.journal_seq)
                 self._last_rendered_seq[event.session_id] = max(
@@ -818,7 +820,9 @@ class InvestOrchAgentTUI(App[None]):
         if event.kind == "queue_promoted":
             if event.journal_seq is not None and event.journal_seq <= self._last_rendered_seq.get(event.session_id, 0):
                 return
-            await self.query_one(ChatTimeline).add_user_message(input_summary(event.user_input))
+            await self.query_one(ChatTimeline).add_user_message(
+                input_summary(event.user_input), origin=event.user_input.origin
+            )
             if event.journal_seq is not None:
                 self._last_rendered_seq[event.session_id] = event.journal_seq
             return

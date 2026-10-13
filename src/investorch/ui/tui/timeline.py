@@ -7,7 +7,7 @@ from collections import deque
 from textual.containers import Vertical, VerticalScroll
 from textual.widgets import Collapsible, Label, Markdown, Static
 
-from investorch.images import ImageContent, image_summary
+from investorch.images import ImageContent, InputOrigin, image_summary, input_origin_from_record
 from investorch.output import (
     AgentChanged,
     AssistantMessage,
@@ -18,6 +18,10 @@ from investorch.output import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def input_author_label(origin: InputOrigin | None) -> str:
+    return f"Agent · {origin.sender_session_id}" if origin is not None and origin.kind == "agent" else "You"
 
 
 def format_json(text: str | None) -> str:
@@ -32,9 +36,17 @@ def format_json(text: str | None) -> str:
 
 class UserMessageWidget(Vertical):
     def __init__(
-        self, text: str, author_margin_top: int, author_margin_bottom: int, *, author_label: str = "You"
+        self,
+        text: str,
+        author_margin_top: int,
+        author_margin_bottom: int,
+        *,
+        author_label: str = "You",
+        source_session_id: str | None = None,
     ) -> None:
-        author = Label(author_label, classes="message-author")
+        author = Label(author_label, markup=False, classes="message-author")
+        if source_session_id is not None:
+            author.tooltip = f"Source Session: {source_session_id}\nUse /resume {source_session_id} to open it."
         author.styles.margin = (author_margin_top, 0, author_margin_bottom, 0)
         super().__init__(author, Static(text, markup=False, classes="message-content"), classes="user-message")
 
@@ -201,18 +213,30 @@ class ChatTimeline(VerticalScroll):
             await self.mount(self._current_assistant_turn)
         return self._current_assistant_turn
 
-    async def add_user_message(self, text: str) -> None:
+    async def add_user_message(self, text: str, *, origin: InputOrigin | None = None) -> None:
         self._finish_activity()
         self._current_assistant_turn = None
         self._active_agent_name = self._initial_agent_name
-        await self.mount(UserMessageWidget(text, self._message_author_margin_top, self._message_author_margin_bottom))
+        await self.mount(
+            UserMessageWidget(
+                text,
+                self._message_author_margin_top,
+                self._message_author_margin_bottom,
+                author_label=input_author_label(origin),
+                source_session_id=origin.sender_session_id if origin is not None else None,
+            )
+        )
         self.scroll_end(animate=False)
 
-    async def add_steer_message(self, text: str) -> None:
+    async def add_steer_message(self, text: str, *, origin: InputOrigin | None = None) -> None:
         self._finish_assistant_turn()
         await self.mount(
             UserMessageWidget(
-                text, self._message_author_margin_top, self._message_author_margin_bottom, author_label="You · Steer"
+                text,
+                self._message_author_margin_top,
+                self._message_author_margin_bottom,
+                author_label=f"{input_author_label(origin)} · Steer",
+                source_session_id=origin.sender_session_id if origin is not None else None,
             )
         )
         self.scroll_end(animate=False)
@@ -349,9 +373,9 @@ class ChatTimeline(VerticalScroll):
             if event_type == "activity_label":
                 continue
             if event_type == "user_message" and isinstance(record.get("text"), str):
-                await self.add_user_message(_record_text(record, "text"))
+                await self.add_user_message(_record_text(record, "text"), origin=input_origin_from_record(record))
             elif event_type == "user_steer" and isinstance(record.get("text"), str):
-                await self.add_steer_message(_record_text(record, "text"))
+                await self.add_steer_message(_record_text(record, "text"), origin=input_origin_from_record(record))
             elif event_type == "reasoning" and isinstance(record.get("text"), str):
                 await self.add_reasoning(record["text"])
             elif event_type == "tool_called" and isinstance(record.get("name"), str):
