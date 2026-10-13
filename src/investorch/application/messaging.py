@@ -19,7 +19,16 @@ from investorch.runtime import AgentRuntime
 from investorch.storage import get_session
 from investorch.workspace_paths import resolve_workspace_path
 
-from .interaction import UserInputSubmission, submit_user_input
+from .interaction import (
+    ActiveRunChangedError,
+    ArchivedSessionInputError,
+    FollowUpSubmissionError,
+    MissingSessionInputError,
+    QueuedFollowUpsPendingError,
+    SteerPromotionPendingError,
+    UserInputSubmission,
+    submit_user_input,
+)
 
 
 class MessageSendError(RuntimeError):
@@ -90,13 +99,37 @@ async def send_message(
         prepared.append(image)
     user_input = normalize_user_input(text, prepared, state.config)
     user_input = replace(user_input, origin=InputOrigin("agent", source_session_id, source_run_id))
-    return await submit_user_input(
-        state=state,
-        runtime=runtime,
-        session_id=target_session_id,
-        user_input=user_input,
-        require_existing_session=True,
-    )
+    try:
+        return await submit_user_input(
+            state=state,
+            runtime=runtime,
+            session_id=target_session_id,
+            user_input=user_input,
+            require_existing_session=True,
+        )
+    except MissingSessionInputError as exc:
+        raise MessageSendError("session_not_found: The target no longer exists in this Root.") from exc
+    except ArchivedSessionInputError as exc:
+        raise MessageSendError("session_archived: The target Session is archived.") from exc
+    except QueuedFollowUpsPendingError as exc:
+        code = "queue_paused" if exc.paused else "queue_pending"
+        raise MessageSendError(f"{code}: Resolve the target's accepted Queue before submitting another input.") from exc
+    except SteerPromotionPendingError as exc:
+        raise MessageSendError(
+            "steer_pending: The target has pending Steer promotion; check its status before retrying."
+        ) from exc
+    except ActiveRunChangedError as exc:
+        raise MessageSendError(
+            "target_busy: The target Run changed, is stopping, or is reserved; check its status."
+        ) from exc
+    except FollowUpSubmissionError as exc:
+        raise MessageSendError(
+            "input_rejected: The target could not accept the follow-up; check System Status."
+        ) from exc
+    except RuntimeError as exc:
+        if str(exc) == "Agent runtime is closed":
+            raise MessageSendError("runtime_closed: This Host is shutting down and cannot accept inputs.") from exc
+        raise
 
 
 def _workspace_image(state: AppState, reference: MessageImageReference) -> dict[str, object]:

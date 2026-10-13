@@ -49,7 +49,7 @@ class InputOrigin:
     sender_run_id: str | None = None
 
     def __post_init__(self) -> None:
-        if self.kind not in {"user", "agent"}:
+        if self.kind not in ("user", "agent"):
             raise ValueError("invalid_input_origin")
         identities = (self.sender_session_id, self.sender_run_id)
         if self.kind == "user":

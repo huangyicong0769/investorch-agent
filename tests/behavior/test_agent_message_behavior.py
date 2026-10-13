@@ -1,15 +1,24 @@
+import asyncio
 import base64
+import json
+from functools import partial
 from zoneinfo import ZoneInfo
 
+import pytest
+from agents.tool_context import ToolContext
+
+from investorch.application import PortfolioOperations
 from investorch.application.messaging import MessageImageReference, send_message
 from investorch.application.review_context import ReviewContext
 from investorch.application.session_queries import read_session
+from investorch.context import AgentContext
 from investorch.images import InputOrigin, UserInput
 from investorch.journal import SessionJournal, read_session_journal
-from investorch.storage import create_session
+from investorch.storage import archive_session, create_session, get_session
+from investorch.tools.messaging import make_messaging_tools
 from tests.behavior.test_interaction_routing_behavior import make_app_state
 from tests.support.config import make_test_config
-from tests.support.runtime import make_runtime_harness
+from tests.support.runtime import make_runtime_harness, run_options
 
 
 async def test_mixed_origins_preserve_target_ownership_and_frozen_effective_history(tmp_path):
@@ -86,4 +95,105 @@ async def test_workspace_and_sender_history_images_arrive_as_normalized_inputs(t
         assert image_input.text == ""
         assert image_input.images == delivered.images
     finally:
+        await harness.runtime.aclose()
+
+
+def message_tool(harness):
+    state = make_app_state(harness, "sender")
+    return make_messaging_tools(
+        submit=partial(send_message, state=state, runtime=harness.runtime, journal=harness.journal)
+    )[0]
+
+
+async def invoke_message(tool, harness, arguments, *, sender="sender", run_id="sender-run"):
+    encoded = json.dumps(arguments)
+    context = ToolContext(
+        context=AgentContext(
+            config=harness.config,
+            execution=harness.execution,
+            session_id=sender,
+            run_id=run_id,
+            portfolios=PortfolioOperations(config=harness.config),
+        ),
+        tool_name="send_message",
+        tool_call_id="message",
+        tool_arguments=encoded,
+    )
+    return await tool.on_invoke_tool(context, encoded)
+
+
+@pytest.mark.parametrize(
+    ("arguments", "expected"),
+    [
+        ({"target_session_id": "sender", "text": "self"}, "self_message"),
+        ({"target_session_id": "missing", "text": "missing"}, "session_not_found"),
+        ({"target_session_id": "tar", "text": "prefix"}, "session_not_found"),
+        ({"target_session_id": "archived", "text": "archived"}, "session_archived"),
+        ({"target_session_id": "target"}, "text or images"),
+        ({"target_session_id": "target", "text": "spoof", "sender_session_id": "forged"}, "accepts only"),
+        (
+            {"target_session_id": "target", "images": [{"source": "workspace", "path": "../secret.png"}]},
+            "image_path_invalid",
+        ),
+        (
+            {"target_session_id": "target", "images": [{"source": "workspace", "path": "external.png"}]},
+            "image_path_invalid",
+        ),
+        (
+            {"target_session_id": "target", "images": [{"source": "session_event", "seq": 1, "image_index": 0}]},
+            "image_not_effective",
+        ),
+    ],
+)
+async def test_corrective_tool_failures_leave_destinations_unchanged(tmp_path, arguments, expected):
+    harness = make_runtime_harness(tmp_path)
+    for session_id in ("sender", "target", "archived"):
+        create_session(harness.config.sessions_db, session_id)
+    archive_session(harness.config.sessions_db, "archived")
+    private = harness.config.root / "secret.png"
+    private.write_bytes(b"\x89PNG\r\n\x1a\nsecret")
+    (harness.config.workspace_dir / "external.png").symlink_to(private)
+    await harness.journal.record_user_steer("sender", "sender-run", UserInput("pending", ()))
+    try:
+        error = await invoke_message(message_tool(harness), harness, arguments)
+        assert isinstance(error, str) and expected in error
+        assert str(harness.config.root) not in error
+        assert "data:" not in error
+        assert harness.runtime.list_active_runs() == []
+        assert harness.runtime.list_queued_inputs("target") == []
+        assert (await read_session("target", sessions_db=harness.config.sessions_db, journal=harness.journal))[
+            "records"
+        ] == []
+        assert get_session(harness.config.sessions_db, "missing") is None
+        assert get_session(harness.config.sessions_db, "archived").archived_at is not None
+    finally:
+        await harness.runtime.aclose()
+
+
+async def test_stopping_target_returns_a_safe_corrective_tool_error(tmp_path):
+    discard_started = asyncio.Event()
+    release_discard = asyncio.Event()
+
+    async def hold_discard(session_id, run_id, seqs):
+        discard_started.set()
+        await release_discard.wait()
+        return await harness.journal.record_user_steers_discarded(session_id, run_id, seqs)
+
+    harness = make_runtime_harness(tmp_path, record_user_steers_discarded=hold_discard)
+    create_session(harness.config.sessions_db, "target")
+    try:
+        harness.runtime.start_run("target", "initial", run_options())
+        await harness.agent_loop.wait_until_started("target")
+        await harness.runtime.submit_follow_up("target", "pending", run_options())
+        harness.runtime.cancel_run("target")
+        await asyncio.wait_for(discard_started.wait(), 2)
+        error = await invoke_message(
+            message_tool(harness), harness, {"target_session_id": "target", "text": "too late"}
+        )
+        assert isinstance(error, str) and ("target_busy" in error or "queue_paused" in error)
+        assert "too late" not in str(
+            (await read_session("target", sessions_db=harness.config.sessions_db, journal=harness.journal))["records"]
+        )
+    finally:
+        release_discard.set()
         await harness.runtime.aclose()
