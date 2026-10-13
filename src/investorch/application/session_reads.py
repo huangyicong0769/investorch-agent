@@ -292,9 +292,10 @@ def _conversation_record(record: dict[str, object], activated: frozenset[int]) -
 
 def _image_metadata(image: dict[str, object]) -> dict[str, object]:
     filename = image.get("filename")
-    if isinstance(filename, str) and not filename.lstrip().lower().startswith("data:"):
+    if isinstance(filename, str):
         try:
-            filename = urlsplit(filename).path.replace("\\", "/").rsplit("/", 1)[-1]
+            parsed = urlsplit(filename.lstrip())
+            filename = None if parsed.scheme == "data" else parsed.path.replace("\\", "/").rsplit("/", 1)[-1]
         except ValueError:
             filename = None
     else:

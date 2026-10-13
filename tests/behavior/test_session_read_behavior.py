@@ -433,6 +433,25 @@ async def test_giant_image_payload_is_metadata_only_and_encoded_unicode_can_requ
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("filename", ["da\tta:image/png;base64,aGVsbG8=", "da\nta:image/png;base64,aGVsbG8="])
+async def test_image_filename_rejects_data_urls_after_url_normalization(tmp_path: Path, filename: str) -> None:
+    harness = make_runtime_harness(tmp_path)
+    create_session(harness.config.sessions_db, "a")
+    image = ImageContent("https://example.test/image.png", filename=filename)
+    await harness.journal.record_user_message("a", UserInput("inspect image", (image,)))
+    reads = SessionReadOperations(
+        config=harness.config, journal=harness.journal, get_runtime_snapshot=harness.runtime.session_snapshot
+    )
+
+    result = await reads.read_session("a")
+
+    assert result["records"][0]["images"][0]["filename"] is None
+    assert "base64" not in json.dumps(result)
+    assert "aGVsbG8=" not in json.dumps(result)
+    await harness.runtime.aclose()
+
+
+@pytest.mark.asyncio
 async def test_oversized_metadata_fails_explicitly_and_old_large_raw_records_do_not_poison_narrow_pages(
     tmp_path: Path,
 ) -> None:
