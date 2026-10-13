@@ -14,6 +14,7 @@ from investorch.application.session_queries import read_session
 from investorch.context import AgentContext
 from investorch.images import InputOrigin, UserInput
 from investorch.journal import SessionJournal, read_session_journal
+from investorch.presentation import serialize_follow_up_event, serialize_queue_item
 from investorch.storage import archive_session, create_session, get_session
 from investorch.tools.messaging import make_messaging_tools
 from tests.behavior.test_interaction_routing_behavior import make_app_state
@@ -197,3 +198,108 @@ async def test_stopping_target_returns_a_safe_corrective_tool_error(tmp_path):
     finally:
         release_discard.set()
         await harness.runtime.aclose()
+
+
+async def test_active_target_preserves_origin_through_existing_queue_promotion_and_receipts(tmp_path):
+    behavior = "queue"
+    harness = make_runtime_harness(tmp_path)
+    create_session(harness.config.sessions_db, "target")
+    tool = message_tool(harness)
+    try:
+        active = harness.runtime.start_run("target", "human instruction", run_options(behavior))
+        await harness.agent_loop.wait_until_started("target")
+        receipt = await invoke_message(tool, harness, {"target_session_id": "target", "text": "Agent follow-up"})
+        assert receipt["disposition"] == f"{behavior}_submitted"
+        assert receipt["run_id"] == active.run_id
+        assert receipt["follow_up_id"]
+        origin = {"kind": "agent", "sender_session_id": "sender", "sender_run_id": "sender-run"}
+        event = await harness.wait_for_follow_up(f"{behavior}_submitted")
+        assert serialize_follow_up_event(event)["origin"] == origin
+        if behavior == "queue":
+            assert serialize_queue_item(harness.runtime.list_queued_inputs("target")[0])["origin"] == origin
+            assert (
+                len(
+                    (await read_session("target", sessions_db=harness.config.sessions_db, journal=harness.journal))[
+                        "records"
+                    ]
+                )
+                == 1
+            )
+        harness.agent_loop.complete("target")
+        await harness.agent_loop.wait_until_started("target", 2)
+        promoted = harness.agent_loop.input_for("target").structured_input
+        assert promoted.text == "Agent follow-up"
+        assert promoted.origin == InputOrigin("agent", "sender", "sender-run")
+        records = (await read_session("target", sessions_db=harness.config.sessions_db, journal=harness.journal))[
+            "records"
+        ]
+        assert [record["text"] for record in records] == ["human instruction", "Agent follow-up"]
+        assert records[1]["origin"] == origin
+        harness.agent_loop.complete("target")
+        await harness.wait_for_run_ended("target", 2)
+    finally:
+        await harness.runtime.aclose()
+
+
+async def test_paused_queue_and_failed_steer_write_do_not_accept_another_message(tmp_path):
+    async def failed_steer(_session_id, _run_id, _input):
+        raise OSError("private Journal path canary")
+
+    harness = make_runtime_harness(tmp_path, record_user_steer=failed_steer)
+    create_session(harness.config.sessions_db, "steer")
+    create_session(harness.config.sessions_db, "queue")
+    try:
+        harness.runtime.start_run("steer", "initial", run_options())
+        await harness.agent_loop.wait_until_started("steer")
+        error = await invoke_message(
+            message_tool(harness), harness, {"target_session_id": "steer", "text": "failed input"}
+        )
+        assert isinstance(error, str) and "input_rejected" in error
+        assert "private Journal path canary" not in error
+        harness.agent_loop.complete("steer")
+        await harness.wait_for_run_ended("steer")
+        assert [
+            record["text"]
+            for record in (
+                await read_session("steer", sessions_db=harness.config.sessions_db, journal=harness.journal)
+            )["records"]
+        ] == ["initial"]
+        active = harness.runtime.start_run("queue", "initial", run_options("queue"))
+        await harness.agent_loop.wait_until_started("queue")
+        await harness.runtime.submit_follow_up("queue", "accepted", run_options())
+        harness.runtime.cancel_run("queue")
+        with pytest.raises(asyncio.CancelledError):
+            await active.task
+        error = await invoke_message(message_tool(harness), harness, {"target_session_id": "queue", "text": "rejected"})
+        assert isinstance(error, str) and "queue_paused" in error
+        assert [item.user_input.text for item in harness.runtime.list_queued_inputs("queue")] == ["accepted"]
+    finally:
+        await harness.runtime.aclose()
+
+
+async def test_host_bound_tool_does_not_route_identical_ids_to_another_root_and_reply_is_explicit(tmp_path):
+    first = make_runtime_harness(tmp_path / "first")
+    second = make_runtime_harness(tmp_path / "second")
+    for harness in (first, second):
+        for session_id in ("sender", "target"):
+            create_session(harness.config.sessions_db, session_id)
+    try:
+        tool = message_tool(first)
+        receipt = await invoke_message(tool, first, {"target_session_id": "target", "text": "first Root only"})
+        assert receipt["disposition"] == "run_started"
+        await first.agent_loop.wait_until_started("target")
+        assert second.runtime.is_session_active("target") is False
+        assert (await read_session("target", sessions_db=second.config.sessions_db, journal=second.journal))[
+            "records"
+        ] == []
+        reply = await invoke_message(
+            tool, first, {"target_session_id": "sender", "text": "explicit reply"}, sender="target", run_id="reply-run"
+        )
+        assert reply["disposition"] == "run_started"
+        await first.agent_loop.wait_until_started("sender")
+        assert first.agent_loop.input_for("sender").structured_input.origin == InputOrigin(
+            "agent", "target", "reply-run"
+        )
+    finally:
+        await first.runtime.aclose()
+        await second.runtime.aclose()

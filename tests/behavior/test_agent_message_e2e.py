@@ -6,6 +6,7 @@ from agents import ModelSettings
 from agents.testing import ModelStep, ScriptedModel, assistant_message, function_call
 
 from investorch.application import ApplicationCallbacks, open_application_host
+from investorch.application.messaging import send_message
 from investorch.application.session_queries import read_session
 from investorch.images import UserInput
 from investorch.output import ToolOutput
@@ -110,3 +111,68 @@ async def test_sender_sdk_approval_controls_delivery_without_waiting_for_receive
         finally:
             release_approval.set()
             release_receiver.set()
+
+
+@pytest.mark.parametrize("behavior", ["steer", "queue"])
+async def test_real_sdk_promotes_origin_without_duplicating_target_input(tmp_path, monkeypatch, behavior):
+    config = make_test_config(tmp_path, {"backtest": {"use_cnequity": False}, "compaction": {"auto_enabled": False}})
+    for session_id in ("sender", "target"):
+        create_session(config.sessions_db, session_id)
+        set_session_title(config.sessions_db, session_id, session_id)
+    started, release, promoted_finished = asyncio.Event(), asyncio.Event(), asyncio.Event()
+    ended = []
+
+    async def first(_call):
+        started.set()
+        await release.wait()
+        return (assistant_message("first done"),)
+
+    model = ScriptedModel((ModelStep.respond(first), (assistant_message("follow-up done"),)))
+    monkeypatch.setattr(
+        "investorch.application.host.create_model",
+        lambda _config, role: (model if role == "main" else ScriptedModel(), ModelSettings()),
+    )
+
+    async def no_approval(_request, _reason):
+        raise AssertionError("No write Tool was called")
+
+    async def finished(event):
+        ended.append(event)
+        if len(ended) == 2:
+            promoted_finished.set()
+
+    async with open_application_host(
+        config,
+        manual_approval_handler=no_approval,
+        callbacks=ApplicationCallbacks(handle_run_ended=finished),
+        create_initial_session=False,
+        enable_activity=False,
+    ) as host:
+        active = host.runtime.start_run("target", "human instruction", run_options(behavior))
+        await asyncio.wait_for(started.wait(), 3)
+        receipt = await send_message(
+            state=host.state,
+            runtime=host.runtime,
+            journal=host.journal,
+            source_session_id="sender",
+            source_run_id="sender-run",
+            target_session_id="target",
+            text="Agent follow-up",
+        )
+        assert receipt.disposition == f"{behavior}_submitted"
+        assert receipt.run_id == active.run_id
+        release.set()
+        await asyncio.wait_for(promoted_finished.wait(), 3)
+        assert [event.status for event in ended] == ["completed", "completed"]
+        page = await read_session("target", sessions_db=config.sessions_db, journal=host.journal)
+        users = [record for record in page["records"] if record["type"] == "user"]
+        assert [record["text"] for record in users] == ["human instruction", "Agent follow-up"]
+        assert users[1]["origin"]["sender_run_id"] == "sender-run"
+        sdk_users = [item for item in model.calls[1].input if item.get("role") == "user"]
+        assert sdk_users[-1]["content"] == [
+            {"type": "input_text", "text": 'Message sent by another InvestOrch Session: "sender" (Run "sender-run").'},
+            {"type": "input_text", "text": "Agent follow-up"},
+        ]
+        raw = await read_session("target", sessions_db=config.sessions_db, journal=host.journal, view="events")
+        assert sum(record["type"] in {"user_message", "user_steer"} for record in raw["records"]) == 2
+        model.assert_complete()
