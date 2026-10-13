@@ -1,7 +1,8 @@
-import type { ImageContent, JournalRecord } from '../../api/types'
+import type { ImageContent, InputOrigin, JournalRecord } from '../../api/types'
 
 export interface TimelineUserMessageViewModel {
   images: ImageContent[]
+  origin?: InputOrigin
   type: 'user'
   id: string
   seq: number
@@ -11,6 +12,7 @@ export interface TimelineUserMessageViewModel {
 
 export interface TimelineSteerViewModel {
   images: ImageContent[]
+  origin?: InputOrigin
   type: 'steer'
   id: string
   seq: number
@@ -371,6 +373,7 @@ export function projectTimeline(records: readonly JournalRecord[]): TimelineView
         timestamp: record.timestamp,
         text: record.text,
         images: record.images ?? [],
+        origin: record.origin,
       })
       lastAgentChangedName = null
       continue
@@ -386,6 +389,7 @@ export function projectTimeline(records: readonly JournalRecord[]): TimelineView
         runId: record.run_id,
         text: record.text,
         images: record.images ?? [],
+        origin: record.origin,
       })
       lastAgentChangedName = null
       continue

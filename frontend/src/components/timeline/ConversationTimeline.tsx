@@ -26,6 +26,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { ActivityGroup } from './ActivityGroup'
 import { MessageImages } from '../images/MessageImages'
 import { MarkdownMessage } from './MarkdownMessage'
+import { InputAuthor } from './InputAuthor'
 
 interface ConversationTimelineProps {
   sessionId: string
@@ -66,7 +67,7 @@ function TimelineItem({ item }: { item: TimelineViewModel }) {
       <article className="flex justify-end py-3" data-seq={item.seq}>
         <div className="max-w-[85%]">
           <div className="mb-1 text-right text-xs font-medium text-muted-foreground">
-            {item.type === 'steer' ? 'You · Steer' : 'You'} ·{' '}
+            <InputAuthor origin={item.origin} />{item.type === 'steer' ? ' · Steer' : ''} ·{' '}
             <time dateTime={item.timestamp}>{formatTimelineTime(item.timestamp)}</time>
           </div>
           {item.text ? <p className="whitespace-pre-wrap break-words rounded-2xl bg-muted px-4 py-3 text-sm leading-6">{item.text}</p> : null}

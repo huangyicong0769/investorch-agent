@@ -1,5 +1,11 @@
 export type ImageDetail = 'auto' | 'low' | 'high' | 'original'
 
+export interface InputOrigin {
+  kind: 'agent'
+  sender_session_id: string
+  sender_run_id: string
+}
+
 export interface ImageContent {
   image_url: string
   detail: ImageDetail
@@ -73,6 +79,7 @@ export interface SessionPresentationState {
 
 export interface QueueItem {
   images?: ImageContent[]
+  origin?: InputOrigin
   queue_id: string
   session_id: string
   text: string
@@ -305,6 +312,7 @@ export type FollowUpEventKind = 'steer_submitted' | 'steer_fallback_promoted' | 
 
 export interface FollowUpLiveEvent {
   images?: ImageContent[]
+  origin?: InputOrigin
   kind: 'follow_up'
   event_kind: FollowUpEventKind
   session_id: string
@@ -394,12 +402,14 @@ export interface JournalRecordBase {
 
 export interface UserMessageRecord extends JournalRecordBase {
   images?: ImageContent[]
+  origin?: InputOrigin
   type: 'user_message'
   text: string
 }
 
 export interface UserSteerRecord extends JournalRecordBase {
   images?: ImageContent[]
+  origin?: InputOrigin
   type: 'user_steer'
   run_id: string
   text: string
