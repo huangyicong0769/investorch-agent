@@ -97,8 +97,60 @@ try {
   await page.waitForURL(`**/c/${senderId}`)
   await page.getByRole('heading', { name: `Session ${senderId}`, exact: true }).waitFor()
   assert.equal(await page.getByRole('textbox', { name: 'Message InvestOrch Agent' }).isDisabled(), true, 'archived source navigation retains its read-only state')
+
+  await page.goto(`${base}/c/C`)
+  await page.getByRole('heading', { name: 'Session C', exact: true }).waitFor()
+  await page.waitForLoadState('networkidle')
+  let sourceState = { session: session('C'), runtime: runtime('C'), presentation, pending_approvals: [], queue: [] }
+  const staleState = { ...sourceState, runtime: { ...runtime('C'), run_id: 'source-run', run_phase: 'running', run_started_at: timestamp } }
+  let announceStaleRead
+  let releaseStaleRead
+  const staleReadStarted = new Promise((resolve) => { announceStaleRead = resolve })
+  const staleReadGate = new Promise((resolve) => { releaseStaleRead = resolve })
+  let staleReadHeld = false
+  await page.route('**/api/sessions/C/state', async (route) => {
+    if (!staleReadHeld) {
+      staleReadHeld = true
+      announceStaleRead()
+      await staleReadGate
+      await route.fulfill({ json: staleState })
+    } else await route.fulfill({ json: sourceState })
+  })
+  await page.route('**/api/sessions/C/messages', async (route) => {
+    const normal = route.request().postDataJSON().text === 'Normal source refresh'
+    if (normal) sourceState = { ...sourceState, runtime: { ...staleState.runtime, run_id: 'normal-run' } }
+    await route.fulfill({ json: { session_id: 'C', disposition: 'run_started', run_id: normal ? 'normal-run' : 'source-run', follow_up_id: null } })
+  })
+  let rejected = false
+  await page.route('**/api/approvals/cache-race', async (route) => {
+    rejected = route.request().postDataJSON().approved === false
+    await route.fulfill({ json: { approval_id: 'cache-race', approved: false } })
+  })
+  const sourceComposer = page.getByRole('textbox', { name: 'Message InvestOrch Agent' })
+  await sourceComposer.fill('Source approval cache race')
+  await page.getByRole('button', { name: 'Send', exact: true }).click()
+  await staleReadStarted
+  // Only the approval changes the state cache; no runtime_state event can mask its preservation.
+  socket.send(JSON.stringify({ kind: 'approval_required', session_id: 'C', run_id: 'source-run', approval_id: 'cache-race', tool_name: 'send_message', arguments: '{}', review_reason: null }))
+  await page.getByRole('button', { name: 'Reject', exact: true }).waitFor()
+  const staleResponse = page.waitForResponse((response) => new URL(response.url()).pathname === '/api/sessions/C/state')
+  releaseStaleRead()
+  await (await staleResponse).finished()
+  await page.waitForLoadState('networkidle')
+  await page.getByRole('button', { name: 'Reject', exact: true }).waitFor()
+  const rejection = page.waitForResponse((response) => new URL(response.url()).pathname === '/api/approvals/cache-race')
+  await page.getByRole('button', { name: 'Reject', exact: true }).click()
+  await rejection
+  assert.equal(rejected, true, 'a delayed pre-approval REST state must preserve the visible approval and its Reject action')
+  socket.send(JSON.stringify({ kind: 'approval_resolved', session_id: 'C', run_id: 'source-run', approval_id: 'cache-race', approved: false, source: 'user', review_decision: null, review_reason: null, journal_seq: 2 }))
+  await page.getByRole('button', { name: 'Reject', exact: true }).waitFor({ state: 'hidden' })
+  await page.waitForLoadState('networkidle')
+  await sourceComposer.fill('Normal source refresh')
+  await page.getByRole('button', { name: 'Send', exact: true }).click()
+  await page.getByRole('button', { name: 'Stop', exact: true }).waitFor()
+  assert.equal(await page.getByRole('button', { name: 'Stop', exact: true }).isEnabled(), true, 'without a competing live update, the send response still refreshes Runtime state')
   assert.deepEqual(errors, [], 'no browser runtime errors')
-  console.log('PASS: user/agent history, committed/live Steer/Queue and reload agree without duplicates; source IDs copy/navigate to archived Sessions; selection keeps target ownership')
+  console.log('PASS: user/agent history and live reload agree; source IDs copy/navigate; selection keeps ownership; delayed REST preserves live approval while normal sends still refresh state')
 } catch (error) {
   console.error(errors, await page.locator('body').innerText())
   throw error
