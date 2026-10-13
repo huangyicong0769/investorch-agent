@@ -694,7 +694,8 @@ export function LiveWebSocketProvider({ children }: PropsWithChildren) {
         current?.initial_session_id === event.session_id ? { ...current, runtime: event } : current,
       )
     } else if (event.kind === 'user_input_committed') {
-      requestSelectedResync(event.session_id)
+      // Only history changed; a concurrent full-state refresh can overwrite newer live approvals.
+      void queryClient.invalidateQueries({ exact: true, queryKey: queryKeys.sessionHistoryPages(event.session_id) })
     } else if (event.kind === 'run_ended') {
       endedRunBySessionRef.current.set(event.session_id, event.run_id)
       invalidateSessionQueries(event.session_id)
