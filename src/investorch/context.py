@@ -13,6 +13,7 @@ from investorch.config_schema import FOLLOW_UP_BEHAVIORS, PERMISSION_MODES, REAS
 
 if TYPE_CHECKING:
     from investorch.application.portfolios import PortfolioOperations
+    from investorch.application.session_reads import SessionReadOperations
     from investorch.application.skills import SkillOperations
     from investorch.runtime.models import FollowUpBehavior
 
@@ -67,6 +68,7 @@ class AgentContext:
     run_id: str
     portfolios: PortfolioOperations
     skills: SkillOperations | None = None
+    session_reads: SessionReadOperations | None = None
     turn: TurnState = field(default_factory=TurnState)
     todo_update_handler: TodoUpdateHandler | None = None
 

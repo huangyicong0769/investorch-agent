@@ -48,6 +48,7 @@ from .portfolio_context import (
 from .portfolio_sessions import PortfolioSessionWorkflows
 from .portfolios import PortfolioOperations
 from .presentation_state import SessionPresentationStore
+from .session_reads import SessionReadOperations
 from .sessions import SessionOperations
 from .skill_sessions import SkillSessionWorkflows
 from .skills import SkillOperations
@@ -95,6 +96,7 @@ class ApplicationHost:
     journal: SessionJournal
     runtime: AgentRuntime
     sessions: SessionOperations
+    session_reads: SessionReadOperations
     portfolios: PortfolioOperations
     skills: SkillOperations
     portfolio_sessions: PortfolioSessionWorkflows
@@ -232,7 +234,14 @@ async def open_application_host(
         await callbacks.handle_activity_label(event)
 
     runtime: AgentRuntime | None = None
+    session_reads: SessionReadOperations | None = None
     activity: ActivityCoordinator | None = None
+
+    def require_session_reads() -> SessionReadOperations:
+        if session_reads is None:
+            raise RuntimeError("Session read service is not initialized")
+        return session_reads
+
     try:
         await start_execution(execution, config.workspace_dir)
         mcp_servers = _load_agent_mcp_servers(config)
@@ -264,6 +273,7 @@ async def open_application_host(
                     portfolios,
                     successful_tool_handler=portfolio_context.observe_successful_tool,
                     skills=skills,
+                    session_reads_provider=require_session_reads,
                 )
                 approvals = ApprovalCoordinator(
                     config=config,
@@ -290,6 +300,9 @@ async def open_application_host(
                     state_handler=handle_runtime_state,
                     run_ended_handler=handle_run_ended,
                     follow_up_handler=callbacks.handle_follow_up,
+                )
+                session_reads = SessionReadOperations(
+                    config=config, journal=journal, get_runtime_snapshot=runtime.session_snapshot
                 )
                 if enable_activity:
                     activity_model, activity_model_settings = create_model(config, "activity")
@@ -319,6 +332,7 @@ async def open_application_host(
                     journal=journal,
                     runtime=runtime,
                     sessions=sessions,
+                    session_reads=session_reads,
                     portfolios=portfolios,
                     portfolio_sessions=portfolio_sessions,
                     skill_sessions=SkillSessionWorkflows(

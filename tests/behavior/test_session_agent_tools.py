@@ -1,0 +1,145 @@
+import ast
+import asyncio
+import json
+from pathlib import Path
+
+import pytest
+from agents import ModelSettings
+from agents.testing import ModelStep, ScriptedModel, assistant_message, function_call
+from agents.tool_context import ToolContext
+
+from investorch.application import ApplicationCallbacks, PortfolioOperations, open_application_host
+from investorch.application.session_reads import SessionReadOperations
+from investorch.context import AgentContext
+from investorch.journal import read_session_journal
+from investorch.output import ToolOutput
+from investorch.storage import create_session, get_session, set_session_title
+from investorch.tools import list_sessions, read_session
+from tests.support.config import make_test_config
+from tests.support.runtime import make_runtime_harness, run_options
+
+
+@pytest.mark.asyncio
+async def test_session_tools_are_read_only_and_surface_actionable_safe_errors(tmp_path: Path) -> None:
+    harness = make_runtime_harness(tmp_path)
+    create_session(harness.config.sessions_db, "a")
+    context = ToolContext(
+        context=AgentContext(
+            config=harness.config,
+            execution=harness.execution,
+            session_id="a",
+            run_id="reader",
+            portfolios=PortfolioOperations(config=harness.config),
+            session_reads=SessionReadOperations(
+                config=harness.config, journal=harness.journal, get_runtime_snapshot=harness.runtime.session_snapshot
+            ),
+        ),
+        tool_name="session-test",
+        tool_call_id="call-a",
+        tool_arguments="{}",
+    )
+    assert list_sessions.needs_approval is read_session.needs_approval is False
+    assert set(list_sessions.params_json_schema["properties"]) == {"query", "include_archived", "limit", "offset"}
+    assert (await list_sessions.on_invoke_tool(context, "{}"))["sessions"][0]["session_id"] == "a"
+    assert (await read_session.on_invoke_tool(context, '{"session_id":"a"}'))["records"] == []
+    assert "session_not_found" in await read_session.on_invoke_tool(context, '{"session_id":"unknown"}')
+    assert "limit" in await list_sessions.on_invoke_tool(context, '{"limit":0}')
+    assert "filename-safe" in await read_session.on_invoke_tool(context, '{"session_id":"../private-canary"}')
+    (harness.config.session_journal_dir / "a.jsonl").write_text("private-content-canary\n", encoding="utf-8")
+    error = await read_session.on_invoke_tool(context, '{"session_id":"a"}')
+    assert "journal_invalid" in error
+    assert "private-content-canary" not in error
+    assert str(harness.config.root) not in error
+    context.context.session_reads = None
+    assert "unavailable" in await list_sessions.on_invoke_tool(context, "{}")
+    await harness.runtime.aclose()
+
+
+@pytest.mark.asyncio
+async def test_real_host_agent_reads_self_and_another_running_session_without_side_effects(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = make_test_config(tmp_path, {"backtest": {"use_cnequity": False}, "compaction": {"auto_enabled": False}})
+    for session_id in ["a", "b"]:
+        create_session(config.sessions_db, session_id)
+        set_session_title(config.sessions_db, session_id, f"Session {session_id}")
+    b_started = asyncio.Event()
+    release_b = asyncio.Event()
+    outputs = []
+
+    async def wait_b(_call: object) -> tuple:
+        b_started.set()
+        await release_b.wait()
+        return (assistant_message("B complete"),)
+
+    model = ScriptedModel(
+        (
+            ModelStep.respond(wait_b),
+            (
+                function_call("list_sessions", {}, call_id="list"),
+                function_call("read_session", {"session_id": "b"}, call_id="other"),
+                function_call("read_session", {"session_id": "a"}, call_id="self"),
+            ),
+            (assistant_message("A complete"),),
+        )
+    )
+
+    def model_for_role(_config: object, role: str) -> tuple:
+        return (model if role == "main" else ScriptedModel()), ModelSettings()
+
+    async def capture(output: object, _seq: int | None) -> None:
+        outputs.append(output)
+
+    async def unexpected_approval(_request: object, _reason: str | None) -> bool:
+        raise AssertionError("Session reads must not request approval")
+
+    monkeypatch.setattr("investorch.application.host.create_model", model_for_role)
+    async with open_application_host(
+        config,
+        manual_approval_handler=unexpected_approval,
+        callbacks=ApplicationCallbacks(handle_output=capture),
+        create_initial_session=False,
+        enable_activity=False,
+    ) as host:
+        selected = host.state.selected_session_id
+        b = host.runtime.start_run("b", "B input", run_options())
+        await asyncio.wait_for(b_started.wait(), 3)
+        b_journal = read_session_journal(config.session_journal_dir, "b")
+        b_metadata = get_session(config.sessions_db, "b")
+        a = host.runtime.start_run("a", "A input", run_options())
+        await asyncio.wait_for(a.task, 3)
+
+        answers = [ast.literal_eval(output.event.output) for output in outputs if isinstance(output.event, ToolOutput)]
+        listing = next(answer for answer in answers if "sessions" in answer)
+        other = next(answer for answer in answers if answer.get("session_id") == "b")
+        own = next(answer for answer in answers if answer.get("session_id") == "a")
+        assert {item["session_id"]: item["status"] for item in listing["sessions"]} == {"a": "running", "b": "running"}
+        assert other["records"][0]["text"] == "B input"
+        assert own["records"][0]["text"] == "A input"
+        assert host.runtime.session_snapshot("b").run_id == b.run_id
+        assert host.state.selected_session_id == selected
+        assert get_session(config.sessions_db, "b") == b_metadata
+        assert read_session_journal(config.session_journal_dir, "b") == b_journal
+        assert {item["session_id"] for item in (await host.session_reads.list_sessions())["sessions"]} == {"a", "b"}
+        release_b.set()
+        await asyncio.wait_for(b.task, 3)
+        model.assert_complete()
+
+
+@pytest.mark.asyncio
+async def test_sdk_output_stays_bounded_when_python_representation_expands_quoted_text(tmp_path: Path) -> None:
+    harness = make_runtime_harness(tmp_path)
+    create_session(harness.config.sessions_db, "a")
+    for _ in range(3):
+        await harness.journal.record_user_message("a", "'" * 10000 + '"')
+    reads = SessionReadOperations(
+        config=harness.config, journal=harness.journal, get_runtime_snapshot=harness.runtime.session_snapshot
+    )
+
+    result = await reads.read_session("a")
+
+    assert len(json.dumps(result)) <= 32000
+    assert len(str(result)) <= 32000
+    assert result["has_older"] is True
+    assert [record["seq"] for record in result["records"]] == [3]
+    await harness.runtime.aclose()

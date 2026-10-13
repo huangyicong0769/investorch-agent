@@ -144,7 +144,8 @@ def _validate_limit(limit: int) -> None:
 
 
 def _serialized_chars(value: object) -> int:
-    return len(json.dumps(value))
+    # Agents SDK stringifies ordinary dict Tool results before sending them to the model.
+    return max(len(json.dumps(value)), len(str(value)))
 
 
 def _list_result(sessions: list[dict[str, object]], offset: int, total: int) -> dict[str, object]:

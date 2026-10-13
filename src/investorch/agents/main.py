@@ -34,6 +34,8 @@ def create_agent(
         tools.explore,
         tools.get_config,
         tools.get_current_time,
+        tools.list_sessions,
+        tools.read_session,
         tools.list_portfolios,
         tools.get_portfolio,
         tools.get_portfolio_ledger,
