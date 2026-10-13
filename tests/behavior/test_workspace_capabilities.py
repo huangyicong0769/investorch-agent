@@ -147,3 +147,21 @@ async def test_delete_rejects_workspace_root_and_nonempty_directory_without_recu
     assert isinstance(directory_result, str)
     assert context.context.config.workspace_dir.is_dir()
     assert (directory / "one.txt").is_file()
+
+
+@pytest.mark.asyncio
+async def test_delete_removes_files_and_recursively_removes_directories(tmp_path: Path) -> None:
+    context = make_tool_context(tmp_path)
+    directory = context.context.config.workspace_dir / "notes"
+    directory.mkdir()
+    note = directory / "one.txt"
+    note.write_text("delete", encoding="utf-8")
+
+    file_result = await invoke(delete, context, path="notes/one.txt", recursive=False)
+    assert file_result == {"path": "notes/one.txt", "type": "file", "deleted": True}
+    assert not note.exists() and directory.is_dir()
+
+    note.write_text("delete", encoding="utf-8")
+    directory_result = await invoke(delete, context, path="notes", recursive=True)
+    assert directory_result == {"path": "notes", "type": "directory", "recursive": True, "deleted": True}
+    assert not directory.exists()

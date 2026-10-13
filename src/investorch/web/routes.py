@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import logging
 from importlib.metadata import version
-from pathlib import Path
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Query, Request
@@ -11,6 +10,7 @@ from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field, StrictBool
 
 from investorch.application import ApplicationHost, submit_user_input
+from investorch.filesystem import resolve_workspace_path
 from investorch.images import (
     ACCEPTED_INPUT_MIME_TYPES,
     RENDERABLE_MIME_TYPES,
@@ -188,11 +188,9 @@ async def health() -> dict[str, str]:
 
 @router.get("/workspace/image")
 def workspace_image(host: Host, path: str) -> Response:
-    root = host.config.workspace_dir.resolve()
     try:
-        relative = Path(path)
-        target = (root / relative).resolve()
-        if relative.is_absolute() or not target.is_relative_to(root) or not target.is_file():
+        target = resolve_workspace_path(host.config.workspace_dir, path)
+        if not target.is_file():
             raise ValueError
         with target.open("rb") as file:
             data = file.read(host.config["images.max_image_bytes"] + 1)

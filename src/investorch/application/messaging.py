@@ -11,13 +11,13 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from investorch.context import AppState
+from investorch.filesystem import resolve_workspace_path
 from investorch.images import ImageDetail, InputOrigin, detect_image_media_type, normalize_user_input
 from investorch.journal import SessionJournal
 from investorch.journal.reader import JournalInvalidError, JournalSnapshot, JournalUnavailableError
 from investorch.journal.semantics import interpret_steers
 from investorch.runtime import AgentRuntime
 from investorch.storage import get_session
-from investorch.workspace_paths import resolve_workspace_path
 
 from .interaction import (
     ActiveRunChangedError,
