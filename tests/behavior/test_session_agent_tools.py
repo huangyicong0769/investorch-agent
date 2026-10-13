@@ -45,6 +45,18 @@ async def test_session_tools_are_read_only_and_surface_actionable_safe_errors(tm
     assert "session_not_found" in await read_session.on_invoke_tool(context, '{"session_id":"unknown"}')
     assert "limit" in await list_sessions.on_invoke_tool(context, '{"limit":0}')
     assert "filename-safe" in await read_session.on_invoke_tool(context, '{"session_id":"../private-canary"}')
+    for tool, arguments in [
+        (list_sessions, {"limit": True}),
+        (list_sessions, {"limit": "2"}),
+        (list_sessions, {"offset": False}),
+        (list_sessions, {"include_archived": 1}),
+        (read_session, {"session_id": "a", "limit": True}),
+        (read_session, {"session_id": "a", "before_seq": True}),
+        (read_session, {"session_id": "a", "snapshot_seq": False}),
+    ]:
+        feedback = await tool.on_invoke_tool(context, json.dumps(arguments))
+        assert isinstance(feedback, str)
+        assert "Invalid JSON input" in feedback
     (harness.config.session_journal_dir / "a.jsonl").write_text("private-content-canary\n", encoding="utf-8")
     error = await read_session.on_invoke_tool(context, '{"session_id":"a"}')
     assert "journal_invalid" in error

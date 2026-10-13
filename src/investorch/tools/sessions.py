@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Literal
 
 from agents import RunContextWrapper
+from pydantic import StrictBool, StrictInt
 
 from investorch.context import AgentContext
 from investorch.tools.errors import tool
@@ -21,9 +22,9 @@ def _session_reads(ctx: RunContextWrapper[AgentContext]) -> SessionReadOperation
 async def list_sessions(
     ctx: RunContextWrapper[AgentContext],
     query: str | None = None,
-    include_archived: bool = False,
-    limit: int = 50,
-    offset: int = 0,
+    include_archived: StrictBool = False,
+    limit: StrictInt = 50,
+    offset: StrictInt = 0,
 ) -> dict[str, object]:
     """List current Root Sessions with title-only filtering, current status, and offset pagination."""
     return await _session_reads(ctx).list_sessions(
@@ -36,9 +37,9 @@ async def read_session(
     ctx: RunContextWrapper[AgentContext],
     session_id: str,
     view: Literal["conversation", "events"] = "conversation",
-    before_seq: int | None = None,
-    snapshot_seq: int | None = None,
-    limit: int = 50,
+    before_seq: StrictInt | None = None,
+    snapshot_seq: StrictInt | None = None,
+    limit: StrictInt = 50,
 ) -> dict[str, object]:
     """Read exact-ID history, including self/archived; page backwards with returned snapshot_seq and next_before_seq.
 
