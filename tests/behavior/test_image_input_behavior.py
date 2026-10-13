@@ -3,7 +3,8 @@ from dataclasses import FrozenInstanceError
 
 import pytest
 
-from investorch.images import ImageContent, user_input_to_response_item
+from investorch.agents.loop import user_input_to_response_item
+from investorch.images import ImageContent
 from investorch.inputs import InputOrigin, UserInput, normalize_user_input
 from tests.support.config import make_test_config
 

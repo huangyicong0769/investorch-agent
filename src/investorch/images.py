@@ -2,14 +2,10 @@
 
 from __future__ import annotations
 
-import json
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass, field
-from typing import TYPE_CHECKING, Any, Literal
+from typing import Any, Literal
 from urllib.parse import urlsplit
-
-if TYPE_CHECKING:
-    from investorch.inputs import UserInput
 
 ImageDetail = Literal["auto", "low", "high", "original"]
 IMAGE_DETAILS = ("auto", "low", "high", "original")
@@ -55,23 +51,6 @@ def detect_image_media_type(data: bytes) -> str | None:
 
 def serialize_images(images: Sequence[ImageContent]) -> list[dict[str, Any]]:
     return [asdict(image) for image in images]
-
-
-def user_input_to_response_item(user_input: UserInput) -> dict[str, Any]:
-    content = []
-    if user_input.origin.kind == "agent":
-        # Provenance accompanies ordinary user content; it never gains system/developer authority.
-        session_id = json.dumps(user_input.origin.sender_session_id, ensure_ascii=False)
-        run_id = json.dumps(user_input.origin.sender_run_id, ensure_ascii=False)
-        content.append(
-            {"type": "input_text", "text": f"Message sent by another InvestOrch Session: {session_id} (Run {run_id})."}
-        )
-    if user_input.text.strip():
-        content.append({"type": "input_text", "text": user_input.text})
-    content.extend(
-        {"type": "input_image", "image_url": image.image_url, "detail": image.detail} for image in user_input.images
-    )
-    return {"role": "user", "content": content}
 
 
 def image_summary(image: ImageContent) -> str:

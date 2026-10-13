@@ -5,7 +5,8 @@ from pathlib import Path
 import pytest
 from agents import SQLiteSession
 
-from investorch.images import ImageContent, serialize_images, user_input_to_response_item
+from investorch.agents.loop import user_input_to_response_item
+from investorch.images import ImageContent, serialize_images
 from investorch.inputs import UserInput
 from investorch.journal import read_session_journal
 from investorch.output import AssistantMessage, ToolOutput
