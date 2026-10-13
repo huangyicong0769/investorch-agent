@@ -174,7 +174,7 @@ def _read_history_snapshot(
         raise ValueError("snapshot_seq must identify an existing committed Journal sequence, or 0 for empty history")
     if before_seq is not None and before_seq > head + 1:
         raise ValueError("before_seq must not exceed snapshot_seq + 1")
-    records: deque[dict[str, object]] = deque(maxlen=limit)
+    records: deque[dict[str, object] | SessionReadError] = deque(maxlen=limit)
     eligible_count = 0
     for record in snapshot.iter_records(through_seq=head):
         seq = cast(int, record["seq"])
@@ -183,8 +183,31 @@ def _read_history_snapshot(
         item = record if view == "events" else _conversation_record(record, facts.activated)
         if item is not None:
             eligible_count += 1
-            records.append(item)
-    return _history_result(session_id, view, head, list(records), eligible_count)
+            if view == "events":
+                records.append(item if _serialized_chars(item) <= MAX_RESPONSE_CHARS else _raw_budget_error())
+            else:
+                try:
+                    records.append(_bound_conversation_record(item, session_id, head))
+                except SessionReadError as error:
+                    records.append(error)
+    selected: list[dict[str, object]] = []
+    for item in reversed(records):
+        if isinstance(item, SessionReadError):
+            if view == "events" or not selected:
+                raise item
+            break
+        candidate = [item, *selected]
+        if _serialized_chars(_history_result(session_id, view, head, candidate, eligible_count)) > MAX_RESPONSE_CHARS:
+            if view == "events":
+                raise _raw_budget_error()
+            if not selected:
+                raise SessionReadError("response_too_large", "Conversation metadata exceeds the response budget.")
+            break
+        selected = candidate
+    result = _history_result(session_id, view, head, selected, eligible_count)
+    if _serialized_chars(result) > MAX_RESPONSE_CHARS:
+        raise SessionReadError("response_too_large", "History metadata exceeds the response budget.")
+    return result
 
 
 def _history_result(
@@ -197,8 +220,37 @@ def _history_result(
         "records": records,
         "has_older": eligible_count > len(records),
         "next_before_seq": records[0]["seq"] if records else None,
-        "omitted_fields": 0,
+        "omitted_fields": (
+            sum(len(cast(list, record.get("omitted_fields", []))) for record in records)
+            if view == "conversation"
+            else 0
+        ),
     }
+
+
+def _raw_budget_error() -> SessionReadError:
+    return SessionReadError(
+        "response_too_large", "Raw Events exceed the response budget; reduce limit or use conversation."
+    )
+
+
+def _bound_conversation_record(item: dict[str, object], session_id: str, head: int) -> dict[str, object]:
+    def omit(field: str, value: str) -> None:
+        del item[field]
+        item["omitted_fields"] = [{"field": field, "reason": "size_limit", "original_chars": len(value)}]
+
+    for field in ("text", "arguments", "output"):
+        value = item.get(field)
+        if isinstance(value, str) and len(value) > MAX_FIELD_CHARS:
+            omit(field, value)
+    if _serialized_chars(_history_result(session_id, "conversation", head, [item], 1)) > MAX_RESPONSE_CHARS:
+        for field in ("text", "arguments", "output"):
+            value = item.get(field)
+            if isinstance(value, str):
+                omit(field, value)
+    if _serialized_chars(_history_result(session_id, "conversation", head, [item], 1)) > MAX_RESPONSE_CHARS:
+        raise SessionReadError("response_too_large", "Conversation metadata exceeds the response budget.")
+    return item
 
 
 def _conversation_record(record: dict[str, object], activated: frozenset[int]) -> dict[str, object] | None:

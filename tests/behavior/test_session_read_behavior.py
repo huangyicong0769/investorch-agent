@@ -6,8 +6,9 @@ from pathlib import Path
 import pytest
 
 from investorch.application.session_reads import SessionReadError, SessionReadOperations
+from investorch.images import ImageContent, UserInput
 from investorch.journal import read_session_journal
-from investorch.output import AssistantMessage
+from investorch.output import AssistantMessage, ToolCalled, ToolOutput
 from investorch.storage import archive_session, create_session, set_session_branch_from, set_session_title
 from tests.support.runtime import make_runtime_harness
 from tests.support.session_history import record_mixed_history
@@ -339,4 +340,134 @@ async def test_conflicting_disposition_and_delete_fence_return_explicit_errors(t
     await harness.journal.prepare_session_delete("a")
     with pytest.raises(SessionReadError, match="journal_unavailable"):
         await reads.read_session("a")
+    await harness.runtime.aclose()
+
+
+@pytest.mark.asyncio
+async def test_encoded_budget_retains_complete_newest_suffix_and_pagination_recovers_the_rest(tmp_path: Path) -> None:
+    harness = make_runtime_harness(tmp_path)
+    create_session(harness.config.sessions_db, "a")
+    reads = SessionReadOperations(
+        config=harness.config, journal=harness.journal, get_runtime_snapshot=harness.runtime.session_snapshot
+    )
+    for suffix in ["oldest", "middle", "newest"]:
+        await harness.journal.record_user_message("a", '"' * 10000 + suffix)
+
+    page = await reads.read_session("a", limit=100)
+    middle = await reads.read_session("a", before_seq=page["next_before_seq"], snapshot_seq=page["snapshot_seq"])
+    oldest = await reads.read_session("a", before_seq=middle["next_before_seq"], snapshot_seq=page["snapshot_seq"])
+
+    assert [record["seq"] for record in page["records"]] == [3]
+    assert page["has_older"] is True
+    assert page["omitted_fields"] == 0
+    assert page["records"][0]["text"] == '"' * 10000 + "newest"
+    assert middle["records"][0]["seq"] == 2
+    assert oldest["records"][0]["seq"] == 1
+    assert oldest["has_older"] is False
+    assert all(len(json.dumps(value)) <= 32000 for value in [page, middle, oldest])
+    with pytest.raises(SessionReadError, match="response_too_large"):
+        await reads.read_session("a", view="events")
+    assert (await reads.read_session("a", view="events", limit=1))["records"][0]["text"] == '"' * 10000 + "newest"
+    await harness.runtime.aclose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("field", ["text", "arguments", "output"])
+async def test_single_oversized_field_has_explicit_original_length_without_trapping_the_cursor(
+    tmp_path: Path, field: str
+) -> None:
+    harness = make_runtime_harness(tmp_path)
+    create_session(harness.config.sessions_db, "a")
+    await harness.journal.record_user_message("a", "older input")
+    if field == "text":
+        await harness.journal.record_user_message("a", "x" * 280000)
+    else:
+        event = ToolOutput("x" * 280000) if field == "output" else ToolCalled("large-tool", "x" * 280000)
+        await harness.journal.record_output("a", event)
+    reads = SessionReadOperations(
+        config=harness.config, journal=harness.journal, get_runtime_snapshot=harness.runtime.session_snapshot
+    )
+
+    page = await reads.read_session("a", limit=1)
+
+    assert page["omitted_fields"] == 1
+    assert page["records"][0]["seq"] == 2
+    assert field not in page["records"][0]
+    assert page["records"][0]["omitted_fields"] == [{"field": field, "reason": "size_limit", "original_chars": 280000}]
+    assert page["has_older"] is True
+    older = await reads.read_session("a", before_seq=page["next_before_seq"], snapshot_seq=page["snapshot_seq"])
+    assert older["records"][0]["text"] == "older input"
+    with pytest.raises(SessionReadError, match="response_too_large"):
+        await reads.read_session("a", view="events", limit=1)
+    await harness.runtime.aclose()
+
+
+@pytest.mark.asyncio
+async def test_giant_image_payload_is_metadata_only_and_encoded_unicode_can_require_omission(tmp_path: Path) -> None:
+    harness = make_runtime_harness(tmp_path)
+    create_session(harness.config.sessions_db, "a")
+    image = ImageContent("data:image/png;base64," + "A" * 200000, filename="https://example.test/file.png?token=secret")
+    await harness.journal.record_user_message("a", UserInput("", (image,)))
+    await harness.journal.record_user_message("a", "雪" * 8000)
+    reads = SessionReadOperations(
+        config=harness.config, journal=harness.journal, get_runtime_snapshot=harness.runtime.session_snapshot
+    )
+
+    page = await reads.read_session("a")
+
+    assert len(json.dumps(page)) <= 32000
+    assert page["records"][0]["text"] == ""
+    assert page["records"][0]["images"][0]["filename"] == "file.png"
+    assert page["records"][1]["omitted_fields"] == [{"field": "text", "reason": "size_limit", "original_chars": 8000}]
+    assert "image_url" not in json.dumps(page)
+    assert "base64" not in json.dumps(page)
+    assert "token" not in json.dumps(page)
+    with pytest.raises(SessionReadError, match="response_too_large"):
+        await reads.read_session("a", view="events", before_seq=2)
+    await harness.runtime.aclose()
+
+
+@pytest.mark.asyncio
+async def test_oversized_metadata_fails_explicitly_and_old_large_raw_records_do_not_poison_narrow_pages(
+    tmp_path: Path,
+) -> None:
+    harness = make_runtime_harness(tmp_path)
+    create_session(harness.config.sessions_db, "a")
+    await harness.journal.record_output("a", ToolCalled("x" * 40000))
+    await harness.journal.record_output("a", AssistantMessage("newer"))
+    reads = SessionReadOperations(
+        config=harness.config, journal=harness.journal, get_runtime_snapshot=harness.runtime.session_snapshot
+    )
+
+    latest = await reads.read_session("a", limit=1)
+    assert latest["records"][0]["seq"] == 2
+    assert (await reads.read_session("a", view="events", limit=1))["records"][0]["text"] == "newer"
+    with pytest.raises(SessionReadError, match="response_too_large"):
+        await reads.read_session("a", before_seq=2)
+    await harness.runtime.aclose()
+
+
+@pytest.mark.asyncio
+async def test_raw_events_preserve_unrecognized_fields_without_interpreting_them_as_output_markers(
+    tmp_path: Path,
+) -> None:
+    harness = make_runtime_harness(tmp_path)
+    create_session(harness.config.sessions_db, "a")
+    event = {
+        "seq": 1,
+        "type": "reasoning",
+        "timestamp": "old",
+        "text": "raw",
+        "omitted_fields": 1337,
+        "extra": {"a": [None, False]},
+    }
+    (harness.config.session_journal_dir / "a.jsonl").write_text(json.dumps(event) + "\n", encoding="utf-8")
+    reads = SessionReadOperations(
+        config=harness.config, journal=harness.journal, get_runtime_snapshot=harness.runtime.session_snapshot
+    )
+
+    result = await reads.read_session("a", view="events")
+
+    assert result["records"] == [event]
+    assert result["omitted_fields"] == 0
     await harness.runtime.aclose()
