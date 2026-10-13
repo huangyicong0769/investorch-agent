@@ -7,7 +7,7 @@ import binascii
 import json
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass, field
-from typing import Any, Literal
+from typing import Any, Literal, cast
 from urllib.parse import urlsplit
 
 from investorch.config import AppConfig
@@ -69,6 +69,24 @@ class UserInput:
         object.__setattr__(self, "images", tuple(self.images))
         if not self.text.strip() and not self.images:
             raise ValueError("User input must contain text or images")
+
+
+def input_origin_fields(origin: InputOrigin) -> dict[str, object]:
+    """Keep ordinary user payloads unchanged and emit only Agent provenance."""
+    return {"origin": asdict(origin)} if origin.kind == "agent" else {}
+
+
+def input_origin_from_record(record: Mapping[str, object]) -> InputOrigin:
+    raw = record.get("origin")
+    if raw is None:
+        return InputOrigin()
+    if not isinstance(raw, Mapping) or set(raw) - {"kind", "sender_session_id", "sender_run_id"}:
+        raise ValueError("invalid_input_origin")
+    return InputOrigin(
+        cast(Literal["user", "agent"], raw.get("kind")),
+        cast(str | None, raw.get("sender_session_id")),
+        cast(str | None, raw.get("sender_run_id")),
+    )
 
 
 def detect_image_media_type(data: bytes) -> str | None:

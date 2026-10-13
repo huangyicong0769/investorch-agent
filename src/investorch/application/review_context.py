@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from dataclasses import dataclass
 
 from agents import Agent
 
 from investorch.agents import TokenUsage, compact_review_instructions
 from investorch.config import AppConfig
+from investorch.images import input_origin_from_record
 from investorch.journal import read_session_journal
 from investorch.journal.semantics import JournalInconsistentError, interpret_steers
 
@@ -108,10 +110,16 @@ def _prepare_records(records: list[dict[str, object]], instruction_head_seq: int
 
 
 def _instruction_text(record: dict[str, object]) -> str:
+    origin = input_origin_from_record(record)
+    source = ""
+    if origin.kind == "agent":
+        session_id = json.dumps(origin.sender_session_id, ensure_ascii=False)
+        run_id = json.dumps(origin.sender_run_id, ensure_ascii=False)
+        source = f"[origin=agent: Session {session_id} (Run {run_id})]\n"
     text = record.get("text")
     if isinstance(text, str) and text.strip():
-        return text
+        return source + text
     images = record.get("images")
     if isinstance(text, str) and isinstance(images, list) and images:
-        return f"[{len(images)} images attached]"
+        return source + f"[{len(images)} images attached]"
     raise ReviewContextError("Durable user instruction text is missing or empty")
