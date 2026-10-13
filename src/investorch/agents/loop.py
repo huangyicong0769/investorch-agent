@@ -13,7 +13,8 @@ from agents.tool import Tool
 
 from investorch.config import AppConfig
 from investorch.context import AgentContext, ExecutionState, TodoUpdateHandler
-from investorch.images import UserInput, user_input_to_response_item
+from investorch.images import user_input_to_response_item
+from investorch.inputs import UserInput
 from investorch.output import OutputHandler, consume_run_events
 from investorch.output.stream import assistant_message_from_result
 

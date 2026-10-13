@@ -1,6 +1,7 @@
 from datetime import UTC, datetime
 
-from investorch.images import ImageContent, UserInput
+from investorch.images import ImageContent
+from investorch.inputs import UserInput
 from investorch.journal import SessionJournal
 from investorch.output import AgentChanged, AssistantMessage, Reasoning, ToolCalled, ToolOutput
 

@@ -4,7 +4,7 @@ import asyncio
 from dataclasses import dataclass, field
 
 from investorch.agents import AgentRunResult, CompactionResult, TokenUsage
-from investorch.images import UserInput
+from investorch.inputs import UserInput
 from investorch.output import AssistantMessage
 
 

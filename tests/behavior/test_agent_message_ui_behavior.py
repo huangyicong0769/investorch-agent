@@ -5,7 +5,8 @@ from pathlib import Path
 import pytest
 from textual.widgets import Label, Static
 
-from investorch.images import ImageContent, InputOrigin, UserInput
+from investorch.images import ImageContent
+from investorch.inputs import InputOrigin, UserInput
 from investorch.journal import read_session_journal
 from investorch.runtime import RuntimeFollowUpEvent
 from investorch.ui.tui.app import Composer, InvestOrchAgentTUI

@@ -9,7 +9,8 @@ from agents.testing import ModelStep, ScriptedModel, assistant_message, function
 from investorch.application import ApplicationCallbacks, open_application_host
 from investorch.application.messaging import send_message
 from investorch.application.session_queries import read_session
-from investorch.images import ImageContent, UserInput
+from investorch.images import ImageContent
+from investorch.inputs import UserInput
 from investorch.output import ToolOutput
 from investorch.runtime import RunOptions
 from investorch.storage import create_session, set_session_title

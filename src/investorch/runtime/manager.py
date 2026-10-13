@@ -19,7 +19,7 @@ from investorch.agents import (
     CompactionResult,
 )
 from investorch.context import ExecutionState, TodoItem
-from investorch.images import UserInput, input_summary
+from investorch.inputs import UserInput, input_summary
 from investorch.output import OutputEvent
 
 from .control import RunControl

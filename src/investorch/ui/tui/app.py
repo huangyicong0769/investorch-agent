@@ -28,7 +28,7 @@ from investorch.application import (
 )
 from investorch.commands import Command, dispatch_command, parse_command
 from investorch.context import AppState, TodoItem
-from investorch.images import UserInput, input_summary
+from investorch.inputs import UserInput, input_summary
 from investorch.journal import SessionJournal, read_session_journal
 from investorch.output import OutputEvent, ToolCalled
 from investorch.runtime import (

@@ -11,7 +11,8 @@ from investorch.agents import AgentLoop, ApprovalOutcome, TokenUsage, compact_se
 from investorch.application import PortfolioOperations
 from investorch.application.activity import ActivityCoordinator
 from investorch.context import ExecutionState
-from investorch.images import ImageContent, UserInput, user_input_to_response_item
+from investorch.images import ImageContent, user_input_to_response_item
+from investorch.inputs import UserInput
 from investorch.journal import read_session_journal
 from investorch.output import ToolCalled
 from investorch.runtime import RuntimeOutput

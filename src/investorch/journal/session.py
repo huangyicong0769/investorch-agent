@@ -9,7 +9,8 @@ from pathlib import Path
 from typing import Literal
 from zoneinfo import ZoneInfo
 
-from investorch.images import UserInput, input_origin_fields, serialize_images
+from investorch.images import serialize_images
+from investorch.inputs import UserInput, input_origin_fields
 from investorch.output import OutputEvent, serialize_output_event
 
 from .reader import JournalSnapshot, JournalUnavailableError

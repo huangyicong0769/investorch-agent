@@ -12,7 +12,7 @@ from investorch.application.messaging import MessageImageReference, send_message
 from investorch.application.review_context import ReviewContext
 from investorch.application.session_queries import read_session
 from investorch.context import AgentContext
-from investorch.images import InputOrigin, UserInput
+from investorch.inputs import InputOrigin, UserInput
 from investorch.journal import SessionJournal, read_session_journal
 from investorch.presentation import serialize_follow_up_event, serialize_queue_item
 from investorch.storage import archive_session, create_session, get_session

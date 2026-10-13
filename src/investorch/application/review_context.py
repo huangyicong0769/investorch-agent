@@ -8,7 +8,7 @@ from agents import Agent
 
 from investorch.agents import TokenUsage, compact_review_instructions
 from investorch.config import AppConfig
-from investorch.images import input_origin_from_record
+from investorch.inputs import input_origin_from_record
 from investorch.journal import read_session_journal
 from investorch.journal.semantics import JournalInconsistentError, interpret_steers
 

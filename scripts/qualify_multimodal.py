@@ -27,8 +27,9 @@ from investorch.application import PortfolioOperations
 from investorch.application.host import create_model
 from investorch.config import AppConfig, load_config
 from investorch.context import ExecutionState
-from investorch.images import ImageContent, UserInput
+from investorch.images import ImageContent
 from investorch.initializer import initialize
+from investorch.inputs import UserInput
 from investorch.output import ToolOutput
 from investorch.runtime.control import RunControl
 from investorch.storage import create_session, get_session_title

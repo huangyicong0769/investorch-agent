@@ -5,7 +5,8 @@ from pathlib import Path
 import pytest
 from agents import SQLiteSession
 
-from investorch.images import ImageContent, UserInput, serialize_images, user_input_to_response_item
+from investorch.images import ImageContent, serialize_images, user_input_to_response_item
+from investorch.inputs import UserInput
 from investorch.journal import read_session_journal
 from investorch.output import AssistantMessage, ToolOutput
 from investorch.presentation import serialize_follow_up_event, serialize_queue_item
@@ -247,7 +248,7 @@ def test_default_maximum_image_payload_survives_journal_and_websocket(tmp_path: 
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
 
-    from investorch.images import normalize_user_input
+    from investorch.inputs import normalize_user_input
     from investorch.journal import SessionJournal, read_session_journal_page
     from investorch.runtime import RuntimeFollowUpEvent
     from investorch.web.connections import WebConnectionHub, websocket_router

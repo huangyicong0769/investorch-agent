@@ -9,7 +9,8 @@ from agents.testing import ScriptedModel, assistant_message
 from investorch.agents import AgentLoop, ApprovalOutcome, TokenUsage
 from investorch.application import PortfolioOperations
 from investorch.context import AgentContext, ExecutionState
-from investorch.images import ImageContent, UserInput, user_input_to_response_item
+from investorch.images import ImageContent, user_input_to_response_item
+from investorch.inputs import UserInput
 from investorch.journal import read_session_journal
 from investorch.output import OutputEvent
 from investorch.runtime.control import RunControl

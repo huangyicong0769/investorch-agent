@@ -325,7 +325,8 @@ async def test_review_compaction_failure_falls_back_without_running_reviewer(tmp
 
 @pytest.mark.asyncio
 async def test_image_only_instructions_are_available_without_copying_payload(tmp_path: Path) -> None:
-    from investorch.images import ImageContent, UserInput
+    from investorch.images import ImageContent
+    from investorch.inputs import UserInput
 
     config = make_test_config(tmp_path)
     journal = SessionJournal(config.session_journal_dir, ZoneInfo("UTC"))

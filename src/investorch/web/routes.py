@@ -11,13 +11,8 @@ from pydantic import BaseModel, ConfigDict, Field, StrictBool
 
 from investorch.application import ApplicationHost, submit_user_input
 from investorch.filesystem import resolve_workspace_path
-from investorch.images import (
-    ACCEPTED_INPUT_MIME_TYPES,
-    RENDERABLE_MIME_TYPES,
-    ImageDetail,
-    detect_image_media_type,
-    normalize_user_input,
-)
+from investorch.images import ACCEPTED_INPUT_MIME_TYPES, RENDERABLE_MIME_TYPES, ImageDetail, detect_image_media_type
+from investorch.inputs import normalize_user_input
 from investorch.journal import JournalPage, read_session_journal_page
 from investorch.portfolio import PortfolioNotFoundError
 from investorch.portfolio_presentation import (

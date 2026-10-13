@@ -5,7 +5,7 @@ from textual.containers import Horizontal, Vertical
 from textual.message import Message
 from textual.widgets import Button, Label
 
-from investorch.images import input_summary
+from investorch.inputs import input_summary
 from investorch.runtime import QueuedInput
 
 from .timeline import input_author_label

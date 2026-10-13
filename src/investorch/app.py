@@ -13,8 +13,8 @@ from investorch.application import (
 from investorch.commands import dispatch_command, parse_command
 from investorch.config import AppConfig, load_config
 from investorch.context import AppState
-from investorch.images import UserInput
 from investorch.initializer import initialize
+from investorch.inputs import UserInput
 from investorch.log import configure_logging
 from investorch.runtime import (
     AgentRuntime,

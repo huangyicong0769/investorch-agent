@@ -26,7 +26,7 @@ from investorch.agents import (
 from investorch.agents.skill_review import create_skill_review_agent
 from investorch.config import AppConfig
 from investorch.context import AppState, ExecutionState
-from investorch.images import UserInput
+from investorch.inputs import UserInput
 from investorch.journal import SessionJournal
 from investorch.mcp import load_mcp_servers as load_configured_mcp_servers
 from investorch.runtime import (

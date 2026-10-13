@@ -5,7 +5,8 @@ from investorch.application.activity import ActivityLabelEvent
 from investorch.application.interaction import UserInputSubmission
 from investorch.application.presentation_state import SessionPresentationState
 from investorch.context import BackgroundJob
-from investorch.images import input_origin_fields, serialize_images
+from investorch.images import serialize_images
+from investorch.inputs import input_origin_fields
 from investorch.journal import JournalPage
 from investorch.output import serialize_output_event
 from investorch.runtime import (

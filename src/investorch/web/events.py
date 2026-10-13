@@ -6,7 +6,7 @@ from investorch.application import (
     ApprovalResolvedEvent,
     PortfolioToolSucceededEvent,
 )
-from investorch.images import UserInput
+from investorch.inputs import UserInput
 from investorch.presentation import (
     serialize_activity_label,
     serialize_approval_cancelled,

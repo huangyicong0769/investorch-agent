@@ -3,7 +3,8 @@ from dataclasses import FrozenInstanceError
 
 import pytest
 
-from investorch.images import ImageContent, InputOrigin, UserInput, normalize_user_input, user_input_to_response_item
+from investorch.images import ImageContent, user_input_to_response_item
+from investorch.inputs import InputOrigin, UserInput, normalize_user_input
 from tests.support.config import make_test_config
 
 PNG = b"\x89PNG\r\n\x1a\n" + b"payload"

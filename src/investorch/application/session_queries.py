@@ -9,7 +9,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Literal, cast
 from urllib.parse import urlsplit
 
-from investorch.images import IMAGE_DETAILS, RENDERABLE_MIME_TYPES, input_origin_fields, input_origin_from_record
+from investorch.images import IMAGE_DETAILS, RENDERABLE_MIME_TYPES
+from investorch.inputs import input_origin_fields, input_origin_from_record
 from investorch.journal import SessionJournal
 from investorch.journal.reader import JournalInvalidError, JournalSnapshot, JournalUnavailableError
 from investorch.journal.semantics import JournalInconsistentError, interpret_steers

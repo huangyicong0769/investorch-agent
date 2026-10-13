@@ -9,7 +9,7 @@ from agents import Agent
 
 from investorch.agents import TokenUsage, generate_activity_label
 from investorch.config import AppConfig
-from investorch.images import input_summary
+from investorch.inputs import input_summary
 from investorch.journal import SessionJournal
 from investorch.output import Reasoning, ToolCalled
 from investorch.runtime import AgentRuntime, RuntimeOutput

@@ -7,7 +7,8 @@ from collections import deque
 from textual.containers import Vertical, VerticalScroll
 from textual.widgets import Collapsible, Label, Markdown, Static
 
-from investorch.images import ImageContent, InputOrigin, image_summary, input_origin_from_record
+from investorch.images import ImageContent, image_summary
+from investorch.inputs import InputOrigin, input_origin_from_record
 from investorch.output import (
     AgentChanged,
     AssistantMessage,

@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 from investorch.context import AppState
-from investorch.images import UserInput
+from investorch.inputs import UserInput
 from investorch.runtime import AgentRuntime, RunOptions, SessionBusyError
 from investorch.storage import get_session, is_session_archived
 
