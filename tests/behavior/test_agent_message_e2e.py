@@ -207,7 +207,7 @@ async def test_active_agent_steer_reaches_sdk_and_frozen_permission_review_in_th
             ModelStep.respond(first),
             (
                 function_call(
-                    "edit", {"path": "reviewed.txt", "operation": "write", "content": "approved"}, call_id="edit"
+                    "edit", {"path": "reviewed.txt", "operation": "create", "content": "approved"}, call_id="edit"
                 ),
             ),
             (assistant_message("done"),),
@@ -292,7 +292,7 @@ async def test_approved_image_reference_reaches_recipient_sdk_and_does_not_appro
         return (
             function_call(
                 "edit",
-                {"path": "must-not-write.txt", "operation": "write", "content": "denied"},
+                    {"path": "must-not-write.txt", "operation": "create", "content": "denied"},
                 call_id="receiver-edit",
             ),
         )
