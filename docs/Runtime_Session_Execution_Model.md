@@ -4,7 +4,7 @@
 
 ## Scope
 
-This document defines the execution and lifecycle contracts implemented in 0.1.0. The higher-level component map is in [Architecture](InvestOrch_Agent_Architecture.md).
+This document defines the execution and lifecycle contracts introduced in 0.1.0 and the read-only Session access boundary added for 0.3.0 Stage A. The higher-level component map is in [Architecture](InvestOrch_Agent_Architecture.md).
 
 ## Identities and ownership
 
@@ -37,6 +37,8 @@ The Web client sends explicit Session IDs and does not depend on the host's sele
 Normal input enters `application.interaction.submit_user_input()` with an explicit Session ID. It decides whether to start a Run or submit a Steer/Queue follow-up and returns an acknowledgement with stable ownership IDs.
 
 Session mutations enter `application.sessions.SessionOperations`. It coordinates Runtime maintenance reservations, SDK continuation state, metadata, and the journal for create, unused cleanup, title, archive, unarchive, fork, clear, and compact. Presentation clients own command parsing, selection, and user-facing notices.
+
+Agent `list_sessions` and `read_session` enter `application.session_reads.SessionReadOperations`. Only this Application capability combines Storage metadata, Journal history/shared Steer facts, and current Runtime snapshots; Tools do not access Runtime or persistence directly. List status summarizes the current process: an active Run's phase, `pending` for accepted Queue/Steer work without an active Run, or `idle`. It omits queue internals and historical Run outcomes. Exact-ID reads provide history only, including self, active and archived Sessions, without selection changes, Run creation or maintenance reservations. See [Session access](InvestOrch_Agent_Architecture.md#session-access-030-stage-a) for Tool arguments, bounded results and paging examples.
 
 `presentation.py` converts application values into explicit JSON-safe projection dictionaries.
 
@@ -109,6 +111,8 @@ Every semantic `OutputEvent` is wrapped with Run and Session ownership. The appl
 The SDK SQLite Session is model-continuation state and may be compacted. The JSONL journal is append-only user-visible replay state. Inactive Session output is still journaled. Clients reconcile paged history and live events by original journal sequence.
 
 Activity labels are asynchronous derived annotations targeting a Tool-call sequence. Missing labels fall back to the real Tool name and do not change execution truth.
+
+Agent Conversation history is a separate flat projection: accepted user messages, proven activated Steers as ordinary user records, assistant messages and tool calls/results. Reasoning, approvals and pending/discarded Steers remain outside this view; optional raw Events retain their original fields within the response budget. Images in Conversation are metadata only. A page freezes a committed `snapshot_seq` and continues with exclusive `next_before_seq`; disposition evidence is interpreted through that entire snapshot, including proof later than the page cursor. Journal snapshot capture holds a short lock, and subsequent scans exclude later appends. Empty history has `snapshot_seq=0`. Web/TUI replay and Review's strict authorization policy retain their own existing contracts.
 
 ## Approval
 

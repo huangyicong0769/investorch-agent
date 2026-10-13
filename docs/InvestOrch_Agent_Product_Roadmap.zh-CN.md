@@ -51,6 +51,14 @@ InvestOrch Agent 的目标是成为面向个人投资者的本地优先、human-
 
 当前 QMT 路线是 Agent 生成策略产物 → 人工审查 → 人工在大 QMT 部署/运行。Skill 基础设施不恢复 Gateway、远程执行、下单桥接、实盘 Broker、账户镜像或自动结算对账。
 
+## 0.3.0 Stage A：Session 访问
+
+Stage A 已在当前分支实现，0.3.0 尚未发布。只读 `list_sessions` Tool 通过标题筛选、归档开关及有界分页发现当前 Root 的 Session，返回包含 `pending` 的简短当前状态。`read_session` 用精确 ID 读取扁平 Conversation 或 raw Events，支持冻结快照分页、超大字段显式省略及 Conversation 图片元数据。
+
+Tool 经 Application SessionReadOperations 委托已有 Storage/Journal 和当前 Runtime 状态，实现复用共享 Steer 事实并保留 Review 严格策略。Tool 契约和示例见[架构](InvestOrch_Agent_Architecture.zh-CN.md#session-访问030-stage-a)。
+
+Stage B（发消息）、C（spawn）、D（Agent as MCP）和 E（PyPI 分发）仍属于未来工作。Stage A 不提供跨 Session 写入、发消息或 spawn 能力。
+
 ## 配置、管理与恢复
 
 Web Settings 与首次 Setup 使用 Python Schema 配置，Skill 管理复用现有 Agent Session 和审批。MCP registry 管理、共享 System Status/Doctor、显式受管 Skill 更新，以及离线 Backup Create/Verify 支持本地运维与恢复。Portfolio schema v6 及其迁移规则保持独立。
@@ -65,7 +73,7 @@ CNEquity 仍是可选后端。更广泛的依赖要等待上游行为足够稳�
 
 ## 已确认方向：Multi-Agent
 
-Multi-Agent 是长期方向。目前未确认 Specialist 角色、路由模型、Handoff 拓扑或实施排期。只有真实职责证明拆分能降低复杂度后，才设计 Agent 边界。
+Multi-Agent 是长期方向，Stage A 已提供只读 Session 访问。Specialist 角色、路由模型、Handoff 拓扑及后续阶段排期仍待决定。只有真实职责证明拆分能降低复杂度后，才设计 Agent 边界。
 
 ## 已确认方向：Agent as MCP
 
