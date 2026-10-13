@@ -1,11 +1,15 @@
+import base64
 from zoneinfo import ZoneInfo
 
+from investorch.application.messaging import MessageImageReference, send_message
 from investorch.application.review_context import ReviewContext
 from investorch.application.session_queries import read_session
 from investorch.images import InputOrigin, UserInput
 from investorch.journal import SessionJournal, read_session_journal
 from investorch.storage import create_session
+from tests.behavior.test_interaction_routing_behavior import make_app_state
 from tests.support.config import make_test_config
+from tests.support.runtime import make_runtime_harness
 
 
 async def test_mixed_origins_preserve_target_ownership_and_frozen_effective_history(tmp_path):
@@ -38,3 +42,48 @@ async def test_mixed_origins_preserve_target_ownership_and_frozen_effective_hist
     assert [record["text"] for record in latest["records"]] == ["human instruction", "Agent A instruction", "later C"]
     events = await read_session("target", sessions_db=config.sessions_db, journal=journal, view="events")
     assert events["records"] == records
+
+
+async def test_workspace_and_sender_history_images_arrive_as_normalized_inputs(tmp_path):
+    harness = make_runtime_harness(tmp_path)
+    state = make_app_state(harness, "sender")
+    for session_id in ("sender", "target", "image-target"):
+        create_session(harness.config.sessions_db, session_id)
+    data = b"\x89PNG\r\n\x1a\n" + b"small chart"
+    (harness.config.workspace_dir / "chart.jpg").write_bytes(data)
+    try:
+        receipt = await send_message(
+            state=state,
+            runtime=harness.runtime,
+            journal=harness.journal,
+            source_session_id="sender",
+            source_run_id="sender-run",
+            target_session_id="target",
+            text="  inspect this\n",
+            images=[MessageImageReference(source="workspace", path="chart.jpg", detail="high")],
+        )
+        assert receipt.disposition == "run_started"
+        await harness.agent_loop.wait_until_started("target")
+        delivered = harness.agent_loop.input_for("target").structured_input
+        assert delivered.text == "  inspect this\n"
+        assert delivered.origin == InputOrigin("agent", "sender", "sender-run")
+        assert delivered.images[0].image_url == "data:image/png;base64," + base64.b64encode(data).decode()
+        assert delivered.images[0].media_type == "image/png"
+        assert delivered.images[0].detail == "high"
+        seq = await harness.journal.record_user_message("sender", UserInput("upload", delivered.images))
+        image_receipt = await send_message(
+            state=state,
+            runtime=harness.runtime,
+            journal=harness.journal,
+            source_session_id="sender",
+            source_run_id="sender-run",
+            target_session_id="image-target",
+            images=[MessageImageReference(source="session_event", seq=seq, image_index=0)],
+        )
+        assert image_receipt.disposition == "run_started"
+        await harness.agent_loop.wait_until_started("image-target")
+        image_input = harness.agent_loop.input_for("image-target").structured_input
+        assert image_input.text == ""
+        assert image_input.images == delivered.images
+    finally:
+        await harness.runtime.aclose()

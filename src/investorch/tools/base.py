@@ -22,6 +22,7 @@ from agents.sandbox.sandboxes.unix_local import UnixLocalSandboxClient
 from investorch.context import AgentContext, BackgroundJob, ExecutionState
 from investorch.images import detect_image_media_type
 from investorch.tools.errors import tool
+from investorch.workspace_paths import resolve_workspace_path as _resolve_workspace_path
 
 BACKGROUND_PID_MARKER = "__INVESTORCH_PID__="
 
@@ -581,26 +582,6 @@ def _validate_calculation_number(value: int | float, max_integer_bits: int) -> N
         return
 
     raise ValueError(f"Calculation produced unsupported type: {type(value).__name__}")
-
-
-def _resolve_workspace_path(workspace_root: str | Path, path: str) -> Path:
-    """
-    Resolve a user-provided path inside the workspace.
-
-    Absolute paths and paths that escape the workspace through traversal or symlinks are rejected.
-    """
-    root = Path(workspace_root).expanduser().resolve()
-    relative = Path(path)
-
-    if relative.is_absolute():
-        raise ValueError("Workspace paths must be relative")
-
-    resolved = (root / relative).resolve()
-
-    if not resolved.is_relative_to(root):
-        raise ValueError(f"Path escapes workspace: {path}")
-
-    return resolved
 
 
 def _list_directory(root: Path, directory: Path) -> dict[str, Any]:

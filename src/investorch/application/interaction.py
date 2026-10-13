@@ -5,7 +5,7 @@ from typing import Literal
 from investorch.context import AppState
 from investorch.images import UserInput
 from investorch.runtime import AgentRuntime, RunOptions, SessionBusyError
-from investorch.storage import is_session_archived
+from investorch.storage import get_session, is_session_archived
 
 InputDisposition = Literal["run_started", "steer_submitted", "queue_submitted"]
 
@@ -23,6 +23,10 @@ class UserInputRejected(RuntimeError):
 
 
 class ArchivedSessionInputError(UserInputRejected):
+    pass
+
+
+class MissingSessionInputError(UserInputRejected):
     pass
 
 
@@ -59,11 +63,21 @@ async def submit_user_input(
     session_id: str,
     user_input: UserInput | None = None,
     text: str | None = None,
+    require_existing_session: bool = False,
 ) -> UserInputSubmission:
     if user_input is None:
         user_input = UserInput(text or "")
     if await asyncio.to_thread(is_session_archived, state.config.sessions_db, session_id):
         raise ArchivedSessionInputError
+
+    if require_existing_session:
+        # No await between this final metadata check and Runtime's synchronous start/reservation check.
+        # Lifecycle operations reserve the same Session, so deletion cannot implicitly recreate a destination.
+        session = get_session(state.config.sessions_db, session_id)
+        if session is None:
+            raise MissingSessionInputError
+        if session.archived_at is not None:
+            raise ArchivedSessionInputError
 
     if runtime.is_session_active(session_id):
         try:
