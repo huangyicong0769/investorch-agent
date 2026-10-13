@@ -327,6 +327,12 @@ export interface RuntimeStateLiveEvent extends RuntimeSnapshot {
   kind: 'runtime_state'
 }
 
+export interface UserInputCommittedLiveEvent {
+  kind: 'user_input_committed'
+  session_id: string
+  journal_seq: number
+}
+
 export interface RunEndedLiveEvent {
   kind: 'run_ended'
   session_id: string
@@ -388,6 +394,7 @@ export type LiveEvent =
   | OutputLiveEvent
   | RuntimeStateLiveEvent
   | FollowUpLiveEvent
+  | UserInputCommittedLiveEvent
   | RunEndedLiveEvent
   | ActivityLabelLiveEvent
   | PortfolioToolSucceededLiveEvent
