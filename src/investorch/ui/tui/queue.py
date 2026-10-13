@@ -5,6 +5,8 @@ from textual.containers import Horizontal, Vertical
 from textual.message import Message
 from textual.widgets import Button, Label
 
+from investorch.inputs import input_summary
+from investorch.presentation import input_author_label
 from investorch.runtime import QueuedInput
 
 
@@ -103,8 +105,17 @@ class QueuePanel(Vertical):
         previews = self._queued_inputs[: self._preview_count]
         for index in range(self._preview_count):
             label = self.query_one(f"#queue-preview-{index + 1}", Label)
+            label.tooltip = None
             if index < len(previews):
-                text = " ".join(previews[index].text.split())
+                user_input = previews[index].user_input
+                text = " ".join(input_summary(user_input).split())
+                if user_input.origin.kind == "agent":
+                    source_id = user_input.origin.sender_session_id
+                    text = f"{input_author_label(user_input.origin)} · {text}"
+                    label.tooltip = (
+                        f"Source Session: {source_id}\nUse /resume {source_id} to open it.\n"
+                        f"If archived, restore it with /unarchive {source_id}."
+                    )
                 label.update(f"{index + 1}. {text}")
                 label.display = True
             else:

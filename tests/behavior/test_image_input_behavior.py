@@ -3,7 +3,9 @@ from dataclasses import FrozenInstanceError
 
 import pytest
 
-from investorch.images import ImageContent, UserInput, normalize_user_input, user_input_to_response_item
+from investorch.agents.loop import user_input_to_response_item
+from investorch.images import ImageContent
+from investorch.inputs import InputOrigin, UserInput, normalize_user_input
 from tests.support.config import make_test_config
 
 PNG = b"\x89PNG\r\n\x1a\n" + b"payload"
@@ -69,3 +71,24 @@ def test_text_and_presentation_contract():
     for url in ("http://example.com/a.png", "javascript:alert(1)", "file:///a.png", "blob:abc"):
         with pytest.raises(ValueError):
             ImageContent(url)
+
+
+def test_agent_origin_is_immutable_and_visible_without_changing_message_content():
+    origin = InputOrigin(kind="agent", sender_session_id="session-a", sender_run_id="run-a")
+    image = ImageContent(attachment()["image_url"])
+    value = UserInput("  original text\n", (image,), origin)
+    item = user_input_to_response_item(value)
+    assert item["role"] == "user"
+    assert item["content"] == [
+        {"type": "input_text", "text": 'Message sent by another InvestOrch Session: "session-a" (Run "run-a").'},
+        {"type": "input_text", "text": "  original text\n"},
+        {"type": "input_image", "image_url": image.image_url, "detail": "auto"},
+    ]
+    assert value.text == "  original text\n"
+    assert UserInput("hello").origin.kind == "user"
+    with pytest.raises(FrozenInstanceError):
+        origin.sender_session_id = "spoofed"
+    with pytest.raises(ValueError):
+        InputOrigin(kind="agent", sender_session_id="session-a")
+    with pytest.raises(ValueError):
+        InputOrigin(sender_session_id="session-a", sender_run_id="run-a")

@@ -28,7 +28,7 @@ from investorch.application import (
 )
 from investorch.commands import Command, dispatch_command, parse_command
 from investorch.context import AppState, TodoItem
-from investorch.images import UserInput, input_summary
+from investorch.inputs import UserInput, input_summary
 from investorch.journal import SessionJournal, read_session_journal
 from investorch.output import OutputEvent, ToolCalled
 from investorch.runtime import (
@@ -72,6 +72,13 @@ class BufferedApproval:
     source: str
     review_decision: str | None
     review_reason: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class BufferedUserInput:
+    session_id: str
+    user_input: UserInput
+    journal_seq: int
 
 
 @dataclass(slots=True)
@@ -364,7 +371,7 @@ class InvestOrchAgentTUI(App[None]):
         self._main_agent_name: str | None = None
         self._loading_session_id: str | None = None
         self._buffered_live_events: list[
-            BufferedOutput | BufferedApproval | ActivityLabelEvent | RuntimeFollowUpEvent
+            BufferedOutput | BufferedApproval | BufferedUserInput | ActivityLabelEvent | RuntimeFollowUpEvent
         ] = []
         self._last_rendered_seq: dict[str, int] = {}
         self._rendered_steer_seqs: dict[str, set[int]] = {}
@@ -494,7 +501,6 @@ class InvestOrchAgentTUI(App[None]):
 
         composer.clear()
         if submission.disposition == "run_started":
-            await self.query_one(ChatTimeline).add_user_message(event.text)
             await self.refresh_sessions()
         self._refresh_selected_controls()
 
@@ -664,6 +670,24 @@ class InvestOrchAgentTUI(App[None]):
             self._session_records, self.state.selected_session_id, self._runtime_snapshots
         )
 
+    async def handle_user_input_committed(self, session_id: str, user_input: UserInput, journal_seq: int) -> None:
+        async with self._timeline_lock:
+            if session_id != self.state.selected_session_id:
+                return
+            committed = BufferedUserInput(session_id, user_input, journal_seq)
+            if self._loading_session_id == session_id:
+                self._buffered_live_events.append(committed)
+                return
+            await self._render_live_user_input(committed)
+
+    async def _render_live_user_input(self, committed: BufferedUserInput) -> None:
+        if committed.journal_seq <= self._last_rendered_seq.get(committed.session_id, 0):
+            return
+        await self.query_one(ChatTimeline).add_user_message(
+            input_summary(committed.user_input), origin=committed.user_input.origin
+        )
+        self._last_rendered_seq[committed.session_id] = committed.journal_seq
+
     async def handle_output(self, event: OutputEvent, *, session_id: str, run_id: str, journal_seq: int | None) -> None:
         async with self._timeline_lock:
             if session_id != self.state.selected_session_id:
@@ -804,7 +828,9 @@ class InvestOrchAgentTUI(App[None]):
                 event.session_id, set()
             ):
                 return
-            await self.query_one(ChatTimeline).add_steer_message(input_summary(event.user_input))
+            await self.query_one(ChatTimeline).add_steer_message(
+                input_summary(event.user_input), origin=event.user_input.origin
+            )
             if event.journal_seq is not None:
                 self._rendered_steer_seqs[event.session_id].add(event.journal_seq)
                 self._last_rendered_seq[event.session_id] = max(
@@ -818,7 +844,9 @@ class InvestOrchAgentTUI(App[None]):
         if event.kind == "queue_promoted":
             if event.journal_seq is not None and event.journal_seq <= self._last_rendered_seq.get(event.session_id, 0):
                 return
-            await self.query_one(ChatTimeline).add_user_message(input_summary(event.user_input))
+            await self.query_one(ChatTimeline).add_user_message(
+                input_summary(event.user_input), origin=event.user_input.origin
+            )
             if event.journal_seq is not None:
                 self._last_rendered_seq[event.session_id] = event.journal_seq
             return
@@ -1021,6 +1049,8 @@ class InvestOrchAgentTUI(App[None]):
                                 )
                             elif isinstance(item, BufferedApproval):
                                 await self._render_live_approval(item)
+                            elif isinstance(item, BufferedUserInput):
+                                await self._render_live_user_input(item)
                             elif isinstance(item, ActivityLabelEvent):
                                 self._render_live_activity_label(item)
                             else:

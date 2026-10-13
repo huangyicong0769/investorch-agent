@@ -4,7 +4,7 @@ import asyncio
 from dataclasses import dataclass
 
 from investorch.context import AppState
-from investorch.images import UserInput
+from investorch.inputs import UserInput
 from investorch.runtime import AgentRuntime
 
 from .interaction import current_run_options

@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 
 from agents import RunResultStreaming
 
-from investorch.images import UserInput
+from investorch.inputs import UserInput
 
 from .models import PendingSteer, RunOptions
 

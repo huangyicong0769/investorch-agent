@@ -14,6 +14,7 @@ import type {
 } from '../../api/types'
 import { errorMessage } from '../../lib/errors'
 import { MessageImages } from '../images/MessageImages'
+import { InputAuthor } from '../conversation/InputAuthor'
 import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 
@@ -136,6 +137,7 @@ export function QueueStrip({ sessionId, state, archived }: QueueStripProps) {
             {visibleQueue.map((item, index) => (
               <li className="flex items-start justify-between gap-2 text-xs" key={item.queue_id}>
                 <div className="min-w-0 break-words">
+                  {item.origin ? <div className="mb-1 text-muted-foreground"><InputAuthor origin={item.origin} /></div> : null}
                   {index + 1}. {item.text}
                   <MessageImages images={item.images} />
                 </div>

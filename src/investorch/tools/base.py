@@ -20,6 +20,7 @@ from agents.sandbox.errors import PtySessionNotFoundError
 from agents.sandbox.sandboxes.unix_local import UnixLocalSandboxClient
 
 from investorch.context import AgentContext, BackgroundJob, ExecutionState
+from investorch.filesystem import display_path, require_existing_file, resolve_workspace_path, validate_utf8_file
 from investorch.images import detect_image_media_type
 from investorch.tools.errors import tool
 
@@ -244,7 +245,7 @@ def explore(
     workspace_root = config.workspace_dir
 
     root = Path(workspace_root).expanduser().resolve()
-    target = _resolve_workspace_path(root, path)
+    target = resolve_workspace_path(root, path)
 
     if operation == "list":
         if not target.exists():
@@ -291,7 +292,7 @@ def explore(
                 return [
                     ToolOutputText(
                         text=json.dumps(
-                            {"path": _display_path(root, target), "media_type": media_type, "bytes": len(data)}
+                            {"path": display_path(root, target), "media_type": media_type, "bytes": len(data)}
                         )
                     ),
                     image,
@@ -357,29 +358,29 @@ def edit(
     workspace_root = config.workspace_dir
 
     root = Path(workspace_root).expanduser().resolve()
-    target = _resolve_workspace_path(root, path)
+    target = resolve_workspace_path(root, path)
 
     if target == root:
         raise ValueError("Workspace root itself cannot be edited as a file")
 
     if operation == "create":
         if target.exists():
-            raise ValueError(f"File already exists: {_display_path(root, target)}")
+            raise ValueError(f"File already exists: {display_path(root, target)}")
 
         target.parent.mkdir(parents=True, exist_ok=True)
 
         target.write_text(content, encoding="utf-8")
 
     elif operation == "append":
-        _require_existing_file(root=root, path=target)
+        require_existing_file(root=root, path=target)
 
-        _validate_utf8_file(target)
+        validate_utf8_file(target)
 
         with target.open("a", encoding="utf-8") as file:
             file.write(content)
 
     elif operation == "replace":
-        _require_existing_file(root=root, path=target)
+        require_existing_file(root=root, path=target)
 
         if not old_text:
             raise ValueError("old_text is required for replace")
@@ -387,7 +388,7 @@ def edit(
         try:
             existing = target.read_text(encoding="utf-8")
         except UnicodeDecodeError as exc:
-            raise ValueError(f"File is not valid UTF-8 text: {_display_path(root, target)}") from exc
+            raise ValueError(f"File is not valid UTF-8 text: {display_path(root, target)}") from exc
 
         count = existing.count(old_text)
 
@@ -402,7 +403,7 @@ def edit(
         raise ValueError(f"Unsupported edit operation: {operation}")
 
     return {
-        "path": _display_path(root, target),
+        "path": display_path(root, target),
         "operation": operation,
         "size": target.stat().st_size,
     }
@@ -447,7 +448,7 @@ def delete(
     if lexical_target.is_symlink():
         raise ValueError("Deleting symbolic links is not supported")
 
-    resolved = _resolve_workspace_path(root, path)
+    resolved = resolve_workspace_path(root, path)
 
     if resolved == root:
         raise ValueError("Workspace root cannot be deleted")
@@ -458,7 +459,7 @@ def delete(
     if not resolved.exists():
         raise ValueError(f"Workspace path does not exist: {path}")
 
-    display_path = _display_path(
+    relative_path = display_path(
         root,
         resolved,
     )
@@ -467,7 +468,7 @@ def delete(
         resolved.unlink()
 
         return {
-            "path": display_path,
+            "path": relative_path,
             "type": "file",
             "deleted": True,
         }
@@ -482,7 +483,7 @@ def delete(
                 raise ValueError("Directory is not empty. Set recursive=true to delete it and all contents.") from exc
 
         return {
-            "path": display_path,
+            "path": relative_path,
             "type": "directory",
             "recursive": recursive,
             "deleted": True,
@@ -583,26 +584,6 @@ def _validate_calculation_number(value: int | float, max_integer_bits: int) -> N
     raise ValueError(f"Calculation produced unsupported type: {type(value).__name__}")
 
 
-def _resolve_workspace_path(workspace_root: str | Path, path: str) -> Path:
-    """
-    Resolve a user-provided path inside the workspace.
-
-    Absolute paths and paths that escape the workspace through traversal or symlinks are rejected.
-    """
-    root = Path(workspace_root).expanduser().resolve()
-    relative = Path(path)
-
-    if relative.is_absolute():
-        raise ValueError("Workspace paths must be relative")
-
-    resolved = (root / relative).resolve()
-
-    if not resolved.is_relative_to(root):
-        raise ValueError(f"Path escapes workspace: {path}")
-
-    return resolved
-
-
 def _list_directory(root: Path, directory: Path) -> dict[str, Any]:
     entries: list[dict[str, Any]] = []
 
@@ -646,7 +627,7 @@ def _list_directory(root: Path, directory: Path) -> dict[str, Any]:
 
     return {
         "type": "directory",
-        "path": _display_path(root, directory),
+        "path": display_path(root, directory),
         "entries": entries,
     }
 
@@ -700,7 +681,7 @@ def _read_text_file(
                 selected.append(line)
 
     except UnicodeDecodeError as exc:
-        raise ValueError(f"File is not valid UTF-8 text: {_display_path(root, path)}") from exc
+        raise ValueError(f"File is not valid UTF-8 text: {display_path(root, path)}") from exc
 
     if total_lines > 0 and effective_start > total_lines:
         raise ValueError(f"start_line {effective_start} exceeds file length {total_lines}")
@@ -719,7 +700,7 @@ def _read_text_file(
 
     return {
         "type": "file",
-        "path": _display_path(root, path),
+        "path": display_path(root, path),
         "total_lines": total_lines,
         "start_line": actual_start,
         "end_line": actual_end,
@@ -741,7 +722,7 @@ def _search(root: Path, target: Path, query: str, *, max_results: int, max_snipp
                 "truncated": False,
             }
 
-        raise ValueError(f"Search path does not exist: {_display_path(root, target)}")
+        raise ValueError(f"Search path does not exist: {display_path(root, target)}")
 
     if target.is_file():
         files = [target]
@@ -782,7 +763,7 @@ def _search(root: Path, target: Path, query: str, *, max_results: int, max_snipp
 
                     results.append(
                         {
-                            "path": _display_path(root, resolved),
+                            "path": display_path(root, resolved),
                             "line": line_number,
                             "snippet": snippet,
                         }
@@ -798,28 +779,11 @@ def _search(root: Path, target: Path, query: str, *, max_results: int, max_snipp
 
     return {
         "type": "search",
-        "path": _display_path(root, target),
+        "path": display_path(root, target),
         "query": query,
         "results": results,
         "truncated": truncated,
     }
-
-
-def _require_existing_file(root: Path, path: Path) -> None:
-    if not path.exists():
-        raise ValueError(f"File does not exist: {_display_path(root, path)}")
-
-    if not path.is_file():
-        raise ValueError(f"Path is not a file: {_display_path(root, path)}")
-
-
-def _validate_utf8_file(path: Path) -> None:
-    try:
-        with path.open("r", encoding="utf-8") as file:
-            while file.read(64 * 1024):
-                pass
-    except UnicodeDecodeError as exc:
-        raise ValueError("File is not valid UTF-8 text") from exc
 
 
 async def start_execution(execution: ExecutionState, workspace: Path) -> None:
@@ -974,8 +938,8 @@ async def _start_background_command(
         pid=pid,
         command=command,
         started_at=now,
-        stdout_log=_display_path(workspace, stdout_log),
-        stderr_log=_display_path(workspace, stderr_log),
+        stdout_log=display_path(workspace, stdout_log),
+        stderr_log=display_path(workspace, stderr_log),
         status=("running" if update.exit_code is None else "exited"),
         exit_code=update.exit_code,
         finished_at=(now if update.exit_code is not None else None),
@@ -1016,12 +980,3 @@ def _parse_background_pid(output: bytes) -> int:
         raise RuntimeError("background command returned an invalid process ID")
 
     raise RuntimeError("background command did not return a process ID")
-
-
-def _display_path(root: Path, path: Path) -> str:
-    relative = path.relative_to(root)
-
-    if str(relative) == ".":
-        return "."
-
-    return relative.as_posix()

@@ -10,7 +10,7 @@ from zoneinfo import ZoneInfo
 from investorch.agents import AgentLoop, ApprovalOutcome, TokenUsage
 from investorch.config import AppConfig
 from investorch.context import ExecutionState
-from investorch.images import UserInput
+from investorch.inputs import UserInput
 from investorch.journal import SessionJournal
 from investorch.runtime import AgentRuntime, RunOptions, RuntimeFollowUpEvent, RuntimeRunEnded, RuntimeSessionSnapshot
 from investorch.runtime.models import ApprovalRequest, FollowUpBehavior, RuntimeOutput

@@ -8,10 +8,12 @@ from agents import Agent, SQLiteSession
 from agents.testing import ModelStep, ScriptedModel, assistant_message
 
 from investorch.agents import AgentLoop, ApprovalOutcome, TokenUsage, compact_session
+from investorch.agents.loop import user_input_to_response_item
 from investorch.application import PortfolioOperations
 from investorch.application.activity import ActivityCoordinator
 from investorch.context import ExecutionState
-from investorch.images import ImageContent, UserInput, user_input_to_response_item
+from investorch.images import ImageContent
+from investorch.inputs import UserInput
 from investorch.journal import read_session_journal
 from investorch.output import ToolCalled
 from investorch.runtime import RuntimeOutput

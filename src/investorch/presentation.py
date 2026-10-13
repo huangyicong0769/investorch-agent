@@ -6,6 +6,7 @@ from investorch.application.interaction import UserInputSubmission
 from investorch.application.presentation_state import SessionPresentationState
 from investorch.context import BackgroundJob
 from investorch.images import serialize_images
+from investorch.inputs import InputOrigin, input_origin_fields
 from investorch.journal import JournalPage
 from investorch.output import serialize_output_event
 from investorch.runtime import (
@@ -17,6 +18,10 @@ from investorch.runtime import (
     RuntimeSessionSnapshot,
 )
 from investorch.storage import SessionRecord
+
+
+def input_author_label(origin: InputOrigin | None) -> str:
+    return f"Agent · {origin.sender_session_id}" if origin is not None and origin.kind == "agent" else "You"
 
 
 def serialize_runtime_output(output: RuntimeOutput, *, journal_seq: int | None) -> dict[str, object]:
@@ -54,6 +59,7 @@ def serialize_follow_up_event(event: RuntimeFollowUpEvent) -> dict[str, object]:
         "follow_up_id": event.follow_up_id,
         "text": event.user_input.text,
         "images": serialize_images(event.user_input.images),
+        **input_origin_fields(event.user_input.origin),
         "journal_seq": event.journal_seq,
     }
 
@@ -167,6 +173,7 @@ def serialize_queue_item(item: QueuedInput) -> dict[str, object]:
         "session_id": item.session_id,
         "text": item.user_input.text,
         "images": serialize_images(item.user_input.images),
+        **input_origin_fields(item.user_input.origin),
         "created_at": item.created_at.isoformat(),
     }
 

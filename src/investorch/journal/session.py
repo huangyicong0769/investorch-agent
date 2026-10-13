@@ -9,7 +9,8 @@ from pathlib import Path
 from typing import Literal
 from zoneinfo import ZoneInfo
 
-from investorch.images import UserInput, serialize_images
+from investorch.images import serialize_images
+from investorch.inputs import UserInput, input_origin_fields
 from investorch.output import OutputEvent, serialize_output_event
 
 from .reader import JournalSnapshot, JournalUnavailableError
@@ -61,7 +62,7 @@ class SessionJournal:
     @staticmethod
     def _input_fields(user_input: UserInput | str) -> dict[str, object]:
         user_input = UserInput(user_input) if isinstance(user_input, str) else user_input
-        fields: dict[str, object] = {"text": user_input.text}
+        fields: dict[str, object] = {"text": user_input.text, **input_origin_fields(user_input.origin)}
         if user_input.images:
             fields["images"] = serialize_images(user_input.images)
         return fields

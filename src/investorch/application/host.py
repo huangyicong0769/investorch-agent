@@ -26,7 +26,7 @@ from investorch.agents import (
 from investorch.agents.skill_review import create_skill_review_agent
 from investorch.config import AppConfig
 from investorch.context import AppState, ExecutionState
-from investorch.images import UserInput
+from investorch.inputs import UserInput
 from investorch.journal import SessionJournal
 from investorch.mcp import load_mcp_servers as load_configured_mcp_servers
 from investorch.runtime import (
@@ -37,11 +37,12 @@ from investorch.runtime import (
     RuntimeSessionSnapshot,
 )
 from investorch.storage import create_session, delete_unused_session, list_sessions
-from investorch.tools import close_execution, make_session_tools, start_execution
+from investorch.tools import close_execution, make_messaging_tools, make_session_tools, start_execution
 
 from . import session_queries
 from .activity import ActivityCoordinator, ActivityLabelEvent, ActivityLabelHandler, _ignore_activity_label
 from .approval import ApprovalCoordinator, ApprovalResolvedHandler, ManualApprovalHandler, _ignore_approval_resolved
+from .messaging import send_message
 from .portfolio_context import (
     PortfolioContextOperations,
     PortfolioToolSucceededHandler,
@@ -60,6 +61,7 @@ ApplicationOutputHandler = Callable[[RuntimeOutput, int | None], Awaitable[None]
 ApplicationFollowUpHandler = Callable[[RuntimeFollowUpEvent], Awaitable[None]]
 ApplicationRunEndedHandler = Callable[[RuntimeRunEnded], Awaitable[None]]
 ApplicationRuntimeStateHandler = Callable[[RuntimeSessionSnapshot], None]
+ApplicationUserInputCommittedHandler = Callable[[str, UserInput, int], Awaitable[None]]
 
 
 async def _ignore_output(_output: RuntimeOutput, _journal_seq: int | None) -> None:
@@ -78,12 +80,17 @@ def _ignore_runtime_state(_snapshot: RuntimeSessionSnapshot) -> None:
     pass
 
 
+async def _ignore_user_input_committed(_session_id: str, _user_input: UserInput, _journal_seq: int) -> None:
+    pass
+
+
 @dataclass(slots=True)
 class ApplicationCallbacks:
     handle_output: ApplicationOutputHandler = _ignore_output
     handle_follow_up: ApplicationFollowUpHandler = _ignore_follow_up
     handle_run_ended: ApplicationRunEndedHandler = _ignore_run_ended
     handle_runtime_state: ApplicationRuntimeStateHandler = _ignore_runtime_state
+    handle_user_input_committed: ApplicationUserInputCommittedHandler = _ignore_user_input_committed
     handle_approval_resolved: ApprovalResolvedHandler = _ignore_approval_resolved
     handle_activity_label: ActivityLabelHandler = _ignore_activity_label
     handle_portfolio_tool_succeeded: PortfolioToolSucceededHandler = _ignore_portfolio_tool_succeeded
@@ -183,7 +190,13 @@ async def open_application_host(
     )
 
     async def record_user_message(session_id: str, user_input: UserInput) -> int:
-        return await journal.record_user_message(session_id, user_input)
+        seq = await journal.record_user_message(session_id, user_input)
+        try:
+            await callbacks.handle_user_input_committed(session_id, user_input, seq)
+        except Exception:
+            # A failed view notification must not turn an already committed input into a Journal failure.
+            logger.exception("Failed to notify committed user input for session %s", session_id)
+        return seq
 
     async def record_user_steer(session_id: str, run_id: str, user_input: UserInput) -> int:
         return await journal.record_user_steer(session_id, run_id, user_input)
@@ -303,6 +316,9 @@ async def open_application_host(
                             session_queries.read_session, sessions_db=config.sessions_db, journal=journal
                         ),
                     )
+                )
+                agent.tools.extend(
+                    make_messaging_tools(submit=partial(send_message, state=state, runtime=runtime, journal=journal))
                 )
                 if enable_activity:
                     activity_model, activity_model_settings = create_model(config, "activity")

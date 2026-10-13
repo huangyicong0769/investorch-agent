@@ -8,7 +8,8 @@ from pathlib import Path
 import pytest
 
 from investorch.application.session_queries import SessionReadError, list_sessions, read_session
-from investorch.images import ImageContent, UserInput
+from investorch.images import ImageContent
+from investorch.inputs import UserInput
 from investorch.journal import read_session_journal
 from investorch.output import AssistantMessage, ToolCalled, ToolOutput
 from investorch.storage import archive_session, create_session, get_session, set_session_branch_from, set_session_title

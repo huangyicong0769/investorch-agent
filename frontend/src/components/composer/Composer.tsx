@@ -60,8 +60,12 @@ async function refreshSessionState(
   queryClient: ReturnType<typeof useQueryClient>,
   sessionId: string,
 ): Promise<void> {
+  const stateKey = queryKeys.sessionState(sessionId)
+  const previousState = queryClient.getQueryData<SessionStateResponse>(stateKey)
   const response = await getSessionState(sessionId)
-  queryClient.setQueryData<SessionStateResponse>(queryKeys.sessionState(sessionId), response)
+  // Live events may have advanced this Session while the REST snapshot was in flight.
+  if (queryClient.getQueryData(stateKey) !== previousState) return
+  queryClient.setQueryData<SessionStateResponse>(stateKey, response)
   queryClient.setQueryData(queryKeys.session(sessionId), { session: response.session })
   queryClient.setQueryData<BootstrapResponse>(queryKeys.bootstrap(), (current) =>
     current?.initial_session_id === sessionId ? { ...current, runtime: response.runtime } : current,

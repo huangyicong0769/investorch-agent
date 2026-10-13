@@ -27,6 +27,7 @@ import type {
   FollowUpEventKind,
   JournalRecord,
   ImageContent,
+  InputOrigin,
   LiveEvent,
   OutputEvent,
   RuntimeStateLiveEvent,
@@ -149,6 +150,15 @@ function imageContents(value: unknown): ImageContent[] {
     (image.filename == null || typeof image.filename === 'string') &&
     (image.media_type == null || typeof image.media_type === 'string'),
   )
+}
+
+function inputOrigin(value: unknown): InputOrigin | undefined {
+  if (!isRecord(value) || value.kind !== 'agent') return undefined
+  const sessionId = stringField(value, 'sender_session_id')
+  const runId = stringField(value, 'sender_run_id')
+  return sessionId?.trim() && runId?.trim()
+    ? { kind: 'agent', sender_session_id: sessionId, sender_run_id: runId }
+    : undefined
 }
 
 function outputEvent(value: unknown): OutputEvent | null {
@@ -321,11 +331,19 @@ function parseLiveEvent(value: unknown): ParsedLiveEvent | null {
             follow_up_id: followUpId,
             text,
             images: imageContents(value.images),
+            origin: inputOrigin(value.origin),
             journal_seq: journalSeq,
           }
     }
     case 'runtime_state':
       return runtimeSnapshot(value)
+    case 'user_input_committed': {
+      const sessionId = stringField(value, 'session_id')
+      const journalSeq = positiveIntegerField(value, 'journal_seq')
+      return sessionId === null || journalSeq === null
+        ? null
+        : { kind: 'user_input_committed', session_id: sessionId, journal_seq: journalSeq }
+    }
     case 'run_ended': {
       const sessionId = stringField(value, 'session_id')
       const runId = stringField(value, 'run_id')
@@ -464,10 +482,11 @@ function overlayRecord(event: ParsedLiveEvent, runEndedSequence: number | null =
         run_id: event.run_id,
         text: event.text,
         images: event.images,
+        origin: event.origin,
       }
     }
     if (event.event_kind === 'queue_promoted') {
-      return { seq: event.journal_seq, timestamp, type: 'user_message', text: event.text, images: event.images }
+      return { seq: event.journal_seq, timestamp, type: 'user_message', text: event.text, images: event.images, origin: event.origin }
     }
   }
 
@@ -674,6 +693,9 @@ export function LiveWebSocketProvider({ children }: PropsWithChildren) {
       queryClient.setQueryData<BootstrapResponse>(queryKeys.bootstrap(), (current) =>
         current?.initial_session_id === event.session_id ? { ...current, runtime: event } : current,
       )
+    } else if (event.kind === 'user_input_committed') {
+      // Only history changed; a concurrent full-state refresh can overwrite newer live approvals.
+      void queryClient.invalidateQueries({ exact: true, queryKey: queryKeys.sessionHistoryPages(event.session_id) })
     } else if (event.kind === 'run_ended') {
       endedRunBySessionRef.current.set(event.session_id, event.run_id)
       invalidateSessionQueries(event.session_id)

@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import math
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from agents import Agent, RunContextWrapper, Runner, SQLiteSession, TResponseInputItem, UserError
 from agents.lifecycle import RunHooksBase
@@ -13,7 +14,7 @@ from agents.tool import Tool
 
 from investorch.config import AppConfig
 from investorch.context import AgentContext, ExecutionState, TodoUpdateHandler
-from investorch.images import UserInput, user_input_to_response_item
+from investorch.inputs import UserInput
 from investorch.output import OutputHandler, consume_run_events
 from investorch.output.stream import assistant_message_from_result
 
@@ -303,3 +304,20 @@ class AgentLoop:
     @property
     def agent_name(self) -> str:
         return self._agent.name
+
+
+def user_input_to_response_item(user_input: UserInput) -> dict[str, Any]:
+    content = []
+    if user_input.origin.kind == "agent":
+        # Provenance accompanies ordinary user content; it never gains system/developer authority.
+        session_id = json.dumps(user_input.origin.sender_session_id, ensure_ascii=False)
+        run_id = json.dumps(user_input.origin.sender_run_id, ensure_ascii=False)
+        content.append(
+            {"type": "input_text", "text": f"Message sent by another InvestOrch Session: {session_id} (Run {run_id})."}
+        )
+    if user_input.text.strip():
+        content.append({"type": "input_text", "text": user_input.text})
+    content.extend(
+        {"type": "input_image", "image_url": image.image_url, "detail": image.detail} for image in user_input.images
+    )
+    return {"role": "user", "content": content}

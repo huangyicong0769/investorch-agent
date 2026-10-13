@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Literal, cast
 from urllib.parse import urlsplit
 
 from investorch.images import IMAGE_DETAILS, RENDERABLE_MIME_TYPES
+from investorch.inputs import input_origin_fields, input_origin_from_record
 from investorch.journal import SessionJournal
 from investorch.journal.reader import JournalInvalidError, JournalSnapshot, JournalUnavailableError
 from investorch.journal.semantics import JournalInconsistentError, interpret_steers
@@ -266,6 +267,11 @@ def _conversation_record(record: dict[str, object], activated: frozenset[int]) -
     if not isinstance(timestamp, str):
         raise JournalInvalidError("Visible Journal record has no timestamp")
     item: dict[str, object] = {"seq": record["seq"], "timestamp": timestamp, "type": types[event_type]}
+    if event_type in {"user_message", "user_steer"}:
+        try:
+            item.update(input_origin_fields(input_origin_from_record(record)))
+        except (TypeError, ValueError) as exc:
+            raise JournalInvalidError("Visible Journal record has invalid input provenance") from exc
     if event_type == "tool_called":
         name, arguments = record.get("name"), record.get("arguments")
         if not isinstance(name, str) or not name or (arguments is not None and not isinstance(arguments, str)):

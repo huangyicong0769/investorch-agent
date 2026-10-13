@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Literal
 
 from investorch.context import TodoItem
-from investorch.images import UserInput
+from investorch.inputs import UserInput
 from investorch.output import OutputEvent
 
 if TYPE_CHECKING:

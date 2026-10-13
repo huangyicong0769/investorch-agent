@@ -5,7 +5,9 @@ from pathlib import Path
 import pytest
 from agents import SQLiteSession
 
-from investorch.images import ImageContent, UserInput, serialize_images, user_input_to_response_item
+from investorch.agents.loop import user_input_to_response_item
+from investorch.images import ImageContent, serialize_images
+from investorch.inputs import UserInput
 from investorch.journal import read_session_journal
 from investorch.output import AssistantMessage, ToolOutput
 from investorch.presentation import serialize_follow_up_event, serialize_queue_item
@@ -247,7 +249,7 @@ def test_default_maximum_image_payload_survives_journal_and_websocket(tmp_path: 
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
 
-    from investorch.images import normalize_user_input
+    from investorch.inputs import normalize_user_input
     from investorch.journal import SessionJournal, read_session_journal_page
     from investorch.runtime import RuntimeFollowUpEvent
     from investorch.web.connections import WebConnectionHub, websocket_router
@@ -307,4 +309,7 @@ async def test_terminal_composer_still_submits_and_renders_text(tmp_path: Path) 
             await app.on_composer_submitted(Composer.Submitted("Hello from terminal"))
             await web.runtime.agent_loop.wait_until_started(session_id)
             assert web.runtime.agent_loop.input_for(session_id).structured_input == UserInput("Hello from terminal")
+            # This RuntimeHarness exposes the UI notification boundary directly; a real Host emits it after commit.
+            seq = read_session_journal(web.host.config.session_journal_dir, session_id)[-1]["seq"]
+            await app.handle_user_input_committed(session_id, UserInput("Hello from terminal"), seq)
             assert app.query_one(".user-message .message-content", Static).content == "Hello from terminal"

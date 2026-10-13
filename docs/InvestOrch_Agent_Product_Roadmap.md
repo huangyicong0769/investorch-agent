@@ -51,13 +51,17 @@ Version 0.1.0 includes:
 
 The current QMT route is Agent-generated strategy artifact → human review → human deployment/run in Big QMT. Skill infrastructure does not restore a gateway, remote execution, order bridge, live broker, account mirror, or automatic settlement reconciliation.
 
-## 0.3.0 Stage A: Session access
+## 0.3.0 Session access
 
-Stage A is implemented on the current branch; 0.3.0 remains unreleased. The read-only `list_sessions` Tool discovers current-Root Sessions through title filtering, archived inclusion and bounded pagination, with concise current status including `pending`. `read_session` reads an exact ID's history as flat Conversation or raw Events, with frozen-snapshot pagination, explicit oversized-field omissions and image metadata in Conversation.
+0.3.0 remains unreleased. The read-only `list_sessions` Tool discovers current-Root Sessions through title filtering, archived inclusion and bounded pagination, with concise current status including `pending`. `read_session` reads an exact ID's history as flat Conversation or raw Events, with frozen-snapshot pagination, explicit oversized-field omissions and image metadata in Conversation.
 
 Tools delegate to stateless Application queries, bound and registered once by the Host before its first Run. Listing uses existing Storage metadata and the Host's Runtime snapshots; history uses Storage existence and the Host's existing Journal without Runtime. The implementation reuses shared Steer facts while preserving Review's strict policy. Tool contracts and examples are in [Architecture](InvestOrch_Agent_Architecture.md#session-access-030-stage-a).
 
-Stage B (messaging), C (spawn), D (Agent as MCP), and E (PyPI distribution) remain future work. Stage A provides no cross-Session writes, message sending or spawn capability.
+## 0.3.0 Session messaging
+
+`send_message` requires sender approval, submits text/images through existing Run/Steer/Queue routing, and preserves trusted origin in model input, Review, history, Web and TUI. Image references cover Workspace files and the sender's committed attachments. Receipts confirm submission only; Queue is process-local. See [Session messaging](InvestOrch_Agent_Architecture.md#session-messaging).
+
+Session spawning, Agent as MCP, and PyPI distribution remain future work. There is no automatic reply, wait/completion mechanism, or persistent mailbox.
 
 ## Configuration, management, and recovery
 

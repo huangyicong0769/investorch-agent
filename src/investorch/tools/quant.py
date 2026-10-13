@@ -22,6 +22,7 @@ from investorch.backtest import (
 from investorch.backtest.errors import BacktestDataError
 from investorch.config import AppConfig
 from investorch.context import AgentContext
+from investorch.filesystem import resolve_workspace_path
 from investorch.tools.errors import tool
 
 _TABULAR_RESULTS = (
@@ -255,9 +256,10 @@ def _resolve_strategy_path(workspace: Path, strategy_path: str) -> tuple[Path, s
         raise ValueError("strategy_path must be relative to the Workspace")
 
     root = workspace.expanduser().resolve()
-    resolved = (root / relative).resolve()
-    if not resolved.is_relative_to(root):
-        raise ValueError("strategy_path must remain inside the Workspace")
+    try:
+        resolved = resolve_workspace_path(root, strategy_path)
+    except ValueError as exc:
+        raise ValueError("strategy_path must remain inside the Workspace") from exc
     if not resolved.exists():
         raise FileNotFoundError(f"strategy file not found: {strategy_path}")
     if not resolved.is_file():

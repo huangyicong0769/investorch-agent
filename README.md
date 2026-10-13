@@ -136,6 +136,10 @@ QMT guidance creates strategy artifacts for human review and deployment in Big Q
 
 Web conversations accept JPEG, PNG, GIF and WebP by selection, paste or drop, including image-only messages. Images stay with Session history; `explore` lets the Agent read Workspace images. External images require a click to load. Configure limits under `[images]` and restart to apply them; see the [image architecture](docs/InvestOrch_Agent_Architecture.md#image-conversation-content).
 
+## Session tools
+
+For the unreleased 0.3.0 work, Agents can discover exact Session IDs with `list_sessions`, read history with `read_session`, and submit approved text/images to another unarchived Session in the same Root with `send_message`. For example, `send_message(target_session_id="<exact-id>", text="Inspect this chart", images=[{"source":"workspace","path":"charts/result.png"}])`. Existing uploads can be forwarded by the sender's Journal `seq` and `image_index`, including image-only input. The recipient sees the sender's identity; Web/TUI show it in the usual message view. Read later history or send an explicit reply for results: receipts confirm submission, and Queue does not survive restart. See [Session messaging](docs/InvestOrch_Agent_Architecture.md#session-messaging) for the contract and limits.
+
 ## Settings and System Status
 
 - **Settings** edits persistent configuration using the Python Schema for types, defaults, constraints and lifecycle. Reset removes a local override. Hot changes apply to future applicable operations; restart-required changes are saved for the next start. Temporary Run defaults remain process-local.

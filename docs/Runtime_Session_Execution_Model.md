@@ -4,7 +4,7 @@
 
 ## Scope
 
-This document defines the execution and lifecycle contracts introduced in 0.1.0 and the read-only Session access boundary added for 0.3.0 Stage A. The higher-level component map is in [Architecture](InvestOrch_Agent_Architecture.md).
+This document defines execution, lifecycle, Session access, and Agent message submission contracts. The higher-level component map is in [Architecture](InvestOrch_Agent_Architecture.md).
 
 ## Identities and ownership
 
@@ -79,6 +79,20 @@ If the SDK result is already terminal, the Steer is promoted to a subsequent Run
 Queue is an application-level per-Session FIFO outside SDK continuation state. Submission stores intent but does not yet create a conversation event. After a successful Run, the oldest item is journaled once as `user_message` and promoted to a new Run.
 
 A stopped or failed Run pauses the remaining queue. Resume promotes one head item; Clear discards unpromoted intent without changing conversation history.
+
+## Agent message submission
+
+After sender approval, `send_message` uses the same `submit_user_input` routing. An idle target starts a Run; an active target's frozen `RunOptions` select Steer or Queue. Future defaults apply to promoted Runs. The sender receives `UserInputSubmission` after acceptance, without awaiting the target's result:
+
+| Disposition | Acceptance boundary | Persistence |
+| --- | --- | --- |
+| `run_started` | Runtime schedules a new top-level Run | Initial `user_message` is written asynchronously; the receipt is not a Journal commit |
+| `steer_submitted` | Existing journal-first Steer submission completes | Steer is recorded, but consumption still awaits a safe boundary |
+| `queue_submitted` | Runtime accepts an in-process FIFO item | No message history until promotion; no crash/restart recovery |
+
+Source Session/Run IDs travel inside immutable `UserInput.origin`, separately from the target Run ID. Initial input, Steer continuation, Queue promotion, and terminal Steer fallback use the same SDK conversion and Journal event types. Effective Agent instructions participate in the same frozen Review history. A generic `user_input_committed` view notification is emitted after `user_message` is readable; history/live reconciliation uses Journal sequence numbers.
+
+Self, missing, archived, stopping, and reserved destinations or unresolved pending work fail through existing lifecycle rules. There is no retry queue, automatic reply, completion callback, or persistent mailbox. Cancelling a sender during pending approval leaves the target untouched; after submission, the target owns its accepted input and Run. Fork copies optional origin with history; Compact continues to leave Journal unchanged.
 
 ## Stop and cancellation
 

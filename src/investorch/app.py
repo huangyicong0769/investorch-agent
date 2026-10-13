@@ -13,8 +13,8 @@ from investorch.application import (
 from investorch.commands import dispatch_command, parse_command
 from investorch.config import AppConfig, load_config
 from investorch.context import AppState
-from investorch.images import UserInput
 from investorch.initializer import initialize
+from investorch.inputs import UserInput
 from investorch.log import configure_logging
 from investorch.runtime import (
     AgentRuntime,
@@ -118,6 +118,10 @@ async def _run_configured_app(ui: ConsoleUI, config: AppConfig, initialized: boo
         if tui is not None:
             await tui.handle_follow_up(event)
 
+    async def handle_user_input_committed(session_id: str, user_input: UserInput, journal_seq: int) -> None:
+        if tui is not None:
+            await tui.handle_user_input_committed(session_id, user_input, journal_seq)
+
     async def handle_run_ended(event: RuntimeRunEnded) -> None:
         if tui is not None:
             await tui.handle_run_ended(event)
@@ -154,6 +158,7 @@ async def _run_configured_app(ui: ConsoleUI, config: AppConfig, initialized: boo
     callbacks = ApplicationCallbacks(
         handle_output=handle_output,
         handle_follow_up=handle_follow_up,
+        handle_user_input_committed=handle_user_input_committed,
         handle_run_ended=handle_run_ended,
         handle_runtime_state=handle_runtime_state,
         handle_approval_resolved=handle_approval_resolved,
