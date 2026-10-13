@@ -55,7 +55,7 @@ InvestOrch Agent 的目标是成为面向个人投资者的本地优先、human-
 
 Stage A 已在当前分支实现，0.3.0 尚未发布。只读 `list_sessions` Tool 通过标题筛选、归档开关及有界分页发现当前 Root 的 Session，返回包含 `pending` 的简短当前状态。`read_session` 用精确 ID 读取扁平 Conversation 或 raw Events，支持冻结快照分页、超大字段显式省略及 Conversation 图片元数据。
 
-Tool 经 Application SessionReadOperations 委托已有 Storage/Journal 和当前 Runtime 状态，实现复用共享 Steer 事实并保留 Review 严格策略。Tool 契约和示例见[架构](InvestOrch_Agent_Architecture.zh-CN.md#session-访问030-stage-a)。
+Tool 委托无状态 Application 查询，由 Host 在首个 Run 前绑定并一次注册。列表使用已有 Storage 元数据与该 Host 的 Runtime snapshot；历史使用 Storage 存在性检查与该 Host 的已有 Journal，不需要 Runtime。实现复用共享 Steer 事实并保留 Review 严格策略。Tool 契约和示例见[架构](InvestOrch_Agent_Architecture.zh-CN.md#session-访问030-stage-a)。
 
 Stage B（发消息）、C（spawn）、D（Agent as MCP）和 E（PyPI 分发）仍属于未来工作。Stage A 不提供跨 Session 写入、发消息或 spawn 能力。
 

@@ -102,7 +102,7 @@ Main Agent 当前获得：
 - MCP registry：`list_mcp_servers`、`configure_mcp_server`、`remove_mcp_server`；
 - 回测：`run_backtest`，以及选择原生 bundle 时的 `inspect_rqalpha_data`。
 
-Tool 直接使用 Agents SDK Tool definitions。Portfolio Tool 委托 PortfolioOperations，Skill Tool 委托 SkillOperations，Session 只读 Tool 委托 SessionReadOperations；adapter 不直接写入持久化状态。
+Tool 直接使用 Agents SDK Tool definitions。Portfolio Tool 委托 PortfolioOperations，Skill Tool 委托 SkillOperations，Session 只读 Tool 委托 `session_queries.py` 中的无状态 Application 查询函数；adapter 不直接写入持久化状态。
 
 会修改 Workspace 或执行代码的能力强制实施 Workspace 边界与审批策略。Tool failure 以明确异常返回。
 
@@ -111,13 +111,12 @@ Tool 直接使用 Agents SDK Tool definitions。Portfolio Tool 委托 PortfolioO
 只读 Session 访问遵循以下边界：
 
 ```text
-Agent Tool -> Application SessionReadOperations
-                         ├── Storage：Session metadata
-                         ├── Journal reader 与共享 Steer 事实
-                         └── Runtime public snapshot：仅用于列表状态
+Agent Session Tools（Host 已绑定的查询）
+├── Application list_sessions -> Storage metadata + Runtime.session_snapshot(target_id)
+└── Application read_session  -> Storage 存在性检查 + 已有 SessionJournal + 共享 Steer 事实
 ```
 
-Host 组合该服务，并在 Run 执行时通过 `AgentContext` 提供。Tool 接收 Application 能力，不接收 Host 或 Runtime，也不直接读取 SQLite 或 JSONL。共享 Journal 事实为历史读取和 Review 解析 Steer 激活/丢弃证据，Review 保留严格的指令边界策略。不增加历史数据库或 Runtime 状态机。
+`application.session_queries.list_sessions` 和 `read_session` 是显式接收依赖、不保存隐式读取位置的普通 async 函数。Host 按 `Agent -> AgentLoop -> AgentRuntime` 顺序构造后，通过 `functools.partial` 绑定查询，并在 yield Host 前向已有 Agent 一次追加 `make_session_tools(...)`。每个 Run 的 Agent clone 都能看到完整 Tool 列表，Run 期间无需重新注册。每个 Host 分别绑定自己的数据库、Runtime 和已有 Journal，历史查询不需要 Runtime。Tool 仅向已绑定的查询转发经过验证的公开参数。共享 Journal 事实为历史读取和 Review 解析 Steer 激活/丢弃证据，Review 保留严格的指令边界策略。不增加历史数据库或 Runtime 状态机。
 
 `list_sessions(query=None, include_archived=False, limit=50, offset=0)` 枚举当前 Root 的元数据。空 query 不过滤标题；非空 query 仅在 title 上进行 Unicode `casefold()` 子串匹配，不支持 Session ID 或消息正文筛选。默认排除归档 Session；`include_archived=True` 同时包含归档与未归档 Session。每行返回 `session_id`、`title`、`archived`、`branch_from_session_id`、`created_at`、`updated_at` 和 `status`，按 `updated_at` 降序排列，时间相同时按 `session_id` 排序。`has_more` 为真时用 `next_offset` 继续。Offset 分页反映当前列表，并发变化时为尽力枚举，不冻结列表快照。
 

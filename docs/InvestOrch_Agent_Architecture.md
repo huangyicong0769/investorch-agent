@@ -102,7 +102,7 @@ The Main Agent currently receives:
 - MCP registry: `list_mcp_servers`, `configure_mcp_server`, `remove_mcp_server`;
 - backtesting: `run_backtest`, and `inspect_rqalpha_data` when the native bundle is selected.
 
-Tool implementation uses Agents SDK Tool definitions directly. Portfolio tools delegate to PortfolioOperations; Skill tools delegate to SkillOperations; Session read tools delegate to SessionReadOperations. These adapters do not write persistence directly.
+Tool implementation uses Agents SDK Tool definitions directly. Portfolio tools delegate to PortfolioOperations; Skill tools delegate to SkillOperations; Session read tools delegate to stateless Application queries in `session_queries.py`. These adapters do not write persistence directly.
 
 Workspace-changing and execution capabilities enforce workspace boundaries and approval policy. Tool failures surface as explicit exceptions.
 
@@ -111,13 +111,12 @@ Workspace-changing and execution capabilities enforce workspace boundaries and a
 Read-only Session access follows this boundary:
 
 ```text
-Agent Tool -> Application SessionReadOperations
-                         ├── Storage: Session metadata
-                         ├── Journal reader and shared Steer facts
-                         └── Runtime public snapshot: list status only
+Agent Session Tools (Host-bound queries)
+├── Application list_sessions -> Storage metadata + Runtime.session_snapshot(target_id)
+└── Application read_session  -> Storage existence + existing SessionJournal + shared Steer facts
 ```
 
-The Host composes the service and supplies it through `AgentContext` at Run execution. Tools receive the Application capability rather than the Host or Runtime; they do not read SQLite or JSONL directly. Shared Journal facts resolve Steer activation/discard for both history and Review, while Review retains its strict instruction-boundary policy. No additional history database or Runtime state machine is introduced.
+`application.session_queries.list_sessions` and `read_session` are ordinary async functions with explicit dependencies and no hidden read position. The Host constructs `Agent -> AgentLoop -> AgentRuntime`, then binds queries with `functools.partial` and appends `make_session_tools(...)` to the existing Agent once, before yielding the Host. Per-Run Agent clones see that complete Tool list without registration during Runs. Each Host binds its own database, Runtime, and existing Journal; the history query requires no Runtime. Tools only forward validated public arguments to these bound queries. Shared Journal facts resolve Steer activation/discard for both history and Review, while Review retains its strict instruction-boundary policy. No additional history database or Runtime state machine is introduced.
 
 `list_sessions(query=None, include_archived=False, limit=50, offset=0)` lists metadata in the current Root. A blank query leaves titles unfiltered; a nonblank query uses Unicode `casefold()` substring matching on title only. There is no Session-ID or message-content filter. Archived Sessions are excluded by default; `include_archived=True` includes both archived and unarchived Sessions. Rows expose `session_id`, `title`, `archived`, `branch_from_session_id`, `created_at`, `updated_at`, and `status`, ordered by descending `updated_at` with `session_id` breaking ties. Continue with `next_offset` while `has_more` is true. Offset pages reflect the current listing and are best effort during concurrent changes, without a frozen list snapshot.
 
