@@ -17,12 +17,9 @@ from investorch.output import (
     ToolCalled,
     ToolOutput,
 )
+from investorch.presentation import input_author_label
 
 logger = logging.getLogger(__name__)
-
-
-def input_author_label(origin: InputOrigin | None) -> str:
-    return f"Agent · {origin.sender_session_id}" if origin is not None and origin.kind == "agent" else "You"
 
 
 def format_json(text: str | None) -> str:

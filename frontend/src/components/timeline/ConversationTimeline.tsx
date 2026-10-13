@@ -26,7 +26,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { ActivityGroup } from './ActivityGroup'
 import { MessageImages } from '../images/MessageImages'
 import { MarkdownMessage } from './MarkdownMessage'
-import { InputAuthor } from './InputAuthor'
+import { InputAuthor } from '../conversation/InputAuthor'
 
 interface ConversationTimelineProps {
   sessionId: string

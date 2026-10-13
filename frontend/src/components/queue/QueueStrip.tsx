@@ -14,7 +14,7 @@ import type {
 } from '../../api/types'
 import { errorMessage } from '../../lib/errors'
 import { MessageImages } from '../images/MessageImages'
-import { InputAuthor } from '../timeline/InputAuthor'
+import { InputAuthor } from '../conversation/InputAuthor'
 import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 

@@ -12,7 +12,7 @@ import { formatJsonValue } from '../../lib/timeline/project'
 import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { MessageImages } from '../images/MessageImages'
-import { CopyButton } from './CopyButton'
+import { CopyButton } from '../ui/CopyButton'
 
 interface ActivityGroupProps {
   group: TimelineActivityGroupViewModel

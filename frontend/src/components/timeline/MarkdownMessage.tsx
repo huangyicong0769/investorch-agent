@@ -4,7 +4,7 @@ import Markdown, { defaultUrlTransform, type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
 import { MessageImage } from '../images/MessageImages'
-import { CopyButton } from './CopyButton'
+import { CopyButton } from '../ui/CopyButton'
 
 interface MarkdownMessageProps {
   text: string

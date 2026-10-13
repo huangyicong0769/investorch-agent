@@ -6,9 +6,8 @@ from textual.message import Message
 from textual.widgets import Button, Label
 
 from investorch.inputs import input_summary
+from investorch.presentation import input_author_label
 from investorch.runtime import QueuedInput
-
-from .timeline import input_author_label
 
 
 class QueuePanel(Vertical):

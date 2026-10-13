@@ -2,7 +2,7 @@ import { Link } from 'react-router-dom'
 
 import type { InputOrigin } from '../../api/types'
 import { sessionPath, shortSessionId } from '../../lib/session'
-import { CopyButton } from './CopyButton'
+import { CopyButton } from '../ui/CopyButton'
 
 export function InputAuthor({ origin }: { origin?: InputOrigin }) {
   if (!origin) return <>You</>
