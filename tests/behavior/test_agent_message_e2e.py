@@ -292,7 +292,7 @@ async def test_approved_image_reference_reaches_recipient_sdk_and_does_not_appro
         return (
             function_call(
                 "edit",
-                    {"path": "must-not-write.txt", "operation": "create", "content": "denied"},
+                {"path": "must-not-write.txt", "operation": "create", "content": "denied"},
                 call_id="receiver-edit",
             ),
         )
