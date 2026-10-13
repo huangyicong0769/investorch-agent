@@ -98,6 +98,7 @@ The Main Agent currently receives:
 - workspace and execution: `explore`, `edit`, `delete`, `exec_command`;
 - utility and state: `calculate`, `get_current_time`, `write_todos`;
 - Session discovery and history: `list_sessions`, `read_session`;
+- Session input submission: `send_message` (sender approval required);
 - configuration: `get_config`, `update_config`;
 - MCP registry: `list_mcp_servers`, `configure_mcp_server`, `remove_mcp_server`;
 - backtesting: `run_backtest`, and `inspect_rqalpha_data` when the native bundle is selected.
@@ -150,6 +151,22 @@ Continue with `read_session(session_id="session-b", before_seq=70, snapshot_seq=
 Both Tools default to 50 records, allow at most 100, and bound JSON-serialized results to 32,000 characters, including escaping. A Conversation page can become shorter to retain complete records; it keeps the newest consecutive eligible suffix so the older-page cursor recovers the remainder. A single `text`, `arguments`, or `output` field above 16,000 characters, or one whose encoded record exceeds the response budget, is explicitly omitted without clipping. The record retains identity/metadata and an `omitted_fields` entry such as `{"field":"output","reason":"size_limit","original_chars":280000}`; the response-level `omitted_fields` counts these entries. The omission row advances pagination. Metadata that cannot fit raises `response_too_large`.
 
 Raw Events are never rewritten to fit: an oversized requested page raises `response_too_large` with guidance to reduce `limit` or use Conversation. A single oversized raw event cannot be retrieved through Events under this budget. Invalid arguments/cursors, missing IDs, malformed committed history, conflicting Steer evidence and unavailable journals return explicit safe errors; absence of a Journal for a valid Session is empty history. Snapshot capture uses a short Journal lock and scans the committed prefix without reserving Runtime maintenance or holding the write lock for the historical scan. Stage A adds no cross-Session messaging or spawn capability.
+
+## Session messaging
+
+The Host registers `send_message` once, bound to its AppState, Runtime, and existing Journal. The SDK interrupts the **sender's Run** for Permission/Review/HITL before invoking `application.messaging.send_message()`. The Application requires an exact existing, unarchived target in this Root, rejects self-send, prepares ordinary `UserInput`, and calls `submit_user_input()`. Approval never grants the recipient's later tools permission.
+
+`send_message(target_session_id, text="", images=None)` accepts unchanged text and compact image references. Text may be empty when an image is present. References have `source`, nullable `path`, `seq`, `image_index`, and `detail`:
+
+- `workspace`: set a Workspace-relative `path`. Shared containment rejects absolute paths and traversal/symlinks outside Workspace; only regular files are read, at most `images.max_image_bytes + 1` bytes. MIME comes from bytes, not the extension.
+- `session_event`: set positive Journal `seq` and zero-based `image_index` in the **sender's own** committed history. User, activated Steer, assistant, and tool-output images are supported; pending/discarded Steers cannot supply images. There is no source-Session argument.
+- Other source fields are null/omitted. Optional `detail` overrides the existing image detail. Both sources become data URLs inside the Application and use the existing `normalize_user_input()` validation and configured image limits; models never supply Base64 or download arbitrary URLs.
+
+For example, discover a complete target ID with `list_sessions`, then call `send_message(target_session_id="<target-id>", text="Please inspect this chart", images=[{"source":"workspace","path":"charts/result.png"}])`. To forward an uploaded image without text, use `send_message(target_session_id="<target-id>", images=[{"source":"session_event","seq":1,"image_index":0}])`. Use `read_session` for later results, or explicitly send a reply to the trusted sender ID.
+
+Each immutable `UserInput` carries an immutable `InputOrigin`. External inputs default to `user`; the Tool derives Agent Session/Run IDs from SDK context. Agent origin is optional metadata on existing `user_message`/`user_steer` events, with the target Run ID unchanged. SDK input stays `role=user` and adds a separate application-generated provenance text item before the original text/images. Review includes the source on effective instructions under its existing frozen boundary and Steer activation policy. Conversation reads retain `type=user`, source metadata and image metadata; old history needs no migration.
+
+Web/TUI reuse user-message components with a small Agent source label and full-ID navigation/copy or resume guidance. A generic Journal-committed input notification feeds existing history reconciliation and TUI sequence deduplication. Receipts confirm only Run/Steer/Queue acceptance; [Runtime](Runtime_Session_Execution_Model.md#agent-message-submission) defines their different persistence guarantees. Messaging adds no mailbox, task registry, completion callback, automatic reply, spawning, or cross-process transport. Concurrent Sessions still share Workspace and managed resources.
 
 ## Approval boundary
 
@@ -221,7 +238,7 @@ The current component does not implement:
 - broker order execution, account mirroring, position-monitoring automation, or live trading;
 - a QMT gateway or direct XtQuant integration;
 - a unified investment data layer;
-- Multi-Agent orchestration;
+- Agent spawning, orchestration, waiting, or completion notifications;
 - persistence of active Runs, pending approvals, Steer entries, Queue state, or Todo state across restarts;
 - historical-turn conversation branching;
 - per-Session workspaces or cross-Run filesystem locking;

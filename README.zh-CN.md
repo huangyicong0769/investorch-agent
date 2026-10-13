@@ -136,6 +136,10 @@ QMT Skill 生成供用户审查、人工部署到大 QMT 的策略产物；Inves
 
 Web 对话支持选择、粘贴或拖放 JPEG、PNG、GIF、WebP，也支持纯图片消息。图片随 Session 历史保存，Agent 可通过 `explore` 读取 Workspace 图片；外部图片经点击才加载。图片限制在 `[images]` 中配置，重启生效，详见[图片架构说明](docs/InvestOrch_Agent_Architecture.zh-CN.md#对话图片内容)。
 
+## Session Tool
+
+尚未发布的 0.3.0 工作中，Agent 可用 `list_sessions` 发现精确 Session ID，用 `read_session` 读取历史，用经审批的 `send_message` 向当前 Root 内另一未归档 Session 提交文本/图片。例如 `send_message(target_session_id="<exact-id>", text="检查这张图", images=[{"source":"workspace","path":"charts/result.png"}])`。已有上传图片可通过发送方 Journal 的 `seq` 与 `image_index` 转发，也支持纯图。接收方看到可信发送身份，Web/TUI 在原消息视图显示来源。需要结果时读取后续历史或显式回复；回执只确认提交，Queue 不跨重启保留。契约与限制见[Session 消息](docs/InvestOrch_Agent_Architecture.zh-CN.md#session-消息)。
+
 ## Settings 与 System Status
 
 - **Settings** 使用 Python Schema 提供的类型、默认值、约束和生命周期编辑持久配置。Reset 删除本地覆盖；热更新影响后续适用操作，需要重启的修改保存为下次启动值。临时 Run 默认值仅属于当前进程。

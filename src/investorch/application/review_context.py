@@ -27,7 +27,7 @@ class PreparedReviewContext:
 
 
 class ReviewContext:
-    """Reconstruct effective user-authored instructions at a frozen journal boundary."""
+    """Reconstruct effective user-role instructions at a frozen journal boundary."""
 
     def __init__(self, *, config: AppConfig, compaction_agent: Agent | None = None) -> None:
         self._config = config

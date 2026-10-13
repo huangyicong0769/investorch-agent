@@ -98,6 +98,7 @@ Main Agent 当前获得：
 - Workspace 与执行：`explore`、`edit`、`delete`、`exec_command`；
 - Utility 与状态：`calculate`、`get_current_time`、`write_todos`；
 - Session 发现与历史：`list_sessions`、`read_session`；
+- Session 输入提交：`send_message`（需要发送方审批）；
 - 配置：`get_config`、`update_config`；
 - MCP registry：`list_mcp_servers`、`configure_mcp_server`、`remove_mcp_server`；
 - 回测：`run_backtest`，以及选择原生 bundle 时的 `inspect_rqalpha_data`。
@@ -150,6 +151,22 @@ Agent Session Tools（Host 已绑定的查询）
 两个 Tool 默认每页 50 条、最多 100 条，JSON 编码后的整个结果最多 32,000 字符，包含转义开销。Conversation 可以缩短页面以保留完整记录，保留最新连续合格后缀，使旧页 cursor 可以找回其余记录。单个 `text`、`arguments` 或 `output` 超过 16,000 字符，或该记录编码后超出响应预算时，会显式省略字段而不裁剪。记录保留 identity/metadata，并增加 `omitted_fields` 项，例如 `{"field":"output","reason":"size_limit","original_chars":280000}`；响应级 `omitted_fields` 计数这些项。省略占位记录仍推进分页。连元数据也无法容纳时返回 `response_too_large`。
 
 Raw Events 不会为了预算改写：请求页超限时返回 `response_too_large`，提示减小 `limit` 或使用 Conversation。单个超大 raw event 在该预算下无法通过 Events 获取。无效参数/cursor、缺失 ID、已提交历史损坏、矛盾 Steer 证据或 Journal 不可用均返回明确且安全的错误；有效 Session 缺少 Journal 则为空历史。Snapshot 捕获仅短暂持有 Journal 锁，随后扫描已提交前缀，不申请 Runtime maintenance reservation，也不在历史扫描期间持有写锁。Stage A 不增加跨 Session 发消息或 spawn 能力。
+
+## Session 消息
+
+Host 一次注册 `send_message`，绑定本 Host 的 AppState、Runtime 与已有 Journal。SDK 先在**发送方 Run** 触发现有 Permission/Review/HITL，批准后才调用 `application.messaging.send_message()`。Application 要求目标在当前 Root 精确存在且未归档，拒绝自投，构造普通 `UserInput` 并调用 `submit_user_input()`。投递批准不授予接收方后续 Tool 的权限。
+
+`send_message(target_session_id, text="", images=None)` 接收原始文本和简短图片引用；有图片时文本可为空。引用包含 `source`，以及可空的 `path`、`seq`、`image_index`、`detail`：
+
+- `workspace`：指定 Workspace 相对 `path`。复用路径 containment，拒绝绝对路径及 traversal/symlink 逃出 Workspace；只读普通文件，最多读取 `images.max_image_bytes + 1` 字节。MIME 根据实际字节识别，不信任扩展名。
+- `session_event`：指定**发送方自己**已提交历史中的正数 Journal `seq` 与从零开始的 `image_index`。支持用户、已激活 Steer、assistant、tool output 的图片；pending/discarded Steer 不能提供图片。参数不接受 source Session ID。
+- 其他来源字段为空或省略。可选 `detail` 覆盖现有图片 detail。两种来源在 Application 内转换为 data URL，复用 `normalize_user_input()` 与已有图片限额；模型无需输出 Base64，也不能抓取任意 URL。
+
+例如，先用 `list_sessions` 获取完整目标 ID，再调用 `send_message(target_session_id="<target-id>", text="请检查这张图", images=[{"source":"workspace","path":"charts/result.png"}])`。纯图转发使用 `send_message(target_session_id="<target-id>", images=[{"source":"session_event","seq":1,"image_index":0}])`。后续用 `read_session` 查询结果，或显式向可信发送 Session ID 回复。
+
+不可变 `UserInput` 携带不可变 `InputOrigin`。外部输入默认 `user`，Tool 从 SDK context 取得 Agent 的 Session/Run ID。Agent 来源作为已有 `user_message`/`user_steer` 的可选元数据，目标 Run ID 保持原含义。SDK 输入仍为 `role=user`，在原始文本/图片前增加独立的应用生成来源说明。Review 在已有冻结边界与 Steer 生效规则下标注有效指示来源。Conversation 仍返回 `type=user`，保留来源和图片元信息；旧历史无需迁移。
+
+Web/TUI 复用普通消息组件，仅增加小型 Agent 来源标记及完整 ID 导航/复制或 resume 提示。通用的 Journal 输入提交后通知接入已有历史同步与 TUI seq 去重。回执只确认 Run/Steer/Queue 接受，[Runtime](Runtime_Session_Execution_Model.zh-CN.md#agent-消息提交)说明各自持久化语义。消息不增加 Mailbox、任务 registry、完成回调、自动回复、spawn 或跨进程传输。并发 Session 仍共享 Workspace 与受管资源。
 
 ## 审批边界
 
@@ -221,7 +238,7 @@ Run 与持久化由 Application 和 Runtime 层拥有。Client command parsing �
 - Broker 下单、账户镜像、自动持仓监控或实盘交易能力；
 - QMT Gateway 或直接 XtQuant 集成；
 - 统一投资数据层；
-- Multi-Agent 编排；
+- Agent spawn、编排、等待或完成通知；
 - 跨进程重启持久化 active Run、pending approval、Steer、Queue 或 Todo；
 - 历史 turn conversation branching；
 - per-Session Workspace 或跨 Run filesystem locking；

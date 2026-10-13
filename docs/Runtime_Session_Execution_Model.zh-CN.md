@@ -4,7 +4,7 @@
 
 ## 范围
 
-本文定义 0.1.0 引入的执行与生命周期规则，以及 0.3.0 Stage A 增加的只读 Session 访问边界。更高层组件图见[架构](InvestOrch_Agent_Architecture.zh-CN.md)。
+本文定义执行、生命周期、Session 访问与 Agent 消息提交规则。更高层组件图见[架构](InvestOrch_Agent_Architecture.zh-CN.md)。
 
 ## Identity 与所有权
 
@@ -79,6 +79,20 @@ Steer 仍属于同一个顶层 Run：
 Queue 是 SDK continuation 外部的 Application-level per-Session FIFO。提交只保存意图，尚不创建 conversation event。Run 成功完成后，最早的 item 只以 `user_message` 写入一次 Journal，并提升为新 Run。
 
 Run 停止或失败会暂停剩余 Queue。Resume 提升一个 head item；Clear 丢弃尚未提升的意图，不改变 conversation history。
+
+## Agent 消息提交
+
+发送方审批通过后，`send_message` 复用 `submit_user_input` 路由。Idle 目标启动 Run；active 目标由其冻结的 `RunOptions` 选择 Steer 或 Queue，future defaults 用于推广后的 Run。发送方在接受后获得 `UserInputSubmission`，不等待目标执行结果：
+
+| Disposition | 接受边界 | 持久化 |
+| --- | --- | --- |
+| `run_started` | Runtime 安排新的顶层 Run | 初始 `user_message` 异步写入；回执不等于 Journal 提交 |
+| `steer_submitted` | 已有 journal-first Steer 提交流程完成 | Steer 已记录，消费仍等待安全边界 |
+| `queue_submitted` | Runtime 接受进程内 FIFO 输入 | promotion 前没有消息历史；不支持 crash/restart 恢复 |
+
+发送 Session/Run ID 随不可变 `UserInput.origin` 传递，与目标 Run ID 分开。初始输入、Steer continuation、Queue promotion 和 terminal Steer fallback 使用同一 SDK 转换与 Journal 事件类型。有效 Agent 指示参加同一冻结 Review 历史。通用 `user_input_committed` 视图通知只在 `user_message` 可读后发出；history/live 根据 Journal seq 去重。
+
+自投、缺失、归档、stopping、被保留的目标或未解决的 pending work 按已有 lifecycle 规则失败。不增加重试队列、自动回复、完成回调或持久 Mailbox。发送方在待审时取消不影响目标；投递接受后，输入与 Run 由目标持有。Fork 随历史复制可选 origin，Compact 仍不改 Journal。
 
 ## Stop 与取消
 
