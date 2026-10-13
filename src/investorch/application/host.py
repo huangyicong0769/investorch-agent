@@ -37,11 +37,12 @@ from investorch.runtime import (
     RuntimeSessionSnapshot,
 )
 from investorch.storage import create_session, delete_unused_session, list_sessions
-from investorch.tools import close_execution, make_session_tools, start_execution
+from investorch.tools import close_execution, make_messaging_tools, make_session_tools, start_execution
 
 from . import session_queries
 from .activity import ActivityCoordinator, ActivityLabelEvent, ActivityLabelHandler, _ignore_activity_label
 from .approval import ApprovalCoordinator, ApprovalResolvedHandler, ManualApprovalHandler, _ignore_approval_resolved
+from .messaging import send_message
 from .portfolio_context import (
     PortfolioContextOperations,
     PortfolioToolSucceededHandler,
@@ -303,6 +304,9 @@ async def open_application_host(
                             session_queries.read_session, sessions_db=config.sessions_db, journal=journal
                         ),
                     )
+                )
+                agent.tools.extend(
+                    make_messaging_tools(submit=partial(send_message, state=state, runtime=runtime, journal=journal))
                 )
                 if enable_activity:
                     activity_model, activity_model_settings = create_model(config, "activity")

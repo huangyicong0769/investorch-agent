@@ -16,6 +16,7 @@ from .mcp import (
     list_mcp_servers,
     remove_mcp_server,
 )
+from .messaging import make_messaging_tools
 from .portfolio import (
     adjust_portfolio_cash,
     adjust_portfolio_position,
@@ -74,6 +75,7 @@ __all__ = (
     "list_portfolios",
     "list_skills",
     "load_skill",
+    "make_messaging_tools",
     "make_session_tools",
     "record_portfolio_cash_flow",
     "record_portfolio_income",
