@@ -23,7 +23,6 @@ from .usage import TokenUsage
 
 if TYPE_CHECKING:
     from investorch.application.portfolios import PortfolioOperations
-    from investorch.application.session_reads import SessionReadOperations
     from investorch.application.skills import SkillOperations
     from investorch.runtime.control import RunControl
 
@@ -98,7 +97,6 @@ class AgentLoop:
         portfolios: PortfolioOperations,
         successful_tool_handler: SuccessfulToolHandler = _ignore_successful_tool,
         skills: SkillOperations | None = None,
-        session_reads_provider: Callable[[], SessionReadOperations] | None = None,
     ) -> None:
         self._agent = agent
         self._title_agent = title_agent
@@ -106,7 +104,6 @@ class AgentLoop:
         self._config = config
         self._portfolios = portfolios
         self._skills = skills
-        self._session_reads_provider = session_reads_provider
         self._successful_tool_handler = successful_tool_handler
 
     async def run(
@@ -135,7 +132,6 @@ class AgentLoop:
             run_id=run_id,
             portfolios=self._portfolios,
             skills=self._skills,
-            session_reads=self._session_reads_provider() if self._session_reads_provider is not None else None,
             todo_update_handler=todo_update_handler,
         )
         hooks = _SuccessfulToolHooks(

@@ -28,7 +28,7 @@ from .portfolios import (
 )
 from .presentation_state import SessionPresentationState, SessionPresentationStore
 from .review_context import PreparedReviewContext, ReviewContext, ReviewContextError
-from .session_reads import SessionReadError, SessionReadOperations
+from .session_queries import SessionReadError
 from .sessions import (
     SessionAlreadyArchivedError,
     SessionArchivedError,
@@ -78,7 +78,6 @@ __all__ = [
     "SessionPresentationState",
     "SessionPresentationStore",
     "SessionReadError",
-    "SessionReadOperations",
     "SteerPromotionPendingError",
     "UserInputRejected",
     "UserInputSubmission",

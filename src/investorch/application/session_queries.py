@@ -6,7 +6,7 @@ from collections import deque
 from collections.abc import Iterator
 from functools import partial
 from pathlib import Path
-from typing import Literal, cast
+from typing import TYPE_CHECKING, Literal, cast
 from urllib.parse import urlsplit
 
 from investorch.images import IMAGE_DETAILS, RENDERABLE_MIME_TYPES
@@ -14,6 +14,10 @@ from investorch.journal import SessionJournal
 from investorch.journal.reader import JournalInvalidError, JournalSnapshot, JournalUnavailableError
 from investorch.journal.semantics import JournalInconsistentError, interpret_steers
 from investorch.storage import get_session
+from investorch.storage import list_sessions as list_session_metadata
+
+if TYPE_CHECKING:
+    from investorch.runtime import AgentRuntime
 
 MAX_PAGE_SIZE = 100
 MAX_RESPONSE_CHARS = 32000
@@ -26,6 +30,52 @@ class SessionReadError(RuntimeError):
     def __init__(self, code: str, message: str) -> None:
         self.code = code
         super().__init__(f"{code}: {message}")
+
+
+async def list_sessions(
+    *,
+    sessions_db: str | Path,
+    runtime: AgentRuntime,
+    query: str | None = None,
+    include_archived: bool = False,
+    limit: int = 50,
+    offset: int = 0,
+) -> dict[str, object]:
+    """Return complete metadata rows; offset pages reflect the current, unfrozen listing."""
+    _validate_limit(limit)
+    if type(offset) is not int or offset < 0:
+        raise ValueError("offset must be a non-negative integer")
+    if query is not None and not isinstance(query, str):
+        raise ValueError("query must be a string or null")
+    if type(include_archived) is not bool:
+        raise ValueError("include_archived must be a boolean")
+    records = await asyncio.to_thread(list_session_metadata, sessions_db, include_archived=include_archived)
+    needle = query.casefold() if query and query.strip() else ""
+    records = [record for record in records if needle in (record.title or "").casefold()]
+    records.sort(key=lambda record: record.session_id)
+    records.sort(key=lambda record: record.updated_at, reverse=True)
+    sessions: list[dict[str, object]] = []
+    for record in records[offset : offset + limit]:
+        snapshot = runtime.session_snapshot(record.session_id)
+        status = snapshot.run_phase or (
+            "pending" if snapshot.queued_count > 0 or snapshot.pending_steer_count > 0 else "idle"
+        )
+        item: dict[str, object] = {
+            "session_id": record.session_id,
+            "title": record.title,
+            "archived": record.archived_at is not None,
+            "branch_from_session_id": record.branch_from_session_id,
+            "created_at": record.created_at,
+            "updated_at": record.updated_at,
+            "status": status,
+        }
+        candidate = _list_result([*sessions, item], offset, len(records))
+        if _serialized_chars(candidate) > MAX_RESPONSE_CHARS:
+            if not sessions:
+                raise SessionReadError("response_too_large", "Session metadata exceeds the response budget.")
+            break
+        sessions.append(item)
+    return _list_result(sessions, offset, len(records))
 
 
 async def read_session(

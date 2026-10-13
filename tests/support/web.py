@@ -14,7 +14,6 @@ from investorch.application import (
     ApprovalCoordinator,
     PortfolioOperations,
     PortfolioSessionWorkflows,
-    SessionReadOperations,
 )
 from investorch.application.presentation_state import SessionPresentationStore
 from investorch.application.sessions import SessionOperations
@@ -76,9 +75,6 @@ async def open_test_web(
         journal=runtime.journal,
         runtime=runtime.runtime,
         sessions=sessions,
-        session_reads=SessionReadOperations(
-            config=runtime.config, journal=runtime.journal, get_runtime_snapshot=runtime.runtime.session_snapshot
-        ),
         portfolios=portfolios,
         skills=skills,
         skill_sessions=SkillSessionWorkflows(state=state, runtime=runtime.runtime, sessions=sessions, skills=skills),

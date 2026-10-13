@@ -17,7 +17,7 @@ def format_tool_error(context: RunContextWrapper[AgentContext], error: Exception
     """Expose corrective errors without SDK validation inputs or credentials."""
     # Application initialization imports the Agent's tools before its services.
     from investorch.application.portfolios import PortfolioOperationError
-    from investorch.application.session_reads import SessionReadError
+    from investorch.application.session_queries import SessionReadError
     from investorch.backtest.errors import BacktestDataError
 
     validation = error.__cause__ if isinstance(error, ModelBehaviorError) else error

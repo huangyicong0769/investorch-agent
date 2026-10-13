@@ -1,6 +1,7 @@
 import ast
 import asyncio
 import json
+from functools import partial
 from pathlib import Path
 
 import pytest
@@ -8,13 +9,15 @@ from agents import ModelSettings
 from agents.testing import ModelStep, ScriptedModel, assistant_message, function_call
 from agents.tool_context import ToolContext
 
+from investorch.agents import create_agent
 from investorch.application import ApplicationCallbacks, PortfolioOperations, open_application_host
-from investorch.application.session_reads import SessionReadOperations
+from investorch.application.session_queries import list_sessions as list_sessions_query
+from investorch.application.session_queries import read_session as read_session_query
 from investorch.context import AgentContext
 from investorch.journal import read_session_journal
 from investorch.output import ToolOutput
 from investorch.storage import create_session, get_session, set_session_title
-from investorch.tools import list_sessions, read_session
+from investorch.tools import make_session_tools
 from tests.support.config import make_test_config
 from tests.support.runtime import make_runtime_harness, run_options
 
@@ -30,13 +33,14 @@ async def test_session_tools_are_read_only_and_surface_actionable_safe_errors(tm
             session_id="a",
             run_id="reader",
             portfolios=PortfolioOperations(config=harness.config),
-            session_reads=SessionReadOperations(
-                config=harness.config, journal=harness.journal, get_runtime_snapshot=harness.runtime.session_snapshot
-            ),
         ),
         tool_name="session-test",
         tool_call_id="call-a",
         tool_arguments="{}",
+    )
+    list_sessions, read_session = make_session_tools(
+        list_query=partial(list_sessions_query, sessions_db=harness.config.sessions_db, runtime=harness.runtime),
+        read_query=partial(read_session_query, sessions_db=harness.config.sessions_db, journal=harness.journal),
     )
     assert list_sessions.needs_approval is read_session.needs_approval is False
     assert set(list_sessions.params_json_schema["properties"]) == {"query", "include_archived", "limit", "offset"}
@@ -62,8 +66,6 @@ async def test_session_tools_are_read_only_and_surface_actionable_safe_errors(tm
     assert "journal_invalid" in error
     assert "private-content-canary" not in error
     assert str(harness.config.root) not in error
-    context.context.session_reads = None
-    assert "unavailable" in await list_sessions.on_invoke_tool(context, "{}")
     await harness.runtime.aclose()
 
 
@@ -132,7 +134,8 @@ async def test_real_host_agent_reads_self_and_another_running_session_without_si
         assert host.state.selected_session_id == selected
         assert get_session(config.sessions_db, "b") == b_metadata
         assert read_session_journal(config.session_journal_dir, "b") == b_journal
-        assert {item["session_id"] for item in (await host.session_reads.list_sessions())["sessions"]} == {"a", "b"}
+        listing = await list_sessions_query(sessions_db=host.config.sessions_db, runtime=host.runtime)
+        assert {item["session_id"] for item in listing["sessions"]} == {"a", "b"}
         release_b.set()
         await asyncio.wait_for(b.task, 3)
         model.assert_complete()
@@ -144,11 +147,9 @@ async def test_sdk_output_stays_bounded_when_python_representation_expands_quote
     create_session(harness.config.sessions_db, "a")
     for _ in range(3):
         await harness.journal.record_user_message("a", "'" * 10000 + '"')
-    reads = SessionReadOperations(
-        config=harness.config, journal=harness.journal, get_runtime_snapshot=harness.runtime.session_snapshot
-    )
+    read_query = partial(read_session_query, sessions_db=harness.config.sessions_db, journal=harness.journal)
 
-    result = await reads.read_session("a")
+    result = await read_query("a")
 
     assert len(json.dumps(result)) <= 32000
     assert len(str(result)) <= 32000
@@ -180,12 +181,11 @@ async def test_paused_accepted_queue_is_pending_but_host_restart_reports_current
         harness.agent_loop.complete("a")
         with pytest.raises(RuntimeError, match="controlled Agent failure"):
             await active.task
-    reads = SessionReadOperations(
-        config=harness.config, journal=harness.journal, get_runtime_snapshot=harness.runtime.session_snapshot
-    )
-    assert (await reads.list_sessions())["sessions"][0]["status"] == "pending"
+    list_query = partial(list_sessions_query, sessions_db=harness.config.sessions_db, runtime=harness.runtime)
+    read_query = partial(read_session_query, sessions_db=harness.config.sessions_db, journal=harness.journal)
+    assert (await list_query())["sessions"][0]["status"] == "pending"
     assert harness.runtime.session_snapshot("a").queue_paused is True
-    assert (await reads.read_session("a"))["records"][0]["text"] == "initial"
+    assert (await read_query("a"))["records"][0]["text"] == "initial"
     await harness.runtime.aclose()
 
     def unused_model(_config: object, _role: str) -> tuple:
@@ -198,6 +198,64 @@ async def test_paused_accepted_queue_is_pending_but_host_restart_reports_current
     async with open_application_host(
         harness.config, manual_approval_handler=unused_approval, create_initial_session=False, enable_activity=False
     ) as host:
-        assert (await host.session_reads.list_sessions())["sessions"][0]["status"] == "idle"
-        history = await host.session_reads.read_session("a", view="events")
+        listing = await list_sessions_query(sessions_db=host.config.sessions_db, runtime=host.runtime)
+        assert listing["sessions"][0]["status"] == "idle"
+        history = await read_session_query(
+            "a", sessions_db=host.config.sessions_db, journal=host.journal, view="events"
+        )
         assert history["records"][-1]["status"] == terminal_status
+
+
+@pytest.mark.asyncio
+async def test_first_and_repeated_host_runs_publish_unique_session_tools_and_keep_base_tools(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = make_test_config(tmp_path, {"backtest": {"use_cnequity": False}, "compaction": {"auto_enabled": False}})
+    create_session(config.sessions_db, "a")
+    set_session_title(config.sessions_db, "a", "Reader")
+    model = ScriptedModel(
+        (
+            (
+                function_call("list_sessions", {}, call_id="first-list"),
+                function_call("read_session", {"session_id": "a"}, call_id="first-read"),
+            ),
+            (assistant_message("First complete"),),
+            (
+                function_call("list_sessions", {}, call_id="second-list"),
+                function_call("read_session", {"session_id": "a"}, call_id="second-read"),
+            ),
+            (assistant_message("Second complete"),),
+        )
+    )
+    base_names = {tool.name for tool in create_agent(model=model, model_settings=ModelSettings(), config=config).tools}
+    answers = []
+
+    def model_for_role(_config: object, role: str) -> tuple:
+        return (model if role == "main" else ScriptedModel()), ModelSettings()
+
+    async def capture(output: object, _seq: int | None) -> None:
+        if isinstance(output.event, ToolOutput):
+            answers.append(ast.literal_eval(output.event.output))
+
+    async def unexpected_approval(_request: object, _reason: str | None) -> bool:
+        raise AssertionError("Session reads must not request approval")
+
+    monkeypatch.setattr("investorch.application.host.create_model", model_for_role)
+    async with open_application_host(
+        config,
+        manual_approval_handler=unexpected_approval,
+        callbacks=ApplicationCallbacks(handle_output=capture),
+        create_initial_session=False,
+        enable_activity=False,
+    ) as host:
+        for message in ["First input", "Second input"]:
+            run = host.runtime.start_run("a", message, run_options())
+            await asyncio.wait_for(run.task, 3)
+        assert len(answers) == 4
+        assert all(isinstance(answer, dict) for answer in answers)
+        assert len(model.calls) == 4
+        for call in model.calls:
+            names = [tool.name for tool in call.tools]
+            assert len(names) == len(set(names))
+            assert set(names) == base_names | {"list_sessions", "read_session"}
+        model.assert_complete()

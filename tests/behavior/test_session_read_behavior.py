@@ -2,11 +2,12 @@ import asyncio
 import json
 import sqlite3
 from dataclasses import replace
+from functools import partial
 from pathlib import Path
 
 import pytest
 
-from investorch.application.session_reads import SessionReadError, SessionReadOperations
+from investorch.application.session_queries import SessionReadError, list_sessions, read_session
 from investorch.images import ImageContent, UserInput
 from investorch.journal import read_session_journal
 from investorch.output import AssistantMessage, ToolCalled, ToolOutput
@@ -19,10 +20,8 @@ from tests.support.sessions import make_session_harness
 @pytest.mark.asyncio
 async def test_list_enumerates_root_sessions_with_stable_ties_title_filter_and_archive_option(tmp_path: Path) -> None:
     harness = make_runtime_harness(tmp_path)
-    reads = SessionReadOperations(
-        config=harness.config, journal=harness.journal, get_runtime_snapshot=harness.runtime.session_snapshot
-    )
-    assert await reads.list_sessions() == {"sessions": [], "has_more": False, "next_offset": None}
+    list_query = partial(list_sessions, sessions_db=harness.config.sessions_db, runtime=harness.runtime)
+    assert await list_query() == {"sessions": [], "has_more": False, "next_offset": None}
     for index in reversed(range(55)):
         session_id = f"session-{index:02}"
         create_session(harness.config.sessions_db, session_id)
@@ -32,9 +31,9 @@ async def test_list_enumerates_root_sessions_with_stable_ties_title_filter_and_a
     with sqlite3.connect(harness.config.sessions_db) as connection:
         connection.execute("UPDATE agent_sessions SET updated_at = '2026-10-13 00:00:00'")
 
-    first = await reads.list_sessions()
-    last = await reads.list_sessions(offset=first["next_offset"])
-    archived = await reads.list_sessions(query="STRASSE", include_archived=True, offset=54)
+    first = await list_query()
+    last = await list_query(offset=first["next_offset"])
+    archived = await list_query(query="STRASSE", include_archived=True, offset=54)
 
     assert [item["session_id"] for item in first["sessions"]] == [f"session-{i:02}" for i in range(50)]
     assert first["has_more"] is True
@@ -52,8 +51,8 @@ async def test_list_enumerates_root_sessions_with_stable_ties_title_filter_and_a
         "status": "idle",
     }
     assert archived["sessions"][0]["archived"] is True
-    assert (await reads.list_sessions(query="session-02"))["sessions"] == []
-    assert await reads.list_sessions(query=" \t") == first
+    assert (await list_query(query="session-02"))["sessions"] == []
+    assert await list_query(query=" \t") == first
     await harness.runtime.aclose()
 
 
@@ -70,7 +69,7 @@ async def test_list_enumerates_root_sessions_with_stable_ties_title_filter_and_a
     ],
 )
 async def test_list_projects_only_current_status_and_keeps_archive_independent(
-    tmp_path: Path, phase: str | None, queued: int, steers: int, status: str
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, phase: str | None, queued: int, steers: int, status: str
 ) -> None:
     harness = make_runtime_harness(tmp_path)
     create_session(harness.config.sessions_db, "a")
@@ -83,11 +82,10 @@ async def test_list_projects_only_current_status_and_keeps_archive_independent(
         pending_steer_count=steers,
         queue_paused=True,
     )
-    reads = SessionReadOperations(
-        config=harness.config, journal=harness.journal, get_runtime_snapshot=lambda _: snapshot
-    )
+    monkeypatch.setattr(harness.runtime, "session_snapshot", lambda _: snapshot)
+    list_query = partial(list_sessions, sessions_db=harness.config.sessions_db, runtime=harness.runtime)
 
-    result = await reads.list_sessions(include_archived=True)
+    result = await list_query(include_archived=True)
 
     assert result["sessions"][0]["status"] == status
     assert result["sessions"][0]["archived"] is True
@@ -106,9 +104,7 @@ async def test_list_projects_only_current_status_and_keeps_archive_independent(
 @pytest.mark.asyncio
 async def test_list_budget_shortens_pages_without_losing_any_session(tmp_path: Path) -> None:
     harness = make_runtime_harness(tmp_path)
-    reads = SessionReadOperations(
-        config=harness.config, journal=harness.journal, get_runtime_snapshot=harness.runtime.session_snapshot
-    )
+    list_query = partial(list_sessions, sessions_db=harness.config.sessions_db, runtime=harness.runtime)
     for index in range(40):
         session_id = f"session-{index:02}"
         create_session(harness.config.sessions_db, session_id)
@@ -116,7 +112,7 @@ async def test_list_budget_shortens_pages_without_losing_any_session(tmp_path: P
     seen = []
     offset = 0
     while True:
-        page = await reads.list_sessions(limit=100, offset=offset)
+        page = await list_query(limit=100, offset=offset)
         assert len(json.dumps(page)) <= 32000
         seen.extend(item["session_id"] for item in page["sessions"])
         if not page["has_more"]:
@@ -125,7 +121,7 @@ async def test_list_budget_shortens_pages_without_losing_any_session(tmp_path: P
     assert len(seen) == len(set(seen)) == 40
     set_session_title(harness.config.sessions_db, seen[0], "a" * 32000)
     with pytest.raises(SessionReadError, match="response_too_large"):
-        await reads.list_sessions(query="a" * 32000)
+        await list_query(query="a" * 32000)
     await harness.runtime.aclose()
 
 
@@ -144,11 +140,9 @@ async def test_list_budget_shortens_pages_without_losing_any_session(tmp_path: P
 )
 async def test_list_rejects_invalid_arguments(tmp_path: Path, arguments: dict[str, object]) -> None:
     harness = make_runtime_harness(tmp_path)
-    reads = SessionReadOperations(
-        config=harness.config, journal=harness.journal, get_runtime_snapshot=harness.runtime.session_snapshot
-    )
+    list_query = partial(list_sessions, sessions_db=harness.config.sessions_db, runtime=harness.runtime)
     with pytest.raises(ValueError):
-        await reads.list_sessions(**arguments)
+        await list_query(**arguments)
     await harness.runtime.aclose()
 
 
@@ -158,12 +152,10 @@ async def test_read_projects_flat_effective_history_with_original_identity_and_s
     create_session(harness.config.sessions_db, "archived")
     await record_mixed_history(harness.journal, "archived")
     archive_session(harness.config.sessions_db, "archived")
-    reads = SessionReadOperations(
-        config=harness.config, journal=harness.journal, get_runtime_snapshot=harness.runtime.session_snapshot
-    )
+    read_query = partial(read_session, sessions_db=harness.config.sessions_db, journal=harness.journal)
     raw = read_session_journal(harness.config.session_journal_dir, "archived")
 
-    result = await reads.read_session("archived")
+    result = await read_query("archived")
 
     assert set(result) == {
         "session_id",
@@ -195,7 +187,7 @@ async def test_read_projects_flat_effective_history_with_original_identity_and_s
     assert "credential" not in json.dumps(result)
     assert result["has_older"] is False
     assert result["next_before_seq"] == 1
-    assert (await reads.read_session("archived", view="events"))["records"] == raw
+    assert (await read_query("archived", view="events"))["records"] == raw
     await harness.runtime.aclose()
 
 
@@ -206,22 +198,16 @@ async def test_visible_paging_looks_ahead_for_activation_and_keeps_the_same_snap
     harness = make_runtime_harness(tmp_path)
     create_session(harness.config.sessions_db, "a")
     await record_mixed_history(harness.journal, "a")
-    reads = SessionReadOperations(
-        config=harness.config, journal=harness.journal, get_runtime_snapshot=harness.runtime.session_snapshot
-    )
+    read_query = partial(read_session, sessions_db=harness.config.sessions_db, journal=harness.journal)
 
-    latest = await reads.read_session("a", limit=3)
+    latest = await read_query("a", limit=3)
     await harness.journal.record_user_steers_activated("a", "run-b", (16,))
     await harness.journal.record_output("a", AssistantMessage("new message"))
-    middle = await reads.read_session(
-        "a", limit=3, before_seq=latest["next_before_seq"], snapshot_seq=latest["snapshot_seq"]
-    )
-    oldest = await reads.read_session(
-        "a", limit=3, before_seq=middle["next_before_seq"], snapshot_seq=latest["snapshot_seq"]
-    )
-    unproven = await reads.read_session("a", before_seq=8, snapshot_seq=10)
-    frozen = await reads.read_session("a", snapshot_seq=16)
-    fresh = await reads.read_session("a")
+    middle = await read_query("a", limit=3, before_seq=latest["next_before_seq"], snapshot_seq=latest["snapshot_seq"])
+    oldest = await read_query("a", limit=3, before_seq=middle["next_before_seq"], snapshot_seq=latest["snapshot_seq"])
+    unproven = await read_query("a", before_seq=8, snapshot_seq=10)
+    frozen = await read_query("a", snapshot_seq=16)
+    fresh = await read_query("a")
 
     assert [record["seq"] for record in latest["records"]] == [7, 14, 15]
     assert latest["next_before_seq"] == 7
@@ -247,9 +233,7 @@ async def test_empty_history_is_distinct_from_an_unknown_exact_id_and_empty_snap
 ) -> None:
     harness = make_runtime_harness(tmp_path)
     create_session(harness.config.sessions_db, "session-exact")
-    reads = SessionReadOperations(
-        config=harness.config, journal=harness.journal, get_runtime_snapshot=harness.runtime.session_snapshot
-    )
+    read_query = partial(read_session, sessions_db=harness.config.sessions_db, journal=harness.journal)
     expected = {
         "session_id": "session-exact",
         "view": "conversation",
@@ -259,15 +243,15 @@ async def test_empty_history_is_distinct_from_an_unknown_exact_id_and_empty_snap
         "next_before_seq": None,
         "omitted_fields": 0,
     }
-    assert await reads.read_session("session-exact") == expected
+    assert await read_query("session-exact") == expected
     with pytest.raises(SessionReadError, match="session_not_found"):
-        await reads.read_session("session")
+        await read_query("session")
     await harness.journal.record_user_message("orphan", "not a valid Session")
     with pytest.raises(SessionReadError, match="session_not_found"):
-        await reads.read_session("orphan")
+        await read_query("orphan")
     await harness.journal.record_user_message("session-exact", "later")
-    assert await reads.read_session("session-exact", snapshot_seq=0) == expected
-    empty = await reads.read_session("session-exact", before_seq=1)
+    assert await read_query("session-exact", snapshot_seq=0) == expected
+    empty = await read_query("session-exact", before_seq=1)
     assert empty["records"] == []
     assert empty["has_older"] is False
     assert empty["next_before_seq"] is None
@@ -298,11 +282,9 @@ async def test_read_rejects_invalid_arguments_and_impossible_boundaries(
     harness = make_runtime_harness(tmp_path)
     create_session(harness.config.sessions_db, "a")
     await harness.journal.record_user_message("a", "first")
-    reads = SessionReadOperations(
-        config=harness.config, journal=harness.journal, get_runtime_snapshot=harness.runtime.session_snapshot
-    )
+    read_query = partial(read_session, sessions_db=harness.config.sessions_db, journal=harness.journal)
     with pytest.raises(ValueError):
-        await reads.read_session(**{"session_id": "a", **arguments})
+        await read_query(**{"session_id": "a", **arguments})
     await harness.runtime.aclose()
 
 
@@ -321,11 +303,9 @@ async def test_corrupt_history_has_explicit_safe_feedback(tmp_path: Path, conten
     harness = make_runtime_harness(tmp_path)
     create_session(harness.config.sessions_db, "a")
     (harness.config.session_journal_dir / "a.jsonl").write_text(content, encoding="utf-8")
-    reads = SessionReadOperations(
-        config=harness.config, journal=harness.journal, get_runtime_snapshot=harness.runtime.session_snapshot
-    )
+    read_query = partial(read_session, sessions_db=harness.config.sessions_db, journal=harness.journal)
     with pytest.raises(SessionReadError, match="journal_invalid") as error:
-        await reads.read_session("a")
+        await read_query("a")
     assert str(harness.config.root) not in str(error.value)
     await harness.runtime.aclose()
 
@@ -337,14 +317,12 @@ async def test_conflicting_disposition_and_delete_fence_return_explicit_errors(t
     seq = await harness.journal.record_user_steer("a", "run-a", "instruction")
     await harness.journal.record_user_steers_activated("a", "run-a", (seq,))
     await harness.journal.record_user_steers_discarded("a", "run-a", (seq,))
-    reads = SessionReadOperations(
-        config=harness.config, journal=harness.journal, get_runtime_snapshot=harness.runtime.session_snapshot
-    )
+    read_query = partial(read_session, sessions_db=harness.config.sessions_db, journal=harness.journal)
     with pytest.raises(SessionReadError, match="journal_inconsistent"):
-        await reads.read_session("a")
+        await read_query("a")
     await harness.journal.prepare_session_delete("a")
     with pytest.raises(SessionReadError, match="journal_unavailable"):
-        await reads.read_session("a")
+        await read_query("a")
     await harness.runtime.aclose()
 
 
@@ -352,15 +330,13 @@ async def test_conflicting_disposition_and_delete_fence_return_explicit_errors(t
 async def test_encoded_budget_retains_complete_newest_suffix_and_pagination_recovers_the_rest(tmp_path: Path) -> None:
     harness = make_runtime_harness(tmp_path)
     create_session(harness.config.sessions_db, "a")
-    reads = SessionReadOperations(
-        config=harness.config, journal=harness.journal, get_runtime_snapshot=harness.runtime.session_snapshot
-    )
+    read_query = partial(read_session, sessions_db=harness.config.sessions_db, journal=harness.journal)
     for suffix in ["oldest", "middle", "newest"]:
         await harness.journal.record_user_message("a", '"' * 10000 + suffix)
 
-    page = await reads.read_session("a", limit=100)
-    middle = await reads.read_session("a", before_seq=page["next_before_seq"], snapshot_seq=page["snapshot_seq"])
-    oldest = await reads.read_session("a", before_seq=middle["next_before_seq"], snapshot_seq=page["snapshot_seq"])
+    page = await read_query("a", limit=100)
+    middle = await read_query("a", before_seq=page["next_before_seq"], snapshot_seq=page["snapshot_seq"])
+    oldest = await read_query("a", before_seq=middle["next_before_seq"], snapshot_seq=page["snapshot_seq"])
 
     assert [record["seq"] for record in page["records"]] == [3]
     assert page["has_older"] is True
@@ -371,8 +347,8 @@ async def test_encoded_budget_retains_complete_newest_suffix_and_pagination_reco
     assert oldest["has_older"] is False
     assert all(len(json.dumps(value)) <= 32000 for value in [page, middle, oldest])
     with pytest.raises(SessionReadError, match="response_too_large"):
-        await reads.read_session("a", view="events")
-    assert (await reads.read_session("a", view="events", limit=1))["records"][0]["text"] == '"' * 10000 + "newest"
+        await read_query("a", view="events")
+    assert (await read_query("a", view="events", limit=1))["records"][0]["text"] == '"' * 10000 + "newest"
     await harness.runtime.aclose()
 
 
@@ -389,21 +365,19 @@ async def test_single_oversized_field_has_explicit_original_length_without_trapp
     else:
         event = ToolOutput("x" * 280000) if field == "output" else ToolCalled("large-tool", "x" * 280000)
         await harness.journal.record_output("a", event)
-    reads = SessionReadOperations(
-        config=harness.config, journal=harness.journal, get_runtime_snapshot=harness.runtime.session_snapshot
-    )
+    read_query = partial(read_session, sessions_db=harness.config.sessions_db, journal=harness.journal)
 
-    page = await reads.read_session("a", limit=1)
+    page = await read_query("a", limit=1)
 
     assert page["omitted_fields"] == 1
     assert page["records"][0]["seq"] == 2
     assert field not in page["records"][0]
     assert page["records"][0]["omitted_fields"] == [{"field": field, "reason": "size_limit", "original_chars": 280000}]
     assert page["has_older"] is True
-    older = await reads.read_session("a", before_seq=page["next_before_seq"], snapshot_seq=page["snapshot_seq"])
+    older = await read_query("a", before_seq=page["next_before_seq"], snapshot_seq=page["snapshot_seq"])
     assert older["records"][0]["text"] == "older input"
     with pytest.raises(SessionReadError, match="response_too_large"):
-        await reads.read_session("a", view="events", limit=1)
+        await read_query("a", view="events", limit=1)
     await harness.runtime.aclose()
 
 
@@ -414,11 +388,9 @@ async def test_giant_image_payload_is_metadata_only_and_encoded_unicode_can_requ
     image = ImageContent("data:image/png;base64," + "A" * 200000, filename="https://example.test/file.png?token=secret")
     await harness.journal.record_user_message("a", UserInput("", (image,)))
     await harness.journal.record_user_message("a", "雪" * 8000)
-    reads = SessionReadOperations(
-        config=harness.config, journal=harness.journal, get_runtime_snapshot=harness.runtime.session_snapshot
-    )
+    read_query = partial(read_session, sessions_db=harness.config.sessions_db, journal=harness.journal)
 
-    page = await reads.read_session("a")
+    page = await read_query("a")
 
     assert len(json.dumps(page)) <= 32000
     assert page["records"][0]["text"] == ""
@@ -428,7 +400,7 @@ async def test_giant_image_payload_is_metadata_only_and_encoded_unicode_can_requ
     assert "base64" not in json.dumps(page)
     assert "token" not in json.dumps(page)
     with pytest.raises(SessionReadError, match="response_too_large"):
-        await reads.read_session("a", view="events", before_seq=2)
+        await read_query("a", view="events", before_seq=2)
     await harness.runtime.aclose()
 
 
@@ -439,11 +411,9 @@ async def test_image_filename_rejects_data_urls_after_url_normalization(tmp_path
     create_session(harness.config.sessions_db, "a")
     image = ImageContent("https://example.test/image.png", filename=filename)
     await harness.journal.record_user_message("a", UserInput("inspect image", (image,)))
-    reads = SessionReadOperations(
-        config=harness.config, journal=harness.journal, get_runtime_snapshot=harness.runtime.session_snapshot
-    )
+    read_query = partial(read_session, sessions_db=harness.config.sessions_db, journal=harness.journal)
 
-    result = await reads.read_session("a")
+    result = await read_query("a")
 
     assert result["records"][0]["images"][0]["filename"] is None
     assert "base64" not in json.dumps(result)
@@ -459,15 +429,13 @@ async def test_oversized_metadata_fails_explicitly_and_old_large_raw_records_do_
     create_session(harness.config.sessions_db, "a")
     await harness.journal.record_output("a", ToolCalled("x" * 40000))
     await harness.journal.record_output("a", AssistantMessage("newer"))
-    reads = SessionReadOperations(
-        config=harness.config, journal=harness.journal, get_runtime_snapshot=harness.runtime.session_snapshot
-    )
+    read_query = partial(read_session, sessions_db=harness.config.sessions_db, journal=harness.journal)
 
-    latest = await reads.read_session("a", limit=1)
+    latest = await read_query("a", limit=1)
     assert latest["records"][0]["seq"] == 2
-    assert (await reads.read_session("a", view="events", limit=1))["records"][0]["text"] == "newer"
+    assert (await read_query("a", view="events", limit=1))["records"][0]["text"] == "newer"
     with pytest.raises(SessionReadError, match="response_too_large"):
-        await reads.read_session("a", before_seq=2)
+        await read_query("a", before_seq=2)
     await harness.runtime.aclose()
 
 
@@ -486,11 +454,9 @@ async def test_raw_events_preserve_unrecognized_fields_without_interpreting_them
         "extra": {"a": [None, False]},
     }
     (harness.config.session_journal_dir / "a.jsonl").write_text(json.dumps(event) + "\n", encoding="utf-8")
-    reads = SessionReadOperations(
-        config=harness.config, journal=harness.journal, get_runtime_snapshot=harness.runtime.session_snapshot
-    )
+    read_query = partial(read_session, sessions_db=harness.config.sessions_db, journal=harness.journal)
 
-    result = await reads.read_session("a", view="events")
+    result = await read_query("a", view="events")
 
     assert result["records"] == [event]
     assert result["omitted_fields"] == 0
@@ -505,16 +471,11 @@ async def test_application_reads_race_with_lifecycle_operations_without_recreati
     harness = make_session_harness(tmp_path)
     session_id = await harness.operations.create()
     await harness.runtime.journal.record_user_message(session_id, "durable input")
-    reads = SessionReadOperations(
-        config=harness.runtime.config,
-        journal=harness.runtime.journal,
-        get_runtime_snapshot=harness.runtime.runtime.session_snapshot,
-    )
+    list_query = partial(list_sessions, sessions_db=harness.runtime.config.sessions_db, runtime=harness.runtime.runtime)
+    read_query = partial(read_session, sessions_db=harness.runtime.config.sessions_db, journal=harness.runtime.journal)
     mutation = harness.operations.archive if operation == "archive" else harness.operations.delete
 
-    result, mutation_result = await asyncio.gather(
-        reads.read_session(session_id), mutation(session_id), return_exceptions=True
-    )
+    result, mutation_result = await asyncio.gather(read_query(session_id), mutation(session_id), return_exceptions=True)
 
     assert mutation_result is None
     if isinstance(result, SessionReadError):
@@ -527,8 +488,8 @@ async def test_application_reads_race_with_lifecycle_operations_without_recreati
         assert get_session(harness.runtime.config.sessions_db, session_id) is None
         assert await harness.runtime.journal.session_exists(session_id) is False
         with pytest.raises(SessionReadError, match="session_not_found"):
-            await reads.read_session(session_id)
+            await read_query(session_id)
     else:
-        assert (await reads.list_sessions())["sessions"] == []
-        assert (await reads.list_sessions(include_archived=True))["sessions"][0]["archived"] is True
+        assert (await list_query())["sessions"] == []
+        assert (await list_query(include_archived=True))["sessions"][0]["archived"] is True
     await harness.runtime.runtime.aclose()
