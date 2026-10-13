@@ -28,7 +28,6 @@ class MessageSubmission(Protocol):
 def make_messaging_tools(*, submit: MessageSubmission) -> list[FunctionTool]:
     # Application imports the base tools during startup; resolve these only once the Host is assembled.
     from investorch.application.messaging import MessageImageReference
-    from investorch.presentation import serialize_user_input_submission
 
     @tool(needs_approval=True)
     async def send_message(
@@ -63,6 +62,11 @@ def make_messaging_tools(*, submit: MessageSubmission) -> list[FunctionTool]:
             text=text,
             images=images or (),
         )
-        return serialize_user_input_submission(receipt)
+        return {
+            "session_id": receipt.session_id,
+            "disposition": receipt.disposition,
+            "run_id": receipt.run_id,
+            "follow_up_id": receipt.follow_up_id,
+        }
 
     return [send_message]
