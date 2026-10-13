@@ -1,4 +1,5 @@
 import asyncio
+import base64
 from pathlib import Path
 
 import pytest
@@ -8,14 +9,14 @@ from agents.testing import ModelStep, ScriptedModel, assistant_message, function
 from investorch.application import ApplicationCallbacks, open_application_host
 from investorch.application.messaging import send_message
 from investorch.application.session_queries import read_session
-from investorch.images import UserInput
+from investorch.images import ImageContent, UserInput
 from investorch.output import ToolOutput
 from investorch.storage import create_session, set_session_title
 from tests.support.config import make_test_config
 from tests.support.runtime import run_options
 
 
-@pytest.mark.parametrize("approved", [False, True])
+@pytest.mark.parametrize("approved", [False, True, "cancel"])
 async def test_sender_sdk_approval_controls_delivery_without_waiting_for_receiver(
     tmp_path: Path, monkeypatch, approved
 ):
@@ -42,7 +43,8 @@ async def test_sender_sdk_approval_controls_delivery_without_waiting_for_receive
             return (assistant_message("receiver complete"),)
         return (assistant_message("sender complete"),)
 
-    model = ScriptedModel(tuple(ModelStep.respond(respond) for _ in range(3 if approved else 2)))
+    steps = 1 if approved == "cancel" else 3 if approved else 2
+    model = ScriptedModel(tuple(ModelStep.respond(respond) for _ in range(steps)))
     monkeypatch.setattr(
         "investorch.application.host.create_model",
         lambda _config, role: (model if role == "main" else ScriptedModel(), ModelSettings()),
@@ -79,6 +81,15 @@ async def test_sender_sdk_approval_controls_delivery_without_waiting_for_receive
             assert host.runtime.is_session_active("b") is False
             assert host.runtime.list_queued_inputs("b") == []
             assert (await read_session("b", sessions_db=config.sessions_db, journal=host.journal))["records"] == []
+            if approved == "cancel":
+                host.runtime.cancel_run("a")
+                with pytest.raises(asyncio.CancelledError):
+                    await sender.task
+                assert not receiver_started.is_set()
+                assert host.runtime.is_session_active("b") is False
+                assert (await read_session("b", sessions_db=config.sessions_db, journal=host.journal))["records"] == []
+                model.assert_complete()
+                return
             release_approval.set()
             await asyncio.wait_for(sender.task, 3)
             if approved:
@@ -175,4 +186,96 @@ async def test_real_sdk_promotes_origin_without_duplicating_target_input(tmp_pat
         ]
         raw = await read_session("target", sessions_db=config.sessions_db, journal=host.journal, view="events")
         assert sum(record["type"] in {"user_message", "user_steer"} for record in raw["records"]) == 2
+        model.assert_complete()
+
+
+@pytest.mark.parametrize("source", ["workspace", "session_event"])
+async def test_approved_image_reference_reaches_recipient_sdk_and_does_not_approve_its_tools(
+    tmp_path, monkeypatch, source
+):
+    config = make_test_config(tmp_path, {"backtest": {"use_cnequity": False}, "compaction": {"auto_enabled": False}})
+    for session_id in ("a", "b"):
+        create_session(config.sessions_db, session_id)
+        set_session_title(config.sessions_db, session_id, session_id)
+    encoded = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg=="
+    image = ImageContent(
+        f"data:image/png;base64,{encoded}", detail="high", filename="chart.png", media_type="image/png"
+    )
+    (config.workspace_dir / "chart.png").write_bytes(base64.b64decode(encoded))
+    images = (
+        [{"source": "workspace", "path": "chart.png", "detail": "high"}]
+        if source == "workspace"
+        else [{"source": "session_event", "seq": 1, "image_index": 0}]
+    )
+    text = "inspect chart" if source == "workspace" else ""
+    receiver_done = asyncio.Event()
+    receiver_inputs, approvals, permission_evidence = [], [], []
+
+    async def respond(call):
+        if any(item.get("type") == "function_call" for item in call.input):
+            return (assistant_message("done"),)
+        if any(item.get("role") == "user" and "send image" in str(item) for item in call.input):
+            return (
+                function_call(
+                    "send_message", {"target_session_id": "b", "text": text, "images": images}, call_id="image-send"
+                ),
+            )
+        receiver_inputs.append(call.input)
+        return (
+            function_call(
+                "edit",
+                {"path": "must-not-write.txt", "operation": "write", "content": "denied"},
+                call_id="receiver-edit",
+            ),
+        )
+
+    model = ScriptedModel(tuple(ModelStep.respond(respond) for _ in range(4)))
+    monkeypatch.setattr(
+        "investorch.application.host.create_model",
+        lambda _config, role: (model if role == "main" else ScriptedModel(), ModelSettings()),
+    )
+
+    async def manual(request, _reason):
+        approvals.append(request)
+        if request.session_id == "b":
+            from investorch.application.review_context import ReviewContext
+
+            permission_evidence.append(await ReviewContext(config=config).prepare("b", request.instruction_head_seq))
+        return request.session_id == "a"
+
+    async def ended(event):
+        if event.session_id == "b":
+            receiver_done.set()
+
+    async with open_application_host(
+        config,
+        manual_approval_handler=manual,
+        callbacks=ApplicationCallbacks(handle_run_ended=ended),
+        create_initial_session=False,
+        enable_activity=False,
+    ) as host:
+        initial = UserInput("send image", (image,)) if source == "session_event" else UserInput("send image")
+        sender = host.runtime.start_run("a", initial, run_options())
+        await asyncio.wait_for(sender.task, 3)
+        await asyncio.wait_for(receiver_done.wait(), 3)
+        assert [(request.session_id, request.tool_name) for request in approvals] == [
+            ("a", "send_message"),
+            ("b", "edit"),
+        ]
+        assert not (config.workspace_dir / "must-not-write.txt").exists()
+        assert 'Session "a"' in permission_evidence[0].text and sender.run_id in permission_evidence[0].text
+        content = next(item["content"] for item in receiver_inputs[0] if item.get("role") == "user")
+        assert content[0] == {
+            "type": "input_text",
+            "text": f'Message sent by another InvestOrch Session: "a" (Run "{sender.run_id}").',
+        }
+        assert content[-1] == {"type": "input_image", "image_url": image.image_url, "detail": "high"}
+        assert len(content) == (3 if text else 2)
+        if text:
+            assert content[1] == {"type": "input_text", "text": text}
+        page = await read_session("b", sessions_db=config.sessions_db, journal=host.journal)
+        record = next(record for record in page["records"] if record["type"] == "user")
+        assert record["text"] == text
+        assert record["images"] == [{"filename": "chart.png", "media_type": "image/png", "detail": "high"}]
+        assert "image_url" not in record["images"][0]
         model.assert_complete()
