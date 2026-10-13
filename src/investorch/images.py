@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import json
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass, field
 from typing import Any, Literal
@@ -42,9 +43,27 @@ class ImageContent:
 
 
 @dataclass(frozen=True, slots=True)
+class InputOrigin:
+    kind: Literal["user", "agent"] = "user"
+    sender_session_id: str | None = None
+    sender_run_id: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.kind not in {"user", "agent"}:
+            raise ValueError("invalid_input_origin")
+        identities = (self.sender_session_id, self.sender_run_id)
+        if self.kind == "user":
+            if any(value is not None for value in identities):
+                raise ValueError("user_origin_cannot_have_sender")
+        elif any(not isinstance(value, str) or not value.strip() or not value.isprintable() for value in identities):
+            raise ValueError("agent_origin_requires_session_and_run")
+
+
+@dataclass(frozen=True, slots=True)
 class UserInput:
     text: str
     images: tuple[ImageContent, ...] = ()
+    origin: InputOrigin = field(default_factory=InputOrigin)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "images", tuple(self.images))
@@ -100,6 +119,13 @@ def serialize_images(images: Sequence[ImageContent]) -> list[dict[str, Any]]:
 
 def user_input_to_response_item(user_input: UserInput) -> dict[str, Any]:
     content = []
+    if user_input.origin.kind == "agent":
+        # Provenance accompanies ordinary user content; it never gains system/developer authority.
+        session_id = json.dumps(user_input.origin.sender_session_id, ensure_ascii=False)
+        run_id = json.dumps(user_input.origin.sender_run_id, ensure_ascii=False)
+        content.append(
+            {"type": "input_text", "text": f"Message sent by another InvestOrch Session: {session_id} (Run {run_id})."}
+        )
     if user_input.text.strip():
         content.append({"type": "input_text", "text": user_input.text})
     content.extend(
