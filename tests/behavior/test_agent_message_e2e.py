@@ -7,6 +7,7 @@ from agents.testing import ModelStep, ScriptedModel, assistant_message, function
 
 from investorch.application import ApplicationCallbacks, open_application_host
 from investorch.application.session_queries import read_session
+from investorch.images import UserInput
 from investorch.output import ToolOutput
 from investorch.storage import create_session, set_session_title
 from tests.support.config import make_test_config
@@ -26,6 +27,7 @@ async def test_sender_sdk_approval_controls_delivery_without_waiting_for_receive
     receiver_started = asyncio.Event()
     release_receiver = asyncio.Event()
     approvals, outputs, receiver_inputs = [], [], []
+    committed = []
 
     async def respond(call):
         if not any(item.get("type") == "function_call" for item in call.input):
@@ -54,16 +56,22 @@ async def test_sender_sdk_approval_controls_delivery_without_waiting_for_receive
     async def capture(output, _seq):
         outputs.append(output)
 
+    async def input_committed(session_id: str, user_input: UserInput, seq: int):
+        visible = (await read_session(session_id, sessions_db=config.sessions_db, journal=host.journal))["records"]
+        assert any(record["seq"] == seq and record["text"] == user_input.text for record in visible)
+        committed.append((session_id, seq, user_input))
+
     async with open_application_host(
         config,
         manual_approval_handler=manual,
-        callbacks=ApplicationCallbacks(handle_output=capture),
+        callbacks=ApplicationCallbacks(handle_output=capture, handle_user_input_committed=input_committed),
         create_initial_session=False,
         enable_activity=False,
     ) as host:
         sender = host.runtime.start_run("a", "sender task", run_options())
         try:
             await asyncio.wait_for(approval_pending.wait(), 3)
+            assert [item[0] for item in committed] == ["a"]
             assert approvals[0].session_id == "a"
             assert approvals[0].run_id == sender.run_id
             assert approvals[0].tool_name == "send_message"
@@ -85,6 +93,7 @@ async def test_sender_sdk_approval_controls_delivery_without_waiting_for_receive
                 assert record["type"] == "user"
                 assert record["text"] == "receiver task"
                 assert record["origin"] == {"kind": "agent", "sender_session_id": "a", "sender_run_id": sender.run_id}
+                assert [item[0] for item in committed] == ["a", "b"]
                 content = next(item["content"] for item in receiver_inputs[0] if item.get("role") == "user")
                 assert content[0]["type"] == "input_text"
                 assert 'Session: "a"' in content[0]["text"]

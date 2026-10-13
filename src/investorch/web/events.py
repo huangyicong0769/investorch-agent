@@ -6,6 +6,7 @@ from investorch.application import (
     ApprovalResolvedEvent,
     PortfolioToolSucceededEvent,
 )
+from investorch.images import UserInput
 from investorch.presentation import (
     serialize_activity_label,
     serialize_approval_cancelled,
@@ -37,6 +38,7 @@ class WebEventBridge:
             handle_follow_up=self.handle_follow_up,
             handle_run_ended=self.handle_run_ended,
             handle_runtime_state=self.handle_runtime_state,
+            handle_user_input_committed=self.handle_user_input_committed,
             handle_approval_resolved=self.handle_approval_resolved,
             handle_activity_label=self.handle_activity_label,
             handle_portfolio_tool_succeeded=self.handle_portfolio_tool_succeeded,
@@ -49,6 +51,11 @@ class WebEventBridge:
 
     async def handle_follow_up(self, event: RuntimeFollowUpEvent) -> None:
         self._connections.publish(serialize_follow_up_event(event))
+
+    async def handle_user_input_committed(self, session_id: str, _user_input: UserInput, journal_seq: int) -> None:
+        self._connections.publish(
+            {"kind": "user_input_committed", "session_id": session_id, "journal_seq": journal_seq}
+        )
 
     async def handle_run_ended(self, event: RuntimeRunEnded) -> None:
         self._connections.publish(serialize_run_ended(event))
