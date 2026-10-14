@@ -10,6 +10,7 @@ from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field, StrictBool
 
 from investorch.application import ApplicationHost, submit_user_input
+from investorch.application.session_queries import read_session_context
 from investorch.application.sessions import session_deletion_version
 from investorch.filesystem import resolve_workspace_path
 from investorch.images import ACCEPTED_INPUT_MIME_TYPES, RENDERABLE_MIME_TYPES, ImageDetail, detect_image_media_type
@@ -506,6 +507,13 @@ async def deletion_preview(session: Session, host: Host) -> dict[str, object]:
         return await host.sessions.deletion_preview(session.session_id)
     except Exception as error:
         raise_application_error(error)
+
+
+@router.get("/sessions/{session_id}/context")
+async def session_context(session: Session, host: Host) -> dict[str, object]:
+    return await read_session_context(
+        session.session_id, sessions_db=host.config.sessions_db, runtime=host.runtime, journal=host.journal
+    )
 
 
 @router.post("/sessions/deletion-cleanup")

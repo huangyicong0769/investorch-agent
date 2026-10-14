@@ -19,7 +19,7 @@ async def test_sdk_spawn_requires_permission_and_uses_the_normal_child_agent(tmp
     set_session_title(config.sessions_db, "parent", "Parent")
     approval_pending, release_approval = asyncio.Event(), asyncio.Event()
     child_started, release_child = asyncio.Event(), asyncio.Event()
-    approvals, child_inputs = [], []
+    approvals, child_inputs, child_tools = [], [], []
 
     async def respond(call):
         if any(item.get("type") == "function_call" for item in call.input):
@@ -27,6 +27,7 @@ async def test_sdk_spawn_requires_permission_and_uses_the_normal_child_agent(tmp
         if any(item.get("role") == "user" and "parent task" in str(item) for item in call.input):
             return (function_call("spawn_agent", {"task": "child research", "title": "Child"}, call_id="spawn"),)
         child_inputs.append(call.input)
+        child_tools.append({tool.name for tool in call.tools})
         child_started.set()
         await release_child.wait()
         return (assistant_message("child complete"),)
@@ -60,6 +61,8 @@ async def test_sdk_spawn_requires_permission_and_uses_the_normal_child_agent(tmp
             else:
                 await asyncio.wait_for(child_started.wait(), 3)
                 assert len(children) == 1
+                assert child_tools[0] == {tool.name for tool in model.calls[0].tools}
+                assert "spawn_agent" in child_tools[0] and "send_message" in child_tools[0]
                 child = children[0]
                 assert host.runtime.is_session_active(child.session_id)
                 assert child.title == "Child" and child.spawned_by_run_id == parent.run_id
