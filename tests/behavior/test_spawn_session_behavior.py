@@ -8,6 +8,7 @@ from investorch.storage import (
     create_spawn_session,
     delete_unused_session,
     get_session,
+    get_session_deletion_scope,
     get_session_related_portfolio_ids,
     init_session_metadata,
     list_sessions,
@@ -76,4 +77,22 @@ async def test_fork_of_a_spawn_is_an_independent_fork(tmp_path: Path) -> None:
     record = get_session(harness.runtime.config.sessions_db, fork)
     assert record.branch_from_session_id == "child"
     assert record.spawned_by_session_id is None
+    await harness.runtime.runtime.aclose()
+
+
+async def test_deletion_scope_follows_only_recursive_spawn_edges_and_reports_external_forks(tmp_path: Path) -> None:
+    harness = make_session_harness(tmp_path)
+    parent = await harness.operations.create()
+    for child, source in (("child", parent), ("grandchild", "child"), ("sibling", parent)):
+        create_spawn_session(
+            harness.runtime.config.sessions_db, child, parent_session_id=source, parent_run_id="run", tool_call_id=child
+        )
+    independent_fork = await harness.operations.fork("child")
+    scope = get_session_deletion_scope(harness.runtime.config.sessions_db, parent)
+    assert set(scope.session_ids) == {parent, "child", "grandchild", "sibling"}
+    assert scope.external_fork_ids == (independent_fork,)
+    assert set(get_session_deletion_scope(harness.runtime.config.sessions_db, "child").session_ids) == {
+        "child",
+        "grandchild",
+    }
     await harness.runtime.runtime.aclose()

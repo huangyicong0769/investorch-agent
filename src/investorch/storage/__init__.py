@@ -5,6 +5,10 @@ from .session_fork import (
     fork_session,
 )
 from .sessions import (
+    SessionDeletionScope,
+    SessionDeletionScopeChangedError,
+    SessionExternalForkError,
+    SessionMetadataError,
     SessionRecord,
     add_session_related_portfolio_ids,
     archive_session,
@@ -17,6 +21,7 @@ from .sessions import (
     find_session_ids,
     get_session,
     get_session_branch_from,
+    get_session_deletion_scope,
     get_session_related_portfolio_ids,
     get_session_title,
     init_session_metadata,
@@ -33,9 +38,13 @@ from .sessions import (
 )
 
 __all__ = (
+    "SessionDeletionScope",
+    "SessionDeletionScopeChangedError",
+    "SessionExternalForkError",
     "SessionForkError",
     "SessionForkResult",
     "SessionForkRollbackError",
+    "SessionMetadataError",
     "SessionRecord",
     "add_session_related_portfolio_ids",
     "archive_session",
@@ -49,6 +58,7 @@ __all__ = (
     "fork_session",
     "get_session",
     "get_session_branch_from",
+    "get_session_deletion_scope",
     "get_session_related_portfolio_ids",
     "get_session_title",
     "init_session_metadata",

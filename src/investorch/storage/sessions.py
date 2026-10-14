@@ -28,6 +28,53 @@ class SessionMetadataError(RuntimeError):
     pass
 
 
+class SessionDeletionScopeChangedError(SessionMetadataError):
+    pass
+
+
+class SessionExternalForkError(SessionMetadataError):
+    pass
+
+
+@dataclass(frozen=True)
+class SessionDeletionScope:
+    session_ids: tuple[str, ...]
+    external_fork_ids: tuple[str, ...]
+
+
+def _deletion_scope(connection: sqlite3.Connection, session_id: str) -> SessionDeletionScope:
+    existing = {row[0] for row in connection.execute("SELECT session_id FROM agent_sessions")}
+    if session_id not in existing:
+        raise KeyError(session_id)
+    children: dict[str, list[str]] = {}
+    for child, parent in connection.execute("SELECT session_id, parent_session_id FROM session_spawn_lineage"):
+        if child not in existing or parent not in existing or child == parent:
+            raise SessionMetadataError("Invalid Spawn lineage")
+        children.setdefault(parent, []).append(child)
+    closure: set[str] = set()
+    pending = [session_id]
+    while pending:
+        current = pending.pop()
+        if current in closure:
+            raise SessionMetadataError("Cyclic Spawn lineage")
+        closure.add(current)
+        pending.extend(children.get(current, ()))
+    forks = tuple(
+        sorted(
+            child
+            for child, parent in connection.execute("SELECT session_id, branch_from_session_id FROM session_lineage")
+            if parent in closure and child not in closure
+        )
+    )
+    return SessionDeletionScope(tuple(sorted(closure)), forks)
+
+
+def get_session_deletion_scope(db_path: str | Path, session_id: str) -> SessionDeletionScope:
+    with closing(sqlite3.connect(db_path)) as connection:
+        connection.execute("BEGIN")
+        return _deletion_scope(connection, session_id)
+
+
 def create_session(db_path: str | Path, session_id: str) -> bool:
     session = SQLiteSession(session_id, db_path)
     session.close()
@@ -162,6 +209,7 @@ def delete_session_transaction(
     *,
     cancel_event: threading.Event | None = None,
     commit_lock: threading.Lock | None = None,
+    expected_session_ids: tuple[str, ...] | None = None,
 ) -> None:
     def check_cancelled() -> None:
         if cancel_event is not None and cancel_event.is_set():
@@ -171,10 +219,21 @@ def delete_session_transaction(
         try:
             connection.execute("BEGIN IMMEDIATE")
             check_cancelled()
-            connection.execute("DELETE FROM agent_messages WHERE session_id = ?", (session_id,))
-            connection.execute("DELETE FROM agent_sessions WHERE session_id = ?", (session_id,))
-            connection.execute("DELETE FROM extra_session_metadata WHERE session_id = ?", (session_id,))
-            connection.execute("DELETE FROM session_lineage WHERE session_id = ?", (session_id,))
+            scope = _deletion_scope(connection, session_id)
+            expected = tuple(sorted(expected_session_ids or (session_id,)))
+            if scope.session_ids != expected:
+                raise SessionDeletionScopeChangedError("Spawn descendants changed before deletion")
+            if scope.external_fork_ids:
+                raise SessionExternalForkError("Independent Fork branches refer to the deletion scope")
+            placeholders = ",".join("?" for _ in expected)
+            for table in (
+                "agent_messages",
+                "extra_session_metadata",
+                "session_lineage",
+                "session_spawn_lineage",
+                "agent_sessions",
+            ):
+                connection.execute(f"DELETE FROM {table} WHERE session_id IN ({placeholders})", expected)
             if commit_lock is None:
                 connection.commit()
             else:
