@@ -34,7 +34,7 @@ from investorch.presentation import (
     serialize_session_record,
     serialize_user_input_submission,
 )
-from investorch.runtime import SessionBusyError
+from investorch.runtime import RunCapacityExceededError, SessionBusyError
 from investorch.storage import SessionRecord, get_session, list_archived_sessions, list_sessions
 from investorch.tools import list_background_jobs
 
@@ -620,7 +620,7 @@ async def resume_session_queue(session: Session, host: Host) -> dict[str, object
         raise APIError(409, "queue_not_paused", "This session queue is not paused.")
     try:
         await host.runtime.resume_queue(session.session_id)
-    except SessionBusyError as error:
+    except (RunCapacityExceededError, SessionBusyError) as error:
         raise_application_error(error)
     return {
         "runtime": serialize_runtime_snapshot(host.runtime.session_snapshot(session.session_id)),

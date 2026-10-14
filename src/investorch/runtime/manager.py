@@ -450,7 +450,7 @@ class AgentRuntime:
         self._queue_paused_sessions.discard(session_id)
         self._notify_state(session_id)
         logger.info("Queue resumed session=%s count=%d", session_id, len(self._queued_by_session[session_id]))
-        await self._try_promote_queue(session_id)
+        await self._try_promote_queue(session_id, raise_capacity=True)
 
     @property
     def agent_name(self) -> str:
@@ -849,17 +849,17 @@ class AgentRuntime:
             steer.steer_id,
         )
 
-    async def _try_promote_queue(self, session_id: str) -> None:
+    async def _try_promote_queue(self, session_id: str, *, raise_capacity: bool = False) -> None:
         task = asyncio.current_task()
         if task is None:
             raise RuntimeError("Follow-up promotion requires an asyncio task")
         self._promotion_tasks.add(task)
         try:
-            await self._promote_queue(session_id)
+            await self._promote_queue(session_id, raise_capacity=raise_capacity)
         finally:
             self._promotion_tasks.discard(task)
 
-    async def _promote_queue(self, session_id: str) -> None:
+    async def _promote_queue(self, session_id: str, *, raise_capacity: bool = False) -> None:
         queue = self._queued_by_session.get(session_id)
         if (
             self._closed
@@ -887,6 +887,8 @@ class AgentRuntime:
             self._queued_by_session.setdefault(session_id, deque()).appendleft(queued_input)
             self.pause_queue(session_id)
             logger.info("Queue promotion paused at Run capacity session=%s queue=%s", session_id, queued_input.queue_id)
+            if raise_capacity:
+                raise
             return
         except Exception:
             self._queued_by_session.setdefault(session_id, deque()).appendleft(queued_input)

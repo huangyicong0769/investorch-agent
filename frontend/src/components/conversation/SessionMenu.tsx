@@ -171,28 +171,6 @@ export function SessionMenu({ session }: SessionMenuProps) {
         const replacementSessionId = result.response.replacement_session_id
         navigate(sessionPath(replacementSessionId))
         await removeDeletedSessionCaches(queryClient, result.response.deleted_session_ids ?? [session.session_id])
-        queryClient.setQueryData<SessionListResponse>(queryKeys.sessions(), (current) =>
-          current ? { sessions: withoutSession(current.sessions, session.session_id) } : current,
-        )
-        queryClient.setQueryData<BootstrapResponse>(queryKeys.bootstrap(), (current) =>
-          current
-            ? {
-                ...current,
-                initial_session_id:
-                  current.initial_session_id === session.session_id
-                    ? replacementSessionId
-                    : current.initial_session_id,
-                sessions: withoutSession(current.sessions, session.session_id),
-              }
-            : current,
-        )
-        queryClient.removeQueries({ exact: true, queryKey: queryKeys.session(session.session_id) })
-        queryClient.removeQueries({ exact: true, queryKey: queryKeys.sessionState(session.session_id) })
-        queryClient.removeQueries({ exact: true, queryKey: queryKeys.sessionHistoryPages(session.session_id) })
-        await Promise.all([
-          queryClient.invalidateQueries({ queryKey: queryKeys.sessions() }),
-          queryClient.invalidateQueries({ queryKey: queryKeys.bootstrap() }),
-        ])
         return
       }
 

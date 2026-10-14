@@ -74,6 +74,9 @@ async def test_capacity_pauses_queue_without_losing_fifo_options_or_failing_the_
         assert snapshot.queue_paused and snapshot.queued_count == 1
         assert harness.runtime.list_queued_inputs("a")[0].queue_id == queued.follow_up_id
         assert harness.run_ended[0].status == "completed"
+        with pytest.raises(RunCapacityExceededError):
+            await harness.runtime.resume_queue("a")
+        assert harness.runtime.session_snapshot("a").queue_paused
         assert [
             r["text"]
             for r in read_session_journal(harness.config.session_journal_dir, "a")
