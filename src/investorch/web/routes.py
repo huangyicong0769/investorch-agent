@@ -495,19 +495,17 @@ async def unarchive_session(session: Session, host: Host) -> dict[str, object]:
 @router.delete("/sessions/{session_id}")
 async def delete_session(request: ConfirmRequest, session_id: str, host: Host) -> dict[str, object]:
     _require_confirmation(request, "delete this session")
-    async with host.session_lifecycle_lock:
-        session = await asyncio.to_thread(get_session, host.config.sessions_db, session_id)
-        if session is None:
-            raise APIError(
-                404, "session_not_found", "The requested session does not exist.", details={"session_id": session_id}
-            )
-
-        try:
-            await host.sessions.delete(session_id)
-        except Exception as error:
-            raise_application_error(error)
-        if session_id == host.initial_session_id:
-            host.initial_session_id = None
+    session = await asyncio.to_thread(get_session, host.config.sessions_db, session_id)
+    if session is None:
+        raise APIError(
+            404, "session_not_found", "The requested session does not exist.", details={"session_id": session_id}
+        )
+    try:
+        await host.sessions.delete(session_id)
+    except Exception as error:
+        raise_application_error(error)
+    if session_id == host.initial_session_id:
+        host.initial_session_id = None
     return {
         "deleted": True,
         "session_id": session_id,
@@ -518,13 +516,12 @@ async def delete_session(request: ConfirmRequest, session_id: str, host: Host) -
 @router.post("/sessions/{session_id}/clear")
 async def clear_session(request: ConfirmRequest, session: Session, host: Host) -> dict[str, object]:
     _require_confirmation(request, "clear this session")
-    async with host.session_lifecycle_lock:
-        try:
-            replacement_session_id = await host.sessions.clear(session.session_id)
-        except Exception as error:
-            raise_application_error(error)
-        if session.session_id == host.initial_session_id:
-            host.initial_session_id = replacement_session_id
+    try:
+        replacement_session_id = await host.sessions.clear(session.session_id)
+    except Exception as error:
+        raise_application_error(error)
+    if session.session_id == host.initial_session_id:
+        host.initial_session_id = replacement_session_id
     return {"replacement_session_id": replacement_session_id}
 
 
@@ -540,10 +537,9 @@ async def compact_session(session: Session, host: Host) -> dict[str, object]:
 
 @router.post("/sessions/{session_id}/discard-unused")
 async def discard_unused_session(session_id: str, host: Host) -> dict[str, bool]:
-    async with host.session_lifecycle_lock:
-        if session_id == host.initial_session_id:
-            return {"discarded": False}
-        return {"discarded": await host.sessions.discard_if_unused(session_id)}
+    if session_id == host.initial_session_id:
+        return {"discarded": False}
+    return {"discarded": await host.sessions.discard_if_unused(session_id)}
 
 
 @router.delete("/sessions/{session_id}/queue/{queue_id}")

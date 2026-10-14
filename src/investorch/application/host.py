@@ -111,8 +111,11 @@ class ApplicationHost:
     approvals: ApprovalCoordinator
     activity: ActivityCoordinator | None
     presentation_state: SessionPresentationStore
-    session_lifecycle_lock: asyncio.Lock
     initial_session_id: str | None
+
+    @property
+    def session_lifecycle_lock(self) -> asyncio.Lock:
+        return self.sessions.lifecycle_lock
 
 
 def create_model(config: AppConfig, agent: str) -> tuple[OpenAIResponsesModel, ModelSettings]:
@@ -358,7 +361,6 @@ async def open_application_host(
                     approvals=approvals,
                     activity=activity,
                     presentation_state=presentation_state,
-                    session_lifecycle_lock=asyncio.Lock(),
                     initial_session_id=initial_session_id,
                 )
             finally:

@@ -106,6 +106,7 @@ class SessionOperations:
         self._runtime = runtime
         self._journal = journal
         self._presentation_state = presentation_state
+        self.lifecycle_lock = asyncio.Lock()
 
     async def create(self) -> str:
         session_id = uuid.uuid4().hex
@@ -183,7 +184,7 @@ class SessionOperations:
         if self._runtime.has_queued_inputs(session_id):
             return False
         try:
-            async with self._runtime.reserve_session(session_id):
+            async with self.lifecycle_lock, self._runtime.reserve_session(session_id):
                 if await self._journal.session_exists(session_id):
                     return False
                 deleted = await asyncio.to_thread(delete_unused_session, self._config.sessions_db, session_id)
@@ -199,14 +200,15 @@ class SessionOperations:
     async def archive(self, session_id: str) -> None:
         if self._runtime.has_queued_inputs(session_id):
             raise SessionHasQueuedInputsError
-        async with self._runtime.reserve_session(session_id):
+        async with self.lifecycle_lock, self._runtime.reserve_session(session_id):
             if await asyncio.to_thread(is_session_archived, self._config.sessions_db, session_id):
                 raise SessionAlreadyArchivedError
             await asyncio.to_thread(archive_session, self._config.sessions_db, session_id)
         logger.info("Session archived session=%s", session_id)
 
     async def unarchive(self, session_id: str) -> None:
-        await asyncio.to_thread(unarchive_session, self._config.sessions_db, session_id)
+        async with self.lifecycle_lock:
+            await asyncio.to_thread(unarchive_session, self._config.sessions_db, session_id)
         logger.info("Session unarchived session=%s", session_id)
 
     async def fork(self, source_session_id: str) -> str:
@@ -216,6 +218,7 @@ class SessionOperations:
         while target_session_id == source_session_id:
             target_session_id = uuid.uuid4().hex
         async with (
+            self.lifecycle_lock,
             self._runtime.reserve_session(source_session_id),
             self._runtime.reserve_session(target_session_id),
         ):
@@ -228,7 +231,7 @@ class SessionOperations:
         return target_session_id
 
     async def set_title(self, session_id: str, title: str) -> SessionRecord:
-        async with self._runtime.reserve_session(session_id):
+        async with self.lifecycle_lock, self._runtime.reserve_session(session_id):
             session = await asyncio.to_thread(get_session, self._config.sessions_db, session_id)
             if session is None:
                 raise SessionNotFoundError(session_id)
@@ -246,7 +249,7 @@ class SessionOperations:
             raise SessionArchivedError
         if self._runtime.has_queued_inputs(session_id):
             raise SessionHasQueuedInputsError
-        async with self._runtime.reserve_session(session_id):
+        async with self.lifecycle_lock, self._runtime.reserve_session(session_id):
             session = SQLiteSession(session_id, self._config.sessions_db)
             try:
                 await session.clear_session()
@@ -260,7 +263,7 @@ class SessionOperations:
     async def delete(self, session_id: str) -> None:
         if self._runtime.has_queued_inputs(session_id):
             raise SessionHasQueuedInputsError
-        async with self._runtime.reserve_session(session_id):
+        async with self.lifecycle_lock, self._runtime.reserve_session(session_id):
             if await asyncio.to_thread(session_has_children, self._config.sessions_db, session_id):
                 raise SessionHasChildrenError
             await self._journal.prepare_session_delete(session_id)
