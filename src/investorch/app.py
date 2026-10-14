@@ -43,7 +43,9 @@ async def _run_console(state: AppState, runtime: AgentRuntime, sessions: Session
             continue
 
         if command is not None:
-            result = await dispatch_command(command, state, runtime=runtime, sessions=sessions)
+            result = await dispatch_command(
+                command, state, runtime=runtime, sessions=sessions, confirm_clear_scope=ui.confirm_clear_scope
+            )
             if result.output:
                 ui.write(result.output)
             if result.exit_requested:

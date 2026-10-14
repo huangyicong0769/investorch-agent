@@ -47,6 +47,7 @@ from investorch.storage import (
 )
 
 from .approval import ApprovalPanel
+from .clear import ClearScopeScreen
 from .queue import QueuePanel
 from .sidebar import SessionSidebar, session_status_label
 from .timeline import ActivityStep, ChatTimeline
@@ -448,7 +449,11 @@ class InvestOrchAgentTUI(App[None]):
 
         if command is not None:
             composer.clear()
-            await self._dispatch_command(command)
+            if command.name == "clear":
+                if not any(worker.group == "clear" and not worker.is_finished for worker in self.workers):
+                    self.run_worker(self._dispatch_command(command), group="clear", exit_on_error=False)
+            else:
+                await self._dispatch_command(command)
             return
 
         session_id = self.state.selected_session_id
@@ -1069,7 +1074,13 @@ class InvestOrchAgentTUI(App[None]):
             await timeline.add_notice("Agent runtime is not ready.")
             return
         old_session_id = self.state.selected_session_id
-        result = await dispatch_command(command, self.state, runtime=self.runtime, sessions=self.sessions)
+        result = await dispatch_command(
+            command,
+            self.state,
+            runtime=self.runtime,
+            sessions=self.sessions,
+            confirm_clear_scope=self.confirm_clear_scope,
+        )
         if result.exit_requested:
             if result.output:
                 await timeline.add_notice(result.output)
@@ -1100,6 +1111,9 @@ class InvestOrchAgentTUI(App[None]):
                 await self.refresh_sessions()
 
         self.query_one(Composer).focus_input()
+
+    async def confirm_clear_scope(self, preview: dict[str, object]) -> bool:
+        return bool(await self.push_screen_wait(ClearScopeScreen(preview)))
 
     async def _load_session_history_with_notice(self, session_id: str, notice: str | None) -> None:
         await self._load_session_history(session_id)
