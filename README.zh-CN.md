@@ -39,8 +39,6 @@ Runtime 使用 [OpenAI Agents SDK](https://github.com/openai/openai-agents-pytho
 
 下方安装命令使用 Python 3.12。
 
-在尚未发布的 0.3.0 开发实现中，Settings → Runtime 展示 `max_concurrent_runs`。本地 `[runtime] max_concurrent_runs = 3` 设置同一全 Host 上限，仅正整数合法。修改立即影响新的普通、消息及派生 Run；下调不会停止现有 Run。详见 [Session 派生与并发](docs/Runtime_Session_Execution_Model.zh-CN.md#session-派生与全局并发)。
-
 ## 安装
 
 ### 源码安装

@@ -39,8 +39,6 @@ The runtime uses the [OpenAI Agents SDK](https://github.com/openai/openai-agents
 
 The installation commands below select Python 3.12.
 
-In the unreleased 0.3.0 development implementation, Settings → Runtime exposes `max_concurrent_runs`. Local `[runtime] max_concurrent_runs = 3` sets the same Host-wide limit; only positive integers are valid. Changes apply to new Runs immediately, including ordinary, messaging and spawned Sessions. Reducing the limit leaves current Runs running. See [Session spawning and capacity](docs/Runtime_Session_Execution_Model.md#session-spawning-and-global-capacity).
-
 ## Installation
 
 ### Source checkout
