@@ -53,6 +53,9 @@ async def _run_console(state: AppState, runtime: AgentRuntime, sessions: Session
             continue
 
         session_id = state.selected_session_id
+        if session_id is None:
+            ui.write("No Session selected. Use /new or /resume to continue.")
+            continue
         if await asyncio.to_thread(is_session_archived, state.config.sessions_db, session_id):
             ui.write("Archived sessions are read-only. Unarchive or switch sessions first.")
             continue

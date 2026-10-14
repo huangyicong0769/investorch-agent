@@ -64,13 +64,13 @@ class SessionListItem(ListItem):
 
 class SessionSidebar(ListView):
     async def replace_sessions(
-        self, records: list[SessionRecord], current_session_id: str, snapshots: dict[str, RuntimeSessionSnapshot]
+        self, records: list[SessionRecord], current_session_id: str | None, snapshots: dict[str, RuntimeSessionSnapshot]
     ) -> None:
         await self.clear()
         current_index: int | None = None
         session_ids = {record.session_id for record in records}
 
-        if current_session_id not in session_ids:
+        if current_session_id is not None and current_session_id not in session_ids:
             records = [
                 SessionRecord(
                     session_id=current_session_id,

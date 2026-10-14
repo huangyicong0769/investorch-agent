@@ -78,7 +78,7 @@ class AppState:
         self,
         config: AppConfig,
         execution: ExecutionState,
-        selected_session_id: str,
+        selected_session_id: str | None,
         main_reasoning_effort: str | None = None,
         permission_mode: str | None = None,
         follow_up_behavior: FollowUpBehavior | None = None,

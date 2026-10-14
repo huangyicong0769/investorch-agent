@@ -1,4 +1,5 @@
 import asyncio
+import sqlite3
 from pathlib import Path
 
 import pytest
@@ -8,6 +9,7 @@ from investorch.commands import Command, dispatch_command
 from investorch.storage import create_spawn_session, list_sessions
 from investorch.ui.console import ConsoleUI
 from investorch.ui.tui.app import Composer, InvestOrchAgentTUI
+from investorch.ui.tui.timeline import ChatTimeline
 from tests.support.web import open_test_web
 
 
@@ -215,3 +217,95 @@ async def test_tui_clear_shows_recursive_scope_and_waits_for_an_explicit_action(
                 assert web.host.state.selected_session_id == root
                 for member in ids:
                     assert await web.host.journal.session_exists(member)
+
+
+@pytest.mark.parametrize("stage", ["replacement", "cleanup"])
+async def test_clear_partial_success_leaves_no_deleted_selection_and_can_recover_with_new(tmp_path, monkeypatch, stage):
+    async with open_test_web(tmp_path) as web:
+        _root, ids = await prepare_tree(web.host)
+        original_create = web.host.sessions.create
+        original_unlink = Path.unlink
+
+        async def failed_create():
+            raise sqlite3.OperationalError("controlled replacement failure")
+
+        def failed_cleanup(path, *args, **kwargs):
+            if path.name == "child.jsonl":
+                raise OSError("controlled cleanup failure")
+            return original_unlink(path, *args, **kwargs)
+
+        if stage == "replacement":
+            monkeypatch.setattr(web.host.sessions, "create", failed_create)
+        else:
+            monkeypatch.setattr(Path, "unlink", failed_cleanup)
+
+        async def approve(_preview):
+            return True
+
+        result = await dispatch_command(
+            Command("clear", ()),
+            web.host.state,
+            runtime=web.host.runtime,
+            sessions=web.host.sessions,
+            confirm_clear_scope=approve,
+        )
+        assert web.host.state.selected_session_id is None and list_sessions(web.host.config.sessions_db) == []
+        assert all(member in result.output for member in ids)
+        assert ("creating" if stage == "replacement" else "cleanup") in result.output
+        missing = await dispatch_command(
+            Command("session", ()), web.host.state, runtime=web.host.runtime, sessions=web.host.sessions
+        )
+        assert "/new" in missing.output
+        monkeypatch.setattr(web.host.sessions, "create", original_create)
+        monkeypatch.setattr(Path, "unlink", original_unlink)
+        if stage == "cleanup":
+            await web.host.sessions.cleanup_deleted_sessions(ids)
+        await dispatch_command(Command("new", ()), web.host.state, runtime=web.host.runtime, sessions=web.host.sessions)
+        assert [record.session_id for record in list_sessions(web.host.config.sessions_db)] == [
+            web.host.state.selected_session_id
+        ]
+
+
+@pytest.mark.parametrize("stage", ["replacement", "cleanup"])
+async def test_tui_partial_clear_shows_real_failure_and_disables_the_deleted_conversation(tmp_path, monkeypatch, stage):
+    async with open_test_web(tmp_path) as web:
+        _root, ids = await prepare_tree(web.host)
+        original_create = web.host.sessions.create
+        original_unlink = Path.unlink
+
+        async def failed_create():
+            raise sqlite3.OperationalError("controlled replacement failure")
+
+        def failed_cleanup(path, *args, **kwargs):
+            if path.name == "child.jsonl":
+                raise OSError("controlled cleanup failure")
+            return original_unlink(path, *args, **kwargs)
+
+        if stage == "replacement":
+            monkeypatch.setattr(web.host.sessions, "create", failed_create)
+        else:
+            monkeypatch.setattr(Path, "unlink", failed_cleanup)
+        app = InvestOrchAgentTUI(web.host.state, web.host.config.session_journal_dir, web.host.journal)
+        app.bind_runtime(web.host.runtime, web.host.sessions)
+        async with app.run_test(size=(100, 36)) as pilot:
+            await app.workers.wait_for_complete()
+            await app.on_composer_submitted(Composer.Submitted("/clear"))
+            await pilot.pause()
+            await pilot.click("#clear-confirm")
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+            assert web.host.state.selected_session_id is None
+            assert str(app.query_one("#session-heading", Static).content) == "No Session selected"
+            assert app.query_one("#composer-input").disabled
+            visible = "\n".join(str(widget.content) for widget in app.query_one(ChatTimeline).query(Static))
+            assert all(member in visible for member in ids) and "Original history" not in visible
+            await app.on_composer_submitted(Composer.Submitted("Do not resurrect a deleted Session"))
+            assert list_sessions(web.host.config.sessions_db) == []
+            monkeypatch.setattr(web.host.sessions, "create", original_create)
+            monkeypatch.setattr(Path, "unlink", original_unlink)
+            if stage == "cleanup":
+                await web.host.sessions.cleanup_deleted_sessions(ids)
+            await pilot.press("ctrl+n")
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+            assert web.host.state.selected_session_id and not app.query_one("#composer-input").disabled

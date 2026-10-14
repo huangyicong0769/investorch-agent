@@ -13,7 +13,11 @@ from investorch.application import (
     SessionNotFoundError,
     SessionOperations,
 )
-from investorch.application.sessions import SessionDeletionUnsafeError
+from investorch.application.sessions import (
+    SessionClearReplacementError,
+    SessionDeletionCleanupError,
+    SessionDeletionUnsafeError,
+)
 from investorch.config import FOLLOW_UP_BEHAVIORS, PERMISSION_MODES, REASONING_EFFORTS
 from investorch.context import AppState
 from investorch.runtime import AgentRuntime, SessionBusyError
@@ -70,6 +74,16 @@ async def dispatch_command(
     sessions: SessionOperations,
     confirm_clear_scope: Callable[[dict[str, object]], Awaitable[bool]] | None = None,
 ) -> CommandResult:
+    if state.selected_session_id is None and command.name in {
+        "session",
+        "archive",
+        "fork",
+        "title",
+        "stop",
+        "clear",
+        "compact",
+    }:
+        return CommandResult("No Session selected. Use /new or /resume to continue.")
     match command.name:
         case "session":
             title, branch_from = await asyncio.gather(
@@ -87,7 +101,8 @@ async def dispatch_command(
             previous_session_id = state.selected_session_id
             session_id = await sessions.create()
             state.selected_session_id = session_id
-            await sessions.discard_if_unused(previous_session_id)
+            if previous_session_id is not None:
+                await sessions.discard_if_unused(previous_session_id)
             return CommandResult(f"Started new session: {session_id}")
 
         case "resume":
@@ -119,7 +134,8 @@ async def dispatch_command(
 
             previous_session_id = state.selected_session_id
             state.selected_session_id = session_id
-            await sessions.discard_if_unused(previous_session_id)
+            if previous_session_id is not None:
+                await sessions.discard_if_unused(previous_session_id)
             logger.info("Resumed session %s", session_id)
             title = await asyncio.to_thread(get_session_title, state.config.sessions_db, session_id)
             lines = [f"Resumed session: {session_id}"]
@@ -169,7 +185,8 @@ async def dispatch_command(
             await sessions.unarchive(session_id)
             previous_session_id = state.selected_session_id
             state.selected_session_id = session_id
-            await sessions.discard_if_unused(previous_session_id)
+            if previous_session_id is not None:
+                await sessions.discard_if_unused(previous_session_id)
             return CommandResult(f"Session unarchived: {session_id}")
 
         case "fork":
@@ -319,6 +336,19 @@ async def dispatch_command(
                 return CommandResult("Cannot clear this session while it has queued follow-ups. Clear the queue first.")
             except SessionBusyError:
                 return CommandResult("Cannot clear this scope while it has an active operation or pending input.")
+            except (SessionClearReplacementError, SessionDeletionCleanupError) as error:
+                if state.selected_session_id in error.deleted_session_ids:
+                    state.selected_session_id = None
+                stage = (
+                    "creating the new Session failed"
+                    if isinstance(error, SessionClearReplacementError)
+                    else "history cleanup is incomplete"
+                )
+                return CommandResult(
+                    f"Deleted {len(error.deleted_session_ids)} Sessions, but {stage}.\n"
+                    + "\n".join(f"  {member}" for member in error.deleted_session_ids)
+                    + "\nUse /new or /resume to continue. Check System Status before retrying the failed step."
+                )
             if state.selected_session_id in expected_ids:
                 state.selected_session_id = new_session_id
             return CommandResult(f"Cleared session and started new session: {new_session_id}")

@@ -14,6 +14,7 @@ from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.css.query import NoMatches
 from textual.message import Message
 from textual.widgets import Button, Label, ListView, Static, TextArea
+from textual.worker import Worker
 
 from investorch.agents import TokenUsage
 from investorch.application import (
@@ -26,6 +27,7 @@ from investorch.application import (
     SteerPromotionPendingError,
     submit_user_input,
 )
+from investorch.application.interaction import MissingSessionInputError
 from investorch.commands import Command, dispatch_command, parse_command
 from investorch.context import AppState, TodoItem
 from investorch.inputs import UserInput, input_summary
@@ -165,6 +167,7 @@ class Composer(Vertical):
 class InvestOrchAgentTUI(App[None]):
     TITLE = "InvestOrch Agent"
     BINDINGS: ClassVar[list[Binding]] = [
+        Binding("ctrl+n", "new_session", "New Session"),
         Binding("ctrl+b", "toggle_sidebar", "Toggle sidebar"),
         Binding("ctrl+enter", "send_message", "Send"),
         Binding("ctrl+s", "send_message", "Send"),
@@ -452,11 +455,19 @@ class InvestOrchAgentTUI(App[None]):
             if command.name == "clear":
                 if not any(worker.group == "clear" and not worker.is_finished for worker in self.workers):
                     self.run_worker(self._dispatch_command(command), group="clear", exit_on_error=False)
+                    self._refresh_selected_controls()
             else:
                 await self._dispatch_command(command)
             return
 
         session_id = self.state.selected_session_id
+        if session_id is None:
+            await self.query_one(ChatTimeline).add_notice(
+                "No Session selected. Use New Session or /resume to continue."
+            )
+            return
+        if any(worker.group == "clear" and not worker.is_finished for worker in self.workers):
+            return
         if self._loading_session_id == session_id:
             return
 
@@ -466,8 +477,15 @@ class InvestOrchAgentTUI(App[None]):
 
         try:
             submission = await submit_user_input(
-                state=self.state, runtime=self.runtime, session_id=session_id, user_input=UserInput(event.text)
+                state=self.state,
+                runtime=self.runtime,
+                session_id=session_id,
+                user_input=UserInput(event.text),
+                require_existing_session=True,
             )
+        except MissingSessionInputError:
+            await self.query_one(ChatTimeline).add_notice("Session no longer exists. Use New Session or /resume.")
+            return
         except RunCapacityExceededError as exc:
             await self.query_one(ChatTimeline).add_notice(str(exc))
             return
@@ -575,6 +593,8 @@ class InvestOrchAgentTUI(App[None]):
 
     def _format_run_status(self) -> str:
         selected_session_id = self.state.selected_session_id
+        if selected_session_id is None:
+            return "No Session selected · Ctrl+N: New Session · Select a Session in the sidebar."
         snapshot = self.runtime.session_snapshot(selected_session_id) if self.runtime is not None else None
         active_run = self.runtime.get_active_run(selected_session_id) if self.runtime is not None else None
         follow_up_behavior = (
@@ -606,7 +626,9 @@ class InvestOrchAgentTUI(App[None]):
 
     def set_session_title(self, title: str | None) -> None:
         self.session_title = title
-        self.query_one("#session-heading", Static).update(title or "(untitled)")
+        self.query_one("#session-heading", Static).update(
+            "No Session selected" if self.state.selected_session_id is None else title or "(untitled)"
+        )
 
     @staticmethod
     def _format_token_count(value: int) -> str:
@@ -949,7 +971,11 @@ class InvestOrchAgentTUI(App[None]):
             for record in records:
                 self._runtime_snapshots[record.session_id] = self.runtime.session_snapshot(record.session_id)
         await self._refresh_sidebar_from_cache()
-        title = await asyncio.to_thread(get_session_title, self.state.config.sessions_db, current_session_id)
+        title = (
+            await asyncio.to_thread(get_session_title, self.state.config.sessions_db, current_session_id)
+            if current_session_id is not None
+            else None
+        )
         self.set_session_title(title)
         self.query_one("#usage-status", Static).update(self._format_usage_status())
         self._refresh_selected_controls()
@@ -1088,7 +1114,14 @@ class InvestOrchAgentTUI(App[None]):
             return
 
         new_session_id = self.state.selected_session_id
-        if new_session_id != old_session_id:
+        if new_session_id is None:
+            self._loading_session_id = None
+            self._buffered_live_events.clear()
+            await timeline.reset()
+            if result.output:
+                await timeline.add_notice(result.output)
+            await self.refresh_sessions()
+        elif new_session_id != old_session_id:
             self._loading_session_id = new_session_id
             self._buffered_live_events.clear()
             self._refresh_selected_controls()
@@ -1115,6 +1148,13 @@ class InvestOrchAgentTUI(App[None]):
     async def confirm_clear_scope(self, preview: dict[str, object]) -> bool:
         return bool(await self.push_screen_wait(ClearScopeScreen(preview)))
 
+    async def action_new_session(self) -> None:
+        await self._dispatch_command(Command("new", ()))
+
+    def on_worker_state_changed(self, event: Worker.StateChanged) -> None:
+        if event.worker.group == "clear" and event.worker.is_finished and self.is_running:
+            self._refresh_selected_controls()
+
     async def _load_session_history_with_notice(self, session_id: str, notice: str | None) -> None:
         await self._load_session_history(session_id)
         if notice and session_id == self.state.selected_session_id:
@@ -1122,8 +1162,21 @@ class InvestOrchAgentTUI(App[None]):
 
     def _refresh_selected_controls(self) -> None:
         selected_session_id = self.state.selected_session_id
+        if selected_session_id is None:
+            self.query_one(Composer).set_input_state(
+                loading=False, running=False, run_phase=None, follow_up_behavior=self.state.follow_up_behavior
+            )
+            self.query_one("#composer-input", TextArea).disabled = True
+            self.query_one("#send-button", Button).disabled = True
+            self.query_one("#send-hint", Label).update("No Session selected · Ctrl+N: New Session")
+            self.query_one(TodoPanel).replace_todos(())
+            self.query_one(QueuePanel).replace_queue("", (), paused=False)
+            self._refresh_run_status()
+            return
         active_run = self.runtime.get_active_run(selected_session_id) if self.runtime is not None else None
-        loading = self._loading_session_id == selected_session_id
+        loading = self._loading_session_id == selected_session_id or any(
+            worker.group == "clear" and not worker.is_finished for worker in self.workers
+        )
         follow_up_behavior = (
             active_run.options.follow_up_behavior if active_run is not None else self.state.follow_up_behavior
         )
