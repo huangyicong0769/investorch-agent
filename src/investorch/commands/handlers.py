@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
 from investorch.agents import CompactionResult
@@ -7,16 +8,20 @@ from investorch.application import (
     SessionAlreadyArchivedError,
     SessionArchivedError,
     SessionCompactionError,
+    SessionHasChildrenError,
     SessionHasQueuedInputsError,
     SessionNotFoundError,
     SessionOperations,
 )
+from investorch.application.sessions import SessionDeletionUnsafeError
 from investorch.config import FOLLOW_UP_BEHAVIORS, PERMISSION_MODES, REASONING_EFFORTS
 from investorch.context import AppState
 from investorch.runtime import AgentRuntime, SessionBusyError
 from investorch.storage import (
+    SessionDeletionScopeChangedError,
     SessionForkError,
     SessionForkRollbackError,
+    SessionMetadataError,
     find_session_ids,
     get_session_branch_from,
     get_session_title,
@@ -44,7 +49,7 @@ HELP = (
     "  /followup [mode]   Show or set follow-up behavior.\n"
     "  /stop              Stop the current Agent run.\n"
     "  /compact           Compact the current Agent context.\n"
-    "  /clear             Clear the current session.\n"
+    "  /clear             Delete this Session and Spawn descendants, then start a new Session.\n"
     "  /ps                Show background commands.\n"
     "  /exit              Exit InvestOrch Agent."
 )
@@ -58,7 +63,12 @@ class CommandResult:
 
 
 async def dispatch_command(
-    command: Command, state: AppState, *, runtime: AgentRuntime, sessions: SessionOperations
+    command: Command,
+    state: AppState,
+    *,
+    runtime: AgentRuntime,
+    sessions: SessionOperations,
+    confirm_clear_scope: Callable[[dict[str, object]], Awaitable[bool]] | None = None,
 ) -> CommandResult:
     match command.name:
         case "session":
@@ -262,16 +272,55 @@ async def dispatch_command(
             return CommandResult("\n".join(lines))
 
         case "clear":
+            if command.args:
+                return CommandResult("Usage: /clear")
             session_id = state.selected_session_id
             try:
-                new_session_id = await sessions.clear(session_id)
+                preview = await sessions.deletion_preview(session_id)
+                if preview["blocked"]:
+                    reasons = {
+                        "session_busy": "Stop its Run or wait for its current operation, then retry.",
+                        "pending_inputs": "Resolve its queued or pending inputs, then retry.",
+                        "fork_referenced": "An independent Fork references this scope; handle the Fork before retrying.",
+                        "journal_delete_unsafe": "History cannot be safely deleted; check System Status.",
+                    }
+                    lines = ["Cannot clear these Sessions:"]
+                    lines.extend(
+                        f"  {item['session_id']}: {reasons.get(item['code'], 'Check System Status.')}"
+                        for item in preview["blocked"]
+                    )
+                    return CommandResult("\n".join(lines))
+                if len(preview["sessions"]) > 1:
+                    if confirm_clear_scope is None:
+                        return CommandResult(
+                            "Recursive Clear requires explicit confirmation of the full Session scope."
+                        )
+                    if not await confirm_clear_scope(preview):
+                        return CommandResult("Clear cancelled. All Sessions were kept.")
+                if state.selected_session_id != session_id:
+                    return CommandResult("The selected Session changed. Clear cancelled; all Sessions were kept.")
+                expected_ids = tuple(member["session_id"] for member in preview["sessions"])
+                new_session_id = await sessions.clear(session_id, expected_session_ids=expected_ids)
             except SessionArchivedError:
                 return CommandResult("Archived sessions are read-only. Unarchive or switch sessions first.")
+            except SessionNotFoundError:
+                return CommandResult("Session not found. Use /new or /resume to select an existing Session.")
+            except SessionHasChildrenError:
+                return CommandResult(
+                    "An independent Fork references the deletion scope. Handle the Fork before retrying."
+                )
+            except SessionDeletionScopeChangedError:
+                return CommandResult(
+                    "The deletion scope changed. Run /clear again to preview and confirm the new scope."
+                )
+            except (SessionDeletionUnsafeError, SessionMetadataError):
+                return CommandResult("Session history or provenance is unsafe to delete. Check System Status.")
             except SessionHasQueuedInputsError:
                 return CommandResult("Cannot clear this session while it has queued follow-ups. Clear the queue first.")
             except SessionBusyError:
-                return CommandResult("Cannot clear this session while it has an active operation.")
-            state.selected_session_id = new_session_id
+                return CommandResult("Cannot clear this scope while it has an active operation or pending input.")
+            if state.selected_session_id in expected_ids:
+                state.selected_session_id = new_session_id
             return CommandResult(f"Cleared session and started new session: {new_session_id}")
 
         case "compact":
