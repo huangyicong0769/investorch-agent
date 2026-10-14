@@ -97,6 +97,15 @@ class SessionDeletionUnsafeError(RuntimeError):
     pass
 
 
+class SessionClearReplacementError(RuntimeError):
+    def __init__(self, session_ids: tuple[str, ...]) -> None:
+        self.deleted_session_ids = session_ids
+        self.replacement_session_id = None
+        super().__init__(
+            "Sessions were deleted, but creating the new Session failed. Select or create a Session; check System Status."
+        )
+
+
 class SessionAlreadyArchivedError(RuntimeError):
     pass
 
@@ -261,12 +270,27 @@ class SessionOperations:
         async with self.lifecycle_lock:
             if await asyncio.to_thread(is_session_archived, self._config.sessions_db, session_id):
                 raise SessionArchivedError
-            await self._delete(
+            deleted_ids = await self._delete(
                 session_id,
                 expected_session_ids=(session_id,) if expected_session_ids is None else expected_session_ids,
             )
-            replacement_session_id = await self.create()
-        logger.info("Cleared session %s and started session %s", session_id, replacement_session_id)
+            creation = asyncio.create_task(self.create())
+            cancelled: asyncio.CancelledError | None = None
+            while not creation.done():
+                try:
+                    await asyncio.shield(creation)
+                except asyncio.CancelledError as error:
+                    cancelled = error
+                except Exception:
+                    break
+            try:
+                replacement_session_id = creation.result()
+            except (Exception, asyncio.CancelledError) as error:
+                logger.exception("Clear deletion committed session_ids=%s but replacement creation failed", deleted_ids)
+                raise SessionClearReplacementError(deleted_ids) from error
+            logger.info("Clear deletion committed session_ids=%s replacement=%s", deleted_ids, replacement_session_id)
+            if cancelled is not None:
+                raise cancelled
         return replacement_session_id
 
     async def deletion_preview(self, session_id: str) -> dict[str, object]:
@@ -351,6 +375,7 @@ class SessionOperations:
                         except BaseException:
                             logger.exception("Failed to release session delete fence %s", member)
                 raise
+            logger.info("Session deletion committed root=%s session_ids=%s", session_id, scope.session_ids)
             await self._cleanup_deleted_sessions(scope.session_ids)
             if error is not None:
                 raise error

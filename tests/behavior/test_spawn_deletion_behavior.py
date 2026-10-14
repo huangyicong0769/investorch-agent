@@ -1,9 +1,11 @@
+import asyncio
 import sqlite3
 from pathlib import Path
 
 import pytest
 
 from investorch.application.sessions import (
+    SessionClearReplacementError,
     SessionDeletionCleanupError,
     SessionHasChildrenError,
     SessionHasQueuedInputsError,
@@ -103,6 +105,59 @@ async def test_clear_without_a_reviewed_scope_preserves_all_spawn_descendants(tm
     }
     for member in ("child", "grandchild", "sibling"):
         assert await harness.runtime.journal.session_exists(member)
+    await harness.runtime.runtime.aclose()
+
+
+async def test_clear_reports_committed_ids_when_replacement_creation_fails(tmp_path, monkeypatch):
+    harness = make_session_harness(tmp_path)
+    root = await tree(harness)
+    unrelated = await harness.operations.create()
+
+    async def failed_create():
+        raise sqlite3.OperationalError("controlled replacement failure")
+
+    monkeypatch.setattr(harness.operations, "create", failed_create)
+    with pytest.raises(SessionClearReplacementError) as failed:
+        await harness.operations.clear(root, expected_session_ids=(root, "child", "grandchild", "sibling"))
+    assert set(failed.value.deleted_session_ids) == {root, "child", "grandchild", "sibling"}
+    assert failed.value.replacement_session_id is None
+    assert [record.session_id for record in list_sessions(harness.runtime.config.sessions_db)] == [unrelated]
+    for member in (root, "child", "grandchild", "sibling"):
+        assert not await harness.runtime.journal.session_exists(member)
+    await harness.runtime.runtime.aclose()
+
+
+async def test_cancelled_clear_finishes_replacement_storage_before_releasing_lifecycle_mutation(tmp_path, monkeypatch):
+    harness = make_session_harness(tmp_path)
+    root = await tree(harness)
+    unrelated = await harness.operations.create()
+    original_create = harness.operations.create
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def delayed_create():
+        started.set()
+        await release.wait()
+        return await original_create()
+
+    monkeypatch.setattr(harness.operations, "create", delayed_create)
+    clearing = asyncio.create_task(
+        harness.operations.clear(root, expected_session_ids=(root, "child", "grandchild", "sibling"))
+    )
+    await started.wait()
+    clearing.cancel()
+    mutation = asyncio.create_task(harness.operations.set_title(unrelated, "After Clear"))
+    await asyncio.sleep(0)
+    assert not mutation.done()
+    release.set()
+    with pytest.raises(asyncio.CancelledError):
+        await clearing
+    await mutation
+    records = list_sessions(harness.runtime.config.sessions_db)
+    assert len(records) == 2 and unrelated in {record.session_id for record in records}
+    assert not {record.session_id for record in records}.intersection((root, "child", "grandchild", "sibling"))
+    replacement = next(record for record in records if record.session_id != unrelated)
+    assert replacement.spawned_by_session_id is None
     await harness.runtime.runtime.aclose()
 
 
