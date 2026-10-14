@@ -140,6 +140,8 @@ export type SessionContextStatus = RunPhase | 'pending' | 'idle' | 'completed' |
 export interface SessionContextEntry {
   session: SessionRecord
   status: SessionContextStatus
+  // Live snapshots enrich this query cache; REST remains the canonical history source.
+  runtime?: RuntimeSnapshot
 }
 export interface SessionContextResponse extends SessionContextEntry {
   parent: SessionRecord | null

@@ -1,4 +1,5 @@
-import { infiniteQueryOptions, queryOptions } from '@tanstack/react-query'
+import { infiniteQueryOptions, queryOptions, type QueryClient } from '@tanstack/react-query'
+import type { RuntimeSnapshot, SessionContextEntry, SessionContextResponse } from './types'
 
 import {
   getArchivedSessions,
@@ -89,9 +90,49 @@ export const sessionQueryOptions = (sessionId: string) =>
     queryFn: ({ signal }) => getSession(sessionId, { signal }),
   })
 
+// These listeners exist only for the duration of an HTTP read, including a first read without cached data.
+const pendingContextReads = new Set<{ client: QueryClient; receive: (runtime: RuntimeSnapshot) => void }>()
+
+export function recordContextRuntimeDuringFetch(client: QueryClient, runtime: RuntimeSnapshot) {
+  for (const read of pendingContextReads) {
+    if (read.client === client) read.receive(runtime)
+  }
+}
+
 export const sessionContextQueryOptions = (sessionId: string) => queryOptions({
   queryKey: queryKeys.sessionContext(sessionId),
-  queryFn: ({ signal }) => getSessionContext(sessionId, { signal }),
+  queryFn: async ({ signal, client, queryKey }) => {
+    const before = client.getQueryData<SessionContextResponse>(queryKey)
+    const received = new Map<string, RuntimeSnapshot>()
+    const read = { client, receive: (runtime: RuntimeSnapshot) => received.set(runtime.session_id, runtime) }
+    pendingContextReads.add(read)
+    let response: SessionContextResponse
+    try {
+      response = await getSessionContext(sessionId, { signal })
+    } finally {
+      pendingContextReads.delete(read)
+    }
+    const current = client.getQueryData<SessionContextResponse>(queryKey)
+    // A slow Journal read must not overwrite runtime updates received while it was in flight.
+    const mergeLive = (entry: SessionContextEntry, previous?: SessionContextEntry, live?: SessionContextEntry) => {
+      const runtime = received.get(entry.session.session_id) ?? live?.runtime
+      if (!runtime || runtime === previous?.runtime) return entry
+      const terminal = entry.status === 'completed' || entry.status === 'failed' || entry.status === 'cancelled'
+      return {
+        ...entry,
+        runtime,
+        status: runtime.run_phase ?? (runtime.queued_count || runtime.pending_steer_count ? 'pending' : terminal ? entry.status : 'idle'),
+      } satisfies SessionContextEntry
+    }
+    return {
+      ...response,
+      ...mergeLive(response, before, current),
+      children: response.children.map((child) => mergeLive(child,
+        before?.children.find((entry) => entry.session.session_id === child.session.session_id),
+        current?.children.find((entry) => entry.session.session_id === child.session.session_id),
+      )),
+    }
+  },
 })
 
 export const sessionDeletionPreviewQueryOptions = (sessionId: string) => queryOptions({

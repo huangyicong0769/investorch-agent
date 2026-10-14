@@ -22,7 +22,7 @@ export function SessionContextCard({ session, runtime }: { session: SessionRecor
   const portfolios = useQuery(sessionRelatedPortfoliosQueryOptions(session.session_id))
   const outcome = context.data?.status
   const status = runtime.run_phase ?? (runtime.queued_count || runtime.pending_steer_count ? 'pending' :
-    outcome === 'completed' || outcome === 'failed' || outcome === 'cancelled' ? outcome : 'idle')
+    outcome === 'completed' || outcome === 'failed' || outcome === 'cancelled' || outcome === 'pending' ? outcome : 'idle')
   const content = (
     <div className="max-h-[calc(100dvh-10rem)] overflow-y-auto rounded-xl border border-border bg-card text-xs shadow-sm">
       <div className="space-y-1 p-3">
