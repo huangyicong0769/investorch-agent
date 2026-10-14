@@ -7,6 +7,7 @@ from agents.testing import ModelStep, ScriptedModel, assistant_message, function
 from investorch.application import open_application_host
 from investorch.application.review_context import ReviewContext
 from investorch.application.session_queries import read_session
+from investorch.runtime import RunCapacityExceededError
 from investorch.storage import create_session, list_sessions, set_session_title
 from tests.support.config import make_test_config
 from tests.support.runtime import run_options
@@ -94,3 +95,51 @@ async def test_sdk_spawn_requires_permission_and_uses_the_normal_child_agent(tmp
         finally:
             release_approval.set()
             release_child.set()
+
+
+async def test_waiting_approval_and_stopping_runs_keep_their_capacity_slot(tmp_path, monkeypatch):
+    config = make_test_config(
+        tmp_path,
+        {
+            "runtime": {"max_concurrent_runs": 1},
+            "backtest": {"use_cnequity": False},
+            "compaction": {"auto_enabled": False},
+        },
+    )
+    for session in ("parent", "other"):
+        create_session(config.sessions_db, session)
+        set_session_title(config.sessions_db, session, session)
+    pending = asyncio.Event()
+    model = ScriptedModel(
+        (
+            (function_call("spawn_agent", {"task": "child", "title": None}, call_id="spawn"),),
+            (assistant_message("other complete"),),
+        )
+    )
+    monkeypatch.setattr(
+        "investorch.application.host.create_model",
+        lambda _config, role: (model if role == "main" else ScriptedModel(), ModelSettings()),
+    )
+
+    async def approve(_request, _reason):
+        pending.set()
+        await asyncio.Event().wait()
+
+    async with open_application_host(
+        config, manual_approval_handler=approve, create_initial_session=False, enable_activity=False
+    ) as host:
+        parent = host.runtime.start_run("parent", "delegate", run_options())
+        await asyncio.wait_for(pending.wait(), 3)
+        assert host.runtime.session_snapshot("parent").run_phase == "waiting_approval"
+        with pytest.raises(RunCapacityExceededError):
+            host.runtime.start_run("other", "new", run_options())
+        host.runtime.cancel_run("parent")
+        assert host.runtime.session_snapshot("parent").run_phase == "stopping"
+        with pytest.raises(RunCapacityExceededError):
+            host.runtime.start_run("other", "new", run_options())
+        with pytest.raises(asyncio.CancelledError):
+            await parent.task
+        other = host.runtime.start_run("other", "new", run_options())
+        await other.task
+        assert len(list_sessions(config.sessions_db)) == 2
+        model.assert_complete()

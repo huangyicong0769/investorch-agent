@@ -1,10 +1,14 @@
+import asyncio
 from pathlib import Path
 
 import pytest
 
+from investorch.application.interaction import submit_user_input
 from investorch.config import ConfigError, load_config
 from investorch.journal import read_session_journal
 from investorch.runtime import RunCapacityExceededError
+from investorch.storage import create_session
+from tests.behavior.test_interaction_routing_behavior import make_app_state
 from tests.support.runtime import make_runtime_harness, run_options
 from tests.support.web import open_test_web
 
@@ -137,3 +141,22 @@ async def test_web_rejects_new_runs_with_a_corrective_capacity_error(tmp_path: P
         assert response.json()["error"]["code"] == "capacity_exceeded"
         assert response.json()["error"]["details"] == {"active": 1, "limit": 1}
         assert web.host.runtime.session_snapshot(other).run_id is None
+
+
+async def test_concurrent_input_admissions_cannot_share_the_last_slot(tmp_path: Path) -> None:
+    harness = make_runtime_harness(tmp_path, config_overrides={"runtime": {"max_concurrent_runs": 1}})
+    for session in ("a", "b"):
+        create_session(harness.config.sessions_db, session)
+    state = make_app_state(harness, "a")
+    try:
+        results = await asyncio.gather(
+            *(
+                submit_user_input(state=state, runtime=harness.runtime, session_id=session, text="new input")
+                for session in ("a", "b")
+            ),
+            return_exceptions=True,
+        )
+        assert sum(isinstance(result, RunCapacityExceededError) for result in results) == 1
+        assert len(harness.runtime.list_active_runs()) == 1
+    finally:
+        await harness.runtime.aclose()
