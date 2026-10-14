@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, StrictBool
 
 from investorch.application import ApplicationHost, submit_user_input
 from investorch.application.session_queries import read_session_context
+from investorch.application.sessions import SessionClearReplacementError, SessionDeletionCleanupError
 from investorch.filesystem import resolve_workspace_path
 from investorch.images import ACCEPTED_INPUT_MIME_TYPES, RENDERABLE_MIME_TYPES, ImageDetail, detect_image_media_type
 from investorch.inputs import normalize_user_input
@@ -539,6 +540,10 @@ async def delete_session(request: ConfirmRequest, session_id: str, host: Host) -
             session_id,
             expected_session_ids=tuple(request.session_ids) if request.session_ids is not None else (session_id,),
         )
+    except SessionDeletionCleanupError as error:
+        if host.initial_session_id in error.deleted_session_ids:
+            host.initial_session_id = None
+        raise_application_error(error)
     except Exception as error:
         raise_application_error(error)
     if host.initial_session_id in deleted_ids:
@@ -554,21 +559,25 @@ async def delete_session(request: ConfirmRequest, session_id: str, host: Host) -
 @router.post("/sessions/{session_id}/clear")
 async def clear_session(request: ConfirmRequest, session: Session, host: Host) -> dict[str, object]:
     _require_confirmation(request, "clear this session")
+    expected_ids = tuple(request.session_ids) if request.session_ids is not None else (session.session_id,)
     try:
-        preview = await host.sessions.deletion_preview(session.session_id)
         replacement_session_id = await host.sessions.clear(
             session.session_id,
-            expected_session_ids=tuple(request.session_ids)
-            if request.session_ids is not None
-            else (session.session_id,),
+            expected_session_ids=expected_ids,
         )
+    except (SessionClearReplacementError, SessionDeletionCleanupError) as error:
+        if host.initial_session_id in error.deleted_session_ids:
+            host.initial_session_id = None
+        raise_application_error(error)
     except Exception as error:
         raise_application_error(error)
-    if session.session_id == host.initial_session_id:
+    # Success proves these confirmed IDs matched the complete actual deletion scope.
+    deleted_ids = sorted(set(expected_ids))
+    if host.initial_session_id in deleted_ids:
         host.initial_session_id = replacement_session_id
     return {
         "replacement_session_id": replacement_session_id,
-        "deleted_session_ids": [r["session_id"] for r in preview["sessions"]],
+        "deleted_session_ids": deleted_ids,
     }
 
 

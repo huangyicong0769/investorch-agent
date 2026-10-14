@@ -21,7 +21,11 @@ from investorch.application import (
     SessionNotFoundError,
     SteerPromotionPendingError,
 )
-from investorch.application.sessions import SessionDeletionCleanupError, SessionDeletionUnsafeError
+from investorch.application.sessions import (
+    SessionClearReplacementError,
+    SessionDeletionCleanupError,
+    SessionDeletionUnsafeError,
+)
 from investorch.runtime import RunCapacityExceededError, SessionBusyError
 from investorch.storage import (
     SessionDeletionScopeChangedError,
@@ -43,6 +47,18 @@ class APIError(Exception):
 
 
 def raise_application_error(error: Exception) -> NoReturn:
+    if isinstance(error, SessionClearReplacementError):
+        raise APIError(
+            503,
+            "session_clear_replacement_failed",
+            str(error),
+            details={
+                "deleted_session_ids": list(error.deleted_session_ids),
+                "replacement_session_id": None,
+                "stage": "replacement_creation",
+                "consistency_uncertain": True,
+            },
+        ) from error
     if isinstance(error, SessionDeletionScopeChangedError):
         raise APIError(
             409, "session_deletion_changed", "Spawn descendants changed. Preview the deletion and confirm again."
