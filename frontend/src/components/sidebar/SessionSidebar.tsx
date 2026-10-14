@@ -3,11 +3,14 @@ import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/rea
 import { Activity, Archive, BriefcaseBusiness, Plus, Puzzle, Search, Settings, X } from 'lucide-react'
 import { NavLink, useNavigate } from 'react-router-dom'
 
-import { archiveSession, createSession, deleteSession } from '../../api/client'
+import { archiveSession, createSession, deleteSession, cleanupDeletedSessions } from '../../api/client'
+import { committedDeletionIds, removeDeletedSessionCaches } from '../../api/sessionLifecycle'
+import { DeletionPreview } from '../conversation/DeletionPreview'
 import {
   queryKeys,
   sessionsQueryOptions,
   sessionStateQueryOptions,
+  sessionDeletionPreviewQueryOptions,
 } from '../../api/queries'
 import type {
   BootstrapResponse,
@@ -49,6 +52,7 @@ export function SessionSidebar({
   const [search, setSearch] = useState('')
   const [archivedOpen, setArchivedOpen] = useState(false)
   const [deleteCandidate, setDeleteCandidate] = useState<SessionRecord | null>(null)
+  const deletePreview = useQuery({ ...sessionDeletionPreviewQueryOptions(deleteCandidate?.session_id ?? ''), enabled: Boolean(deleteCandidate) })
   const sessionsQuery = useQuery(sessionsQueryOptions())
   const sessions = sessionsQuery.data?.sessions ?? []
   const stateQueries = useQueries({
@@ -149,43 +153,31 @@ export function SessionSidebar({
   })
 
   const deleteMutation = useMutation({
-    mutationFn: (session: SessionRecord) => deleteSession(session.session_id, { confirm: true }),
-    onSuccess: async (_response: DeleteSessionResponse, deletedSession: SessionRecord) => {
-      const deletedSessionId = deletedSession.session_id
-      queryClient.setQueryData<SessionListResponse>(queryKeys.sessions(), (current) =>
-        current
-          ? { sessions: current.sessions.filter((session) => session.session_id !== deletedSessionId) }
-          : current,
-      )
-      queryClient.setQueryData<SessionListResponse>(queryKeys.archivedSessions(), (current) =>
-        current
-          ? { sessions: current.sessions.filter((session) => session.session_id !== deletedSessionId) }
-          : current,
-      )
-      queryClient.setQueryData<BootstrapResponse>(queryKeys.bootstrap(), (current) =>
-        current
-          ? {
-              ...current,
-              sessions: current.sessions.filter((session) => session.session_id !== deletedSessionId),
-            }
-          : current,
-      )
-      queryClient.removeQueries({ exact: true, queryKey: queryKeys.session(deletedSessionId) })
-      queryClient.removeQueries({ exact: true, queryKey: queryKeys.sessionState(deletedSessionId) })
-      queryClient.removeQueries({ exact: true, queryKey: queryKeys.sessionHistoryPages(deletedSessionId) })
+    mutationFn: async ({ session, version, cleanupIds }: { session: SessionRecord; version?: string; cleanupIds?: string[] }) => {
+      if (cleanupIds?.length) {
+        await cleanupDeletedSessions(cleanupIds)
+        return { deleted: true as const, session_id: session.session_id, replacement_session_id: null, deleted_session_ids: cleanupIds }
+      }
+      return deleteSession(session.session_id, { confirm: true, deletion_version: version })
+    },
+    onSuccess: async (response: DeleteSessionResponse, { session: deletedSession }) => {
+      const ids = response.deleted_session_ids ?? [deletedSession.session_id]
       setDeleteCandidate(null)
-
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: queryKeys.sessions() }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.archivedSessions() }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.bootstrap() }),
-      ])
-      if (deletedSessionId === selectedSessionId) {
+      if (selectedSessionId && ids.includes(selectedSessionId)) {
         navigate('/')
         onMobileNavigate()
       }
+      await removeDeletedSessionCaches(queryClient, ids)
+    },
+    onError: async (error) => {
+      const ids = committedDeletionIds(error)
+      if (ids.length) {
+        if (selectedSessionId && ids.includes(selectedSessionId)) navigate('/')
+        await removeDeletedSessionCaches(queryClient, ids)
+      }
     },
   })
+  const cleanupIds = committedDeletionIds(deleteMutation.error)
 
   const selectSession = (session: SessionRecord) => {
     navigate(sessionPath(session.session_id))
@@ -383,12 +375,13 @@ export function SessionSidebar({
           overlayClassName="bg-black/25"
           showCloseButton={false}
         >
-          <DialogTitle className="text-base font-semibold">Delete session?</DialogTitle>
+          <DialogTitle className="text-base font-semibold">Delete session{deletePreview.data && deletePreview.data.sessions.length > 1 ? ` and ${deletePreview.data.sessions.length - 1} spawned descendants` : ''}?</DialogTitle>
           <p className="mt-2 text-sm text-muted-foreground" id={deleteDescriptionId}>
             {deleteCandidate
               ? `“${deleteCandidate.title?.trim() || deleteCandidate.session_id.slice(0, 8)}” and its timeline will be permanently deleted. This cannot be undone.`
               : null}
           </p>
+          <DeletionPreview preview={deletePreview.data} pending={deletePreview.isPending} error={deletePreview.error} onRetry={() => void deletePreview.refetch()} onNavigate={() => setDeleteCandidate(null)} />
           {deleteMutation.error ? (
             <p className="mt-3 text-sm text-red-700" role="alert">
               {errorMessage(deleteMutation.error, 'The session could not be deleted. Try again.')}
@@ -409,15 +402,15 @@ export function SessionSidebar({
               size={null}
               variant={null}
               className="rounded-lg bg-red-700 px-3 py-2 text-sm text-white hover:bg-red-800 disabled:opacity-60"
-              disabled={!deleteCandidate || deleteMutation.isPending}
+              disabled={!deleteCandidate || deleteMutation.isPending || (!cleanupIds.length && (!deletePreview.data || Boolean(deletePreview.data.blocked.length)))}
               onClick={() => {
                 if (deleteCandidate) {
-                  deleteMutation.mutate(deleteCandidate)
+                  deleteMutation.mutate({ session: deleteCandidate, version: deletePreview.data?.version, cleanupIds })
                 }
               }}
               type="button"
             >
-              {deleteMutation.isPending ? 'Deleting…' : 'Delete'}
+              {deleteMutation.isPending ? 'Deleting…' : cleanupIds.length ? 'Retry cleanup' : 'Delete'}
             </Button>
           </div>
         </DialogContent>

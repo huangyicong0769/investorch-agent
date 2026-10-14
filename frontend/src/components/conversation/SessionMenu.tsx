@@ -1,5 +1,5 @@
 import { useId, useRef, useState, type FormEvent } from 'react'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { MoreHorizontal } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
@@ -8,12 +8,16 @@ import {
   ApiError,
   archiveSession,
   clearSession,
+  cleanupDeletedSessions,
+  createSession,
   compactSession,
   forkSession,
   renameSession,
   unarchiveSession,
 } from '../../api/client'
-import { queryKeys } from '../../api/queries'
+import { queryKeys, sessionDeletionPreviewQueryOptions } from '../../api/queries'
+import { committedDeletionIds, removeDeletedSessionCaches } from '../../api/sessionLifecycle'
+import { DeletionPreview } from './DeletionPreview'
 import type {
   BootstrapResponse,
   ClearSessionResponse,
@@ -84,6 +88,9 @@ export function SessionMenu({ session }: SessionMenuProps) {
   const triggerRef = useRef<HTMLButtonElement>(null)
   const [menuOpen, setMenuOpen] = useState(false)
   const [renameOpen, setRenameOpen] = useState(false)
+  const [clearOpen, setClearOpen] = useState(false)
+  const clearConfirmedVersion = useRef<string | null>(null)
+  const clearPreview = useQuery({ ...sessionDeletionPreviewQueryOptions(session.session_id), enabled: clearOpen })
   const [title, setTitle] = useState(session.title ?? '')
   const [validationError, setValidationError] = useState<string | null>(null)
   const dialogTitleId = useId()
@@ -109,6 +116,7 @@ export function SessionMenu({ session }: SessionMenuProps) {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: queryKeys.sessions() }),
         queryClient.invalidateQueries({ queryKey: queryKeys.sessionState(session.session_id) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.sessionContexts() }),
       ])
     },
   })
@@ -119,7 +127,7 @@ export function SessionMenu({ session }: SessionMenuProps) {
         case 'archive':
           return { action, response: await archiveSession(session.session_id) }
         case 'clear':
-          return { action, response: await clearSession(session.session_id, { confirm: true }) }
+          return { action, response: await clearSession(session.session_id, { confirm: true, deletion_version: clearConfirmedVersion.current ?? undefined }) }
         case 'compact':
           return { action, response: await compactSession(session.session_id) }
         case 'fork':
@@ -159,8 +167,10 @@ export function SessionMenu({ session }: SessionMenuProps) {
       }
 
       if (result.action === 'clear') {
+        setClearOpen(false)
         const replacementSessionId = result.response.replacement_session_id
         navigate(sessionPath(replacementSessionId))
+        await removeDeletedSessionCaches(queryClient, result.response.deleted_session_ids ?? [session.session_id])
         queryClient.setQueryData<SessionListResponse>(queryKeys.sessions(), (current) =>
           current ? { sessions: withoutSession(current.sessions, session.session_id) } : current,
         )
@@ -235,12 +245,29 @@ export function SessionMenu({ session }: SessionMenuProps) {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: queryKeys.sessions() }),
         queryClient.invalidateQueries({ queryKey: queryKeys.archivedSessions() }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.sessionContexts() }),
         queryClient.invalidateQueries({ queryKey: queryKeys.bootstrap() }),
         queryClient.invalidateQueries({
           exact: true,
           queryKey: queryKeys.sessionState(replacement.session_id),
         }),
       ])
+    },
+    onError: async (error) => {
+      const ids = committedDeletionIds(error)
+      if (ids.length) {
+        navigate('/')
+        await removeDeletedSessionCaches(queryClient, ids)
+        toast.error(error.message, { action: {
+          label: 'Retry cleanup', onClick: () => {
+            void cleanupDeletedSessions(ids).then(async () => {
+              const fresh = await createSession()
+              navigate(sessionPath(fresh.session.session_id))
+              await queryClient.invalidateQueries({ queryKey: queryKeys.sessions() })
+            }).catch((failed: unknown) => toast.error(errorMessage(failed, 'Cleanup is still incomplete.')))
+          },
+        } })
+      }
     },
   })
 
@@ -272,11 +299,11 @@ export function SessionMenu({ session }: SessionMenuProps) {
   }
 
   const runAction = (action: LifecycleAction) => {
-    if (
-      action === 'clear' &&
-      typeof window !== 'undefined' &&
-      !window.confirm('Clear this session and start a replacement session?')
-    ) {
+    if (action === 'clear') {
+      lifecycleMutation.reset()
+      setMenuOpen(false)
+      setClearOpen(true)
+      void clearPreview.refetch()
       return
     }
     lifecycleMutation.reset()
@@ -464,6 +491,24 @@ export function SessionMenu({ session }: SessionMenuProps) {
               </Button>
             </div>
           </form>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={clearOpen} onOpenChange={(open) => { if (!lifecycleMutation.isPending) setClearOpen(open) }}>
+        <DialogContent className="max-w-sm" aria-describedby={undefined} showCloseButton={!lifecycleMutation.isPending}
+          onEscapeKeyDown={(event) => { if (lifecycleMutation.isPending) event.preventDefault() }}
+          onPointerDownOutside={(event) => { if (lifecycleMutation.isPending) event.preventDefault() }}>
+          <DialogTitle>Clear session{clearPreview.data && clearPreview.data.sessions.length > 1 ? ` and ${clearPreview.data.sessions.length - 1} spawned descendants` : ''}?</DialogTitle>
+          <p className="text-sm text-muted-foreground">Delete these Sessions and their histories, then start a new Session.</p>
+          <DeletionPreview preview={clearPreview.data} pending={clearPreview.isPending} error={clearPreview.error}
+            onRetry={() => void clearPreview.refetch()} onNavigate={() => setClearOpen(false)} />
+          {lifecycleMutation.error ? <p className="text-sm text-red-700" role="alert">{lifecycleError(lifecycleMutation.error)}</p> : null}
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" disabled={lifecycleMutation.isPending} onClick={() => setClearOpen(false)}>Cancel</Button>
+            <Button variant="destructive" disabled={!clearPreview.data || Boolean(clearPreview.data.blocked.length) || lifecycleMutation.isPending}
+              onClick={() => { clearConfirmedVersion.current = clearPreview.data?.version ?? null; lifecycleMutation.mutate('clear') }}>
+              {lifecycleMutation.isPending ? 'Clearing…' : 'Clear'}
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
     </>
