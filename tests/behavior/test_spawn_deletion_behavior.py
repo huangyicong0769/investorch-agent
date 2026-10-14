@@ -81,12 +81,28 @@ async def test_deleting_a_child_preserves_its_parent_and_sibling(tmp_path):
 async def test_clear_has_the_same_cascade_contract_and_creates_a_plain_replacement(tmp_path):
     harness = make_session_harness(tmp_path)
     root = await tree(harness)
-    replacement = await harness.operations.clear(root)
+    replacement = await harness.operations.clear(root, expected_session_ids=(root, "child", "grandchild", "sibling"))
     assert [r.session_id for r in list_sessions(harness.runtime.config.sessions_db)] == [replacement]
     record = get_session(harness.runtime.config.sessions_db, replacement)
     assert record.spawned_by_session_id is None and record.branch_from_session_id is None
     for member in (root, "child", "grandchild", "sibling"):
         assert not await harness.runtime.journal.session_exists(member)
+    await harness.runtime.runtime.aclose()
+
+
+async def test_clear_without_a_reviewed_scope_preserves_all_spawn_descendants(tmp_path):
+    harness = make_session_harness(tmp_path)
+    root = await tree(harness)
+    with pytest.raises(SessionDeletionScopeChangedError):
+        await harness.operations.clear(root)
+    assert {record.session_id for record in list_sessions(harness.runtime.config.sessions_db)} == {
+        root,
+        "child",
+        "grandchild",
+        "sibling",
+    }
+    for member in ("child", "grandchild", "sibling"):
+        assert await harness.runtime.journal.session_exists(member)
     await harness.runtime.runtime.aclose()
 
 

@@ -261,7 +261,10 @@ class SessionOperations:
         async with self.lifecycle_lock:
             if await asyncio.to_thread(is_session_archived, self._config.sessions_db, session_id):
                 raise SessionArchivedError
-            await self._delete(session_id, expected_session_ids=expected_session_ids)
+            await self._delete(
+                session_id,
+                expected_session_ids=(session_id,) if expected_session_ids is None else expected_session_ids,
+            )
             replacement_session_id = await self.create()
         logger.info("Cleared session %s and started session %s", session_id, replacement_session_id)
         return replacement_session_id
