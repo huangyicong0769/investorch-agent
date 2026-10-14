@@ -93,7 +93,7 @@ export function ConversationPage() {
 
   return (
     <section className="relative flex h-dvh min-w-0 flex-col bg-background xl:pr-80">
-      <ConversationHeader session={stateQuery.data.session} context={<SessionContextCard key={sessionId} session={stateQuery.data.session} runtime={stateQuery.data.runtime} />} />
+      <ConversationHeader session={stateQuery.data.session} context={<SessionContextCard session={stateQuery.data.session} runtime={stateQuery.data.runtime} />} />
       <ConversationTimeline
         onPendingMessageCanonical={() => {
           if (pendingMessage) {
