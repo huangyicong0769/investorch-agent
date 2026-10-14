@@ -182,8 +182,10 @@ Journal 在用户消息、Steer、Assistant、Tool 输出增加可选 `images`�
 
 容量拒绝会在 journal 前恢复并暂停原 Queue 队首，保留捕获的 options；显式 Resume 报容量错误并保留暂停队列。已持久接受的 terminal Steer fallback 保留原 seq，在其他 Run 或 reservation 结束时沿既有晋升路径重试。晋升首次 await 前已同步登记 Run，因此不会重复消费。拒绝不会把已完成 Run 改成 failed，也不新增全局队列或定时器。
 
-显式 Delete/Clear 锁住 Application 生命周期修改，预览所有名称与阻塞条件，并按稳定顺序取得完整 Spawn 范围的 reservation。任何活动、等待审批、停止中、maintenance 或 pending-input 节点都阻断整次操作，不自动 Stop。集合外独立 Fork 引用也阻断删除。Web 回传预览时的 Session ID 集合，与实际删除范围比较；后代变化要求重新确认。通用 unused 清理不会删除 Spawn 节点；Archive/unarchive 保持独立。
+显式 Delete/Clear 先预览所有名称与阻塞条件。多 Session Clear 必须展示完整范围和不可撤销提示：Web/TUI 使用确认弹窗，Plain 仅接受 `DELETE`，其他输入或 EOF 取消。取消/Escape 保留身份、历史和选择；等待确认时不持有 lifecycle lock。提交时锁住 Application 生命周期修改，并按稳定顺序取得完整 Spawn 范围的 reservation。任何活动、等待审批、停止中、maintenance 或 pending-input 节点都阻断整次操作，不自动 Stop。集合外独立 Fork 引用也阻断删除。各客户端回传显示的 Session ID 集合；后代变化要求重新确认。未显式提供范围的 Clear 调用只批准目标身份，防止意外扩大级联范围。通用 unused 清理不会删除 Spawn 节点；Archive/unarchive 保持独立。
 
-一笔受保护的 SQLite 事务删除范围内 continuation、关联和 lineage，提交前失败会取消全部 Journal fence。提交后 JSONL/presentation 清理报告真实 deleted IDs；失败返回 `session_cleanup_failed` 和 `consistency_uncertain=true`，不能回滚已提交数据库。显式清理重试只接受已不存在的身份。Portfolio、Workspace、Skill 与外部产物不属于删除范围。
+一笔受保护的 SQLite 事务删除范围内 continuation、关联和 lineage，提交前失败会取消全部 Journal fence，保留所有身份和历史。提交后 JSONL/presentation 清理报告真实 deleted IDs；失败返回 `session_cleanup_failed` 和 `consistency_uncertain=true`，显式清理重试只接受已不存在的身份。若清理成功但 Clear 无法创建普通 replacement，`session_clear_replacement_failed` 如实报告全部 `deleted_session_ids`、`replacement_session_id:null` 和 `stage:replacement_creation`。两类后提交失败均不能回滚数据库。客户端移除已删除缓存与选择，禁止向旧对话输入，并提供显式恢复入口：TUI `Ctrl+N`、Plain `/new`、Web New Session 或 Retry cleanup。取消会等待 replacement 创建实际结束；已提交删除与新建日志支持断线后的事实重同步。Portfolio、Workspace、Skill 与外部产物不属于删除范围。
 
 Web 将整行 Portfolio 横幅替换为右上紧凑卡片，分组展示关联 Portfolio、直接 child 与独立 Parent/Fork 导航；窄屏使用可访问的 Context 弹窗。当前 Runtime phase 优先；Completed/Failed/Cancelled 必须有可信最近 `run_ended` 且没有更新的 turn 活动，Idle 本身只表示 Idle。Sidebar 仍平铺，child 打开普通完整对话。TUI 在已有 Session metadata 显示 parent 短 ID。
+
+普通 WebSocket Runtime 更新只修改已有 Context 查询缓存，不重复读取 Journal。空 Runtime 快照保留已有可信终态；新输入先清除旧终态，显示 Pending，随后由当前 Runtime/Journal 事实更新。输入提交和 Run 结束只刷新受影响的自身与 parent Context；新 child metadata 尚未可见时刷新关系，重连统一重同步。首次或较慢的 HTTP 读取会合并请求期间收到的 Runtime 快照，请求结束即丢弃临时监听器。历史终态仍来自 Journal，没有第二份完成状态存储。
