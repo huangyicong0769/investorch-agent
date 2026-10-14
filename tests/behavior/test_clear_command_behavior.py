@@ -10,6 +10,7 @@ from investorch.storage import create_spawn_session, list_sessions
 from investorch.ui.console import ConsoleUI
 from investorch.ui.tui.app import Composer, InvestOrchAgentTUI
 from investorch.ui.tui.timeline import ChatTimeline
+from tests.support.runtime import run_options
 from tests.support.web import open_test_web
 
 
@@ -309,3 +310,31 @@ async def test_tui_partial_clear_shows_real_failure_and_disables_the_deleted_con
             await app.workers.wait_for_complete()
             await pilot.pause()
             assert web.host.state.selected_session_id and not app.query_one("#composer-input").disabled
+
+
+@pytest.mark.parametrize("blocker", ["fork", "active"])
+async def test_tui_clear_block_keeps_history_and_accepts_the_next_command(tmp_path, blocker):
+    async with open_test_web(tmp_path) as web:
+        root, ids = await prepare_tree(web.host)
+        fork = await web.host.sessions.fork("child") if blocker == "fork" else None
+        if blocker == "active":
+            web.host.runtime.start_run("child", "Keep running", run_options())
+            await web.runtime.agent_loop.wait_until_started("child")
+        app = InvestOrchAgentTUI(web.host.state, web.host.config.session_journal_dir, web.host.journal)
+        app.bind_runtime(web.host.runtime, web.host.sessions)
+        async with app.run_test(size=(100, 36)) as pilot:
+            await app.workers.wait_for_complete()
+            await app.on_composer_submitted(Composer.Submitted("/clear"))
+            await app.workers.wait_for_complete()
+            await app.on_composer_submitted(Composer.Submitted("/session"))
+            await pilot.pause()
+            visible = "\n".join(str(widget.content) for widget in app.query_one(ChatTimeline).query(Static))
+            assert ("Fork" if fork else "Stop its Run") in visible and f"Current session ID: {root}" in visible
+            assert web.host.state.selected_session_id == root
+            assert {record.session_id for record in list_sessions(web.host.config.sessions_db)} == set(ids) | (
+                {fork} if fork else set()
+            )
+            for member in ids:
+                assert await web.host.journal.session_exists(member)
+            if blocker == "active":
+                assert web.host.runtime.session_snapshot("child").run_phase == "running"
