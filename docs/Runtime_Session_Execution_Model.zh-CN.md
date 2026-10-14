@@ -110,7 +110,7 @@ Todo 是投影到客户端的瞬时 Run state，不写入 SDK continuation、JSO
 - Rename 更新 Session metadata。
 - Archive 保留 continuation、Journal、title 和 lineage，同时使 Session 在恢复前只读。
 - Unarchive 恢复普通操作。
-- Clear 删除 idle、unarchived 且没有 queued intent 的 Session。
+- Delete 删除显式 Session 及其全部递归 Spawn 后代；Clear 使用同一删除契约，再创建不继承来源关系的普通新 Session。
 - Compact 用带标记的 assistant summary 替换 SDK continuation；Journal 保持完整。
 - Fork 把来源 Session 最后稳定提交头部 clone 为新的独立 Session。
 
@@ -170,4 +170,20 @@ Manual 或 automatic compaction 只修改 SDK continuation。已完成答案不�
 
 Run、Steer、Queue 使用同一 `UserInput`；Portfolio Ask 的 developer 上下文与用户输入分开。Queue 晋升后完整记录输入；Steer 处置记录引用原序号，不重复图片。旧文本调用在公共入口转换，模型用户输入统一为 structured content。仅含应用 developer 指令的 Run 没有用户 payload。
 
-Journal 在用户消息、Steer、Assistant、Tool 输出增加可选 `images`；旧历史缺失该字段即无图片，无需迁移。Fork 复制内联 SDK/Journal 内容，归档保留内容，删除沿用状态清理。Clear 沿用现有语义：建立空的替代 Session、保留旧 Journal，并移除旧 SDK session/元数据。Web 图片草稿按 Session 保存，乐观消息在持久事件到达前仍保留图片。
+Journal 在用户消息、Steer、Assistant、Tool 输出增加可选 `images`；旧历史缺失该字段即无图片，无需迁移。Fork 复制内联 SDK/Journal 内容，归档保留内容。Delete/Clear 删除旧范围的历史；Clear 再创建空的替代 Session。Web 图片草稿按 Session 保存，乐观消息在持久事件到达前仍保留图片。
+
+## Session 派生与全局并发
+
+`spawn_agent(task, title?)` 使用已有 Permission/HITL 审批和普通 `submit_user_input`。子 Session 使用相同 Main 模型、Tools、Skills 和独立审批规则，拥有各自 continuation 与 Journal。初始输入保持 `user` role，来源由 SDK Session/Run/call 上下文提供。创建事务保存独立 Spawn lineage，并一次复制关联 Portfolio IDs；不复制父历史、Portfolio/Ledger 事实或授权。Fork 不继承 Spawn lineage；父完成、Stop 或 Archive 不级联子 Session。
+
+工具调用身份生成稳定 child ID。已有 workflow 接受标记、Runtime 和 Journal 事实防止初始任务重复投递。确定因容量/关闭拒绝时只回收未启动 child；接受状态不确定时保留身份供诊断。回执只确认提交，不证明完成或重启恢复。递归子 Session 使用相同 Tools；不新增 stop/wait/status Tool、完成 registry 或自动回复。通过 `list_sessions` 观察当前状态，通过 `read_session(view="events")` 读取完成事实。
+
+所有新顶层 Run 共享 `AgentRuntime._start_run()` 的同步准入门槛。`runtime.max_concurrent_runs` 默认 3，仅接受严格正整数，可在 Settings 或本地 TOML 热应用。下调不停止现有 Run，仅拒绝新准入并报告 `capacity_exceeded`（Web HTTP 429）。父 Run、普通输入、消息、Spawn 和 follow-up 晋升公平共用名额；Waiting Approval 与 Stopping 直到摘除仍占位。Title/Permission/Activity/Compact 辅助调用不额外占位。容量策略不属于冻结的 `RunOptions`。
+
+容量拒绝会在 journal 前恢复并暂停原 Queue 队首，保留捕获的 options；显式 Resume 报容量错误并保留暂停队列。已持久接受的 terminal Steer fallback 保留原 seq，在其他 Run 或 reservation 结束时沿既有晋升路径重试。晋升首次 await 前已同步登记 Run，因此不会重复消费。拒绝不会把已完成 Run 改成 failed，也不新增全局队列或定时器。
+
+显式 Delete/Clear 锁住 Application 生命周期修改，预览所有名称与阻塞条件，并按稳定顺序取得完整 Spawn 范围的 reservation。任何活动、等待审批、停止中、maintenance 或 pending-input 节点都阻断整次操作，不自动 Stop。集合外独立 Fork 引用也阻断删除。Web 提交已显示的身份集合版本；后代变化要求重新确认。通用 unused 清理不会删除 Spawn 节点；Archive/unarchive 保持独立。
+
+一笔受保护的 SQLite 事务删除范围内 continuation、关联和 lineage，提交前失败会取消全部 Journal fence。提交后 JSONL/presentation 清理报告真实 deleted IDs；失败返回 `session_cleanup_failed` 和 `consistency_uncertain=true`，不能回滚已提交数据库。显式清理重试只接受已不存在的身份。Portfolio、Workspace、Skill 与外部产物不属于删除范围。
+
+Web 将整行 Portfolio 横幅替换为右上紧凑卡片，分组展示关联 Portfolio、直接 child 与独立 Parent/Fork 导航；窄屏使用可访问的 Context 弹窗。当前 Runtime phase 优先；Completed/Failed/Cancelled 必须有可信最近 `run_ended` 且没有更新的 turn 活动，Idle 本身只表示 Idle。Sidebar 仍平铺，child 打开普通完整对话。TUI 在已有 Session metadata 显示 parent 短 ID。

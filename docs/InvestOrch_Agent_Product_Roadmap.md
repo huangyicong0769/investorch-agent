@@ -61,7 +61,11 @@ Tools delegate to stateless Application queries, bound and registered once by th
 
 `send_message` requires sender approval, submits text/images through existing Run/Steer/Queue routing, and preserves trusted origin in model input, Review, history, Web and TUI. Image references cover Workspace files and the sender's committed attachments. Receipts confirm submission only; Queue is process-local. See [Session messaging](InvestOrch_Agent_Architecture.md#session-messaging).
 
-Session spawning, Agent as MCP, and PyPI distribution remain future work. There is no automatic reply, wait/completion mechanism, or persistent mailbox.
+There is no automatic reply, wait/completion mechanism, or persistent mailbox.
+
+## 0.3.0 Session spawning
+
+The development implementation adds approval-required `spawn_agent(task, title?)` with ordinary, recursively capable Sessions; independent history and approvals; trusted user-role origin; and one-time Portfolio association snapshots. All top-level Runs share a hot global limit, default 3. Explicit Delete/Clear safely cascade only Spawn descendants and refuse active/pending nodes or independent Fork references. Web replaces the Portfolio banner with a compact context card; TUI shows parent provenance. 0.3.0 remains unreleased. Agent as MCP and PyPI distribution remain future work.
 
 ## Configuration, management, and recovery
 

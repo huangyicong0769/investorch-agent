@@ -61,7 +61,11 @@ Tool 委托无状态 Application 查询，由 Host 在首个 Run 前绑定并一
 
 `send_message` 需要发送方审批，文本/图片沿用现有 Run/Steer/Queue 路由，可信来源进入模型输入、Review、历史、Web 和 TUI。图片引用覆盖 Workspace 文件与发送方已提交附件。回执只确认提交，Queue 仅保存在进程内。详见[Session 消息](InvestOrch_Agent_Architecture.zh-CN.md#session-消息)。
 
-Session 派生、Agent as MCP 和 PyPI 分发仍属于未来工作。不增加自动回复、等待/完成机制或持久 Mailbox。
+不增加自动回复、等待/完成机制或持久 Mailbox。
+
+## 0.3.0 Session 派生
+
+开发实现增加需要审批的 `spawn_agent(task, title?)`：普通 Session 可递归派生，拥有独立历史与审批、可信 user-role 来源，以及一次性的 Portfolio 关联快照。全部顶层 Run 共享 Hot 全局上限，默认 3。显式 Delete/Clear 仅安全级联 Spawn 后代，活动/pending 节点或独立 Fork 引用阻断删除。Web 用右上紧凑卡片替换 Portfolio 横幅，TUI 显示 parent 来源。0.3.0 仍未发布；Agent as MCP 和 PyPI 分发仍属于未来工作。
 
 ## 配置、管理与恢复
 

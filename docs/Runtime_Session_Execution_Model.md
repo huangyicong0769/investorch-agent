@@ -110,7 +110,7 @@ Todo is transient Run state projected to clients. It is not stored in SDK contin
 - Rename updates Session metadata.
 - Archive preserves continuation, journal, title, and lineage while making the Session read-only until restored.
 - Unarchive restores normal operations.
-- Clear removes an idle, unarchived Session without queued intent.
+- Delete removes the explicit Session and all recursive Spawn descendants. Clear uses that same deletion contract, then creates a fresh ordinary replacement without inherited lineage.
 - Compact replaces SDK continuation with a marked assistant summary; the journal remains complete.
 - Fork clones the source's last stable committed head into a new independent Session.
 
@@ -170,4 +170,20 @@ Normal client exit is blocked while active Runs or queued follow-ups remain. Def
 
 Run, Steer and Queue carry the same `UserInput`; Portfolio Ask keeps developer context separate. Queue promotion journals the complete input. Steer disposition records reference the original sequence without duplicating images. Public legacy text calls normalize once; all user model input uses structured content. Developer-only application runs have no user payload.
 
-Journal `images` fields are additive on user messages, steers, assistant messages and tool outputs. Missing fields in older history mean no images; no migration is required. Fork copies inline SDK/Journal content, archive preserves it, and deletion removes it with existing state. Clear retains the existing lifecycle: a fresh replacement Session and the old Journal, with old SDK session/metadata removed. Web drafts remain Session-scoped and optimistic messages retain images until durable events arrive.
+Journal `images` fields are additive on user messages, steers, assistant messages and tool outputs. Missing fields in older history mean no images; no migration is required. Fork copies inline SDK/Journal content and archive preserves it. Delete/Clear remove the old scoped histories; Clear then creates a fresh replacement. Web drafts remain Session-scoped and optimistic messages retain images until durable events arrive.
+
+## Session spawning and global capacity
+
+`spawn_agent(task, title?)` uses existing Permission/HITL approval and ordinary `submit_user_input`. Children have the same Main model, Tools, Skills and independent approval rules, with separate continuation and Journal. Initial input remains `user` role with trusted SDK Session/Run/call provenance. The creation transaction records independent Spawn lineage and a one-time copy of related Portfolio IDs; it copies neither parent history nor Portfolio/Ledger facts or authorization. Forks do not inherit Spawn lineage, and parent completion, stop or archive never cascades to children.
+
+The tool-call identity yields a stable child ID. Existing workflow acceptance, Runtime and Journal facts prevent duplicate initial submission. Proven capacity/shutdown refusal rolls back an unstarted child; uncertain acceptance retains its identity for diagnosis. Receipts confirm submission, not completion or restart recovery. Recursive children use the same tools; no stop/wait/status Tool, completion registry or automatic reply is added. Observe state through `list_sessions` and completion facts through `read_session(view="events")`.
+
+All new top-level Runs share the synchronous admission gate in `AgentRuntime._start_run()`. `runtime.max_concurrent_runs` defaults to 3 and accepts strict positive integers. Settings or local TOML may hot-apply it; reducing the limit leaves existing Runs untouched and rejects new admission with `capacity_exceeded` (Web HTTP 429). Parents, ordinary input, messaging, Spawn and follow-up promotion use the same slots. Waiting Approval and Stopping continue to occupy slots until removal. Auxiliary Title/Permission/Activity/Compact calls consume no additional slots. The policy is separate from frozen `RunOptions`.
+
+Capacity refusal restores and pauses the original Queue head with its captured options before journaling. Explicit Resume reports the capacity error and retains the paused queue. Durable terminal Steer fallback keeps its original seq and retries through existing promotion when another Run or reservation ends. Synchronous registration before promotion awaits prevents duplicate consumption. Neither refusal changes an already completed Run into failure; no global queue or timer is added.
+
+Explicit Delete/Clear locks application lifecycle mutation, previews all affected titles and blockers, and reserves the complete Spawn scope in stable order. Active, waiting-approval, stopping, maintenance or pending-input nodes block the entire operation without automatic Stop. Independent Fork references outside the scope also block it. Web submits the displayed identity-set version; changed descendants require renewed confirmation. Generic unused cleanup cannot remove Spawn nodes. Archive/unarchive remain independent.
+
+One guarded SQLite transaction removes all scoped continuation, association and lineage rows, with per-Session Journal fences cancelled on precommit failure. Postcommit JSONL/presentation cleanup reports actual deleted IDs. A cleanup failure returns `session_cleanup_failed` with `consistency_uncertain=true`; it cannot roll back the committed database. Explicit cleanup retry accepts only absent identities. Portfolio, Workspace, Skill and external artifacts remain outside the deletion scope.
+
+Web replaces the full-width Portfolio banner with a compact right-hand context card for related Portfolio references, direct children and independent parent/Fork navigation. Narrow screens use an accessible Context dialog. Current Runtime phases take precedence; Completed/Failed/Cancelled require a trusted latest `run_ended` with no newer turn activity. Idle alone means Idle. The sidebar stays flat, and children open complete ordinary conversations. TUI shows the parent's short ID in existing Session metadata.
