@@ -19,6 +19,7 @@ from investorch.log import configure_logging
 from investorch.runtime import (
     AgentRuntime,
     ApprovalRequest,
+    RunCapacityExceededError,
     RunOptions,
     RuntimeFollowUpEvent,
     RuntimeOutput,
@@ -53,15 +54,19 @@ async def _run_console(state: AppState, runtime: AgentRuntime, sessions: Session
         if await asyncio.to_thread(is_session_archived, state.config.sessions_db, session_id):
             ui.write("Archived sessions are read-only. Unarchive or switch sessions first.")
             continue
-        active_run = runtime.start_run(
-            session_id,
-            UserInput(user_input),
-            RunOptions(
-                reasoning_effort=state.main_reasoning_effort,
-                permission_mode=state.permission_mode,
-                follow_up_behavior=state.follow_up_behavior,
-            ),
-        )
+        try:
+            active_run = runtime.start_run(
+                session_id,
+                UserInput(user_input),
+                RunOptions(
+                    reasoning_effort=state.main_reasoning_effort,
+                    permission_mode=state.permission_mode,
+                    follow_up_behavior=state.follow_up_behavior,
+                ),
+            )
+        except RunCapacityExceededError as error:
+            ui.write(str(error))
+            continue
         result = await active_run.task
         if result.auto_compaction is not None and result.auto_compaction.changed:
             ui.write("Context compacted automatically.")

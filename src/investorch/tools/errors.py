@@ -20,6 +20,7 @@ def format_tool_error(context: RunContextWrapper[AgentContext], error: Exception
     from investorch.application.portfolios import PortfolioOperationError
     from investorch.application.session_queries import SessionReadError
     from investorch.backtest.errors import BacktestDataError
+    from investorch.runtime import RunCapacityExceededError
 
     validation = error.__cause__ if isinstance(error, ModelBehaviorError) else error
     if isinstance(validation, ValidationError):
@@ -39,6 +40,7 @@ def format_tool_error(context: RunContextWrapper[AgentContext], error: Exception
             BacktestDataError,
             SessionReadError,
             MessageSendError,
+            RunCapacityExceededError,
         ),
     ) or (isinstance(error, RuntimeError) and str(error) == "exec_command is currently supported on macOS only"):
         message = str(error)

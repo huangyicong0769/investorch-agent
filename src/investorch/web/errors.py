@@ -21,7 +21,7 @@ from investorch.application import (
     SessionNotFoundError,
     SteerPromotionPendingError,
 )
-from investorch.runtime import SessionBusyError
+from investorch.runtime import RunCapacityExceededError, SessionBusyError
 from investorch.storage import SessionForkError, SessionForkRollbackError
 
 logger = logging.getLogger(__name__)
@@ -37,6 +37,10 @@ class APIError(Exception):
 
 
 def raise_application_error(error: Exception) -> NoReturn:
+    if isinstance(error, RunCapacityExceededError):
+        raise APIError(
+            429, "capacity_exceeded", str(error), details={"active": error.active, "limit": error.limit}
+        ) from error
     if isinstance(error, SessionNotFoundError):
         raise APIError(
             404,

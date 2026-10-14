@@ -34,6 +34,7 @@ from investorch.output import OutputEvent, ToolCalled
 from investorch.runtime import (
     AgentRuntime,
     ApprovalRequest,
+    RunCapacityExceededError,
     RuntimeFollowUpEvent,
     RuntimeRunEnded,
     RuntimeSessionSnapshot,
@@ -462,6 +463,9 @@ class InvestOrchAgentTUI(App[None]):
             submission = await submit_user_input(
                 state=self.state, runtime=self.runtime, session_id=session_id, user_input=UserInput(event.text)
             )
+        except RunCapacityExceededError as exc:
+            await self.query_one(ChatTimeline).add_notice(str(exc))
+            return
         except ArchivedSessionInputError:
             await self.query_one(ChatTimeline).add_notice(
                 "Archived sessions are read-only. Unarchive or switch sessions first."
@@ -559,7 +563,7 @@ class InvestOrchAgentTUI(App[None]):
             return
         try:
             await self.runtime.resume_queue(event.session_id)
-        except (SessionBusyError, ValueError) as exc:
+        except (RunCapacityExceededError, SessionBusyError, ValueError) as exc:
             if event.session_id == self.state.selected_session_id:
                 await self.query_one(ChatTimeline).add_notice(str(exc))
         self._refresh_selected_controls()
