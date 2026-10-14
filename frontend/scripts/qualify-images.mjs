@@ -57,6 +57,7 @@ await page.route('**/api/**', async (route) => {
     if (failSend) return route.fulfill({ status: 503, json: { error: { code: 'unavailable', message: 'Try again', details: {} } } })
     value = { session: session('A'), run_id: 'r', started: true }
   }
+  else if (path.endsWith('/context')) value = { session: session(id), status: 'idle', children: [], parent: null, fork_source: null, errors: [] }
   else if (path.endsWith('/state')) value = { session: session(id), runtime: { ...runtime(id), queued_count: queue.length }, presentation, pending_approvals: [], queue }
   else if (path.endsWith('/history')) value = { records: history, has_older: false, oldest_seq: history[0]?.seq ?? null, newest_seq: history.at(-1)?.seq ?? null }
   else if (path.endsWith('/messages')) {
