@@ -46,6 +46,8 @@ async def test_list_enumerates_root_sessions_with_stable_ties_title_filter_and_a
         "session_id": "session-02",
         "title": "Straße 2",
         "branch_from_session_id": "session-01",
+        "spawned_by_session_id": None,
+        "spawned_by_run_id": None,
         "archived": False,
         "created_at": first["sessions"][2]["created_at"],
         "updated_at": "2026-10-13 00:00:00",
@@ -95,6 +97,8 @@ async def test_list_projects_only_current_status_and_keeps_archive_independent(
         "title",
         "archived",
         "branch_from_session_id",
+        "spawned_by_session_id",
+        "spawned_by_run_id",
         "created_at",
         "updated_at",
         "status",
@@ -478,7 +482,7 @@ async def test_application_reads_race_with_lifecycle_operations_without_recreati
 
     result, mutation_result = await asyncio.gather(read_query(session_id), mutation(session_id), return_exceptions=True)
 
-    assert mutation_result is None
+    assert mutation_result == (None if operation == "archive" else (session_id,))
     if isinstance(result, SessionReadError):
         assert operation == "delete"
         assert result.code in {"session_not_found", "journal_unavailable"}
