@@ -8,14 +8,17 @@ import {
   type PropsWithChildren,
 } from 'react'
 import { useQueryClient, type Query } from '@tanstack/react-query'
-import { useMatch } from 'react-router-dom'
+import { useMatch, useNavigate } from 'react-router-dom'
+import { toast } from 'sonner'
 
 import {
+  ApiError,
   getBootstrap,
   getSessionHistory,
   getSessionState,
   getSessions,
 } from '../api/client'
+import { removeDeletedSessionCaches } from '../api/sessionLifecycle'
 import {
   queryKeys,
   recordContextEventDuringFetch,
@@ -562,6 +565,7 @@ function canonicalRunEndedIds(
 export function LiveWebSocketProvider({ children }: PropsWithChildren) {
   const webConfig = useWebConfig()
   const queryClient = useQueryClient()
+  const navigate = useNavigate()
   const selectedMatch = useMatch('/c/:sessionId')
   const selectedSessionId = selectedMatch?.params.sessionId ?? null
   const selectedSessionRef = useRef<string | null>(selectedSessionId)
@@ -844,6 +848,18 @@ export function LiveWebSocketProvider({ children }: PropsWithChildren) {
     }
     if (sessions) {
       queryClient.setQueryData(queryKeys.sessions(), sessions)
+    }
+    if (requests[2].status === 'rejected' && requests[2].reason instanceof ApiError
+      && requests[2].reason.code === 'session_not_found') {
+      // A disconnected Clear response or unused cleanup can leave a cached selection whose identity is gone.
+      resyncSessionRef.current = null
+      resyncAbortRef.current = null
+      bufferedEventsRef.current = []
+      navigate('/', { replace: true })
+      setStatus(connectionStatusRef.current)
+      toast.info('This Session no longer exists. Select another Session or use New.')
+      await removeDeletedSessionCaches(queryClient, [sessionId])
+      return
     }
     if (state) {
       queryClient.setQueryData(queryKeys.sessionState(sessionId), state)
