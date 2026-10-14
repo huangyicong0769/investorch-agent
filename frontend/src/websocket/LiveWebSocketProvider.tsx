@@ -18,7 +18,7 @@ import {
 } from '../api/client'
 import {
   queryKeys,
-  recordContextRuntimeDuringFetch,
+  recordContextEventDuringFetch,
 } from '../api/queries'
 import { useWebConfig } from '../config/WebConfigContext'
 import type {
@@ -681,7 +681,7 @@ export function LiveWebSocketProvider({ children }: PropsWithChildren) {
   }
 
   const processEvent = (event: ParsedLiveEvent) => {
-    if (event.kind === 'runtime_state') recordContextRuntimeDuringFetch(queryClient, event)
+    if (event.kind === 'runtime_state' || event.kind === 'run_ended') recordContextEventDuringFetch(queryClient, event)
     if (event.kind === 'runtime_state' || event.kind === 'run_ended' || event.kind === 'user_input_committed') {
       const record = queryClient.getQueryData<SessionResponse>(queryKeys.session(event.session_id))?.session
         ?? queryClient.getQueryData<SessionListResponse>(queryKeys.sessions())?.sessions.find((entry) => entry.session_id === event.session_id)

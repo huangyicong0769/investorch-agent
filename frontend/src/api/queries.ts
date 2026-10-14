@@ -91,11 +91,12 @@ export const sessionQueryOptions = (sessionId: string) =>
   })
 
 // These listeners exist only for the duration of an HTTP read, including a first read without cached data.
-const pendingContextReads = new Set<{ client: QueryClient; receive: (runtime: RuntimeSnapshot) => void }>()
+type ContextReadEvent = RuntimeSnapshot | { kind: 'run_ended'; session_id: string }
+const pendingContextReads = new Set<{ client: QueryClient; receive: (event: ContextReadEvent) => void }>()
 
-export function recordContextRuntimeDuringFetch(client: QueryClient, runtime: RuntimeSnapshot) {
+export function recordContextEventDuringFetch(client: QueryClient, event: ContextReadEvent) {
   for (const read of pendingContextReads) {
-    if (read.client === client) read.receive(runtime)
+    if (read.client === client) read.receive(event)
   }
 }
 
@@ -104,11 +105,20 @@ export const sessionContextQueryOptions = (sessionId: string) => queryOptions({
   queryFn: async ({ signal, client, queryKey }) => {
     const before = client.getQueryData<SessionContextResponse>(queryKey)
     const received = new Map<string, RuntimeSnapshot>()
-    const read = { client, receive: (runtime: RuntimeSnapshot) => received.set(runtime.session_id, runtime) }
+    const ended = new Set<string>()
+    const read = { client, receive: (event: ContextReadEvent) => {
+      if (event.kind === 'runtime_state') received.set(event.session_id, event)
+      else ended.add(event.session_id)
+    } }
     pendingContextReads.add(read)
     let response: SessionContextResponse
     try {
-      response = await getSessionContext(sessionId, { signal })
+      do {
+        ended.clear()
+        response = await getSessionContext(sessionId, { signal })
+        // A child's metadata may still be loading, so its end cannot always invalidate its parent yet.
+        // Re-read Journal when an end arrived during this read instead of guessing its outcome from idle.
+      } while (ended.has(sessionId) || response.children.some((child) => ended.has(child.session.session_id)))
     } finally {
       pendingContextReads.delete(read)
     }
