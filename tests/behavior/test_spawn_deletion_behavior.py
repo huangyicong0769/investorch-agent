@@ -98,7 +98,9 @@ async def test_changed_descendants_require_a_new_confirmation(tmp_path):
         harness.runtime.config.sessions_db, "later", parent_session_id=root, parent_run_id="run", tool_call_id="later"
     )
     with pytest.raises(SessionDeletionScopeChangedError):
-        await harness.operations.delete(root, expected_version=preview["version"])
+        await harness.operations.delete(
+            root, expected_session_ids=tuple(member["session_id"] for member in preview["sessions"])
+        )
     assert len(list_sessions(harness.runtime.config.sessions_db)) == 5
     await harness.runtime.runtime.aclose()
 
@@ -161,32 +163,42 @@ async def test_postcommit_file_failure_reports_deleted_ids_and_can_be_cleaned_ag
     await harness.runtime.runtime.aclose()
 
 
-async def test_web_requires_the_reviewed_scope_and_clear_returns_all_deleted_ids(tmp_path):
+@pytest.mark.parametrize("action", ["delete", "clear"])
+async def test_web_requires_the_reviewed_scope_and_returns_all_deleted_ids(tmp_path, action):
     async with open_test_web(tmp_path) as web:
         root = await web.host.sessions.create()
+
+        async def confirm(body):
+            if action == "delete":
+                return await web.client.request("DELETE", f"/api/sessions/{root}", json=body)
+            return await web.client.post(f"/api/sessions/{root}/clear", json=body)
+
         create_spawn_session(
             web.host.config.sessions_db, "child", parent_session_id=root, parent_run_id="run", tool_call_id="child"
         )
         preview = (await web.client.get(f"/api/sessions/{root}/deletion-preview")).json()
         assert {s["session_id"] for s in preview["sessions"]} == {root, "child"}
         assert preview["blocked"] == []
-        unreviewed = await web.client.request("DELETE", f"/api/sessions/{root}", json={"confirm": True})
-        assert unreviewed.status_code == 409 and unreviewed.json()["error"]["code"] == "session_deletion_changed"
+        for body in ({"confirm": True}, {"confirm": True, "session_ids": []}, {"confirm": True, "session_ids": [root]}):
+            unreviewed = await confirm(body)
+            assert unreviewed.status_code == 409 and unreviewed.json()["error"]["code"] == "session_deletion_changed"
         create_spawn_session(
             web.host.config.sessions_db, "later", parent_session_id=root, parent_run_id="run", tool_call_id="later"
         )
-        stale = await web.client.request(
-            "DELETE", f"/api/sessions/{root}", json={"confirm": True, "deletion_version": preview["version"]}
-        )
-        assert stale.status_code == 409
+        stale = await confirm({"confirm": True, "session_ids": [s["session_id"] for s in preview["sessions"]]})
+        assert stale.status_code == 409 and stale.json()["error"]["code"] == "session_deletion_changed"
         refreshed = (await web.client.get(f"/api/sessions/{root}/deletion-preview")).json()
-        cleared = await web.client.post(
-            f"/api/sessions/{root}/clear", json={"confirm": True, "deletion_version": refreshed["version"]}
+        cleared = await confirm(
+            {"confirm": True, "session_ids": [s["session_id"] for s in reversed(refreshed["sessions"])]}
         )
         assert cleared.status_code == 200
         assert set(cleared.json()["deleted_session_ids"]) == {root, "child", "later"}
-        replacement = get_session(web.host.config.sessions_db, cleared.json()["replacement_session_id"])
-        assert replacement.spawned_by_session_id is None
+        if action == "clear":
+            replacement = get_session(web.host.config.sessions_db, cleared.json()["replacement_session_id"])
+            assert list_sessions(web.host.config.sessions_db) == [replacement]
+            assert replacement.spawned_by_session_id is None
+        else:
+            assert list_sessions(web.host.config.sessions_db) == []
 
 
 async def test_web_preview_names_busy_descendants_and_does_not_stop_them(tmp_path):
@@ -200,7 +212,9 @@ async def test_web_preview_names_busy_descendants_and_does_not_stop_them(tmp_pat
         preview = (await web.client.get(f"/api/sessions/{root}/deletion-preview")).json()
         assert {"session_id": "child", "code": "session_busy"} in preview["blocked"]
         refused = await web.client.request(
-            "DELETE", f"/api/sessions/{root}", json={"confirm": True, "deletion_version": preview["version"]}
+            "DELETE",
+            f"/api/sessions/{root}",
+            json={"confirm": True, "session_ids": [s["session_id"] for s in preview["sessions"]]},
         )
         assert refused.status_code == 409
         assert web.host.runtime.session_snapshot("child").run_phase == "running"

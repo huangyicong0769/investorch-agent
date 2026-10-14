@@ -89,7 +89,7 @@ export function SessionMenu({ session }: SessionMenuProps) {
   const [menuOpen, setMenuOpen] = useState(false)
   const [renameOpen, setRenameOpen] = useState(false)
   const [clearOpen, setClearOpen] = useState(false)
-  const clearConfirmedVersion = useRef<string | null>(null)
+  const clearConfirmedSessionIds = useRef<string[] | null>(null)
   const clearPreview = useQuery({ ...sessionDeletionPreviewQueryOptions(session.session_id), enabled: clearOpen })
   const [title, setTitle] = useState(session.title ?? '')
   const [validationError, setValidationError] = useState<string | null>(null)
@@ -127,7 +127,7 @@ export function SessionMenu({ session }: SessionMenuProps) {
         case 'archive':
           return { action, response: await archiveSession(session.session_id) }
         case 'clear':
-          return { action, response: await clearSession(session.session_id, { confirm: true, deletion_version: clearConfirmedVersion.current ?? undefined }) }
+          return { action, response: await clearSession(session.session_id, { confirm: true, session_ids: clearConfirmedSessionIds.current ?? undefined }) }
         case 'compact':
           return { action, response: await compactSession(session.session_id) }
         case 'fork':
@@ -483,7 +483,7 @@ export function SessionMenu({ session }: SessionMenuProps) {
           <div className="flex justify-end gap-2">
             <Button variant="outline" disabled={lifecycleMutation.isPending} onClick={() => setClearOpen(false)}>Cancel</Button>
             <Button variant="destructive" disabled={!clearPreview.data || Boolean(clearPreview.data.blocked.length) || lifecycleMutation.isPending}
-              onClick={() => { clearConfirmedVersion.current = clearPreview.data?.version ?? null; lifecycleMutation.mutate('clear') }}>
+              onClick={() => { clearConfirmedSessionIds.current = clearPreview.data?.sessions.map((member) => member.session_id) ?? null; lifecycleMutation.mutate('clear') }}>
               {lifecycleMutation.isPending ? 'Clearing…' : 'Clear'}
             </Button>
           </div>

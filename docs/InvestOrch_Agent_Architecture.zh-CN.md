@@ -172,7 +172,7 @@ Web/TUI 复用普通消息组件，仅增加小型 Agent 来源标记及完整 I
 
 Host 将需要审批的 `spawn_agent(task, title?)` 绑定普通 Session 创建与输入提交。子 Session 使用相同 Agent、Tools、Skills、Runtime 和独立 Permission 规则。SQLite Spawn 来源独立于 Fork lineage；关联 Portfolio IDs 只复制一次，不继承历史、Ledger 或授权。Run 完成与 Stop 保持独立。严格正整数、Hot 的 `runtime.max_concurrent_runs`（默认 3）仅在 `_start_run()` 对全部顶层 Run 生效。
 
-Delete 与 Clear 共用受保护的递归 Spawn 删除、全节点 Runtime reservation 和单笔 SQLite 事务。活动/pending 节点和集合外 Fork 引用阻断删除，不自动取消；预览版本防止未经确认扩大范围。提交后清理错误如实报告已删除身份；Clear 再创建普通 replacement。Web 右上紧凑上下文卡片读取 Storage/Runtime/Journal 事实，TUI 增加来源 metadata。接受、恢复与删除契约见 [Runtime](Runtime_Session_Execution_Model.zh-CN.md#session-派生与全局并发)。
+Delete 与 Clear 共用受保护的递归 Spawn 删除、全节点 Runtime reservation 和单笔 SQLite 事务。活动/pending 节点和集合外 Fork 引用阻断删除，不自动取消；比较已确认的 Session IDs 与实际范围，防止未经确认扩大范围。提交后清理错误如实报告已删除身份；Clear 再创建普通 replacement。Web 右上紧凑上下文卡片读取 Storage/Runtime/Journal 事实，TUI 增加来源 metadata。接受、恢复与删除契约见 [Runtime](Runtime_Session_Execution_Model.zh-CN.md#session-派生与全局并发)。
 
 ## 审批边界
 

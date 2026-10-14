@@ -154,12 +154,12 @@ export function SessionSidebar({
   })
 
   const deleteMutation = useMutation({
-    mutationFn: async ({ session, version, cleanupIds }: { session: SessionRecord; version?: string; cleanupIds?: string[] }) => {
+    mutationFn: async ({ session, sessionIds, cleanupIds }: { session: SessionRecord; sessionIds?: string[]; cleanupIds?: string[] }) => {
       if (cleanupIds?.length) {
         await cleanupDeletedSessions(cleanupIds)
         return { deleted: true as const, session_id: session.session_id, replacement_session_id: null, deleted_session_ids: cleanupIds }
       }
-      return deleteSession(session.session_id, { confirm: true, deletion_version: version })
+      return deleteSession(session.session_id, { confirm: true, session_ids: sessionIds })
     },
     onSuccess: async (response: DeleteSessionResponse, { session: deletedSession }) => {
       const ids = response.deleted_session_ids ?? [deletedSession.session_id]
@@ -406,7 +406,7 @@ export function SessionSidebar({
               disabled={!deleteCandidate || deleteMutation.isPending || (!cleanupIds.length && (!deletePreview.data || Boolean(deletePreview.data.blocked.length)))}
               onClick={() => {
                 if (deleteCandidate) {
-                  deleteMutation.mutate({ session: deleteCandidate, version: deletePreview.data?.version, cleanupIds })
+                  deleteMutation.mutate({ session: deleteCandidate, sessionIds: deletePreview.data?.sessions.map((member) => member.session_id), cleanupIds })
                 }
               }}
               type="button"

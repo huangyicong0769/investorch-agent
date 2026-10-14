@@ -11,7 +11,6 @@ from pydantic import BaseModel, ConfigDict, Field, StrictBool
 
 from investorch.application import ApplicationHost, submit_user_input
 from investorch.application.session_queries import read_session_context
-from investorch.application.sessions import session_deletion_version
 from investorch.filesystem import resolve_workspace_path
 from investorch.images import ACCEPTED_INPUT_MIME_TYPES, RENDERABLE_MIME_TYPES, ImageDetail, detect_image_media_type
 from investorch.inputs import normalize_user_input
@@ -87,7 +86,7 @@ class ConfirmRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     confirm: StrictBool
-    deletion_version: str | None = None
+    session_ids: list[str] | None = None
 
 
 class DeletionCleanupRequest(BaseModel):
@@ -537,7 +536,8 @@ async def delete_session(request: ConfirmRequest, session_id: str, host: Host) -
         )
     try:
         deleted_ids = await host.sessions.delete(
-            session_id, expected_version=request.deletion_version or session_deletion_version((session_id,))
+            session_id,
+            expected_session_ids=tuple(request.session_ids) if request.session_ids is not None else (session_id,),
         )
     except Exception as error:
         raise_application_error(error)
@@ -558,7 +558,9 @@ async def clear_session(request: ConfirmRequest, session: Session, host: Host) -
         preview = await host.sessions.deletion_preview(session.session_id)
         replacement_session_id = await host.sessions.clear(
             session.session_id,
-            expected_version=request.deletion_version or session_deletion_version((session.session_id,)),
+            expected_session_ids=tuple(request.session_ids)
+            if request.session_ids is not None
+            else (session.session_id,),
         )
     except Exception as error:
         raise_application_error(error)

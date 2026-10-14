@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import logging
 import threading
 import uuid
@@ -96,10 +95,6 @@ class SessionDeletionCleanupError(RuntimeError):
 
 class SessionDeletionUnsafeError(RuntimeError):
     pass
-
-
-def session_deletion_version(session_ids: tuple[str, ...]) -> str:
-    return hashlib.sha256("\0".join(sorted(session_ids)).encode()).hexdigest()[:24]
 
 
 class SessionAlreadyArchivedError(RuntimeError):
@@ -262,11 +257,11 @@ class SessionOperations:
         logger.info("Updated title for session %s", session_id)
         return updated
 
-    async def clear(self, session_id: str, *, expected_version: str | None = None) -> str:
+    async def clear(self, session_id: str, *, expected_session_ids: tuple[str, ...] | None = None) -> str:
         async with self.lifecycle_lock:
             if await asyncio.to_thread(is_session_archived, self._config.sessions_db, session_id):
                 raise SessionArchivedError
-            await self._delete(session_id, expected_version=expected_version)
+            await self._delete(session_id, expected_session_ids=expected_session_ids)
             replacement_session_id = await self.create()
         logger.info("Cleared session %s and started session %s", session_id, replacement_session_id)
         return replacement_session_id
@@ -292,24 +287,23 @@ class SessionOperations:
             blocked.extend({"session_id": fork, "code": "fork_referenced"} for fork in scope.external_fork_ids)
             return {
                 "session_id": session_id,
-                "version": session_deletion_version(scope.session_ids),
                 "sessions": [
                     {"session_id": r.session_id, "title": r.title} for r in records if r.session_id in scope.session_ids
                 ],
                 "blocked": blocked,
             }
 
-    async def delete(self, session_id: str, *, expected_version: str | None = None) -> tuple[str, ...]:
+    async def delete(self, session_id: str, *, expected_session_ids: tuple[str, ...] | None = None) -> tuple[str, ...]:
         async with self.lifecycle_lock:
-            return await self._delete(session_id, expected_version=expected_version)
+            return await self._delete(session_id, expected_session_ids=expected_session_ids)
 
-    async def _delete(self, session_id: str, *, expected_version: str | None) -> tuple[str, ...]:
+    async def _delete(self, session_id: str, *, expected_session_ids: tuple[str, ...] | None) -> tuple[str, ...]:
         async with AsyncExitStack() as reservations:
             try:
                 scope = await asyncio.to_thread(get_session_deletion_scope, self._config.sessions_db, session_id)
             except KeyError:
                 raise SessionNotFoundError(session_id) from None
-            if expected_version is not None and expected_version != session_deletion_version(scope.session_ids):
+            if expected_session_ids is not None and set(expected_session_ids) != set(scope.session_ids):
                 raise SessionDeletionScopeChangedError("Preview the changed Spawn descendants and confirm again")
             if scope.external_fork_ids:
                 raise SessionHasChildrenError

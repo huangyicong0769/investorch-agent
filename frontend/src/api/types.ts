@@ -149,7 +149,6 @@ export interface SessionContextResponse extends SessionContextEntry {
 }
 export interface SessionDeletionPreview {
   session_id: string
-  version: string
   sessions: { session_id: string; title: string | null }[]
   blocked: { session_id: string; code: string }[]
 }
@@ -606,7 +605,7 @@ export interface RenameSessionBody {
 
 export interface ConfirmBody {
   confirm: boolean
-  deletion_version?: string
+  session_ids?: string[]
 }
 
 export interface ResolveApprovalBody {
