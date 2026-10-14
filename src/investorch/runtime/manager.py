@@ -243,6 +243,9 @@ class AgentRuntime:
     def is_session_active(self, session_id: str) -> bool:
         return session_id in self._active_by_session
 
+    def is_session_reserved(self, session_id: str) -> bool:
+        return session_id in self._maintenance_sessions
+
     def list_active_runs(self) -> list[ActiveRun]:
         return list(self._active_by_session.values())
 
