@@ -81,7 +81,9 @@ async def test_changed_descendants_require_a_new_confirmation(tmp_path):
     harness = make_session_harness(tmp_path)
     root = await tree(harness)
     preview = await harness.operations.deletion_preview(root)
-    create_spawn_session(harness.runtime.config.sessions_db, "later", parent_session_id=root, parent_run_id="run", tool_call_id="later")
+    create_spawn_session(
+        harness.runtime.config.sessions_db, "later", parent_session_id=root, parent_run_id="run", tool_call_id="later"
+    )
     with pytest.raises(SessionDeletionScopeChangedError):
         await harness.operations.delete(root, expected_version=preview["version"])
     assert len(list_sessions(harness.runtime.config.sessions_db)) == 5
@@ -91,7 +93,7 @@ async def test_changed_descendants_require_a_new_confirmation(tmp_path):
 async def test_queued_descendant_prevents_any_persistent_delete(tmp_path):
     harness = make_session_harness(tmp_path)
     root = await tree(harness)
-    active = harness.runtime.runtime.start_run("child", "run", run_options("queue"))
+    harness.runtime.runtime.start_run("child", "run", run_options("queue"))
     await harness.runtime.agent_loop.wait_until_started("child")
     await harness.runtime.runtime.submit_follow_up("child", "pending", run_options())
     harness.runtime.runtime.cancel_run("child")
@@ -107,10 +109,17 @@ async def test_precommit_failure_rolls_back_the_whole_tree_and_releases_all_fenc
     harness = make_session_harness(tmp_path)
     root = await tree(harness)
     with sqlite3.connect(harness.runtime.config.sessions_db) as connection:
-        connection.execute("CREATE TRIGGER reject_delete BEFORE DELETE ON agent_sessions WHEN OLD.session_id = 'child' BEGIN SELECT RAISE(ABORT, 'controlled failure'); END")
+        connection.execute(
+            "CREATE TRIGGER reject_delete BEFORE DELETE ON agent_sessions WHEN OLD.session_id = 'child' BEGIN SELECT RAISE(ABORT, 'controlled failure'); END"
+        )
     with pytest.raises(sqlite3.IntegrityError):
         await harness.operations.delete(root)
-    assert {r.session_id for r in list_sessions(harness.runtime.config.sessions_db)} == {root, "child", "grandchild", "sibling"}
+    assert {r.session_id for r in list_sessions(harness.runtime.config.sessions_db)} == {
+        root,
+        "child",
+        "grandchild",
+        "sibling",
+    }
     for member in (root, "child", "grandchild", "sibling"):
         await harness.runtime.journal.record_user_message(member, "still writable")
         assert not harness.runtime.runtime.is_session_reserved(member)
@@ -121,10 +130,12 @@ async def test_postcommit_file_failure_reports_deleted_ids_and_can_be_cleaned_ag
     harness = make_session_harness(tmp_path)
     root = await tree(harness)
     original_unlink = Path.unlink
+
     def fail_one(path, *args, **kwargs):
         if path.name == "child.jsonl":
             raise OSError("controlled file cleanup failure")
         return original_unlink(path, *args, **kwargs)
+
     monkeypatch.setattr(Path, "unlink", fail_one)
     with pytest.raises(SessionDeletionCleanupError) as failed:
         await harness.operations.delete(root)
