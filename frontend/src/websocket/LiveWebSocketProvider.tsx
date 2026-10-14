@@ -32,6 +32,8 @@ import type {
   OutputEvent,
   RuntimeStateLiveEvent,
   SessionStateResponse,
+  SessionContextResponse,
+  SessionContextStatus,
   TodoItem,
 } from '../api/types'
 import {
@@ -676,6 +678,27 @@ export function LiveWebSocketProvider({ children }: PropsWithChildren) {
   }
 
   const processEvent = (event: ParsedLiveEvent) => {
+    if (event.kind === 'runtime_state' || event.kind === 'run_ended' || event.kind === 'user_input_committed') {
+      void queryClient.cancelQueries({ queryKey: queryKeys.sessionContexts() })
+      const live = queryClient.getQueryData<SessionStateResponse>(queryKeys.sessionState(event.session_id))?.runtime
+      const status: SessionContextStatus = event.kind === 'runtime_state'
+        ? event.run_phase ?? (event.queued_count || event.pending_steer_count ? 'pending' : 'idle')
+        : event.kind === 'run_ended'
+          ? live?.run_id && live.run_id !== event.run_id ? live.run_phase ?? 'running'
+            : live?.queued_count || live?.pending_steer_count ? 'pending' : event.status
+          : live?.run_phase ?? 'idle'
+      queryClient.setQueriesData<SessionContextResponse>({ queryKey: queryKeys.sessionContexts() }, (current) =>
+        current ? {
+          ...current,
+          status: current.session.session_id === event.session_id ? status : current.status,
+          children: current.children.map((child) => child.session.session_id === event.session_id ? { ...child, status } : child),
+        } : current,
+      )
+      void queryClient.invalidateQueries({ queryKey: queryKeys.sessionContexts() })
+      if (event.kind === 'user_input_committed') {
+        void queryClient.invalidateQueries({ queryKey: queryKeys.sessions() })
+      }
+    }
     if (event.kind === 'approval_required') {
       const request = approvalFromEvent(event)
       updateSessionApproval(queryClient, event.session_id, (current) => addPendingApproval(current, request))
@@ -891,6 +914,8 @@ export function LiveWebSocketProvider({ children }: PropsWithChildren) {
       onStatusChange: (nextStatus) => {
         connectionStatusRef.current = nextStatus
         if (nextStatus === 'connected') {
+          void queryClient.cancelQueries({ queryKey: queryKeys.sessionContexts() })
+          void queryClient.invalidateQueries({ queryKey: queryKeys.sessionContexts() })
           const currentSessionId = selectedSessionRef.current
           if (currentSessionId) {
             setStatus('reconnecting')

@@ -9,6 +9,8 @@ import {
   getPortfolios,
   getProcesses,
   getSession,
+  getSessionContext,
+  getSessionDeletionPreview,
   getSessionHistory,
   getSessionRelatedPortfolios,
   getSessionState,
@@ -26,6 +28,9 @@ export const queryKeys = {
   portfolioLedger: (portfolioId: string) => [...queryKeys.portfolioRecords(), portfolioId, 'ledger'] as const,
   portfolios: () => [...queryKeys.all, 'portfolios'] as const,
   session: (sessionId: string) => [...queryKeys.all, 'session', sessionId] as const,
+  sessionContexts: () => [...queryKeys.all, 'session-context'] as const,
+  sessionContext: (sessionId: string) => [...queryKeys.sessionContexts(), sessionId] as const,
+  sessionDeletionPreview: (sessionId: string) => [...queryKeys.all, 'session', sessionId, 'deletion-preview'] as const,
   sessionHistory: (sessionId: string, beforeSeq?: number, limit?: number) =>
     [...queryKeys.all, 'session', sessionId, 'history', { beforeSeq, limit }] as const,
   sessionHistoryPages: (sessionId: string) =>
@@ -83,6 +88,17 @@ export const sessionQueryOptions = (sessionId: string) =>
     queryKey: queryKeys.session(sessionId),
     queryFn: ({ signal }) => getSession(sessionId, { signal }),
   })
+
+export const sessionContextQueryOptions = (sessionId: string) => queryOptions({
+  queryKey: queryKeys.sessionContext(sessionId),
+  queryFn: ({ signal }) => getSessionContext(sessionId, { signal }),
+})
+
+export const sessionDeletionPreviewQueryOptions = (sessionId: string) => queryOptions({
+  queryKey: queryKeys.sessionDeletionPreview(sessionId),
+  queryFn: ({ signal }) => getSessionDeletionPreview(sessionId, { signal }),
+  staleTime: 0,
+})
 
 export const sessionStateQueryOptions = (sessionId: string) =>
   queryOptions({

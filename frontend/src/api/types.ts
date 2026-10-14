@@ -136,6 +136,24 @@ export interface SessionResponse {
   session: SessionRecord
 }
 
+export type SessionContextStatus = RunPhase | 'pending' | 'idle' | 'completed' | 'failed' | 'cancelled'
+export interface SessionContextEntry {
+  session: SessionRecord
+  status: SessionContextStatus
+}
+export interface SessionContextResponse extends SessionContextEntry {
+  parent: SessionRecord | null
+  fork_source: SessionRecord | null
+  children: SessionContextEntry[]
+  errors: { session_id: string; code: string }[]
+}
+export interface SessionDeletionPreview {
+  session_id: string
+  version: string
+  sessions: { session_id: string; title: string | null }[]
+  blocked: { session_id: string; code: string }[]
+}
+
 export interface PortfolioSessionResponse extends SessionResponse {
   run_id: string | null
   started: boolean
@@ -496,12 +514,14 @@ export interface StopResponse {
 
 export interface ClearSessionResponse {
   replacement_session_id: string
+  deleted_session_ids?: string[]
 }
 
 export interface DeleteSessionResponse {
   deleted: true
   session_id: string
   replacement_session_id: string | null
+  deleted_session_ids?: string[]
 }
 
 export interface DiscardUnusedResponse {
@@ -586,6 +606,7 @@ export interface RenameSessionBody {
 
 export interface ConfirmBody {
   confirm: boolean
+  deletion_version?: string
 }
 
 export interface ResolveApprovalBody {

@@ -1,13 +1,15 @@
 import type { SessionRecord } from '../../api/types'
+import type { ReactNode } from 'react'
 import { sessionTitle, shortSessionId } from '../../lib/session'
 import { useWebSocketStatus } from '../../websocket/LiveWebSocketProvider'
 import { SessionMenu } from './SessionMenu'
 
 interface ConversationHeaderProps {
   session: SessionRecord
+  context?: ReactNode
 }
 
-export function ConversationHeader({ session }: ConversationHeaderProps) {
+export function ConversationHeader({ session, context }: ConversationHeaderProps) {
   const archived = session.archived_at !== null
   const connectionStatus = useWebSocketStatus()
 
@@ -28,6 +30,7 @@ export function ConversationHeader({ session }: ConversationHeaderProps) {
         </div>
       </div>
       <div className="flex shrink-0 items-center gap-1">
+        {context}
         <SessionMenu key={session.session_id} session={session} />
       </div>
     </header>
