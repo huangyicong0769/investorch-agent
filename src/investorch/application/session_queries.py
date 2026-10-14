@@ -66,6 +66,8 @@ async def list_sessions(
             "title": record.title,
             "archived": record.archived_at is not None,
             "branch_from_session_id": record.branch_from_session_id,
+            "spawned_by_session_id": record.spawned_by_session_id,
+            "spawned_by_run_id": record.spawned_by_run_id,
             "created_at": record.created_at,
             "updated_at": record.updated_at,
             "status": status,

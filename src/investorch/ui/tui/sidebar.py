@@ -46,6 +46,8 @@ class SessionListItem(ListItem):
         metadata = [record.session_id[:8]]
         if record.branch_from_session_id:
             metadata.append(f"↳ {record.branch_from_session_id[:8]}")
+        if record.spawned_by_session_id:
+            metadata.append(f"Parent {record.spawned_by_session_id[:8]}")
         if record.archived_at is not None:
             metadata.append("Archived")
         classes = "current-session" if current else None

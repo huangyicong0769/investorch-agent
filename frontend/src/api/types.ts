@@ -36,6 +36,8 @@ export interface SessionRecord {
   session_id: string
   title: string | null
   branch_from_session_id: string | null
+  spawned_by_session_id?: string | null
+  spawned_by_run_id?: string | null
   archived_at: string | null
   created_at: string
   updated_at: string
