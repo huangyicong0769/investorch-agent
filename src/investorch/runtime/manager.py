@@ -475,8 +475,7 @@ class AgentRuntime:
             yield
         finally:
             self._maintenance_sessions.discard(session_id)
-            await self._try_promote_steer_fallback(session_id)
-            await self._try_promote_queue(session_id)
+            await self._promote_follow_ups(session_id)
 
     async def compact_session(self, session_id: str) -> CompactionResult:
         async with self.reserve_session(session_id, allow_pending_work=True):
@@ -698,8 +697,17 @@ class AgentRuntime:
                         discarded_steer_seqs=discarded_steer_seqs,
                     )
                 )
-                await self._try_promote_steer_fallback(session_id)
-                await self._try_promote_queue(session_id)
+                await self._promote_follow_ups(session_id)
+
+    async def _promote_follow_ups(self, session_id: str) -> None:
+        await self._try_promote_steer_fallback(session_id)
+        await self._try_promote_queue(session_id)
+        # A different Session may have spent this Run's slot while run_ended was being journaled.
+        # Retry durable fallbacks when any Run/reservation ends. _start_run registers before its
+        # first await, so overlapping completion callbacks cannot promote the same input twice.
+        for pending_session_id in tuple(self._steer_fallback_by_session):
+            if pending_session_id != session_id:
+                await self._try_promote_steer_fallback(pending_session_id)
 
     def _notify_state(self, session_id: str) -> None:
         if self._state_handler is None:
@@ -764,6 +772,11 @@ class AgentRuntime:
                 start_gate=start_gate,
                 allow_steer_fallback=True,
             )
+        except RunCapacityExceededError:
+            self._steer_fallback_by_session.setdefault(session_id, deque()).appendleft(steer)
+            self._notify_state(session_id)
+            logger.info("Steer fallback retained at Run capacity session=%s steer=%s", session_id, steer.steer_id)
+            return
         except Exception:
             self._steer_fallback_by_session.setdefault(session_id, deque()).appendleft(steer)
             raise
@@ -867,6 +880,11 @@ class AgentRuntime:
                 start_gate=start_gate,
                 allow_queue_promotion=True,
             )
+        except RunCapacityExceededError:
+            self._queued_by_session.setdefault(session_id, deque()).appendleft(queued_input)
+            self.pause_queue(session_id)
+            logger.info("Queue promotion paused at Run capacity session=%s queue=%s", session_id, queued_input.queue_id)
+            return
         except Exception:
             self._queued_by_session.setdefault(session_id, deque()).appendleft(queued_input)
             raise

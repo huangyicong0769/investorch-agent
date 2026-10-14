@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 
 from investorch.config import ConfigError, load_config
+from investorch.journal import read_session_journal
 from investorch.runtime import RunCapacityExceededError
 from tests.support.runtime import make_runtime_harness, run_options
 
@@ -54,3 +55,68 @@ def test_invalid_capacity_updates_leave_the_effective_and_saved_config_unchanged
         harness.config.update("runtime.max_concurrent_runs", value, persist=True)
     assert harness.config["runtime.max_concurrent_runs"] == 3
     assert harness.config.root_config_path.read_bytes() == before
+
+
+async def test_capacity_pauses_queue_without_losing_fifo_options_or_failing_the_finished_run(tmp_path: Path) -> None:
+    harness = make_runtime_harness(tmp_path, journal_run_ended=True)
+    try:
+        first = harness.runtime.start_run("a", "first", run_options("queue"))
+        harness.runtime.start_run("b", "occupy", run_options())
+        for name in ("a", "b"):
+            await harness.agent_loop.wait_until_started(name)
+        queued = await harness.runtime.submit_follow_up("a", "follow-up", run_options("queue"))
+        harness.config.update("runtime.max_concurrent_runs", 1, persist=False)
+        harness.agent_loop.complete("a")
+        await first.task
+
+        snapshot = harness.runtime.session_snapshot("a")
+        assert snapshot.queue_paused and snapshot.queued_count == 1
+        assert harness.runtime.list_queued_inputs("a")[0].queue_id == queued.follow_up_id
+        assert harness.run_ended[0].status == "completed"
+        assert [
+            r["text"]
+            for r in read_session_journal(harness.config.session_journal_dir, "a")
+            if r["type"] == "user_message"
+        ] == ["first"]
+        harness.agent_loop.complete("b")
+        await harness.wait_for_run_ended("b")
+        assert harness.runtime.session_snapshot("a").queue_paused
+        await harness.runtime.resume_queue("a")
+        await harness.agent_loop.wait_until_started("a", occurrence=2)
+        assert harness.runtime.get_active_run("a").options == run_options("queue")
+        assert [
+            r["text"]
+            for r in read_session_journal(harness.config.session_journal_dir, "a")
+            if r["type"] == "user_message"
+        ] == ["first", "follow-up"]
+    finally:
+        await harness.runtime.aclose()
+
+
+async def test_capacity_retains_durable_steer_fallback_and_recovers_when_another_run_ends(tmp_path: Path) -> None:
+    harness = make_runtime_harness(tmp_path, journal_run_ended=True)
+    try:
+        first = harness.runtime.start_run("a", "first", run_options())
+        other = harness.runtime.start_run("b", "occupy", run_options())
+        for name in ("a", "b"):
+            await harness.agent_loop.wait_until_started(name)
+        await harness.runtime.submit_follow_up("a", "steer", run_options())
+        harness.config.update("runtime.max_concurrent_runs", 1, persist=False)
+        harness.agent_loop.complete("a")
+        await first.task
+        assert harness.run_ended[0].status == "completed"
+        assert harness.runtime.session_snapshot("a").pending_steer_count == 1
+        records = read_session_journal(harness.config.session_journal_dir, "a")
+        source = next(r["seq"] for r in records if r["type"] == "user_steer")
+
+        harness.agent_loop.complete("b")
+        await other.task
+        await harness.agent_loop.wait_until_started("a", occurrence=2)
+        records = read_session_journal(harness.config.session_journal_dir, "a")
+        assert [r["text"] for r in records if r["type"] == "user_message"] == ["first"]
+        assert [r["seq"] for r in records if r["type"] == "user_steer"] == [source]
+        activation = next(r for r in records if r["type"] == "user_steers_activated")
+        assert activation["user_steer_seqs"] == [source]
+        assert harness.agent_loop.input_for("a").user_input == "steer"
+    finally:
+        await harness.runtime.aclose()
