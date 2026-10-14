@@ -188,4 +188,4 @@ Journal 在用户消息、Steer、Assistant、Tool 输出增加可选 `images`�
 
 Web 将整行 Portfolio 横幅替换为右上紧凑卡片，分组展示关联 Portfolio、直接 child 与独立 Parent/Fork 导航；窄屏使用可访问的 Context 弹窗。当前 Runtime phase 优先；Completed/Failed/Cancelled 必须有可信最近 `run_ended` 且没有更新的 turn 活动，Idle 本身只表示 Idle。Sidebar 仍平铺，child 打开普通完整对话。TUI 在已有 Session metadata 显示 parent 短 ID。
 
-普通 WebSocket Runtime 更新只修改已有 Context 查询缓存，不重复读取 Journal。空 Runtime 快照保留已有可信终态；新输入先清除旧终态，显示 Pending，随后由当前 Runtime/Journal 事实更新。输入提交和 Run 结束只刷新受影响的自身与 parent Context；新 child metadata 尚未可见时刷新关系，重连统一重同步。首次或较慢的 HTTP 读取会合并请求期间收到的 Runtime 快照，请求结束即丢弃临时监听器。历史终态仍来自 Journal，没有第二份完成状态存储。
+普通 WebSocket Runtime 更新只修改已有 Context 查询缓存，不重复读取 Journal。空 Runtime 快照保留已有可信终态；新输入先清除旧终态，显示 Pending，随后由当前 Runtime/Journal 事实更新。输入提交和 Run 结束只刷新受影响的自身与 parent Context；新 child metadata 尚未可见时刷新关系，重连统一重同步。首次或较慢的 HTTP 读取会合并请求期间收到的 Runtime 快照；若结果包含的 Session 在读取期间结束，即使 parent metadata 尚未可见，也重新读取 Journal。请求结束即丢弃临时监听器，历史终态来自 Journal。
