@@ -306,6 +306,7 @@ async def open_application_host(
                     state_handler=handle_runtime_state,
                     run_ended_handler=handle_run_ended,
                     follow_up_handler=callbacks.handle_follow_up,
+                    max_concurrent_runs=lambda: config["runtime.max_concurrent_runs"],
                 )
                 agent.tools.extend(
                     make_session_tools(

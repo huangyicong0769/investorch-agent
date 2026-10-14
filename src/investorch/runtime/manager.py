@@ -29,6 +29,7 @@ from .models import (
     FollowUpSubmission,
     PendingSteer,
     QueuedInput,
+    RunCapacityExceededError,
     RunOptions,
     RuntimeFollowUpEvent,
     RuntimeOutput,
@@ -102,6 +103,7 @@ class AgentRuntime:
         state_handler: RuntimeStateHandler | None = None,
         run_ended_handler: RunEndedHandler | None = None,
         follow_up_handler: RuntimeFollowUpHandler | None = None,
+        max_concurrent_runs: Callable[[], int] = lambda: 3,
     ) -> None:
         self._agent_loop = agent_loop
         self._execution = execution
@@ -115,6 +117,7 @@ class AgentRuntime:
         self._record_user_steers_activated = record_user_steers_activated
         self._record_user_steers_discarded = record_user_steers_discarded
         self._follow_up_handler = follow_up_handler
+        self._max_concurrent_runs = max_concurrent_runs
         self._active_by_session: dict[str, ActiveRun] = {}
         self._active_by_run: dict[str, ActiveRun] = {}
         self._run_tasks: set[asyncio.Task[AgentRunResult]] = set()
@@ -192,6 +195,10 @@ class AgentRuntime:
             or (not allow_queue_promotion and bool(self._queued_by_session.get(session_id)))
         ):
             raise SessionBusyError(f"Session {session_id} already has an active operation")
+
+        limit = self._max_concurrent_runs()
+        if len(self._active_by_session) >= limit:
+            raise RunCapacityExceededError(active=len(self._active_by_session), limit=limit)
 
         run_id = uuid.uuid4().hex
         started_at = datetime.now(UTC)
