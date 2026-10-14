@@ -97,6 +97,34 @@ def session_exists(db_path: str | Path, session_id: str) -> bool:
     return row is not None
 
 
+def delete_unstarted_spawn_session(db_path: str | Path, session_id: str) -> bool:
+    """Rollback only an unstarted Spawn; ordinary unused cleanup never removes lineage."""
+    with closing(sqlite3.connect(db_path)) as connection:
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            eligible = connection.execute(
+                """
+                SELECT 1 FROM session_spawn_lineage WHERE session_id = ?
+                    AND NOT EXISTS (SELECT 1 FROM agent_messages WHERE session_id = ?)
+                    AND NOT EXISTS (SELECT 1 FROM extra_session_metadata
+                        WHERE session_id = ? AND application_workflow_started != 0)
+                    AND NOT EXISTS (SELECT 1 FROM session_spawn_lineage WHERE parent_session_id = ?)
+                    AND NOT EXISTS (SELECT 1 FROM session_lineage WHERE branch_from_session_id = ? OR session_id = ?)
+                """,
+                (session_id,) * 6,
+            ).fetchone()
+            if eligible is None:
+                return False
+            connection.execute("DELETE FROM session_spawn_lineage WHERE session_id = ?", (session_id,))
+            connection.execute("DELETE FROM extra_session_metadata WHERE session_id = ?", (session_id,))
+            connection.execute("DELETE FROM agent_sessions WHERE session_id = ?", (session_id,))
+            connection.commit()
+            return True
+        except BaseException:
+            connection.rollback()
+            raise
+
+
 def delete_unused_session(db_path: str | Path, session_id: str) -> bool:
     with closing(sqlite3.connect(db_path)) as connection:
         cursor = connection.execute(
