@@ -710,7 +710,7 @@ export function LiveWebSocketProvider({ children }: PropsWithChildren) {
           if (event.kind === 'runtime_state') {
             const terminal = entry.status === 'completed' || entry.status === 'failed' || entry.status === 'cancelled'
             status = event.run_phase ?? (event.queued_count || event.pending_steer_count ? 'pending' : terminal ? entry.status : 'idle')
-            idleNeedsHistory ||= status === 'idle' && (entry.status === 'running' || entry.status === 'waiting_approval' || entry.status === 'stopping')
+            idleNeedsHistory ||= status === 'idle' && (entry.status === 'running' || entry.status === 'waiting_approval' || entry.status === 'stopping' || entry.status === 'pending')
           } else if (event.kind === 'run_ended') {
             status = live?.run_id && live.run_id !== event.run_id ? live.run_phase ?? 'pending'
               : live?.queued_count || live?.pending_steer_count ? 'pending'
