@@ -10,6 +10,7 @@ from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field, StrictBool
 
 from investorch.application import ApplicationHost, submit_user_input
+from investorch.application.sessions import session_deletion_version
 from investorch.filesystem import resolve_workspace_path
 from investorch.images import ACCEPTED_INPUT_MIME_TYPES, RENDERABLE_MIME_TYPES, ImageDetail, detect_image_media_type
 from investorch.inputs import normalize_user_input
@@ -85,6 +86,13 @@ class ConfirmRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     confirm: StrictBool
+    deletion_version: str | None = None
+
+
+class DeletionCleanupRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    confirm: StrictBool
+    session_ids: list[str] = Field(min_length=1, max_length=1000)
 
 
 class UpdateDefaultsRequest(BaseModel):
@@ -492,6 +500,25 @@ async def unarchive_session(session: Session, host: Host) -> dict[str, object]:
     return {"session": serialize_session_record(unarchived)}
 
 
+@router.get("/sessions/{session_id}/deletion-preview")
+async def deletion_preview(session: Session, host: Host) -> dict[str, object]:
+    try:
+        return await host.sessions.deletion_preview(session.session_id)
+    except Exception as error:
+        raise_application_error(error)
+
+
+@router.post("/sessions/deletion-cleanup")
+async def cleanup_deleted_sessions(request: DeletionCleanupRequest, host: Host) -> dict[str, object]:
+    if not request.confirm:
+        raise APIError(400, "confirmation_required", "Confirm cleanup of already deleted Session histories.")
+    try:
+        await host.sessions.cleanup_deleted_sessions(tuple(request.session_ids))
+    except Exception as error:
+        raise_application_error(error)
+    return {"cleaned": True, "deleted_session_ids": request.session_ids}
+
+
 @router.delete("/sessions/{session_id}")
 async def delete_session(request: ConfirmRequest, session_id: str, host: Host) -> dict[str, object]:
     _require_confirmation(request, "delete this session")
@@ -501,13 +528,16 @@ async def delete_session(request: ConfirmRequest, session_id: str, host: Host) -
             404, "session_not_found", "The requested session does not exist.", details={"session_id": session_id}
         )
     try:
-        await host.sessions.delete(session_id)
+        deleted_ids = await host.sessions.delete(
+            session_id, expected_version=request.deletion_version or session_deletion_version((session_id,))
+        )
     except Exception as error:
         raise_application_error(error)
-    if session_id == host.initial_session_id:
+    if host.initial_session_id in deleted_ids:
         host.initial_session_id = None
     return {
         "deleted": True,
+        "deleted_session_ids": list(deleted_ids),
         "session_id": session_id,
         "replacement_session_id": None,
     }
@@ -517,12 +547,19 @@ async def delete_session(request: ConfirmRequest, session_id: str, host: Host) -
 async def clear_session(request: ConfirmRequest, session: Session, host: Host) -> dict[str, object]:
     _require_confirmation(request, "clear this session")
     try:
-        replacement_session_id = await host.sessions.clear(session.session_id)
+        preview = await host.sessions.deletion_preview(session.session_id)
+        replacement_session_id = await host.sessions.clear(
+            session.session_id,
+            expected_version=request.deletion_version or session_deletion_version((session.session_id,)),
+        )
     except Exception as error:
         raise_application_error(error)
     if session.session_id == host.initial_session_id:
         host.initial_session_id = replacement_session_id
-    return {"replacement_session_id": replacement_session_id}
+    return {
+        "replacement_session_id": replacement_session_id,
+        "deleted_session_ids": [r["session_id"] for r in preview["sessions"]],
+    }
 
 
 @router.post("/sessions/{session_id}/compact")

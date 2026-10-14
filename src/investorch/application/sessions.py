@@ -21,7 +21,6 @@ from investorch.storage import (
     add_session_related_portfolio_ids,
     archive_session,
     create_session,
-    delete_session_metadata,
     delete_session_transaction,
     delete_unused_session,
     fork_session,
@@ -93,6 +92,10 @@ class SessionDeletionCleanupError(RuntimeError):
     def __init__(self, session_ids: tuple[str, ...]) -> None:
         self.deleted_session_ids = session_ids
         super().__init__("Session identities were deleted, but history cleanup is incomplete. Check System Status.")
+
+
+class SessionDeletionUnsafeError(RuntimeError):
+    pass
 
 
 def session_deletion_version(session_ids: tuple[str, ...]) -> str:
@@ -259,18 +262,11 @@ class SessionOperations:
         logger.info("Updated title for session %s", session_id)
         return updated
 
-    async def clear(self, session_id: str) -> str:
-        if await asyncio.to_thread(is_session_archived, self._config.sessions_db, session_id):
-            raise SessionArchivedError
-        if self._runtime.has_queued_inputs(session_id):
-            raise SessionHasQueuedInputsError
-        async with self.lifecycle_lock, self._runtime.reserve_session(session_id):
-            session = SQLiteSession(session_id, self._config.sessions_db)
-            try:
-                await session.clear_session()
-            finally:
-                session.close()
-            await asyncio.to_thread(delete_session_metadata, self._config.sessions_db, session_id)
+    async def clear(self, session_id: str, *, expected_version: str | None = None) -> str:
+        async with self.lifecycle_lock:
+            if await asyncio.to_thread(is_session_archived, self._config.sessions_db, session_id):
+                raise SessionArchivedError
+            await self._delete(session_id, expected_version=expected_version)
             replacement_session_id = await self.create()
         logger.info("Cleared session %s and started session %s", session_id, replacement_session_id)
         return replacement_session_id
@@ -304,7 +300,11 @@ class SessionOperations:
             }
 
     async def delete(self, session_id: str, *, expected_version: str | None = None) -> tuple[str, ...]:
-        async with self.lifecycle_lock, AsyncExitStack() as reservations:
+        async with self.lifecycle_lock:
+            return await self._delete(session_id, expected_version=expected_version)
+
+    async def _delete(self, session_id: str, *, expected_version: str | None) -> tuple[str, ...]:
+        async with AsyncExitStack() as reservations:
             try:
                 scope = await asyncio.to_thread(get_session_deletion_scope, self._config.sessions_db, session_id)
             except KeyError:
@@ -323,7 +323,12 @@ class SessionOperations:
             commit_lock = threading.Lock()
             try:
                 for member in scope.session_ids:
-                    await self._journal.prepare_session_delete(member)
+                    try:
+                        await self._journal.prepare_session_delete(member)
+                    except (RuntimeError, ValueError, OSError) as error:
+                        raise SessionDeletionUnsafeError(
+                            "Session history is unsafe to delete; check System Status."
+                        ) from error
                     fenced.append(member)
                 committed, error = await _await_delete_transaction(
                     asyncio.to_thread(
@@ -360,10 +365,14 @@ class SessionOperations:
         for member in session_ids:
             try:
                 await self._journal.delete_session(member)
-                self._presentation_state.delete(member)
             except BaseException:
                 failed = True
                 logger.exception("Session delete committed but cleanup failed session=%s", member)
+            try:
+                self._presentation_state.delete(member)
+            except BaseException:
+                failed = True
+                logger.exception("Session delete committed but presentation cleanup failed session=%s", member)
         if failed:
             raise SessionDeletionCleanupError(session_ids)
 

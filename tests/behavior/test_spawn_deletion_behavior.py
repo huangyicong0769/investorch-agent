@@ -12,6 +12,7 @@ from investorch.runtime import SessionBusyError
 from investorch.storage import SessionDeletionScopeChangedError, create_spawn_session, get_session, list_sessions
 from tests.support.runtime import run_options
 from tests.support.sessions import make_session_harness
+from tests.support.web import open_test_web
 
 
 async def tree(harness):
@@ -74,6 +75,18 @@ async def test_deleting_a_child_preserves_its_parent_and_sibling(tmp_path):
     root = await tree(harness)
     assert set(await harness.operations.delete("child")) == {"child", "grandchild"}
     assert {r.session_id for r in list_sessions(harness.runtime.config.sessions_db)} == {root, "sibling"}
+    await harness.runtime.runtime.aclose()
+
+
+async def test_clear_has_the_same_cascade_contract_and_creates_a_plain_replacement(tmp_path):
+    harness = make_session_harness(tmp_path)
+    root = await tree(harness)
+    replacement = await harness.operations.clear(root)
+    assert [r.session_id for r in list_sessions(harness.runtime.config.sessions_db)] == [replacement]
+    record = get_session(harness.runtime.config.sessions_db, replacement)
+    assert record.spawned_by_session_id is None and record.branch_from_session_id is None
+    for member in (root, "child", "grandchild", "sibling"):
+        assert not await harness.runtime.journal.session_exists(member)
     await harness.runtime.runtime.aclose()
 
 
@@ -146,3 +159,48 @@ async def test_postcommit_file_failure_reports_deleted_ids_and_can_be_cleaned_ag
     for member in failed.value.deleted_session_ids:
         assert not await harness.runtime.journal.session_exists(member)
     await harness.runtime.runtime.aclose()
+
+
+async def test_web_requires_the_reviewed_scope_and_clear_returns_all_deleted_ids(tmp_path):
+    async with open_test_web(tmp_path) as web:
+        root = await web.host.sessions.create()
+        create_spawn_session(
+            web.host.config.sessions_db, "child", parent_session_id=root, parent_run_id="run", tool_call_id="child"
+        )
+        preview = (await web.client.get(f"/api/sessions/{root}/deletion-preview")).json()
+        assert {s["session_id"] for s in preview["sessions"]} == {root, "child"}
+        assert preview["blocked"] == []
+        unreviewed = await web.client.request("DELETE", f"/api/sessions/{root}", json={"confirm": True})
+        assert unreviewed.status_code == 409 and unreviewed.json()["error"]["code"] == "session_deletion_changed"
+        create_spawn_session(
+            web.host.config.sessions_db, "later", parent_session_id=root, parent_run_id="run", tool_call_id="later"
+        )
+        stale = await web.client.request(
+            "DELETE", f"/api/sessions/{root}", json={"confirm": True, "deletion_version": preview["version"]}
+        )
+        assert stale.status_code == 409
+        refreshed = (await web.client.get(f"/api/sessions/{root}/deletion-preview")).json()
+        cleared = await web.client.post(
+            f"/api/sessions/{root}/clear", json={"confirm": True, "deletion_version": refreshed["version"]}
+        )
+        assert cleared.status_code == 200
+        assert set(cleared.json()["deleted_session_ids"]) == {root, "child", "later"}
+        replacement = get_session(web.host.config.sessions_db, cleared.json()["replacement_session_id"])
+        assert replacement.spawned_by_session_id is None
+
+
+async def test_web_preview_names_busy_descendants_and_does_not_stop_them(tmp_path):
+    async with open_test_web(tmp_path) as web:
+        root = await web.host.sessions.create()
+        create_spawn_session(
+            web.host.config.sessions_db, "child", parent_session_id=root, parent_run_id="run", tool_call_id="child"
+        )
+        web.host.runtime.start_run("child", "run", run_options())
+        await web.runtime.agent_loop.wait_until_started("child")
+        preview = (await web.client.get(f"/api/sessions/{root}/deletion-preview")).json()
+        assert {"session_id": "child", "code": "session_busy"} in preview["blocked"]
+        refused = await web.client.request(
+            "DELETE", f"/api/sessions/{root}", json={"confirm": True, "deletion_version": preview["version"]}
+        )
+        assert refused.status_code == 409
+        assert web.host.runtime.session_snapshot("child").run_phase == "running"

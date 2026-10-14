@@ -21,8 +21,14 @@ from investorch.application import (
     SessionNotFoundError,
     SteerPromotionPendingError,
 )
+from investorch.application.sessions import SessionDeletionCleanupError, SessionDeletionUnsafeError
 from investorch.runtime import RunCapacityExceededError, SessionBusyError
-from investorch.storage import SessionForkError, SessionForkRollbackError
+from investorch.storage import (
+    SessionDeletionScopeChangedError,
+    SessionForkError,
+    SessionForkRollbackError,
+    SessionMetadataError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +43,23 @@ class APIError(Exception):
 
 
 def raise_application_error(error: Exception) -> NoReturn:
+    if isinstance(error, SessionDeletionScopeChangedError):
+        raise APIError(
+            409, "session_deletion_changed", "Spawn descendants changed. Preview the deletion and confirm again."
+        ) from error
+    if isinstance(error, SessionDeletionCleanupError):
+        raise APIError(
+            503,
+            "session_cleanup_failed",
+            str(error),
+            details={"consistency_uncertain": True, "deleted_session_ids": list(error.deleted_session_ids)},
+        ) from error
+    if isinstance(error, SessionDeletionUnsafeError):
+        raise APIError(409, "session_delete_unsafe", str(error)) from error
+    if isinstance(error, SessionMetadataError):
+        raise APIError(
+            409, "session_lineage_invalid", "Session provenance is inconsistent. Check System Status before deleting."
+        ) from error
     if isinstance(error, RunCapacityExceededError):
         raise APIError(
             429, "capacity_exceeded", str(error), details={"active": error.active, "limit": error.limit}
@@ -95,7 +118,11 @@ def raise_application_error(error: Exception) -> NoReturn:
             503, "fork_failed", "The session could not be forked.", details={"consistency_uncertain": False}
         ) from error
     if isinstance(error, SessionBusyError):
-        raise APIError(409, "session_busy", "This session has an active operation.") from error
+        raise APIError(
+            409,
+            "session_busy",
+            "A Session has an active operation or pending input. Open it and stop or resolve its inputs before retrying.",
+        ) from error
     raise error
 
 
