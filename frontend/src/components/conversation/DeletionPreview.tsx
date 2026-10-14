@@ -10,6 +10,7 @@ export function DeletionPreview({ preview, pending, error, onRetry, onNavigate }
     {pending ? <p role="status">Loading deletion scope…</p> : null}
     {error ? <div role="alert"><p>Deletion preview unavailable.</p><Button size="xs" variant="ghost" onClick={onRetry}>Reload preview</Button></div> : null}
     {preview ? <>
+      <Button size="xs" variant="ghost" onClick={onRetry}>Refresh preview</Button>
       <p className="text-muted-foreground">{preview.sessions.length} {preview.sessions.length === 1 ? 'Session' : 'Sessions'}, including {preview.sessions.length - 1} spawned descendants. This cannot be undone.</p>
       <ul className="mt-2 max-h-40 space-y-1 overflow-y-auto rounded-md border border-border p-2">
         {preview.sessions.map((session) => <li key={session.session_id}>{session.title?.trim() || session.session_id.slice(0, 8)}</li>)}

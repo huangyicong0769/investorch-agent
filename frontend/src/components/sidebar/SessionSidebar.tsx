@@ -147,6 +147,7 @@ export function SessionSidebar({
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: queryKeys.sessions() }),
         queryClient.invalidateQueries({ queryKey: queryKeys.archivedSessions() }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.sessionContexts() }),
         queryClient.invalidateQueries({ queryKey: queryKeys.bootstrap() }),
       ])
     },
