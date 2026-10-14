@@ -1,7 +1,7 @@
 import { useId, useRef, useState, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { MoreHorizontal } from 'lucide-react'
-import { useNavigate } from 'react-router-dom'
+import { matchPath, useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 
 import {
@@ -234,15 +234,20 @@ export function SessionMenu({ session }: SessionMenuProps) {
     onError: async (error) => {
       const ids = committedDeletionIds(error)
       if (ids.length) {
-        navigate('/')
+        const selected = matchPath('/c/:sessionId', window.location.pathname)?.params.sessionId
+        if (selected && ids.includes(selected)) navigate('/')
+        setClearOpen(false)
         await removeDeletedSessionCaches(queryClient, ids)
-        toast.error(error.message, { action: {
-          label: 'Retry cleanup', onClick: () => {
-            void cleanupDeletedSessions(ids).then(async () => {
-              const fresh = await createSession()
-              navigate(sessionPath(fresh.session.session_id))
-              await queryClient.invalidateQueries({ queryKey: queryKeys.sessions() })
-            }).catch((failed: unknown) => toast.error(errorMessage(failed, 'Cleanup is still incomplete.')))
+        const cleanup = error instanceof ApiError && error.code === 'session_cleanup_failed'
+        const recover = async () => {
+          if (cleanup) await cleanupDeletedSessions(ids)
+          const fresh = await createSession()
+          navigate(sessionPath(fresh.session.session_id))
+          await queryClient.invalidateQueries({ queryKey: queryKeys.sessions() })
+        }
+        toast.error(`${ids.length} Sessions were deleted. ${error.message}`, { action: {
+          label: cleanup ? 'Retry cleanup' : 'New Session', onClick: () => {
+            void recover().catch((failed: unknown) => toast.error(errorMessage(failed, 'Could not open a new Session. Check System Status.')))
           },
         } })
       }
