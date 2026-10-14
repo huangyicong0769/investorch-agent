@@ -20,10 +20,59 @@ class SessionRecord:
     archived_at: str | None
     created_at: str
     updated_at: str
+    spawned_by_session_id: str | None = None
+    spawned_by_run_id: str | None = None
 
 
 class SessionMetadataError(RuntimeError):
     pass
+
+
+class SessionDeletionScopeChangedError(SessionMetadataError):
+    pass
+
+
+class SessionExternalForkError(SessionMetadataError):
+    pass
+
+
+@dataclass(frozen=True)
+class SessionDeletionScope:
+    session_ids: tuple[str, ...]
+    external_fork_ids: tuple[str, ...]
+
+
+def _deletion_scope(connection: sqlite3.Connection, session_id: str) -> SessionDeletionScope:
+    existing = {row[0] for row in connection.execute("SELECT session_id FROM agent_sessions")}
+    if session_id not in existing:
+        raise KeyError(session_id)
+    children: dict[str, list[str]] = {}
+    for child, parent in connection.execute("SELECT session_id, parent_session_id FROM session_spawn_lineage"):
+        if child not in existing or parent not in existing or child == parent:
+            raise SessionMetadataError("Invalid Spawn lineage")
+        children.setdefault(parent, []).append(child)
+    closure: set[str] = set()
+    pending = [session_id]
+    while pending:
+        current = pending.pop()
+        if current in closure:
+            raise SessionMetadataError("Cyclic Spawn lineage")
+        closure.add(current)
+        pending.extend(children.get(current, ()))
+    forks = tuple(
+        sorted(
+            child
+            for child, parent in connection.execute("SELECT session_id, branch_from_session_id FROM session_lineage")
+            if parent in closure and child not in closure
+        )
+    )
+    return SessionDeletionScope(tuple(sorted(closure)), forks)
+
+
+def get_session_deletion_scope(db_path: str | Path, session_id: str) -> SessionDeletionScope:
+    with closing(sqlite3.connect(db_path)) as connection:
+        connection.execute("BEGIN")
+        return _deletion_scope(connection, session_id)
 
 
 def create_session(db_path: str | Path, session_id: str) -> bool:
@@ -35,10 +84,92 @@ def create_session(db_path: str | Path, session_id: str) -> bool:
     return cursor.rowcount == 1
 
 
+def create_spawn_session(
+    db_path: str | Path,
+    session_id: str,
+    *,
+    parent_session_id: str,
+    parent_run_id: str,
+    tool_call_id: str,
+    title: str | None = None,
+) -> bool:
+    """Atomically create an ordinary Session with trusted provenance and a Portfolio snapshot."""
+    if not all((session_id, parent_session_id, parent_run_id, tool_call_id)) or session_id == parent_session_id:
+        raise ValueError("Invalid Spawn identity")
+    with closing(sqlite3.connect(db_path)) as connection:
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            parent = connection.execute(
+                """
+                SELECT metadata.archived_at, metadata.related_portfolio_ids_json
+                FROM agent_sessions AS sessions
+                LEFT JOIN extra_session_metadata AS metadata ON metadata.session_id = sessions.session_id
+                WHERE sessions.session_id = ?
+                """,
+                (parent_session_id,),
+            ).fetchone()
+            if parent is None or parent[0] is not None:
+                raise KeyError(parent_session_id)
+            existing = connection.execute(
+                "SELECT parent_session_id, parent_run_id, tool_call_id FROM session_spawn_lineage WHERE session_id = ?",
+                (session_id,),
+            ).fetchone()
+            identity = (parent_session_id, parent_run_id, tool_call_id)
+            if existing == identity:
+                if connection.execute("SELECT 1 FROM agent_sessions WHERE session_id = ?", (session_id,)).fetchone():
+                    return False
+                raise SessionMetadataError("Missing Spawn Session")
+            if (
+                existing is not None
+                or connection.execute("SELECT 1 FROM agent_sessions WHERE session_id = ?", (session_id,)).fetchone()
+            ):
+                raise SessionMetadataError("Conflicting Spawn identity")
+            related = _decode_related_portfolio_ids(parent[1])
+            connection.execute("INSERT INTO agent_sessions (session_id) VALUES (?)", (session_id,))
+            connection.execute("INSERT INTO session_spawn_lineage VALUES (?, ?, ?, ?)", (session_id, *identity))
+            connection.execute(
+                "INSERT INTO extra_session_metadata (session_id, title, related_portfolio_ids_json) VALUES (?, ?, ?)",
+                (session_id, title or "", _encode_related_portfolio_ids(related)),
+            )
+            connection.commit()
+            return True
+        except BaseException:
+            connection.rollback()
+            raise
+
+
 def session_exists(db_path: str | Path, session_id: str) -> bool:
     with closing(sqlite3.connect(db_path)) as connection:
         row = connection.execute("SELECT 1 FROM agent_sessions WHERE session_id = ?", (session_id,)).fetchone()
     return row is not None
+
+
+def delete_unstarted_spawn_session(db_path: str | Path, session_id: str) -> bool:
+    """Rollback only an unstarted Spawn; ordinary unused cleanup never removes lineage."""
+    with closing(sqlite3.connect(db_path)) as connection:
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            eligible = connection.execute(
+                """
+                SELECT 1 FROM session_spawn_lineage WHERE session_id = ?
+                    AND NOT EXISTS (SELECT 1 FROM agent_messages WHERE session_id = ?)
+                    AND NOT EXISTS (SELECT 1 FROM extra_session_metadata
+                        WHERE session_id = ? AND application_workflow_started != 0)
+                    AND NOT EXISTS (SELECT 1 FROM session_spawn_lineage WHERE parent_session_id = ?)
+                    AND NOT EXISTS (SELECT 1 FROM session_lineage WHERE branch_from_session_id = ? OR session_id = ?)
+                """,
+                (session_id,) * 6,
+            ).fetchone()
+            if eligible is None:
+                return False
+            connection.execute("DELETE FROM session_spawn_lineage WHERE session_id = ?", (session_id,))
+            connection.execute("DELETE FROM extra_session_metadata WHERE session_id = ?", (session_id,))
+            connection.execute("DELETE FROM agent_sessions WHERE session_id = ?", (session_id,))
+            connection.commit()
+            return True
+        except BaseException:
+            connection.rollback()
+            raise
 
 
 def delete_unused_session(db_path: str | Path, session_id: str) -> bool:
@@ -60,6 +191,11 @@ def delete_unused_session(db_path: str | Path, session_id: str) -> bool:
                     WHERE session_lineage.session_id = agent_sessions.session_id
                         OR session_lineage.branch_from_session_id = agent_sessions.session_id
                 )
+                AND NOT EXISTS (
+                    SELECT 1 FROM session_spawn_lineage
+                    WHERE session_spawn_lineage.session_id = agent_sessions.session_id
+                        OR session_spawn_lineage.parent_session_id = agent_sessions.session_id
+                )
             """,
             (session_id,),
         )
@@ -73,6 +209,7 @@ def delete_session_transaction(
     *,
     cancel_event: threading.Event | None = None,
     commit_lock: threading.Lock | None = None,
+    expected_session_ids: tuple[str, ...] | None = None,
 ) -> None:
     def check_cancelled() -> None:
         if cancel_event is not None and cancel_event.is_set():
@@ -82,10 +219,21 @@ def delete_session_transaction(
         try:
             connection.execute("BEGIN IMMEDIATE")
             check_cancelled()
-            connection.execute("DELETE FROM agent_messages WHERE session_id = ?", (session_id,))
-            connection.execute("DELETE FROM agent_sessions WHERE session_id = ?", (session_id,))
-            connection.execute("DELETE FROM extra_session_metadata WHERE session_id = ?", (session_id,))
-            connection.execute("DELETE FROM session_lineage WHERE session_id = ?", (session_id,))
+            scope = _deletion_scope(connection, session_id)
+            expected = tuple(sorted(expected_session_ids or (session_id,)))
+            if scope.session_ids != expected:
+                raise SessionDeletionScopeChangedError("Spawn descendants changed before deletion")
+            if scope.external_fork_ids:
+                raise SessionExternalForkError("Independent Fork branches refer to the deletion scope")
+            placeholders = ",".join("?" for _ in expected)
+            for table in (
+                "agent_messages",
+                "extra_session_metadata",
+                "session_lineage",
+                "session_spawn_lineage",
+                "agent_sessions",
+            ):
+                connection.execute(f"DELETE FROM {table} WHERE session_id IN ({placeholders})", expected)
             if commit_lock is None:
                 connection.commit()
             else:
@@ -129,6 +277,20 @@ def init_session_metadata(db_path: str | Path) -> None:
             )
             """
         )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS session_spawn_lineage (
+                session_id TEXT PRIMARY KEY,
+                parent_session_id TEXT NOT NULL CHECK (parent_session_id != session_id),
+                parent_run_id TEXT NOT NULL,
+                tool_call_id TEXT NOT NULL,
+                UNIQUE(parent_session_id, parent_run_id, tool_call_id)
+            )
+            """
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_spawn_lineage_parent ON session_spawn_lineage(parent_session_id)"
+        )
         connection.commit()
 
 
@@ -143,12 +305,15 @@ def list_sessions(db_path: str | Path, *, include_archived: bool = False) -> lis
                 lineage.branch_from_session_id,
                 metadata.archived_at,
                 sessions.created_at,
-                sessions.updated_at
+                sessions.updated_at,
+                spawn.parent_session_id,
+                spawn.parent_run_id
             FROM agent_sessions AS sessions
             LEFT JOIN extra_session_metadata AS metadata
                 ON metadata.session_id = sessions.session_id
             LEFT JOIN session_lineage AS lineage
                 ON lineage.session_id = sessions.session_id
+            LEFT JOIN session_spawn_lineage AS spawn ON spawn.session_id = sessions.session_id
             {archived_filter}
             ORDER BY sessions.updated_at DESC
             """
@@ -162,6 +327,8 @@ def list_sessions(db_path: str | Path, *, include_archived: bool = False) -> lis
             archived_at=row[3],
             created_at=row[4],
             updated_at=row[5],
+            spawned_by_session_id=row[6],
+            spawned_by_run_id=row[7],
         )
         for row in rows
     ]
@@ -177,12 +344,15 @@ def get_session(db_path: str | Path, session_id: str) -> SessionRecord | None:
                 lineage.branch_from_session_id,
                 metadata.archived_at,
                 sessions.created_at,
-                sessions.updated_at
+                sessions.updated_at,
+                spawn.parent_session_id,
+                spawn.parent_run_id
             FROM agent_sessions AS sessions
             LEFT JOIN extra_session_metadata AS metadata
                 ON metadata.session_id = sessions.session_id
             LEFT JOIN session_lineage AS lineage
                 ON lineage.session_id = sessions.session_id
+            LEFT JOIN session_spawn_lineage AS spawn ON spawn.session_id = sessions.session_id
             WHERE sessions.session_id = ?
             """,
             (session_id,),
@@ -197,6 +367,8 @@ def get_session(db_path: str | Path, session_id: str) -> SessionRecord | None:
         archived_at=row[3],
         created_at=row[4],
         updated_at=row[5],
+        spawned_by_session_id=row[6],
+        spawned_by_run_id=row[7],
     )
 
 

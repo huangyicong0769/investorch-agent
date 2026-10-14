@@ -29,6 +29,7 @@ from .models import (
     FollowUpSubmission,
     PendingSteer,
     QueuedInput,
+    RunCapacityExceededError,
     RunOptions,
     RuntimeFollowUpEvent,
     RuntimeOutput,
@@ -102,6 +103,7 @@ class AgentRuntime:
         state_handler: RuntimeStateHandler | None = None,
         run_ended_handler: RunEndedHandler | None = None,
         follow_up_handler: RuntimeFollowUpHandler | None = None,
+        max_concurrent_runs: Callable[[], int] = lambda: 3,
     ) -> None:
         self._agent_loop = agent_loop
         self._execution = execution
@@ -115,6 +117,7 @@ class AgentRuntime:
         self._record_user_steers_activated = record_user_steers_activated
         self._record_user_steers_discarded = record_user_steers_discarded
         self._follow_up_handler = follow_up_handler
+        self._max_concurrent_runs = max_concurrent_runs
         self._active_by_session: dict[str, ActiveRun] = {}
         self._active_by_run: dict[str, ActiveRun] = {}
         self._run_tasks: set[asyncio.Task[AgentRunResult]] = set()
@@ -193,6 +196,10 @@ class AgentRuntime:
         ):
             raise SessionBusyError(f"Session {session_id} already has an active operation")
 
+        limit = self._max_concurrent_runs()
+        if len(self._active_by_session) >= limit:
+            raise RunCapacityExceededError(active=len(self._active_by_session), limit=limit)
+
         run_id = uuid.uuid4().hex
         started_at = datetime.now(UTC)
         run_control = RunControl(session_id, run_id, lambda: self._notify_state(session_id))
@@ -235,6 +242,9 @@ class AgentRuntime:
 
     def is_session_active(self, session_id: str) -> bool:
         return session_id in self._active_by_session
+
+    def is_session_reserved(self, session_id: str) -> bool:
+        return session_id in self._maintenance_sessions
 
     def list_active_runs(self) -> list[ActiveRun]:
         return list(self._active_by_session.values())
@@ -440,7 +450,7 @@ class AgentRuntime:
         self._queue_paused_sessions.discard(session_id)
         self._notify_state(session_id)
         logger.info("Queue resumed session=%s count=%d", session_id, len(self._queued_by_session[session_id]))
-        await self._try_promote_queue(session_id)
+        await self._try_promote_queue(session_id, raise_capacity=True)
 
     @property
     def agent_name(self) -> str:
@@ -468,8 +478,7 @@ class AgentRuntime:
             yield
         finally:
             self._maintenance_sessions.discard(session_id)
-            await self._try_promote_steer_fallback(session_id)
-            await self._try_promote_queue(session_id)
+            await self._promote_follow_ups(session_id)
 
     async def compact_session(self, session_id: str) -> CompactionResult:
         async with self.reserve_session(session_id, allow_pending_work=True):
@@ -691,8 +700,17 @@ class AgentRuntime:
                         discarded_steer_seqs=discarded_steer_seqs,
                     )
                 )
-                await self._try_promote_steer_fallback(session_id)
-                await self._try_promote_queue(session_id)
+                await self._promote_follow_ups(session_id)
+
+    async def _promote_follow_ups(self, session_id: str) -> None:
+        await self._try_promote_steer_fallback(session_id)
+        await self._try_promote_queue(session_id)
+        # A different Session may have spent this Run's slot while run_ended was being journaled.
+        # Retry durable fallbacks when any Run/reservation ends. _start_run registers before its
+        # first await, so overlapping completion callbacks cannot promote the same input twice.
+        for pending_session_id in tuple(self._steer_fallback_by_session):
+            if pending_session_id != session_id:
+                await self._try_promote_steer_fallback(pending_session_id)
 
     def _notify_state(self, session_id: str) -> None:
         if self._state_handler is None:
@@ -757,6 +775,11 @@ class AgentRuntime:
                 start_gate=start_gate,
                 allow_steer_fallback=True,
             )
+        except RunCapacityExceededError:
+            self._steer_fallback_by_session.setdefault(session_id, deque()).appendleft(steer)
+            self._notify_state(session_id)
+            logger.info("Steer fallback retained at Run capacity session=%s steer=%s", session_id, steer.steer_id)
+            return
         except Exception:
             self._steer_fallback_by_session.setdefault(session_id, deque()).appendleft(steer)
             raise
@@ -826,17 +849,17 @@ class AgentRuntime:
             steer.steer_id,
         )
 
-    async def _try_promote_queue(self, session_id: str) -> None:
+    async def _try_promote_queue(self, session_id: str, *, raise_capacity: bool = False) -> None:
         task = asyncio.current_task()
         if task is None:
             raise RuntimeError("Follow-up promotion requires an asyncio task")
         self._promotion_tasks.add(task)
         try:
-            await self._promote_queue(session_id)
+            await self._promote_queue(session_id, raise_capacity=raise_capacity)
         finally:
             self._promotion_tasks.discard(task)
 
-    async def _promote_queue(self, session_id: str) -> None:
+    async def _promote_queue(self, session_id: str, *, raise_capacity: bool = False) -> None:
         queue = self._queued_by_session.get(session_id)
         if (
             self._closed
@@ -860,6 +883,13 @@ class AgentRuntime:
                 start_gate=start_gate,
                 allow_queue_promotion=True,
             )
+        except RunCapacityExceededError:
+            self._queued_by_session.setdefault(session_id, deque()).appendleft(queued_input)
+            self.pause_queue(session_id)
+            logger.info("Queue promotion paused at Run capacity session=%s queue=%s", session_id, queued_input.queue_id)
+            if raise_capacity:
+                raise
+            return
         except Exception:
             self._queued_by_session.setdefault(session_id, deque()).appendleft(queued_input)
             raise

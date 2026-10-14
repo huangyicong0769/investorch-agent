@@ -4,6 +4,7 @@ import asyncio
 import json
 from collections import deque
 from collections.abc import Iterator
+from dataclasses import asdict
 from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, cast
@@ -31,6 +32,63 @@ class SessionReadError(RuntimeError):
     def __init__(self, code: str, message: str) -> None:
         self.code = code
         super().__init__(f"{code}: {message}")
+
+
+def _latest_run_outcome(snapshot: JournalSnapshot) -> str:
+    status = "idle"
+    for record in snapshot.iter_records():
+        if record["type"] == "run_ended" and record.get("status") in {"completed", "failed", "cancelled"}:
+            status = str(record["status"])
+        elif record["type"] in {
+            "user_message",
+            "user_steers_activated",
+            "assistant_message",
+            "tool_called",
+            "tool_output",
+        }:
+            status = "idle"
+    return status
+
+
+async def read_session_context(
+    session_id: str,
+    *,
+    sessions_db: str | Path,
+    runtime: AgentRuntime,
+    journal: SessionJournal,
+) -> dict[str, object]:
+    """Aggregate one Session and its direct Spawn children; never scan global sidebar history."""
+    records = await asyncio.to_thread(list_session_metadata, sessions_db, include_archived=True)
+    by_id = {record.session_id: record for record in records}
+    current = by_id.get(session_id)
+    if current is None:
+        raise SessionReadError("session_not_found", "The Session no longer exists.")
+    errors: list[dict[str, str]] = []
+
+    async def status(member: str) -> str:
+        try:
+            ended = await journal.read_snapshot(member, _latest_run_outcome)
+        except (JournalInvalidError, JournalUnavailableError, OSError, ValueError):
+            ended = "idle"
+            errors.append({"session_id": member, "code": "history_unavailable"})
+        snapshot = runtime.session_snapshot(member)
+        return snapshot.run_phase or ("pending" if snapshot.queued_count or snapshot.pending_steer_count else ended)
+
+    current_status = await status(session_id)
+    children = []
+    for child in records:
+        if child.spawned_by_session_id == session_id:
+            children.append({"session": asdict(child), "status": await status(child.session_id)})
+    parent = by_id.get(current.spawned_by_session_id)
+    fork = by_id.get(current.branch_from_session_id)
+    return {
+        "session": asdict(current),
+        "status": current_status,
+        "children": children,
+        "parent": asdict(parent) if parent else None,
+        "fork_source": asdict(fork) if fork else None,
+        "errors": errors,
+    }
 
 
 async def list_sessions(
@@ -66,6 +124,8 @@ async def list_sessions(
             "title": record.title,
             "archived": record.archived_at is not None,
             "branch_from_session_id": record.branch_from_session_id,
+            "spawned_by_session_id": record.spawned_by_session_id,
+            "spawned_by_run_id": record.spawned_by_run_id,
             "created_at": record.created_at,
             "updated_at": record.updated_at,
             "status": status,

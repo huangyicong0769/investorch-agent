@@ -168,6 +168,12 @@ Host 一次注册 `send_message`，绑定本 Host 的 AppState、Runtime 与已�
 
 Web/TUI 复用普通消息组件，仅增加小型 Agent 来源标记及完整 ID 导航/复制或 resume 提示。通用的 Journal 输入提交后通知接入已有历史同步与 TUI seq 去重。回执只确认 Run/Steer/Queue 接受，[Runtime](Runtime_Session_Execution_Model.zh-CN.md#agent-消息提交)说明各自持久化语义。消息不增加 Mailbox、任务 registry、完成回调、自动回复、spawn 或跨进程传输。并发 Session 仍共享 Workspace 与受管资源。
 
+## Session 派生
+
+Host 将需要审批的 `spawn_agent(task, title?)` 绑定普通 Session 创建与输入提交。子 Session 使用相同 Agent、Tools、Skills、Runtime 和独立 Permission 规则。SQLite Spawn 来源独立于 Fork lineage；关联 Portfolio IDs 只复制一次，不继承历史、Ledger 或授权。Run 完成与 Stop 保持独立。严格正整数、Hot 的 `runtime.max_concurrent_runs`（默认 3）仅在 `_start_run()` 对全部顶层 Run 生效。
+
+Delete 与 Clear 共用受保护的递归 Spawn 删除、全节点 Runtime reservation 和单笔 SQLite 事务。活动/pending 节点和集合外 Fork 引用阻断删除，不自动取消；比较已确认的 Session IDs 与实际范围，防止未经确认扩大范围。提交后清理错误如实报告已删除身份；Clear 再创建普通 replacement。Web 右上紧凑上下文卡片读取 Storage/Runtime/Journal 事实，TUI 增加来源 metadata。接受、恢复与删除契约见 [Runtime](Runtime_Session_Execution_Model.zh-CN.md#session-派生与全局并发)。
+
 ## 审批边界
 
 审批在 Application boundary 协调。每个 request 都有不可变 approval ID 以及 Session/Run 所有权。Permission mode 为：
@@ -238,7 +244,7 @@ Run 与持久化由 Application 和 Runtime 层拥有。Client command parsing �
 - Broker 下单、账户镜像、自动持仓监控或实盘交易能力；
 - QMT Gateway 或直接 XtQuant 集成；
 - 统一投资数据层；
-- Agent spawn、编排、等待或完成通知；
+- 自动编排、等待或完成通知；
 - 跨进程重启持久化 active Run、pending approval、Steer、Queue 或 Todo；
 - 历史 turn conversation branching；
 - per-Session Workspace 或跨 Run filesystem locking；

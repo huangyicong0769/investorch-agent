@@ -10,6 +10,8 @@ from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field, StrictBool
 
 from investorch.application import ApplicationHost, submit_user_input
+from investorch.application.session_queries import read_session_context
+from investorch.application.sessions import SessionClearReplacementError, SessionDeletionCleanupError
 from investorch.filesystem import resolve_workspace_path
 from investorch.images import ACCEPTED_INPUT_MIME_TYPES, RENDERABLE_MIME_TYPES, ImageDetail, detect_image_media_type
 from investorch.inputs import normalize_user_input
@@ -32,7 +34,7 @@ from investorch.presentation import (
     serialize_session_record,
     serialize_user_input_submission,
 )
-from investorch.runtime import SessionBusyError
+from investorch.runtime import RunCapacityExceededError, SessionBusyError
 from investorch.storage import SessionRecord, get_session, list_archived_sessions, list_sessions
 from investorch.tools import list_background_jobs
 
@@ -85,6 +87,13 @@ class ConfirmRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     confirm: StrictBool
+    session_ids: list[str] | None = None
+
+
+class DeletionCleanupRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    confirm: StrictBool
+    session_ids: list[str] = Field(min_length=1, max_length=1000)
 
 
 class UpdateDefaultsRequest(BaseModel):
@@ -492,24 +501,56 @@ async def unarchive_session(session: Session, host: Host) -> dict[str, object]:
     return {"session": serialize_session_record(unarchived)}
 
 
+@router.get("/sessions/{session_id}/deletion-preview")
+async def deletion_preview(session: Session, host: Host) -> dict[str, object]:
+    try:
+        return await host.sessions.deletion_preview(session.session_id)
+    except Exception as error:
+        raise_application_error(error)
+
+
+@router.get("/sessions/{session_id}/context")
+async def session_context(session: Session, host: Host) -> dict[str, object]:
+    return await read_session_context(
+        session.session_id, sessions_db=host.config.sessions_db, runtime=host.runtime, journal=host.journal
+    )
+
+
+@router.post("/sessions/deletion-cleanup")
+async def cleanup_deleted_sessions(request: DeletionCleanupRequest, host: Host) -> dict[str, object]:
+    if not request.confirm:
+        raise APIError(400, "confirmation_required", "Confirm cleanup of already deleted Session histories.")
+    try:
+        await host.sessions.cleanup_deleted_sessions(tuple(request.session_ids))
+    except Exception as error:
+        raise_application_error(error)
+    return {"cleaned": True, "deleted_session_ids": request.session_ids}
+
+
 @router.delete("/sessions/{session_id}")
 async def delete_session(request: ConfirmRequest, session_id: str, host: Host) -> dict[str, object]:
     _require_confirmation(request, "delete this session")
-    async with host.session_lifecycle_lock:
-        session = await asyncio.to_thread(get_session, host.config.sessions_db, session_id)
-        if session is None:
-            raise APIError(
-                404, "session_not_found", "The requested session does not exist.", details={"session_id": session_id}
-            )
-
-        try:
-            await host.sessions.delete(session_id)
-        except Exception as error:
-            raise_application_error(error)
-        if session_id == host.initial_session_id:
+    session = await asyncio.to_thread(get_session, host.config.sessions_db, session_id)
+    if session is None:
+        raise APIError(
+            404, "session_not_found", "The requested session does not exist.", details={"session_id": session_id}
+        )
+    try:
+        deleted_ids = await host.sessions.delete(
+            session_id,
+            expected_session_ids=tuple(request.session_ids) if request.session_ids is not None else (session_id,),
+        )
+    except SessionDeletionCleanupError as error:
+        if host.initial_session_id in error.deleted_session_ids:
             host.initial_session_id = None
+        raise_application_error(error)
+    except Exception as error:
+        raise_application_error(error)
+    if host.initial_session_id in deleted_ids:
+        host.initial_session_id = None
     return {
         "deleted": True,
+        "deleted_session_ids": list(deleted_ids),
         "session_id": session_id,
         "replacement_session_id": None,
     }
@@ -518,14 +559,26 @@ async def delete_session(request: ConfirmRequest, session_id: str, host: Host) -
 @router.post("/sessions/{session_id}/clear")
 async def clear_session(request: ConfirmRequest, session: Session, host: Host) -> dict[str, object]:
     _require_confirmation(request, "clear this session")
-    async with host.session_lifecycle_lock:
-        try:
-            replacement_session_id = await host.sessions.clear(session.session_id)
-        except Exception as error:
-            raise_application_error(error)
-        if session.session_id == host.initial_session_id:
-            host.initial_session_id = replacement_session_id
-    return {"replacement_session_id": replacement_session_id}
+    expected_ids = tuple(request.session_ids) if request.session_ids is not None else (session.session_id,)
+    try:
+        replacement_session_id = await host.sessions.clear(
+            session.session_id,
+            expected_session_ids=expected_ids,
+        )
+    except (SessionClearReplacementError, SessionDeletionCleanupError) as error:
+        if host.initial_session_id in error.deleted_session_ids:
+            host.initial_session_id = None
+        raise_application_error(error)
+    except Exception as error:
+        raise_application_error(error)
+    # Success proves these confirmed IDs matched the complete actual deletion scope.
+    deleted_ids = sorted(set(expected_ids))
+    if host.initial_session_id in deleted_ids:
+        host.initial_session_id = replacement_session_id
+    return {
+        "replacement_session_id": replacement_session_id,
+        "deleted_session_ids": deleted_ids,
+    }
 
 
 @router.post("/sessions/{session_id}/compact")
@@ -540,10 +593,9 @@ async def compact_session(session: Session, host: Host) -> dict[str, object]:
 
 @router.post("/sessions/{session_id}/discard-unused")
 async def discard_unused_session(session_id: str, host: Host) -> dict[str, bool]:
-    async with host.session_lifecycle_lock:
-        if session_id == host.initial_session_id:
-            return {"discarded": False}
-        return {"discarded": await host.sessions.discard_if_unused(session_id)}
+    if session_id == host.initial_session_id:
+        return {"discarded": False}
+    return {"discarded": await host.sessions.discard_if_unused(session_id)}
 
 
 @router.delete("/sessions/{session_id}/queue/{queue_id}")
@@ -579,7 +631,7 @@ async def resume_session_queue(session: Session, host: Host) -> dict[str, object
         raise APIError(409, "queue_not_paused", "This session queue is not paused.")
     try:
         await host.runtime.resume_queue(session.session_id)
-    except SessionBusyError as error:
+    except (RunCapacityExceededError, SessionBusyError) as error:
         raise_application_error(error)
     return {
         "runtime": serialize_runtime_snapshot(host.runtime.session_snapshot(session.session_id)),

@@ -19,6 +19,21 @@ class ConsoleUI:
     async def read_user_input(self) -> str:
         return await asyncio.to_thread(input, "You: ")
 
+    async def confirm_clear_scope(self, preview: dict[str, object]) -> bool:
+        members = preview["sessions"]
+        self.write(
+            f"Clear all {len(members)} Sessions? Their histories will be permanently deleted; this cannot be undone."
+        )
+        for member in members:
+            self.write(f"  {member['title'] or '(untitled)'} · {member['session_id']}")
+        try:
+            answer = await asyncio.to_thread(
+                input, "Type DELETE to clear all listed Sessions, or press Enter to cancel: "
+            )
+        except EOFError:
+            return False
+        return answer.strip() == "DELETE"
+
     async def request_tool_approval(
         self,
         tool_name: str,

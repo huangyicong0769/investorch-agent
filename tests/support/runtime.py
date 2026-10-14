@@ -201,6 +201,7 @@ def make_runtime_harness(
         state_handler=handle_state,
         run_ended_handler=handle_run_ended,
         follow_up_handler=handle_follow_up,
+        max_concurrent_runs=lambda: config["runtime.max_concurrent_runs"],
     )
     harness = RuntimeHarness(
         config=config,

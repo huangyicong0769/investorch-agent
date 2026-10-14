@@ -168,6 +168,12 @@ Each immutable `UserInput` carries an immutable `InputOrigin`. External inputs d
 
 Web/TUI reuse user-message components with a small Agent source label and full-ID navigation/copy or resume guidance. A generic Journal-committed input notification feeds existing history reconciliation and TUI sequence deduplication. Receipts confirm only Run/Steer/Queue acceptance; [Runtime](Runtime_Session_Execution_Model.md#agent-message-submission) defines their different persistence guarantees. Messaging adds no mailbox, task registry, completion callback, automatic reply, spawning, or cross-process transport. Concurrent Sessions still share Workspace and managed resources.
 
+## Session spawning
+
+The Host binds approval-required `spawn_agent(task, title?)` to ordinary Session creation and input submission. Children use the same Agent, Tools, Skills, Runtime and independent Permission rules. SQLite Spawn provenance is separate from Fork lineage; related Portfolio IDs are copied once without history, Ledger or authorization inheritance. Run completion and Stop are independent. A strict positive, hot `runtime.max_concurrent_runs` (default 3) applies to every top-level Run solely at `_start_run()`.
+
+Delete and Clear share guarded recursive Spawn deletion, all-node Runtime reservations and one SQLite transaction. Active/pending nodes and external Fork references refuse deletion without cancellation; comparing confirmed Session IDs with the actual scope prevents unconfirmed expansion. Postcommit cleanup errors report committed identities accurately. Clear then creates an ordinary replacement. Web's compact right-hand context card uses read-only Storage/Runtime/Journal facts; TUI adds source metadata. See [Runtime](Runtime_Session_Execution_Model.md#session-spawning-and-global-capacity) for acceptance, recovery and deletion details.
+
 ## Approval boundary
 
 Approval is coordinated at the application boundary. Every request has an immutable approval ID plus Session and Run ownership. Permission modes are:
@@ -238,7 +244,7 @@ The current component does not implement:
 - broker order execution, account mirroring, position-monitoring automation, or live trading;
 - a QMT gateway or direct XtQuant integration;
 - a unified investment data layer;
-- Agent spawning, orchestration, waiting, or completion notifications;
+- automatic orchestration, waiting, or completion notifications;
 - persistence of active Runs, pending approvals, Steer entries, Queue state, or Todo state across restarts;
 - historical-turn conversation branching;
 - per-Session workspaces or cross-Run filesystem locking;

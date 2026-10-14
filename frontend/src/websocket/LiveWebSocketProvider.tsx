@@ -7,17 +7,21 @@ import {
   useState,
   type PropsWithChildren,
 } from 'react'
-import { useQueryClient } from '@tanstack/react-query'
-import { useMatch } from 'react-router-dom'
+import { useQueryClient, type Query } from '@tanstack/react-query'
+import { useMatch, useNavigate } from 'react-router-dom'
+import { toast } from 'sonner'
 
 import {
+  ApiError,
   getBootstrap,
   getSessionHistory,
   getSessionState,
   getSessions,
 } from '../api/client'
+import { removeDeletedSessionCaches } from '../api/sessionLifecycle'
 import {
   queryKeys,
+  recordContextEventDuringFetch,
 } from '../api/queries'
 import { useWebConfig } from '../config/WebConfigContext'
 import type {
@@ -32,6 +36,10 @@ import type {
   OutputEvent,
   RuntimeStateLiveEvent,
   SessionStateResponse,
+  SessionContextResponse,
+  SessionContextStatus,
+  SessionListResponse,
+  SessionResponse,
   TodoItem,
 } from '../api/types'
 import {
@@ -557,6 +565,7 @@ function canonicalRunEndedIds(
 export function LiveWebSocketProvider({ children }: PropsWithChildren) {
   const webConfig = useWebConfig()
   const queryClient = useQueryClient()
+  const navigate = useNavigate()
   const selectedMatch = useMatch('/c/:sessionId')
   const selectedSessionId = selectedMatch?.params.sessionId ?? null
   const selectedSessionRef = useRef<string | null>(selectedSessionId)
@@ -676,6 +685,52 @@ export function LiveWebSocketProvider({ children }: PropsWithChildren) {
   }
 
   const processEvent = (event: ParsedLiveEvent) => {
+    if (event.kind === 'runtime_state' || event.kind === 'run_ended') recordContextEventDuringFetch(queryClient, event)
+    if (event.kind === 'runtime_state' || event.kind === 'run_ended' || event.kind === 'user_input_committed') {
+      const record = queryClient.getQueryData<SessionResponse>(queryKeys.session(event.session_id))?.session
+        ?? queryClient.getQueryData<SessionListResponse>(queryKeys.sessions())?.sessions.find((entry) => entry.session_id === event.session_id)
+        ?? queryClient.getQueryData<BootstrapResponse>(queryKeys.bootstrap())?.sessions.find((entry) => entry.session_id === event.session_id)
+      const related = {
+        queryKey: queryKeys.sessionContexts(),
+        predicate: (query: Query) => {
+          const context = query.state.data as SessionContextResponse | undefined
+          return query.queryKey[2] === event.session_id || query.queryKey[2] === record?.spawned_by_session_id
+            || context?.children.some((child) => child.session.session_id === event.session_id) === true
+            // A new child may arrive before its metadata. A low-frequency input event resyncs relationships.
+            || (event.kind === 'user_input_committed' && !record)
+        },
+      }
+      let idleNeedsHistory = false
+      queryClient.setQueriesData<SessionContextResponse>(related, (current) => {
+        if (!current) return current
+        const update = (entry: SessionContextResponse | SessionContextResponse['children'][number]) => {
+          if (entry.session.session_id !== event.session_id) return entry
+          const live = queryClient.getQueryData<SessionStateResponse>(queryKeys.sessionState(event.session_id))?.runtime ?? entry.runtime
+          let status: SessionContextStatus
+          if (event.kind === 'runtime_state') {
+            const terminal = entry.status === 'completed' || entry.status === 'failed' || entry.status === 'cancelled'
+            status = event.run_phase ?? (event.queued_count || event.pending_steer_count ? 'pending' : terminal ? entry.status : 'idle')
+            idleNeedsHistory ||= status === 'idle' && (entry.status === 'running' || entry.status === 'waiting_approval' || entry.status === 'stopping' || entry.status === 'pending')
+          } else if (event.kind === 'run_ended') {
+            status = live?.run_id && live.run_id !== event.run_id ? live.run_phase ?? 'pending'
+              : live?.queued_count || live?.pending_steer_count ? 'pending'
+              : live?.run_id === event.run_id ? event.status
+              : entry.status === 'running' || entry.status === 'waiting_approval' || entry.status === 'stopping' ? entry.status : 'pending'
+          } else {
+            status = live?.run_phase ?? 'pending'
+          }
+          return { ...entry, status, ...(event.kind === 'runtime_state' ? { runtime: event } : {}) }
+        }
+        return { ...current, ...update(current), children: current.children.map(update) }
+      })
+      if (event.kind !== 'runtime_state' || idleNeedsHistory) {
+        if (event.kind !== 'runtime_state') void queryClient.cancelQueries(related)
+        void queryClient.invalidateQueries(related)
+      }
+      if (event.kind === 'user_input_committed') {
+        void queryClient.invalidateQueries({ queryKey: queryKeys.sessions() })
+      }
+    }
     if (event.kind === 'approval_required') {
       const request = approvalFromEvent(event)
       updateSessionApproval(queryClient, event.session_id, (current) => addPendingApproval(current, request))
@@ -794,6 +849,18 @@ export function LiveWebSocketProvider({ children }: PropsWithChildren) {
     if (sessions) {
       queryClient.setQueryData(queryKeys.sessions(), sessions)
     }
+    if (requests[2].status === 'rejected' && requests[2].reason instanceof ApiError
+      && requests[2].reason.code === 'session_not_found') {
+      // A disconnected Clear response or unused cleanup can leave a cached selection whose identity is gone.
+      resyncSessionRef.current = null
+      resyncAbortRef.current = null
+      bufferedEventsRef.current = []
+      navigate('/', { replace: true })
+      setStatus(connectionStatusRef.current)
+      toast.info('This Session no longer exists. Select another Session or use New.')
+      await removeDeletedSessionCaches(queryClient, [sessionId])
+      return
+    }
     if (state) {
       queryClient.setQueryData(queryKeys.sessionState(sessionId), state)
       queryClient.setQueryData(queryKeys.session(sessionId), { session: state.session })
@@ -891,6 +958,8 @@ export function LiveWebSocketProvider({ children }: PropsWithChildren) {
       onStatusChange: (nextStatus) => {
         connectionStatusRef.current = nextStatus
         if (nextStatus === 'connected') {
+          void queryClient.cancelQueries({ queryKey: queryKeys.sessionContexts() })
+          void queryClient.invalidateQueries({ queryKey: queryKeys.sessionContexts() })
           const currentSessionId = selectedSessionRef.current
           if (currentSessionId) {
             setStatus('reconnecting')

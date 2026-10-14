@@ -111,8 +111,11 @@ class ApplicationHost:
     approvals: ApprovalCoordinator
     activity: ActivityCoordinator | None
     presentation_state: SessionPresentationStore
-    session_lifecycle_lock: asyncio.Lock
     initial_session_id: str | None
+
+    @property
+    def session_lifecycle_lock(self) -> asyncio.Lock:
+        return self.sessions.lifecycle_lock
 
 
 def create_model(config: AppConfig, agent: str) -> tuple[OpenAIResponsesModel, ModelSettings]:
@@ -306,6 +309,7 @@ async def open_application_host(
                     state_handler=handle_runtime_state,
                     run_ended_handler=handle_run_ended,
                     follow_up_handler=callbacks.handle_follow_up,
+                    max_concurrent_runs=lambda: config["runtime.max_concurrent_runs"],
                 )
                 agent.tools.extend(
                     make_session_tools(
@@ -335,6 +339,12 @@ async def open_application_host(
                     journal=journal,
                     presentation_state=presentation_state,
                 )
+                from investorch.application.spawning import spawn_agent
+                from investorch.tools.spawning import make_spawning_tools
+
+                agent.tools.extend(
+                    make_spawning_tools(submit=partial(spawn_agent, state=state, runtime=runtime, sessions=sessions))
+                )
                 portfolio_sessions = PortfolioSessionWorkflows(
                     state=state,
                     runtime=runtime,
@@ -357,7 +367,6 @@ async def open_application_host(
                     approvals=approvals,
                     activity=activity,
                     presentation_state=presentation_state,
-                    session_lifecycle_lock=asyncio.Lock(),
                     initial_session_id=initial_session_id,
                 )
             finally:

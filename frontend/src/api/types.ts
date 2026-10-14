@@ -36,6 +36,8 @@ export interface SessionRecord {
   session_id: string
   title: string | null
   branch_from_session_id: string | null
+  spawned_by_session_id?: string | null
+  spawned_by_run_id?: string | null
   archived_at: string | null
   created_at: string
   updated_at: string
@@ -132,6 +134,25 @@ export interface SessionListResponse {
 
 export interface SessionResponse {
   session: SessionRecord
+}
+
+export type SessionContextStatus = RunPhase | 'pending' | 'idle' | 'completed' | 'failed' | 'cancelled'
+export interface SessionContextEntry {
+  session: SessionRecord
+  status: SessionContextStatus
+  // Live snapshots enrich this query cache; REST remains the canonical history source.
+  runtime?: RuntimeSnapshot
+}
+export interface SessionContextResponse extends SessionContextEntry {
+  parent: SessionRecord | null
+  fork_source: SessionRecord | null
+  children: SessionContextEntry[]
+  errors: { session_id: string; code: string }[]
+}
+export interface SessionDeletionPreview {
+  session_id: string
+  sessions: { session_id: string; title: string | null }[]
+  blocked: { session_id: string; code: string }[]
 }
 
 export interface PortfolioSessionResponse extends SessionResponse {
@@ -494,12 +515,14 @@ export interface StopResponse {
 
 export interface ClearSessionResponse {
   replacement_session_id: string
+  deleted_session_ids?: string[]
 }
 
 export interface DeleteSessionResponse {
   deleted: true
   session_id: string
   replacement_session_id: string | null
+  deleted_session_ids?: string[]
 }
 
 export interface DiscardUnusedResponse {
@@ -584,6 +607,7 @@ export interface RenameSessionBody {
 
 export interface ConfirmBody {
   confirm: boolean
+  session_ids?: string[]
 }
 
 export interface ResolveApprovalBody {

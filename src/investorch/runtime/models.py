@@ -43,6 +43,17 @@ class SessionBusyError(RuntimeError):
     """Raised when a session already owns an active top-level Agent run."""
 
 
+class RunCapacityExceededError(RuntimeError):
+    """A new top-level Run cannot enter the Host's current global capacity."""
+
+    def __init__(self, *, active: int, limit: int) -> None:
+        self.active = active
+        self.limit = limit
+        super().__init__(
+            f"capacity_exceeded: {active}/{limit} Runs are active. Wait for a Run to finish or stop one, then retry."
+        )
+
+
 @dataclass(frozen=True, slots=True)
 class RuntimeOutput:
     run_id: str

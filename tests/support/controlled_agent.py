@@ -47,6 +47,8 @@ class ControlledAgentLoop:
         await run.release.wait()
         if run.user_input in self._failing_inputs:
             raise RuntimeError("controlled Agent failure")
+        if kwargs.get("run_control") is not None:
+            kwargs["run_control"].move_pending_to_fallback()
         return AgentRunResult(
             output=f"completed: {run.user_input}", main_usage=TokenUsage(), auxiliary_usage=TokenUsage()
         )

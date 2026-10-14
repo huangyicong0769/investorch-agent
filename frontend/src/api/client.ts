@@ -27,6 +27,8 @@ import type {
   SendMessageBody,
   SessionListResponse,
   SessionResponse,
+  SessionContextResponse,
+  SessionDeletionPreview,
   SessionStateResponse,
   StopResponse,
   StartPortfolioSessionBody,
@@ -312,6 +314,18 @@ export function deleteSession(
     body,
     method: 'DELETE',
   })
+}
+
+export function getSessionContext(sessionId: string, options: RequestOverrides = {}): Promise<SessionContextResponse> {
+  return request<SessionContextResponse>(`/api/sessions/${encodePathPart(sessionId)}/context`, options)
+}
+
+export function getSessionDeletionPreview(sessionId: string, options: RequestOverrides = {}): Promise<SessionDeletionPreview> {
+  return request<SessionDeletionPreview>(`/api/sessions/${encodePathPart(sessionId)}/deletion-preview`, options)
+}
+
+export function cleanupDeletedSessions(sessionIds: string[]): Promise<{ cleaned: true; deleted_session_ids: string[] }> {
+  return request('/api/sessions/deletion-cleanup', {method: 'POST', body: {confirm: true, session_ids: sessionIds}})
 }
 
 export function compactSession(sessionId: string, options: RequestOverrides = {}): Promise<CompactionResult> {

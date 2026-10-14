@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -87,7 +86,6 @@ async def open_test_web(
         approvals=approvals,
         activity=None,
         presentation_state=presentation_state,
-        session_lifecycle_lock=asyncio.Lock(),
         initial_session_id=None,
     )
     connections = WebConnectionHub(queue_capacity=runtime.config["web.connection_queue_capacity"])

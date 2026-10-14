@@ -5,6 +5,7 @@ import logging
 import threading
 import uuid
 from collections.abc import Awaitable, Callable, Iterable
+from contextlib import AsyncExitStack
 
 from agents import SQLiteSession
 
@@ -13,20 +14,22 @@ from investorch.config import AppConfig
 from investorch.journal import SessionJournal
 from investorch.runtime import AgentRuntime, SessionBusyError
 from investorch.storage import (
+    SessionDeletionScopeChangedError,
+    SessionExternalForkError,
     SessionRecord,
     add_session_related_portfolio_ids,
     archive_session,
     create_session,
-    delete_session_metadata,
     delete_session_transaction,
     delete_unused_session,
     fork_session,
     get_session,
+    get_session_deletion_scope,
     get_session_related_portfolio_ids,
     is_application_workflow_started,
     is_session_archived,
+    list_sessions,
     mark_application_workflow_started,
-    session_has_children,
     set_session_title,
     unarchive_session,
 )
@@ -84,6 +87,25 @@ class SessionHasChildrenError(RuntimeError):
     pass
 
 
+class SessionDeletionCleanupError(RuntimeError):
+    def __init__(self, session_ids: tuple[str, ...]) -> None:
+        self.deleted_session_ids = session_ids
+        super().__init__("Session identities were deleted, but history cleanup is incomplete. Check System Status.")
+
+
+class SessionDeletionUnsafeError(RuntimeError):
+    pass
+
+
+class SessionClearReplacementError(RuntimeError):
+    def __init__(self, session_ids: tuple[str, ...]) -> None:
+        self.deleted_session_ids = session_ids
+        self.replacement_session_id = None
+        super().__init__(
+            "Sessions were deleted, but creating the new Session failed. Select or create a Session; check System Status."
+        )
+
+
 class SessionAlreadyArchivedError(RuntimeError):
     pass
 
@@ -106,6 +128,7 @@ class SessionOperations:
         self._runtime = runtime
         self._journal = journal
         self._presentation_state = presentation_state
+        self.lifecycle_lock = asyncio.Lock()
 
     async def create(self) -> str:
         session_id = uuid.uuid4().hex
@@ -183,7 +206,7 @@ class SessionOperations:
         if self._runtime.has_queued_inputs(session_id):
             return False
         try:
-            async with self._runtime.reserve_session(session_id):
+            async with self.lifecycle_lock, self._runtime.reserve_session(session_id):
                 if await self._journal.session_exists(session_id):
                     return False
                 deleted = await asyncio.to_thread(delete_unused_session, self._config.sessions_db, session_id)
@@ -199,14 +222,15 @@ class SessionOperations:
     async def archive(self, session_id: str) -> None:
         if self._runtime.has_queued_inputs(session_id):
             raise SessionHasQueuedInputsError
-        async with self._runtime.reserve_session(session_id):
+        async with self.lifecycle_lock, self._runtime.reserve_session(session_id):
             if await asyncio.to_thread(is_session_archived, self._config.sessions_db, session_id):
                 raise SessionAlreadyArchivedError
             await asyncio.to_thread(archive_session, self._config.sessions_db, session_id)
         logger.info("Session archived session=%s", session_id)
 
     async def unarchive(self, session_id: str) -> None:
-        await asyncio.to_thread(unarchive_session, self._config.sessions_db, session_id)
+        async with self.lifecycle_lock:
+            await asyncio.to_thread(unarchive_session, self._config.sessions_db, session_id)
         logger.info("Session unarchived session=%s", session_id)
 
     async def fork(self, source_session_id: str) -> str:
@@ -216,6 +240,7 @@ class SessionOperations:
         while target_session_id == source_session_id:
             target_session_id = uuid.uuid4().hex
         async with (
+            self.lifecycle_lock,
             self._runtime.reserve_session(source_session_id),
             self._runtime.reserve_session(target_session_id),
         ):
@@ -228,7 +253,7 @@ class SessionOperations:
         return target_session_id
 
     async def set_title(self, session_id: str, title: str) -> SessionRecord:
-        async with self._runtime.reserve_session(session_id):
+        async with self.lifecycle_lock, self._runtime.reserve_session(session_id):
             session = await asyncio.to_thread(get_session, self._config.sessions_db, session_id)
             if session is None:
                 raise SessionNotFoundError(session_id)
@@ -241,38 +266,97 @@ class SessionOperations:
         logger.info("Updated title for session %s", session_id)
         return updated
 
-    async def clear(self, session_id: str) -> str:
-        if await asyncio.to_thread(is_session_archived, self._config.sessions_db, session_id):
-            raise SessionArchivedError
-        if self._runtime.has_queued_inputs(session_id):
-            raise SessionHasQueuedInputsError
-        async with self._runtime.reserve_session(session_id):
-            session = SQLiteSession(session_id, self._config.sessions_db)
+    async def clear(self, session_id: str, *, expected_session_ids: tuple[str, ...] | None = None) -> str:
+        async with self.lifecycle_lock:
+            if await asyncio.to_thread(is_session_archived, self._config.sessions_db, session_id):
+                raise SessionArchivedError
+            deleted_ids = await self._delete(
+                session_id,
+                expected_session_ids=(session_id,) if expected_session_ids is None else expected_session_ids,
+            )
+            creation = asyncio.create_task(self.create())
+            cancelled: asyncio.CancelledError | None = None
+            while not creation.done():
+                try:
+                    await asyncio.shield(creation)
+                except asyncio.CancelledError as error:
+                    cancelled = error
+                except Exception:
+                    break
             try:
-                await session.clear_session()
-            finally:
-                session.close()
-            await asyncio.to_thread(delete_session_metadata, self._config.sessions_db, session_id)
-            replacement_session_id = await self.create()
-        logger.info("Cleared session %s and started session %s", session_id, replacement_session_id)
+                replacement_session_id = creation.result()
+            except (Exception, asyncio.CancelledError) as error:
+                logger.exception("Clear deletion committed session_ids=%s but replacement creation failed", deleted_ids)
+                raise SessionClearReplacementError(deleted_ids) from error
+            logger.info("Clear deletion committed session_ids=%s replacement=%s", deleted_ids, replacement_session_id)
+            if cancelled is not None:
+                raise cancelled
         return replacement_session_id
 
-    async def delete(self, session_id: str) -> None:
-        if self._runtime.has_queued_inputs(session_id):
-            raise SessionHasQueuedInputsError
-        async with self._runtime.reserve_session(session_id):
-            if await asyncio.to_thread(session_has_children, self._config.sessions_db, session_id):
+    async def deletion_preview(self, session_id: str) -> dict[str, object]:
+        async with self.lifecycle_lock:
+            try:
+                scope = await asyncio.to_thread(get_session_deletion_scope, self._config.sessions_db, session_id)
+            except KeyError:
+                raise SessionNotFoundError(session_id) from None
+            records = await asyncio.to_thread(list_sessions, self._config.sessions_db, include_archived=True)
+            blocked: list[dict[str, str]] = []
+            for member in scope.session_ids:
+                snapshot = self._runtime.session_snapshot(member)
+                if snapshot.run_id is not None or self._runtime.is_session_reserved(member):
+                    blocked.append({"session_id": member, "code": "session_busy"})
+                elif snapshot.queued_count or snapshot.pending_steer_count:
+                    blocked.append({"session_id": member, "code": "pending_inputs"})
+                try:
+                    await self._journal.session_exists(member)
+                except (OSError, RuntimeError, ValueError):
+                    blocked.append({"session_id": member, "code": "journal_delete_unsafe"})
+            blocked.extend({"session_id": fork, "code": "fork_referenced"} for fork in scope.external_fork_ids)
+            return {
+                "session_id": session_id,
+                "sessions": [
+                    {"session_id": r.session_id, "title": r.title} for r in records if r.session_id in scope.session_ids
+                ],
+                "blocked": blocked,
+            }
+
+    async def delete(self, session_id: str, *, expected_session_ids: tuple[str, ...] | None = None) -> tuple[str, ...]:
+        async with self.lifecycle_lock:
+            return await self._delete(session_id, expected_session_ids=expected_session_ids)
+
+    async def _delete(self, session_id: str, *, expected_session_ids: tuple[str, ...] | None) -> tuple[str, ...]:
+        async with AsyncExitStack() as reservations:
+            try:
+                scope = await asyncio.to_thread(get_session_deletion_scope, self._config.sessions_db, session_id)
+            except KeyError:
+                raise SessionNotFoundError(session_id) from None
+            if expected_session_ids is not None and set(expected_session_ids) != set(scope.session_ids):
+                raise SessionDeletionScopeChangedError("Preview the changed Spawn descendants and confirm again")
+            if scope.external_fork_ids:
                 raise SessionHasChildrenError
-            await self._journal.prepare_session_delete(session_id)
+            for member in scope.session_ids:
+                if self._runtime.has_queued_inputs(member):
+                    raise SessionHasQueuedInputsError
+                await reservations.enter_async_context(self._runtime.reserve_session(member))
+            fenced: list[str] = []
             committed = False
             cancel_event = threading.Event()
             commit_lock = threading.Lock()
             try:
+                for member in scope.session_ids:
+                    try:
+                        await self._journal.prepare_session_delete(member)
+                    except (RuntimeError, ValueError, OSError) as error:
+                        raise SessionDeletionUnsafeError(
+                            "Session history is unsafe to delete; check System Status."
+                        ) from error
+                    fenced.append(member)
                 committed, error = await _await_delete_transaction(
                     asyncio.to_thread(
                         delete_session_transaction,
                         self._config.sessions_db,
                         session_id,
+                        expected_session_ids=scope.session_ids,
                         cancel_event=cancel_event,
                         commit_lock=commit_lock,
                     ),
@@ -280,23 +364,48 @@ class SessionOperations:
                 )
                 if not committed:
                     assert error is not None
+                    if isinstance(error, SessionExternalForkError):
+                        raise SessionHasChildrenError from error
                     raise error
             except BaseException:
                 if not committed:
-                    try:
-                        await self._journal.cancel_session_delete(session_id)
-                    except BaseException:
-                        logger.exception("Failed to release session delete fence %s", session_id)
+                    for member in fenced:
+                        try:
+                            await self._journal.cancel_session_delete(member)
+                        except BaseException:
+                            logger.exception("Failed to release session delete fence %s", member)
                 raise
+            logger.info("Session deletion committed root=%s session_ids=%s", session_id, scope.session_ids)
+            await self._cleanup_deleted_sessions(scope.session_ids)
+            if error is not None:
+                raise error
+            logger.info("Deleted Spawn scope root=%s count=%d", session_id, len(scope.session_ids))
+            return scope.session_ids
+
+    async def _cleanup_deleted_sessions(self, session_ids: tuple[str, ...]) -> None:
+        failed = False
+        for member in session_ids:
             try:
-                await self._journal.delete_session(session_id)
+                await self._journal.delete_session(member)
             except BaseException:
-                logger.exception("Session delete committed but journal cleanup failed session=%s", session_id)
+                failed = True
+                logger.exception("Session delete committed but cleanup failed session=%s", member)
             try:
-                self._presentation_state.delete(session_id)
+                self._presentation_state.delete(member)
             except BaseException:
-                logger.exception("Session delete committed but presentation cleanup failed session=%s", session_id)
-        logger.info("Deleted session %s", session_id)
+                failed = True
+                logger.exception("Session delete committed but presentation cleanup failed session=%s", member)
+        if failed:
+            raise SessionDeletionCleanupError(session_ids)
+
+    async def cleanup_deleted_sessions(self, session_ids: tuple[str, ...]) -> None:
+        """Retry post-commit cleanup only for proven absent Session identities."""
+        async with self.lifecycle_lock, AsyncExitStack() as reservations:
+            for member in sorted(set(session_ids)):
+                if await asyncio.to_thread(get_session, self._config.sessions_db, member) is not None:
+                    raise SessionBusyError("Cleanup cannot remove history for an existing Session")
+                await reservations.enter_async_context(self._runtime.reserve_session(member))
+            await self._cleanup_deleted_sessions(session_ids)
 
     async def compact(self, session_id: str) -> CompactionResult:
         if await asyncio.to_thread(is_session_archived, self._config.sessions_db, session_id):

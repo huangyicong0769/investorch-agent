@@ -4,7 +4,6 @@ import { Link, useParams } from 'react-router-dom'
 
 import {
   bootstrapQueryOptions,
-  sessionRelatedPortfoliosQueryOptions,
   sessionStateQueryOptions,
 } from '../../api/queries'
 import { errorMessage } from '../../lib/errors'
@@ -12,7 +11,7 @@ import { ApprovalCard } from '../approval/ApprovalCard'
 import { Composer } from '../composer/Composer'
 import { PlanCard } from '../plan/PlanCard'
 import { QueueStrip } from '../queue/QueueStrip'
-import { RelatedPortfolios } from '../portfolio/RelatedPortfolios'
+import { SessionContextCard } from './SessionContextCard'
 import { ConversationTimeline } from '../timeline/ConversationTimeline'
 import { ConversationHeader } from './ConversationHeader'
 import { EMPTY_DRAFT, type ComposerDraft, type PendingDirectMessage } from './interaction'
@@ -24,10 +23,6 @@ export function ConversationPage() {
   const [pendingMessages, setPendingMessages] = useState<Map<string, PendingDirectMessage>>(() => new Map())
   const stateQuery = useQuery({
     ...sessionStateQueryOptions(sessionId),
-    enabled: Boolean(sessionId),
-  })
-  const relatedQuery = useQuery({
-    ...sessionRelatedPortfoliosQueryOptions(sessionId),
     enabled: Boolean(sessionId),
   })
   const bootstrapQuery = useQuery(bootstrapQueryOptions())
@@ -88,7 +83,7 @@ export function ConversationPage() {
     )
   }
 
-  if (stateQuery.isPending || relatedQuery.isPending) {
+  if (stateQuery.isPending) {
     return (
       <div className="flex min-h-screen items-center justify-center text-sm text-muted-foreground" role="status">
         Loading conversation…
@@ -97,13 +92,8 @@ export function ConversationPage() {
   }
 
   return (
-    <section className="flex h-dvh min-w-0 flex-col bg-background">
-      <ConversationHeader session={stateQuery.data.session} />
-      <RelatedPortfolios
-        error={relatedQuery.error}
-        onRetry={() => void relatedQuery.refetch()}
-        portfolios={relatedQuery.data?.portfolios ?? []}
-      />
+    <section className="relative flex h-dvh min-w-0 flex-col bg-background xl:pr-80">
+      <ConversationHeader session={stateQuery.data.session} context={<SessionContextCard session={stateQuery.data.session} runtime={stateQuery.data.runtime} />} />
       <ConversationTimeline
         onPendingMessageCanonical={() => {
           if (pendingMessage) {

@@ -241,6 +241,25 @@ async def test_active_target_preserves_origin_through_existing_queue_promotion_a
         await harness.runtime.aclose()
 
 
+async def test_message_uses_global_capacity_for_idle_targets_and_keeps_active_queue_submission(tmp_path):
+    harness = make_runtime_harness(tmp_path, config_overrides={"runtime": {"max_concurrent_runs": 1}})
+    for session_id in ("target", "idle"):
+        create_session(harness.config.sessions_db, session_id)
+    try:
+        harness.runtime.start_run("target", "occupy", run_options("queue"))
+        await harness.agent_loop.wait_until_started("target")
+        error = await invoke_message(message_tool(harness), harness, {"target_session_id": "idle", "text": "new"})
+        assert isinstance(error, str) and "capacity_exceeded" in error
+        assert harness.runtime.session_snapshot("idle").run_id is None
+        receipt = await invoke_message(
+            message_tool(harness), harness, {"target_session_id": "target", "text": "queued"}
+        )
+        assert receipt["disposition"] == "queue_submitted"
+        assert len(harness.runtime.list_active_runs()) == 1
+    finally:
+        await harness.runtime.aclose()
+
+
 async def test_paused_queue_and_failed_steer_write_do_not_accept_another_message(tmp_path):
     async def failed_steer(_session_id, _run_id, _input):
         raise OSError("private Journal path canary")

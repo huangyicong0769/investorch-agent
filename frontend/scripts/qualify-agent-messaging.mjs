@@ -40,6 +40,7 @@ await page.route('**/api/**', async (route) => {
   else if (path === '/api/bootstrap') value = { version: 'test', initial_session_id: 'B', agent_name: 'Agent', context_window_tokens: 10000, defaults, image_config: imageConfig, web_config: { history_page_size: 100, websocket_reconnect_base_delay_ms: 60000, websocket_reconnect_max_delay_ms: 60000, max_notices: 10, composer_max_height_px: 200, unused_session_discard_delay_ms: 60000, run_timer_interval_ms: 1000 }, sessions: [session('B'), session('C')], runtime: runtime('B'), presentation, pending_approvals: [] }
   else if (path === '/api/sessions') value = { sessions: [session('B'), session('C')] }
   else if (path === '/api/defaults') value = defaults
+  else if (path.endsWith('/context')) value = { session: session(id), status: 'idle', children: [], parent: null, fork_source: null, errors: [] }
   else if (path.endsWith('/state')) value = { session: session(id), runtime: runtime(id), presentation, pending_approvals: [], queue: id === 'B' ? queue : [] }
   else if (path.endsWith('/history')) {
     const items = history.get(id) || []

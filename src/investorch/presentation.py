@@ -218,6 +218,8 @@ def serialize_session_record(record: SessionRecord) -> dict[str, object]:
         "session_id": record.session_id,
         "title": record.title,
         "branch_from_session_id": record.branch_from_session_id,
+        "spawned_by_session_id": record.spawned_by_session_id,
+        "spawned_by_run_id": record.spawned_by_run_id,
         "archived_at": record.archived_at,
         "created_at": record.created_at,
         "updated_at": record.updated_at,

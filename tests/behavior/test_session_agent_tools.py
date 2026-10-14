@@ -282,7 +282,7 @@ async def test_first_and_repeated_host_runs_publish_unique_session_tools_and_kee
         for call in model.calls:
             names = [tool.name for tool in call.tools]
             assert len(names) == len(set(names))
-            assert set(names) == base_names | {"list_sessions", "read_session", "send_message"}
+            assert set(names) == base_names | {"list_sessions", "read_session", "send_message", "spawn_agent"}
         model.assert_complete()
 
 
