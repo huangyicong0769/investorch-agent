@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 import { ArrowUpRight, Bot, BriefcaseBusiness, ChevronRight, ListChecks } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
@@ -20,7 +20,37 @@ const labels: Record<SessionContextStatus, string> = {
 }
 
 export function SessionContextCard({ session, runtime, presentation }: { session: SessionRecord; runtime: RuntimeSnapshot; presentation: SessionPresentationState }) {
-  const [open, setOpen] = useState(() => window.matchMedia('(min-width: 1280px)').matches)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const [hasSpace, setHasSpace] = useState(false)
+  const [manualOpen, setManualOpen] = useState<boolean | null>(null)
+  const open = manualOpen ?? hasSpace
+  const setOpen = setManualOpen
+
+  useLayoutEffect(() => {
+    const trigger = triggerRef.current
+    const layout = trigger?.closest('[data-conversation-layout]')
+    const body = layout?.querySelector('[data-conversation-width]')
+    if (!trigger || !layout || !body) return
+
+    const measure = () => {
+      const rem = parseFloat(getComputedStyle(document.documentElement).fontSize)
+      const bodyRight = body.getBoundingClientRect().right - parseFloat(getComputedStyle(body).paddingRight)
+      const anchor = trigger.getBoundingClientRect()
+      // Match the card's w-80 (20rem), with a 1rem gap from the message text.
+      const horizontalSpace = anchor.right - 20 * rem >= bodyRight + rem
+      const verticalSpace = layout.getBoundingClientRect().bottom - anchor.bottom >= 24 * rem
+      setHasSpace(horizontalSpace && verticalSpace)
+    }
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(layout)
+    observer.observe(body)
+    window.addEventListener('resize', measure)
+    return () => {
+      observer.disconnect()
+      window.removeEventListener('resize', measure)
+    }
+  }, [])
   const context = useQuery(sessionContextQueryOptions(session.session_id))
   const portfolios = useQuery(sessionRelatedPortfoliosQueryOptions(session.session_id))
   const processes = useQuery({ ...processesQueryOptions(), enabled: open, refetchInterval: open ? 2_000 : false, staleTime: 0 })
@@ -36,6 +66,7 @@ export function SessionContextCard({ session, runtime, presentation }: { session
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button
+          ref={triggerRef}
           className="rounded-xl text-muted-foreground data-[state=open]:bg-muted data-[state=open]:text-foreground"
           size="icon-sm"
           variant="ghost"

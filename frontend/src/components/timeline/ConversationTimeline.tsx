@@ -96,7 +96,7 @@ function RunTiming({ timing }: { timing: TimelineRunTimingViewModel }) {
   const lead = timing.status === 'completed' ? 'Worked' : timing.status === 'cancelled' ? 'Stopped after' : 'Failed after'
 
   return (
-    <div className="py-2 text-center text-[11px] text-muted-foreground" data-seq={timing.seq}>
+    <div className="py-2 text-left text-[11px] text-muted-foreground" data-seq={timing.seq}>
       {lead} {formatDuration(timing.durationMs)} ·{' '}
       <time dateTime={timing.startedAt}>{formatTimelineTime(timing.startedAt)}</time>
       {'–'}
@@ -133,7 +133,7 @@ function ActiveRunTiming({ runtime }: { runtime: RuntimeSnapshot }) {
         : 'Working'
 
   return (
-    <div className="py-2 text-center text-[11px] text-muted-foreground" role="status">
+    <div className="py-2 text-left text-[11px] text-muted-foreground" role="status">
       {state} {formatDuration(durationMs)} · Started{' '}
       <time dateTime={startedAt}>{formatTimelineTime(startedAt)}</time>
     </div>
