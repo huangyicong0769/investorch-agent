@@ -1,15 +1,15 @@
 ---
 name: skill-installer
 description: Acquire and install external Skills or replace custom Skills. Use when a user supplies a Skill directory, archive, URL, repository, or other source.
-version: 1.0.0
+version: 1.0.1
 ---
 
 # Install a Skill
 
 1. Identify the requested source and intended identity. Acquire content with currently available Workspace tools into `.skill-staging/<name>/`. The manager accepts a local Workspace candidate directory; it does not fetch repositories, URLs, or archives. Acquisition and extraction use existing approval rules; inspect archive paths before extraction and keep resources within the candidate root.
-2. Inspect `list_skills` and the candidate. `SKILL.md` needs matching directory/frontmatter name, a meaningful description, nonempty body, and UTF-8 YAML. External version is optional; any supplied version must be SemVer. Keep original source provenance as `external` and supply an origin when known. Do not claim external content is built-in.
+2. Inspect `list_skills` for identity collisions and read the candidate for task fit. Keep original source provenance as `external` and supply an origin when known. Do not claim external content is built-in.
 3. Resolve name collisions explicitly: replace/update an existing non-built-in only when requested, or fork with a new directory/name. Built-ins cannot be Agent-replaced; customization requires a separately named fork. Never silently shadow another Skill.
-4. Call `review_skill_candidate`. Structural validation precedes safety review. PASS reports no materially unsafe behavior, not approval. Summarize important WARN behavior and require manual approval; BLOCK prohibits installation without a bypass. If content changes, review it again.
+4. Call `review_skill_candidate` as the first structural check: it validates UTF-8, YAML, matching directory/frontmatter identity, description/body, optional SemVer version, and resource boundaries before safety review. Repair the specific validation error and retry; investigate encoding separately only when validation reports a decoding failure. A command/environment failure is not evidence of invalid encoding. PASS reports no materially unsafe behavior, not approval. Summarize important WARN behavior and require manual approval; BLOCK prohibits installation without a bypass. If content changes, review it again.
 5. Call `install_skill` with the candidate, source, and explicit replacement choice. Installation independently reviews current candidate contents and goes through approval; an earlier review is not a reusable permission grant. Use dedicated `remove_skill` and `set_skill_enabled` for authorized lifecycle changes rather than direct directory/registry mutation.
 6. Report the result and `restart_required`. Restart InvestOrch before expecting newly installed/enabled Skills in the Main Agent catalog; opening another session does not reload it. After restart, verify discovery and `load_skill`. Remove only temporary acquisition files when cleanup is appropriate.
 

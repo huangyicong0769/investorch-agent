@@ -49,6 +49,11 @@ async def review_skill_candidate(
 ) -> dict:
     """Validate and independently review a Workspace candidate; installation repeats safety review before approval.
 
+    Use this as the first structural check. It validates UTF-8, YAML, metadata,
+    and resource boundaries before safety review, returning a specific error
+    on invalid content. Separate encoding checks are needed only to investigate
+    a reported decoding failure.
+
     Args:
         candidate_path: Candidate Skill directory containing SKILL.md, inside Workspace and outside installed skills.
         source_type: "created" for an authored candidate or "external" for an imported candidate. Defaults to "external".
