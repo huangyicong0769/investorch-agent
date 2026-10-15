@@ -105,6 +105,7 @@ export interface Defaults {
 }
 
 export interface WebConfig {
+  theme_color: 'green' | 'blue' | 'violet' | 'rose' | 'amber' | 'neutral'
   history_page_size: number
   websocket_reconnect_base_delay_ms: number
   websocket_reconnect_max_delay_ms: number

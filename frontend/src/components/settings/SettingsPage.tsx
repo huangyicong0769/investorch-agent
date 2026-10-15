@@ -1,9 +1,10 @@
-import { useState, type ReactNode } from 'react'
+import { useLayoutEffect, useState, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { configQueryOptions, managementKeys, resetConfig, saveConfig, schemaQueryOptions, type ConfigSchema, type SavedConfig } from '../../api/management'
-import { defaultsQueryOptions } from '../../api/queries'
-import type { JsonValue } from '../../api/types'
+import { defaultsQueryOptions, bootstrapQueryOptions } from '../../api/queries'
+import type { JsonValue, WebConfig } from '../../api/types'
+import { useThemePreview } from '../../config/WebConfigContext'
 import { cn } from '../../lib/utils'
 import { ErrorNotice, fieldErrors } from '../management/Feedback'
 import { SchemaField } from '../management/SchemaField'
@@ -14,7 +15,7 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/com
 import { Button } from '@/components/ui/button'
 import { McpPanel } from './McpPanel'
 
-const categories = ['General', 'Models', 'Safety & Approval', 'Context', 'Images', 'Backtesting', 'Integrations', 'Advanced'] as const
+const categories = ['General', 'Appearance', 'Models', 'Safety & Approval', 'Context', 'Images', 'Backtesting', 'Integrations', 'Advanced'] as const
 type Category = typeof categories[number]
 
 function SettingsEditor({ saved, schema }: { saved: SavedConfig; schema: ConfigSchema }) {
@@ -25,11 +26,18 @@ function SettingsEditor({ saved, schema }: { saved: SavedConfig; schema: ConfigS
   const [notice, setNotice] = useState('')
   const dirty = Object.keys(changes).length > 0 || Object.values(secrets).some(Boolean)
   const value = (path: string) => path in changes ? changes[path] : configValue(saved.values, path)
+  const previewTheme = useThemePreview()
+  const themeColor = value('web.theme_color') as WebConfig['theme_color']
+  useLayoutEffect(() => {
+    previewTheme(themeColor)
+    return () => previewTheme(null)
+  }, [previewTheme, themeColor])
   const refresh = async (requiresRestart: boolean) => {
-    setNotice(requiresRestart ? 'Saved. Restart InvestOrch to apply fields marked “Restart required”. Other saved changes apply to future work.' : 'Saved. Your preferences apply to future work.')
+    setNotice(requiresRestart ? 'Saved. Restart InvestOrch to apply fields marked “Restart required”. Other saved changes apply to future work.' : 'Saved.')
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: managementKeys.config() }),
       queryClient.invalidateQueries({ queryKey: defaultsQueryOptions().queryKey }),
+      queryClient.invalidateQueries({ queryKey: bootstrapQueryOptions().queryKey }),
     ])
   }
   const save = useMutation({
@@ -38,7 +46,7 @@ function SettingsEditor({ saved, schema }: { saved: SavedConfig; schema: ConfigS
       for (const [name, key] of Object.entries(secrets)) if (key) updates[`secrets.${name}`] = key
       return saveConfig(updates)
     },
-    onSuccess: async (result) => { setChanges({}); setSecrets({}); await refresh(result.requires_restart) },
+    onSuccess: async (result) => { await refresh(result.requires_restart); setChanges({}); setSecrets({}) },
   })
   const reset = useMutation({ mutationFn: (path: string) => resetConfig([path]), onSuccess: (result) => refresh(result.requires_restart) })
   const errors = fieldErrors(save.error ?? reset.error)
@@ -63,7 +71,7 @@ function SettingsEditor({ saved, schema }: { saved: SavedConfig; schema: ConfigS
         return resolved.properties ? <fieldset className="min-w-0 rounded-xl border border-border p-4 sm:col-span-2" key={key}><legend className="px-2 text-sm font-semibold">{fieldLabel(key)}</legend>{renderFields(`${path}.${key}`)}</fieldset> : <div key={key}>{renderFields(`${path}.${key}`)}</div>
       })}</div>
     }
-    return <SchemaField disabled={busy} error={errors[path]} onChange={(next) => change(path, next)} onReset={dirty ? undefined : () => reset.mutate(path)} overridden={saved.overrides.includes(path)} path={path} root={schema} schema={raw} value={value(path)} />
+    return <SchemaField disabled={busy} error={errors[path]} onChange={(next) => change(path, next)} onReset={dirty ? undefined : () => reset.mutate(path)} overridden={saved.overrides.includes(path)} path={path} root={schema} schema={raw} showApplyMode={path !== 'web.theme_color'} value={value(path)} />
   }
   const section = (title: string, path: string, description?: string, omit?: string[]) => <section key={path}><Card className="gap-5 rounded-xl border-border py-5 shadow-none"><CardHeader className="gap-2 px-5"><CardTitle><h2>{title}</h2></CardTitle>{description ? <CardDescription className="leading-6">{description}</CardDescription> : null}</CardHeader><CardContent className="px-5">{renderFields(path, omit)}</CardContent></Card></section>
   const roleNames = Object.keys(objectValue(saved.values.models))
@@ -82,6 +90,7 @@ function SettingsEditor({ saved, schema }: { saved: SavedConfig; schema: ConfigS
           {section('General preferences', 'runtime.default_timezone')}
           {section('Saved follow-up preference', 'interaction', 'Your persistent default, shared by Web, TUI and plain-console clients.')}
         </> : null}
+        {category === 'Appearance' ? section('Theme color', 'web.theme_color', 'Preview a color palette for buttons, navigation and surfaces. Save to keep it across reloads, or discard to restore your saved color. Light and dark appearances follow your system.') : null}
         {category === 'Models' ? <>
           {section('Model roles', 'models', 'Each role has its own model, endpoint, key reference and reasoning settings. Multiple roles can share a key reference.')}
           <section className="rounded-xl border border-border bg-card p-5"><h2 className="font-semibold">API keys</h2><p className="mt-2 text-sm text-muted-foreground">Restart InvestOrch after saving replacement keys so model clients use the new credentials.</p><div className="mt-5"><SecretFields allowNew configured={saved.secrets} disabled={busy} names={[...Object.keys(saved.secrets), ...referencedSecrets]} onChange={(name, key) => { setSecrets((current) => ({ ...current, [name]: key })); setNotice('') }} values={secrets} /></div></section>
@@ -104,7 +113,7 @@ function SettingsEditor({ saved, schema }: { saved: SavedConfig; schema: ConfigS
             <li>Copy the existing state and workspace directories to the intended locations, retaining the originals. Update <code>paths.state</code> and <code>paths.workspace</code> in <code>investorch.toml</code> while the application is stopped. Root is selected at startup, not through this file.</li>
             <li>Run <code>investorch doctor --root /path/to/root</code> before restarting. After startup, verify your Sessions, Portfolios and Skills before removing any original data.</li>
           </ol>
-        </section> : renderFields(path, path === 'runtime' ? ['default_timezone'] : [])}</div></details>) : null}
+        </section> : renderFields(path, path === 'runtime' ? ['default_timezone'] : path === 'web' ? ['theme_color'] : [])}</div></details>) : null}
         <div className="sticky bottom-0 z-10 space-y-3 border-t border-border bg-background/95 py-4 backdrop-blur">
           <ErrorNotice error={save.error ?? reset.error} fallback="Configuration could not be saved." />
           {notice ? <p className="text-sm" role="status">{notice}</p> : null}

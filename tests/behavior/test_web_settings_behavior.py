@@ -6,6 +6,28 @@ from investorch.config import load_config
 from tests.support.web import open_test_web
 
 
+async def test_theme_color_applies_without_restart_persists_and_resets(tmp_path: Path) -> None:
+    async with open_test_web(tmp_path) as web:
+        original = (await web.client.get("/api/bootstrap")).json()["web_config"]["theme_color"]
+        for color in ("blue", "violet", "rose", "amber", "neutral", "green"):
+            response = await web.client.patch("/api/config", json={"changes": {"web.theme_color": color}})
+            assert response.status_code == 200
+            assert response.json()["requires_restart"] is False
+            assert (await web.client.get("/api/bootstrap")).json()["web_config"]["theme_color"] == color
+            assert load_config(root=web.runtime.config.root)["web.theme_color"] == color
+
+        before = web.runtime.config.root_config_path.read_bytes()
+        invalid = await web.client.patch("/api/config", json={"changes": {"web.theme_color": "unknown"}})
+        assert invalid.status_code == 422
+        assert web.runtime.config.root_config_path.read_bytes() == before
+
+        reset = await web.client.post("/api/config/reset", json={"keys": ["web.theme_color"]})
+        assert reset.status_code == 200
+        assert reset.json()["requires_restart"] is False
+        assert (await web.client.get("/api/bootstrap")).json()["web_config"]["theme_color"] == original
+        assert load_config(root=web.runtime.config.root)["web.theme_color"] == original
+
+
 async def test_config_updates_return_changed_keys_and_timezone_restart_status(tmp_path: Path) -> None:
     async with open_test_web(tmp_path) as web:
         config = web.runtime.config

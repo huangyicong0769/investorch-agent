@@ -1,11 +1,21 @@
-import { createContext, useContext, type PropsWithChildren } from 'react'
+import { createContext, useContext, useLayoutEffect, useState, type PropsWithChildren, type Dispatch, type SetStateAction } from 'react'
 
 import type { ImageConfig, WebConfig } from '../api/types'
 
-const WebConfigContext = createContext<WebConfig | null>(null)
+type ThemeColor = WebConfig['theme_color']
+const WebConfigContext = createContext<{
+  config: WebConfig
+  previewTheme: Dispatch<SetStateAction<ThemeColor | null>>
+} | null>(null)
 
 export function WebConfigProvider({ children, value }: PropsWithChildren<{ value: WebConfig }>) {
-  return <WebConfigContext.Provider value={value}>{children}</WebConfigContext.Provider>
+  const [preview, previewTheme] = useState<ThemeColor | null>(null)
+  const color = preview ?? value.theme_color
+  useLayoutEffect(() => {
+    document.documentElement.dataset.themeColor = color
+    return () => { delete document.documentElement.dataset.themeColor }
+  }, [color])
+  return <WebConfigContext.Provider value={{ config: value, previewTheme }}>{children}</WebConfigContext.Provider>
 }
 
 export function useWebConfig(): WebConfig {
@@ -13,7 +23,13 @@ export function useWebConfig(): WebConfig {
   if (config === null) {
     throw new Error('WebConfigProvider is missing.')
   }
-  return config
+  return config.config
+}
+
+export function useThemePreview() {
+  const context = useContext(WebConfigContext)
+  if (!context) throw new Error('WebConfigProvider is missing.')
+  return context.previewTheme
 }
 
 const ImageConfigContext = createContext<ImageConfig | null>(null)
