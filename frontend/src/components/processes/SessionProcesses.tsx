@@ -1,4 +1,4 @@
-import { ChevronDown } from 'lucide-react'
+import { ChevronDown, Terminal } from 'lucide-react'
 
 import type { BackgroundJob } from '../../api/types'
 import { errorMessage } from '../../lib/errors'
@@ -28,7 +28,7 @@ function ProcessItem({ process }: { process: BackgroundJob }) {
             <Badge variant="secondary" className="px-1.5 py-0 text-[10px] capitalize">{process.status}</Badge>
           </Button>
         </CollapsibleTrigger>
-        <CollapsibleContent className="space-y-3 px-1.5 pb-3">
+        <CollapsibleContent className="summary-section-content space-y-3 px-1.5 pb-3 text-xs">
           <pre className="max-h-28 overflow-auto whitespace-pre-wrap break-all rounded-md bg-muted p-2 font-mono text-xs leading-5">{process.command}</pre>
           <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1">
             <dt className="text-muted-foreground">Started</dt>
@@ -68,18 +68,32 @@ interface SessionProcessesProps {
 }
 
 export function SessionProcesses({ processes, loading, error, onRetry }: SessionProcessesProps) {
+  const running = processes.filter((process) => process.status === 'running').length
+  const lost = processes.filter((process) => process.status === 'lost').length
+  const status = running ? `${running} running` : lost ? `${lost} lost` : 'Finished'
+
   return (
-    <section className="border-t border-border p-3" aria-label="Session processes">
-      <h2 className="mb-2 font-medium text-muted-foreground">Processes <span className="tabular-nums">{processes.length || ''}</span></h2>
-      {loading ? <p className="text-muted-foreground" role="status">Loading processes…</p> : null}
-      {error ? <div role="alert">
+    <section className="border-t border-border/50 pt-4" aria-label="Session processes">
+      <h2 className="mb-2 text-xs text-muted-foreground">Background processes</h2>
+      {loading ? <p className="text-xs text-muted-foreground" role="status">Loading processes…</p> : null}
+      {error ? <div className="text-xs" role="alert">
         <p className="text-destructive">{errorMessage(error, 'Processes could not be loaded.')}</p>
         <Button type="button" size="xs" variant="ghost" onClick={onRetry}>Retry processes</Button>
       </div> : null}
-      {!loading && !error && processes.length === 0 ? <p className="text-muted-foreground">No background processes for this conversation.</p> : null}
-      {processes.length ? <ul className="divide-y divide-border/60">
-        {processes.map((process) => <ProcessItem key={process.job_id} process={process} />)}
-      </ul> : null}
+      {!loading && !error && processes.length === 0 ? <p className="text-xs text-muted-foreground">No background processes.</p> : null}
+      {processes.length ? <Collapsible>
+        <CollapsibleTrigger className="group flex w-full items-center gap-2.5 rounded-md py-1.5 text-left hover:text-primary focus-visible:outline-ring">
+          <Terminal className="size-4 shrink-0" aria-hidden="true" />
+          <span className="flex-1">{processes.length} {processes.length === 1 ? 'process' : 'processes'}</span>
+          <span className="text-xs text-muted-foreground">{status}</span>
+          <ChevronDown className="size-3.5 -rotate-90 text-muted-foreground transition-transform group-data-[state=open]:rotate-0" aria-hidden="true" />
+        </CollapsibleTrigger>
+        <CollapsibleContent className="summary-section-content">
+          <ul className="divide-y divide-border/50 pt-2">
+            {processes.map((process) => <ProcessItem key={process.job_id} process={process} />)}
+          </ul>
+        </CollapsibleContent>
+      </Collapsible> : null}
     </section>
   )
 }

@@ -30,8 +30,8 @@ export function ConversationHeader({ session, context }: ConversationHeaderProps
         </div>
       </div>
       <div className="flex shrink-0 items-center gap-1">
-        {context}
         <SessionMenu key={session.session_id} session={session} />
+        {context}
       </div>
     </header>
   )
