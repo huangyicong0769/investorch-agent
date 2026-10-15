@@ -13,6 +13,7 @@ import { useConversationInteraction } from '../components/conversation/useConver
 import { PortfolioDetailPage } from '../components/portfolio/PortfolioDetailPage'
 import { PortfolioIndexPage } from '../components/portfolio/PortfolioIndexPage'
 import { SessionSidebar } from '../components/sidebar/SessionSidebar'
+import { ArchivePage } from '../components/archive/ArchivePage'
 import { LiveWebSocketProvider } from '../websocket/LiveWebSocketProvider'
 import { Button } from '@/components/ui/button'
 import { SkillsPage } from '../components/skills/SkillsPage'
@@ -245,6 +246,7 @@ const router = createBrowserRouter([
         children: [
           { index: true, element: <RootRoute /> },
           { path: 'c/:sessionId', element: <ConversationPage /> },
+          { path: 'archive', element: <ArchivePage /> },
           { path: 'portfolios', element: <PortfolioIndexPage /> },
           { path: 'portfolios/:portfolioId', element: <PortfolioDetailPage /> },
           { path: 'system', element: <SystemPage /> },

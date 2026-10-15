@@ -22,7 +22,6 @@ import type {
 import { errorMessage } from '../../lib/errors'
 import { sessionMatches, sessionPath } from '../../lib/session'
 import { cn } from '../../lib/utils'
-import { ArchivedSessionsDialog } from './ArchivedSessionsDialog'
 import { SessionItem } from './SessionItem'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
@@ -47,9 +46,7 @@ export function SessionSidebar({
   const searchId = useId()
   const deleteDescriptionId = useId()
   const mobileCloseButtonRef = useRef<HTMLButtonElement>(null)
-  const archivedTriggerRef = useRef<HTMLButtonElement>(null)
   const [search, setSearch] = useState('')
-  const [archivedOpen, setArchivedOpen] = useState(false)
   const [deleteCandidate, setDeleteCandidate] = useState<SessionRecord | null>(null)
   const deletePreview = useQuery({ ...sessionDeletionPreviewQueryOptions(deleteCandidate?.session_id ?? ''), enabled: Boolean(deleteCandidate) })
   const sessionsQuery = useQuery(sessionsQueryOptions())
@@ -284,28 +281,11 @@ export function SessionSidebar({
       </ScrollArea>
 
       <div className="mt-3 space-y-1 border-t border-border pt-3">
-        <Button
-          size={null}
-          variant={null}
-          className="flex w-full items-center justify-start gap-2 rounded-lg px-3 py-2 text-left text-sm hover:bg-muted"
-          onClick={() => setArchivedOpen(true)}
-          ref={archivedTriggerRef}
-          type="button"
-        >
-          <Archive aria-hidden="true" size={16} />
-          Archived
-        </Button>
+        <NavLink className={({ isActive }) => cn('flex items-center gap-2 min-h-10 rounded-lg px-3 py-2 text-sm outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/40', isActive && 'bg-accent font-medium text-accent-foreground')} onClick={onMobileNavigate} to="/archive"><Archive aria-hidden="true" size={16} />Archive</NavLink>
         <NavLink className={({ isActive }) => cn('flex items-center gap-2 min-h-10 rounded-lg px-3 py-2 text-sm outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/40', isActive && 'bg-accent font-medium text-accent-foreground')} onClick={onMobileClose} to="/settings"><Settings aria-hidden="true" size={16} />Settings</NavLink>
         <NavLink className={({ isActive }) => cn('flex items-center gap-2 min-h-10 rounded-lg px-3 py-2 text-sm outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/40', isActive && 'bg-accent font-medium text-accent-foreground')} onClick={onMobileClose} to="/system"><Activity aria-hidden="true" size={16} />System Status</NavLink>
       </div>
 
-      <ArchivedSessionsDialog
-        onClose={() => setArchivedOpen(false)}
-        onRestoreFocus={() => archivedTriggerRef.current?.focus()}
-        onSelect={selectSession}
-        open={archivedOpen}
-        selectedSessionId={selectedSessionId}
-      />
       <Dialog
         open={deleteCandidate !== null}
         onOpenChange={(open) => {
