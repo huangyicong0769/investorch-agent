@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { PanelLeft } from 'lucide-react'
-import { createBrowserRouter, Link, Navigate, Outlet, RouterProvider, useLocation, useMatch } from 'react-router-dom'
+import { createBrowserRouter, Link, Navigate, Outlet, RouterProvider, useLocation, useMatch, useNavigate } from 'react-router-dom'
 
-import { discardUnusedSession } from '../api/client'
+import { createSession, discardUnusedSession } from '../api/client'
 import { bootstrapQueryOptions, queryKeys } from '../api/queries'
 import { setupQueryOptions } from '../api/management'
 import { ImageConfigProvider, WebConfigProvider, useWebConfig } from '../config/WebConfigContext'
@@ -145,7 +145,35 @@ function AppShell() {
 }
 
 function RootRoute() {
-  return null
+  const navigate = useNavigate()
+  const queryClient = useQueryClient()
+  const create = useMutation({
+    mutationFn: createSession,
+    onSuccess: (response) => {
+      queryClient.setQueryData(queryKeys.session(response.session.session_id), response)
+      void queryClient.invalidateQueries({ queryKey: queryKeys.sessions() })
+      navigate(`/c/${response.session.session_id}`)
+    },
+  })
+
+  return (
+    <section className="mx-auto flex min-h-dvh max-w-2xl flex-col justify-center px-6 py-20">
+      <p className="text-sm font-medium text-muted-foreground">InvestOrch Agent</p>
+      <h1 className="mt-3 text-3xl font-semibold tracking-tight">What would you like to work on?</h1>
+      <p className="mt-4 text-sm leading-6 text-muted-foreground">
+        Start a conversation to research an investment, explore a strategy, or work with your portfolio.
+        Your existing conversations are in the sidebar.
+      </p>
+      <div className="mt-6 flex flex-wrap gap-3">
+        <Button disabled={create.isPending} onClick={() => create.mutate()} type="button">
+          {create.isPending ? 'Opening conversation…' : 'New conversation'}
+        </Button>
+        <Button asChild variant="outline"><Link to="/portfolios">View portfolios</Link></Button>
+        <Button asChild variant="outline"><Link to="/skills">Explore Skills</Link></Button>
+      </div>
+      <ErrorNotice error={create.error} fallback="The conversation could not be created. Try again." />
+    </section>
+  )
 }
 
 function NotFoundRoute() {
