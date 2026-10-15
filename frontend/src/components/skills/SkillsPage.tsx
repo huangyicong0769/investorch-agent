@@ -11,7 +11,7 @@ import { useSkillWorkflow } from './useSkillWorkflow'
 import { Card, CardHeader, CardContent, CardFooter } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
-import { NativeSelect } from '@/components/ui/native-select'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Button } from '@/components/ui/button'
 
 export function SkillsPage() {
@@ -38,10 +38,26 @@ export function SkillsPage() {
       <div><h1 className="text-3xl font-semibold tracking-tight">Skills</h1><p className="mt-2 text-sm text-muted-foreground">Manage reusable workflows and create new ones with your Agent.</p></div>
       <div className="flex flex-wrap gap-2"><Button disabled={workflow.isPending} onClick={() => workflow.mutate({ action: 'install' })} type="button" variant="outline"><Download aria-hidden="true" />Install Skill</Button><Button disabled={workflow.isPending} onClick={() => workflow.mutate({ action: 'create' })} type="button"><Plus aria-hidden="true" />Create Skill</Button></div>
     </header>
-    <div className="mt-8 grid grid-cols-2 gap-3 rounded-xl border border-border/70 bg-card/60 p-4 sm:grid-cols-[minmax(0,1fr)_10rem_10rem] [&_[data-slot=native-select-wrapper]]:w-full">
+    <div className="mt-8 grid grid-cols-2 gap-3 rounded-xl border border-border/70 bg-card/60 p-4 sm:grid-cols-[minmax(0,1fr)_10rem_10rem]">
       <div className="col-span-2 sm:col-span-1"><label className="mb-2 block text-xs font-medium" htmlFor="skill-search">Search Skills</label><Input className="h-10 bg-card" id="skill-search" onChange={(event) => setSearch(event.target.value)} placeholder="Name or description" type="search" value={search} /></div>
-      <div><label className="mb-2 block text-xs font-medium" htmlFor="skill-status">Status</label><NativeSelect className="h-10 bg-card" id="skill-status" onChange={(event) => setStatus(event.target.value)} value={status}><option value="all">All installed</option><option value="enabled">Enabled</option><option value="disabled">Disabled</option><option value="missing">Missing</option><option value="invalid">Invalid</option></NativeSelect></div>
-      <div><label className="mb-2 block text-xs font-medium" htmlFor="skill-source">Source</label><NativeSelect className="h-10 bg-card" id="skill-source" onChange={(event) => setSource(event.target.value)} value={source}><option value="all">All sources</option><option value="builtin">Built-in</option><option value="created">Created</option><option value="external">External</option></NativeSelect></div>
+      <div>
+        <label className="mb-2 block text-xs font-medium" htmlFor="skill-status">Status</label>
+        <Select onValueChange={setStatus} value={status}>
+          <SelectTrigger className="h-10 w-full bg-card" id="skill-status"><SelectValue /></SelectTrigger>
+          <SelectContent align="start" position="popper">
+            <SelectItem value="all">All installed</SelectItem><SelectItem value="enabled">Enabled</SelectItem><SelectItem value="disabled">Disabled</SelectItem><SelectItem value="missing">Missing</SelectItem><SelectItem value="invalid">Invalid</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+      <div>
+        <label className="mb-2 block text-xs font-medium" htmlFor="skill-source">Source</label>
+        <Select onValueChange={setSource} value={source}>
+          <SelectTrigger className="h-10 w-full bg-card" id="skill-source"><SelectValue /></SelectTrigger>
+          <SelectContent align="start" position="popper">
+            <SelectItem value="all">All sources</SelectItem><SelectItem value="builtin">Built-in</SelectItem><SelectItem value="created">Created</SelectItem><SelectItem value="external">External</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
     </div>
     <div className="mt-5 space-y-3"><ErrorNotice error={query.error ?? workflow.error ?? toggle.error} fallback="Skills could not be loaded or updated." />{notice ? <p className="rounded-lg border border-border bg-card p-3 text-sm" role="status">{notice}</p> : null}{workflow.isPending ? <p className="text-sm text-muted-foreground" role="status">Starting a new Agent Session…</p> : null}</div>
     {query.isPending ? <p className="mt-8 text-sm text-muted-foreground" role="status">Loading Skills…</p> : null}

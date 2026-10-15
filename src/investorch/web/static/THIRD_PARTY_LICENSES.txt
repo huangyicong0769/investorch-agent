@@ -5781,7 +5781,7 @@ shadcn/ui source components
 Source: https://github.com/shadcn-ui/ui
 Registry: https://ui.shadcn.com/r/styles/new-york-v4/{component}.json
 Retrieved: 2026-10-15
-Components: badge, card, input, input-group, native-select, textarea.
+Components: badge, card, input, input-group, native-select, select, textarea.
 Local adaptation: imports resolved to existing utility and UI component paths.
 
 MIT License

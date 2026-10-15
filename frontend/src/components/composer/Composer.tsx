@@ -7,7 +7,8 @@ import {
   type FormEvent,
   type KeyboardEvent,
 } from 'react'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useIsMutating, useMutation, useQueryClient } from '@tanstack/react-query'
+import { ArrowUp, LoaderCircle, Square } from 'lucide-react'
 
 import { getSessionHistory, getSessionState, sendMessage, stopSession } from '../../api/client'
 import { queryKeys } from '../../api/queries'
@@ -27,7 +28,7 @@ import { UsagePopover } from '../usage/UsagePopover'
 import { InputGroupTextarea } from '@/components/ui/input-group'
 import { Button } from '@/components/ui/button'
 import { ImageAttachments } from '../images/ImageAttachments'
-import { RunControlsPopover } from './RunControlsPopover'
+import { RUN_DEFAULTS_MUTATION_KEY, RunControlMenu } from './RunControlsPopover'
 
 interface ComposerProps {
   sessionId: string
@@ -88,6 +89,7 @@ export function Composer({
   const imageConfig = useImageConfig()
   const [readingImages, setReadingImages] = useState(false)
   const queryClient = useQueryClient()
+  const savingRunControls = useIsMutating({ mutationKey: RUN_DEFAULTS_MUTATION_KEY }) > 0
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const stopRunIdRef = useRef<string | null>(null)
   const stopSessionIdRef = useRef(sessionId)
@@ -191,7 +193,7 @@ export function Composer({
 
   const submit = async () => {
     const targetSessionId = sessionId
-    if (archived || sendPendingForSession || preparingSendForSession || readingImages) {
+    if (archived || sendPendingForSession || preparingSendForSession || readingImages || savingRunControls) {
       return
     }
 
@@ -265,38 +267,41 @@ export function Composer({
   return (
     <form onSubmit={handleSubmit}>
       <ImageAttachments toolbar={
-        <div className="flex min-w-0 flex-1 flex-wrap items-center justify-between gap-1">
-          <div className="flex min-w-0 flex-wrap items-center gap-1">
-            <RunControlsPopover />
+        <div className="flex min-w-0 flex-1 flex-wrap items-center justify-between gap-x-2 gap-y-1">
+          <RunControlMenu field="permission_mode" />
+          <div className="ml-auto flex items-center gap-1">
+            <RunControlMenu field="reasoning_effort" />
             <UsagePopover contextWindowTokens={contextWindowTokens} presentation={presentation} />
-          </div>
-          <div className="flex items-center gap-2">
             {active ? (
               <Button
-                size="sm"
-                variant="outline"
-                className="min-h-9 rounded-lg"
+                size="icon"
+                variant="secondary"
+                className="size-9 rounded-full"
+                aria-label={stopping || stopPendingForSession ? 'Stopping…' : 'Stop'}
+                title={stopping || stopPendingForSession ? 'Stopping…' : 'Stop'}
                 disabled={archived || stopping || stopPendingForSession}
                 onClick={() => stopMutation.mutate({ sessionId, runId: runtime.run_id })}
                 type="button"
               >
-                {stopping || stopPendingForSession ? 'Stopping…' : 'Stop'}
+                {stopping || stopPendingForSession ? <LoaderCircle aria-hidden="true" className="size-4 animate-spin" /> : <Square aria-hidden="true" className="size-3.5 fill-current" />}
               </Button>
             ) : null}
             <Button
-              size="sm"
-              className="min-h-9 rounded-lg px-4"
-              disabled={archived || sendPendingForSession || preparingSendForSession || readingImages || (!draft.text.trim() && !draft.images.length)}
+              size="icon"
+              className="ml-1 size-9 rounded-full"
+              aria-label={savingRunControls ? 'Saving run controls…' : sendPendingForSession || preparingSendForSession ? 'Sending…' : 'Send'}
+              title={savingRunControls ? 'Saving run controls…' : 'Send message'}
+              disabled={archived || sendPendingForSession || preparingSendForSession || readingImages || savingRunControls || (!draft.text.trim() && !draft.images.length)}
               type="submit"
             >
-              {sendPendingForSession || preparingSendForSession ? 'Sending…' : 'Send'}
+              {sendPendingForSession || preparingSendForSession ? <LoaderCircle aria-hidden="true" className="size-4 animate-spin" /> : <ArrowUp aria-hidden="true" className="size-5" strokeWidth={2.25} />}
             </Button>
           </div>
         </div>
       } images={draft.images} disabled={archived || sendPendingForSession || preparingSendForSession} onReadingChange={setReadingImages} onChange={(images) => onDraftChange(sessionId, (current) => ({ ...current, images }))}>
         <InputGroupTextarea
           aria-label="Message InvestOrch Agent"
-          className="max-h-40 min-h-14 resize-none overflow-hidden px-4 py-3 text-[15px] leading-6"
+          className="max-h-40 min-h-16 resize-none overflow-hidden px-4 pb-3 pt-4 text-[15px] leading-6 sm:px-5"
           disabled={archived}
           onChange={handleDraftChange}
           onKeyDown={handleKeyDown}

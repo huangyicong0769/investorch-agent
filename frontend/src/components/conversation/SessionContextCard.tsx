@@ -3,11 +3,12 @@ import { useState } from 'react'
 import { ArrowUpRight, PanelsTopLeft } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
-import { sessionContextQueryOptions, sessionRelatedPortfoliosQueryOptions } from '../../api/queries'
+import { processesQueryOptions, sessionContextQueryOptions, sessionRelatedPortfoliosQueryOptions } from '../../api/queries'
 import type { RuntimeSnapshot, SessionContextStatus, SessionRecord } from '../../api/types'
 import { errorMessage } from '../../lib/errors'
 import { portfolioPath } from '../../lib/portfolio'
 import { sessionPath, sessionTitle } from '../../lib/session'
+import { SessionProcesses } from '../processes/SessionProcesses'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 
@@ -20,6 +21,8 @@ export function SessionContextCard({ session, runtime }: { session: SessionRecor
   const [open, setOpen] = useState(false)
   const context = useQuery(sessionContextQueryOptions(session.session_id))
   const portfolios = useQuery(sessionRelatedPortfoliosQueryOptions(session.session_id))
+  const processes = useQuery({ ...processesQueryOptions(), refetchInterval: 2_000, staleTime: 0 })
+  const ownedProcesses = processes.data?.processes.filter((process) => process.owner_session_id === session.session_id) ?? []
   const outcome = context.data?.status
   const status = runtime.run_phase ?? (runtime.queued_count || runtime.pending_steer_count ? 'pending' :
     outcome === 'completed' || outcome === 'failed' || outcome === 'cancelled' || outcome === 'pending' ? outcome : 'idle')
@@ -71,6 +74,7 @@ export function SessionContextCard({ session, runtime }: { session: SessionRecor
           </ul>
         </div>
       ) : null}
+      <SessionProcesses processes={ownedProcesses} loading={processes.isPending} error={processes.error} onRetry={() => void processes.refetch()} />
       {context.isPending ? <p className="px-3 pb-3 text-muted-foreground" role="status">Loading context…</p> : null}
       {context.error || context.data?.errors.length ? (
         <div className="border-t border-border p-3" role="alert">

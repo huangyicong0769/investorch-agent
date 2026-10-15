@@ -1,5 +1,5 @@
 import { useRef, useState, type PropsWithChildren, type ReactNode } from 'react'
-import { Paperclip } from 'lucide-react'
+import { LoaderCircle, Plus } from 'lucide-react'
 import { InputGroup, InputGroupAddon } from '../ui/input-group'
 import { useImageConfig } from '../../config/WebConfigContext'
 import type { DraftImage } from '../conversation/interaction'
@@ -61,7 +61,7 @@ export function ImageAttachments({ images, onChange, onReadingChange, disabled =
       <Button type="button" size="sm" variant="ghost" disabled={disabled || busy} aria-label={`Remove ${image.filename || 'image'}`} onClick={() => onChange(images.filter((item) => item.id !== image.id))}>Remove</Button>
     </div>)}
   </div> : null
-  const attach = <Button aria-label={busy ? 'Reading images' : 'Attach images'} title="Attach images" type="button" size={toolbar ? 'icon' : 'sm'} variant="ghost" className={toolbar ? 'size-9 shrink-0 rounded-lg' : undefined} disabled={disabled || busy} onClick={() => input.current?.click()}>{toolbar ? <Paperclip aria-hidden="true" className="size-4" /> : busy ? 'Reading images…' : 'Attach images'}</Button>
+  const attach = <Button aria-label={busy ? 'Reading images' : 'Attach images'} title="Attach images" type="button" size={toolbar ? 'icon' : 'sm'} variant="ghost" className={toolbar ? 'size-8 shrink-0 rounded-full' : undefined} disabled={disabled || busy} onClick={() => input.current?.click()}>{toolbar ? busy ? <LoaderCircle aria-hidden="true" className="size-4 animate-spin" /> : <Plus aria-hidden="true" className="size-5" /> : busy ? 'Reading images…' : 'Attach images'}</Button>
   return (
     <div onPaste={(event) => {
       const files = Array.from(event.clipboardData.items).filter((item) => item.kind === 'file' && item.type.startsWith('image/')).map((item) => item.getAsFile()).filter((file): file is File => file !== null)
@@ -69,10 +69,10 @@ export function ImageAttachments({ images, onChange, onReadingChange, disabled =
     }} onDragOver={(event) => { if (event.dataTransfer.types.includes('Files')) event.preventDefault() }} onDrop={(event) => {
       if (event.dataTransfer.files.length) { event.preventDefault(); void addFiles(Array.from(event.dataTransfer.files)) }
     }}>
-      {toolbar ? <InputGroup className="h-auto rounded-2xl border-border bg-card shadow-sm">
+      {toolbar ? <InputGroup className="h-auto rounded-3xl border-border bg-card shadow-sm">
         {children}
         {previews}
-        <InputGroupAddon align="block-end" className="flex-wrap gap-1 px-2 pb-2 pt-1">
+        <InputGroupAddon align="block-end" className="flex-wrap gap-0.5 px-2.5 pb-2.5 pt-0.5">
           {attach}
           {toolbar}
         </InputGroupAddon>

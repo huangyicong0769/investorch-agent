@@ -22,7 +22,6 @@ import type {
 import { errorMessage } from '../../lib/errors'
 import { sessionMatches, sessionPath } from '../../lib/session'
 import { cn } from '../../lib/utils'
-import { ProcessesSheet } from '../processes/ProcessesSheet'
 import { ArchivedSessionsDialog } from './ArchivedSessionsDialog'
 import { SessionItem } from './SessionItem'
 import { Button } from '@/components/ui/button'
@@ -298,7 +297,6 @@ export function SessionSidebar({
         </Button>
         <NavLink className={({ isActive }) => cn('flex items-center gap-2 min-h-10 rounded-lg px-3 py-2 text-sm outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/40', isActive && 'bg-accent font-medium text-accent-foreground')} onClick={onMobileClose} to="/settings"><Settings aria-hidden="true" size={16} />Settings</NavLink>
         <NavLink className={({ isActive }) => cn('flex items-center gap-2 min-h-10 rounded-lg px-3 py-2 text-sm outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/40', isActive && 'bg-accent font-medium text-accent-foreground')} onClick={onMobileClose} to="/system"><Activity aria-hidden="true" size={16} />System Status</NavLink>
-        <ProcessesSheet />
       </div>
 
       <ArchivedSessionsDialog

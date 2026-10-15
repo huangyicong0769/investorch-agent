@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ChevronDown, ChevronRight } from 'lucide-react'
+import { Brain, ChevronRight, ListTree, ShieldCheck, ShieldX, Terminal, Wrench } from 'lucide-react'
 
 import type {
   TimelineActivityGroupViewModel,
@@ -9,7 +9,6 @@ import type {
   TimelineUnmatchedToolOutputViewModel,
 } from '../../lib/timeline/project'
 import { formatJsonValue } from '../../lib/timeline/project'
-import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { MessageImages } from '../images/MessageImages'
 import { CopyButton } from '../ui/CopyButton'
@@ -26,50 +25,26 @@ interface DetailProps {
 
 function Detail({ label, value, formatJson = false }: DetailProps) {
   const text = formatJson ? formatJsonValue(value) : value
-  const [open, setOpen] = useState(false)
 
   return (
-    <Collapsible
-      className="mt-2 rounded border border-border/80 bg-background/70"
-      onOpenChange={setOpen}
-      open={open}
-    >
-      <CollapsibleTrigger asChild>
-        <Button
-          className="flex w-full cursor-pointer items-center justify-start gap-0 px-2 py-1 text-left text-xs font-normal text-muted-foreground"
-          size={null}
-          type="button"
-          variant={null}
-        >
-          {open ? (
-            <ChevronDown aria-hidden="true" className="mr-2 shrink-0" size={14} />
-          ) : (
-            <ChevronRight aria-hidden="true" className="mr-2 shrink-0" size={14} />
-          )}
-          <span>{label}</span>
-        </Button>
-      </CollapsibleTrigger>
-      <CollapsibleContent className="relative border-t border-border/80">
-        <div className="flex justify-end px-2 pt-2">
-          <CopyButton value={text} />
-        </div>
-        <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words px-2 pb-2 font-mono text-xs leading-5">
-          {text}
-        </pre>
-      </CollapsibleContent>
-    </Collapsible>
+    <div className="overflow-hidden rounded-lg bg-muted/50">
+      <div className="flex items-center justify-between gap-3 px-3 py-1.5 text-[11px] text-muted-foreground">
+        <span>{label}</span>
+        <CopyButton value={text} />
+      </div>
+      <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words px-3 pb-3 font-mono text-xs leading-5 text-foreground/85">
+        {text}
+      </pre>
+    </div>
   )
 }
 
 function ToolActivity({ item }: { item: TimelineToolViewModel }) {
   return (
-    <div className="text-xs">
-      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-        <span className="font-medium">Tool · {item.name}</span>
-        {item.label ? <span className="text-muted-foreground">{item.label}</span> : null}
-      </div>
+    <div className="space-y-2 text-xs">
+      {item.label ? <p className="font-mono text-[11px] text-muted-foreground">{item.name}</p> : null}
       {item.arguments !== null ? <Detail formatJson label="Arguments" value={item.arguments} /> : null}
-      {item.observation !== null ? <Detail label="Observation" value={item.observation} /> : null}
+      {item.observation !== null ? <Detail label="Output" value={item.observation} /> : null}
       <MessageImages images={item.images} fallbackLabel="Tool output image" />
     </div>
   )
@@ -77,47 +52,25 @@ function ToolActivity({ item }: { item: TimelineToolViewModel }) {
 
 function UnmatchedOutput({ item }: { item: TimelineUnmatchedToolOutputViewModel }) {
   return (
-    <div className="text-xs">
-      <span className="font-medium">Unmatched tool output</span>
-      <Detail label="Observation" value={item.output} />
+    <div className="space-y-2 text-xs">
+      <Detail label="Output" value={item.output} />
       <MessageImages images={item.images} fallbackLabel="Tool output image" />
     </div>
   )
 }
 
 function ApprovalActivity({ item }: { item: TimelineApprovalViewModel }) {
-  const automatic = item.source === 'permission'
-  const status = item.approved
-    ? automatic
-      ? '✓ Auto-approved'
-      : '✓ Approved'
-    : automatic
-      ? '⊘ Auto-rejected'
-      : '⊘ Rejected'
-  const source = automatic ? 'AutoReview' : 'User'
-
   return (
-    <div className="text-xs">
-      <div className="font-medium">
-        {status} · {item.toolName}
-      </div>
-      <dl className="mt-2 grid gap-1 text-muted-foreground">
-        <div className="flex gap-2">
-          <dt className="shrink-0">Tool</dt>
-          <dd className="min-w-0 break-words text-foreground">{item.toolName}</dd>
-        </div>
-        <div className="flex gap-2">
-          <dt className="shrink-0">Source</dt>
-          <dd className="min-w-0 break-words text-foreground">{source}</dd>
-        </div>
-        <div className="flex gap-2">
-          <dt className="shrink-0">Review decision</dt>
-          <dd className="min-w-0 break-words text-foreground">{item.reviewDecision ?? '—'}</dd>
-        </div>
-        <div className="flex gap-2">
-          <dt className="shrink-0">Review reason</dt>
-          <dd className="min-w-0 whitespace-pre-wrap break-words text-foreground">{item.reviewReason ?? '—'}</dd>
-        </div>
+    <div className="space-y-3 text-xs">
+      <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-muted-foreground">
+        <dt>Source</dt>
+        <dd className="min-w-0 break-words text-foreground/85">{item.source === 'permission' ? 'AutoReview' : 'User'}</dd>
+        <dt>Decision</dt>
+        <dd className="min-w-0 break-words text-foreground/85">{item.reviewDecision ?? (item.approved ? 'Approved' : 'Rejected')}</dd>
+        {item.reviewReason ? <>
+          <dt>Reason</dt>
+          <dd className="min-w-0 whitespace-pre-wrap break-words text-foreground/85">{item.reviewReason}</dd>
+        </> : null}
       </dl>
       {item.arguments !== null ? <Detail formatJson label="Arguments" value={item.arguments} /> : null}
     </div>
@@ -125,70 +78,44 @@ function ApprovalActivity({ item }: { item: TimelineApprovalViewModel }) {
 }
 
 function activityTitle(item: TimelineActivityViewModel): string {
-  if (item.type === 'reasoning') {
-    return 'Reasoning'
-  }
-  if (item.type === 'tool') {
-    return item.label ?? `Tool · ${item.name}`
-  }
-  if (item.type === 'unmatched_tool_output') {
-    return 'Unmatched tool output'
-  }
-
+  if (item.type === 'reasoning') return 'Reasoning'
+  if (item.type === 'tool') return item.label ?? item.name
+  if (item.type === 'unmatched_tool_output') return 'Unmatched tool output'
   const automatic = item.source === 'permission'
   const status = item.approved
-    ? automatic
-      ? '✓ Auto-approved'
-      : '✓ Approved'
-    : automatic
-      ? '⊘ Auto-rejected'
-      : '⊘ Rejected'
+    ? automatic ? 'Auto-approved' : 'Approved'
+    : automatic ? 'Auto-rejected' : 'Rejected'
   return `${status} · ${item.toolName}`
+}
+
+function ActivityIcon({ item }: { item: TimelineActivityViewModel }) {
+  const Icon = item.type === 'reasoning' ? Brain
+    : item.type === 'tool' ? Wrench
+      : item.type === 'unmatched_tool_output' ? Terminal
+        : item.approved ? ShieldCheck : ShieldX
+  return <Icon aria-hidden="true" className="size-3.5 shrink-0" />
 }
 
 function ActivityDetails({ item }: { item: TimelineActivityViewModel }) {
   if (item.type === 'reasoning') {
-    return (
-      <div className="text-xs">
-        <div className="font-medium">Reasoning</div>
-        <p className="mt-1 max-h-64 overflow-auto whitespace-pre-wrap break-words text-muted-foreground">{item.text}</p>
-      </div>
-    )
+    return <p className="max-h-80 overflow-auto whitespace-pre-wrap break-words text-sm leading-6 text-muted-foreground">{item.text}</p>
   }
-  if (item.type === 'tool') {
-    return <ToolActivity item={item} />
-  }
-  if (item.type === 'unmatched_tool_output') {
-    return <UnmatchedOutput item={item} />
-  }
+  if (item.type === 'tool') return <ToolActivity item={item} />
+  if (item.type === 'unmatched_tool_output') return <UnmatchedOutput item={item} />
   return <ApprovalActivity item={item} />
 }
 
-function ActivityStep({ item }: { item: TimelineActivityViewModel }) {
-  const [open, setOpen] = useState(false)
+const triggerClass = 'group flex max-w-full cursor-pointer items-center gap-2 rounded-md py-2 text-left text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background'
 
+function ActivityStep({ item, onOpenChange }: { item: TimelineActivityViewModel; onOpenChange?: (open: boolean) => void }) {
   return (
-    <Collapsible
-      className="rounded-md border border-border/70 bg-background/70"
-      onOpenChange={setOpen}
-      open={open}
-    >
-      <CollapsibleTrigger asChild>
-        <Button
-          className="flex w-full cursor-pointer items-center justify-start gap-0 px-3 py-2 text-left text-xs font-normal text-muted-foreground"
-          size={null}
-          type="button"
-          variant={null}
-        >
-          {open ? (
-            <ChevronDown aria-hidden="true" className="mr-2 shrink-0" size={14} />
-          ) : (
-            <ChevronRight aria-hidden="true" className="mr-2 shrink-0" size={14} />
-          )}
-          <span className="min-w-0 truncate">{activityTitle(item)}</span>
-        </Button>
+    <Collapsible onOpenChange={onOpenChange}>
+      <CollapsibleTrigger className={triggerClass}>
+        <ActivityIcon item={item} />
+        <span className="min-w-0 truncate" title={activityTitle(item)}>{activityTitle(item)}</span>
+        <ChevronRight aria-hidden="true" className="size-3.5 shrink-0 transition-transform group-data-[state=open]:rotate-90 motion-reduce:transition-none" />
       </CollapsibleTrigger>
-      <CollapsibleContent className="border-t border-border/70 p-3">
+      <CollapsibleContent className="pb-3 pt-1">
         <ActivityDetails item={item} />
       </CollapsibleContent>
     </Collapsible>
@@ -198,32 +125,18 @@ function ActivityStep({ item }: { item: TimelineActivityViewModel }) {
 export function ActivityGroup({ group }: ActivityGroupProps) {
   const [open, setOpen] = useState(!group.collapsed)
 
+  const single = group.items.length === 1
+
   return (
-    <Collapsible
-      className="my-2 max-w-full rounded-lg border border-border/50 bg-muted/25"
-      data-seq={group.seq}
-      onOpenChange={setOpen}
-      open={open}
-    >
-      <CollapsibleTrigger asChild>
-        <Button
-          className="flex w-full cursor-pointer items-center justify-start gap-0 px-3 py-2 text-left text-xs font-normal text-muted-foreground"
-          size={null}
-          type="button"
-          variant={null}
-        >
-          {open ? (
-            <ChevronDown aria-hidden="true" className="mr-2 shrink-0" size={16} />
-          ) : (
-            <ChevronRight aria-hidden="true" className="mr-2 shrink-0" size={16} />
-          )}
-          <span>{group.title}</span>
-        </Button>
-      </CollapsibleTrigger>
-      <CollapsibleContent className="space-y-2 border-t border-border/80 p-3">
-        {group.items.map((item) => (
-          <ActivityStep item={item} key={item.id} />
-        ))}
+    <Collapsible className="my-1 max-w-full" data-seq={group.seq} onOpenChange={setOpen} open={single || open}>
+      {!single ? <CollapsibleTrigger className={triggerClass}>
+        <ListTree aria-hidden="true" className="size-3.5 shrink-0" />
+        <span>Activity</span>
+        <span className="text-muted-foreground/65">{group.items.length} steps</span>
+        <ChevronRight aria-hidden="true" className="size-3.5 shrink-0 transition-transform group-data-[state=open]:rotate-90 motion-reduce:transition-none" />
+      </CollapsibleTrigger> : null}
+      <CollapsibleContent className={single ? undefined : 'mb-3 mt-1 space-y-0.5'}>
+        {group.items.map((item) => <ActivityStep item={item} key={item.id} onOpenChange={single ? setOpen : undefined} />)}
       </CollapsibleContent>
     </Collapsible>
   )

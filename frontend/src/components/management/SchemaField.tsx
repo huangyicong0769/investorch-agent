@@ -3,7 +3,7 @@ import { useId } from 'react'
 import type { ConfigSchema } from '../../api/management'
 import type { JsonValue } from '../../api/types'
 import { Input } from '@/components/ui/input'
-import { NativeSelect } from '@/components/ui/native-select'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Button } from '@/components/ui/button'
 import { fieldLabel, nullableSchema, resolveSchema } from './schema'
 
@@ -31,24 +31,38 @@ export function SchemaField({ path, schema: raw, root, value, disabled, showAppl
   const inputDisabled = disabled || immutable
   const type = schema.type
   const options = schema.enum ?? (schema.const !== undefined ? [schema.const] : undefined)
+  const selectedIndex = options?.findIndex((option) => Object.is(option, value)) ?? -1
+  const selectedValue = nullable && value == null ? 'unset' : selectedIndex < 0 ? '' : `option-${selectedIndex}`
   const description = [schema.description, schema.exclusiveMinimum === undefined ? '' : `Greater than ${schema.exclusiveMinimum}.`, schema.exclusiveMaximum === undefined ? '' : `Less than ${schema.exclusiveMaximum}.`].filter(Boolean).join(' ')
 
   return (
-    <div className="min-w-0 space-y-1.5 [&_[data-slot=native-select-wrapper]]:w-full">
+    <div className="min-w-0 space-y-1.5">
       <div className="flex items-start justify-between gap-2">
         <label className="text-sm font-medium" htmlFor={id}>{label}</label>
         {overridden && onReset && !immutable ? <Button disabled={disabled} onClick={onReset} size="xs" type="button" variant="ghost">Reset</Button> : null}
       </div>
-      {type === 'boolean' ? (
+      {type === 'boolean' && !options ? (
         <label className="flex min-h-10 items-center gap-2 text-sm" htmlFor={id}>
           <input aria-describedby={description || error ? `${id}-description` : undefined} checked={value === true} disabled={inputDisabled} id={id} onChange={(event) => onChange(event.target.checked)} type="checkbox" className="size-4 accent-primary" />
           <span>{value === true ? 'Enabled' : 'Disabled'}</span>
         </label>
       ) : options ? (
-        <NativeSelect aria-describedby={description || error ? `${id}-description` : undefined} aria-invalid={Boolean(error)} className={fieldClass} disabled={inputDisabled} id={id} onChange={(event) => onChange(options.find((option) => String(option) === event.target.value) ?? null)} value={value == null ? '' : String(value)}>
-          {nullable ? <option value="">Not set</option> : null}
-          {options.map((option) => <option key={String(option)} value={String(option)}>{String(option)}</option>)}
-        </NativeSelect>
+        <Select disabled={inputDisabled} value={selectedValue} onValueChange={(next) => {
+          if (nullable && next === 'unset') {
+            onChange(null)
+            return
+          }
+          const option = options.find((_, index) => next === `option-${index}`)
+          if (option !== undefined) onChange(option)
+        }}>
+          <SelectTrigger aria-describedby={description || error ? `${id}-description` : undefined} aria-invalid={Boolean(error)} className="w-full min-w-0 rounded-lg bg-background" id={id}>
+            <SelectValue placeholder="Select…" />
+          </SelectTrigger>
+          <SelectContent align="start" position="popper">
+            {nullable ? <SelectItem value="unset">Not set</SelectItem> : null}
+            {options.map((option, index) => <SelectItem key={index} value={`option-${index}`}>{option === '' ? 'Empty string' : String(option)}</SelectItem>)}
+          </SelectContent>
+        </Select>
       ) : (
         <Input aria-describedby={description || error ? `${id}-description` : undefined} aria-invalid={Boolean(error)} autoComplete="off" className={fieldClass} disabled={inputDisabled} id={id} max={schema.maximum} maxLength={schema.maxLength} min={schema.minimum} minLength={schema.minLength} onChange={(event) => {
           const next = event.target.value

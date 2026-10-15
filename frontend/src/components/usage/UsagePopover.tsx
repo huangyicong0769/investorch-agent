@@ -1,5 +1,3 @@
-import { Gauge } from 'lucide-react'
-
 import type { SessionPresentationState } from '../../api/types'
 import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
@@ -28,6 +26,9 @@ export function UsagePopover({ contextWindowTokens, presentation }: UsagePopover
   const mainContext = compactTokens(presentation.main_context_tokens)
   const summary = `${mainContext} / ${capacity}`
   const usage = presentation.usage
+  const contextRatio = contextWindowTokens && presentation.main_context_tokens !== null
+    ? Math.min(1, Math.max(0, presentation.main_context_tokens / contextWindowTokens))
+    : null
 
   const rows = [
     ['Requests', exactTokens(usage.requests)],
@@ -50,15 +51,17 @@ export function UsagePopover({ contextWindowTokens, presentation }: UsagePopover
       <Popover>
         <PopoverTrigger asChild>
           <Button
-            size={null}
-            variant={null}
+            size="icon-sm"
+            variant="ghost"
             aria-label={`Context usage: ${summary}`}
-            className="flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
-            title="Context and token usage"
+            className="size-8 rounded-full text-muted-foreground hover:text-foreground"
+            title={`Context usage: ${summary}`}
             type="button"
           >
-            <Gauge aria-hidden="true" size={14} />
-            {summary}
+            <svg aria-hidden="true" className="size-4 -rotate-90" viewBox="0 0 20 20" fill="none">
+              <circle cx="10" cy="10" r="7" stroke="currentColor" strokeWidth="2" className="opacity-25" />
+              {contextRatio !== null ? <circle cx="10" cy="10" r="7" pathLength="1" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeDasharray={`${contextRatio} 1`} /> : null}
+            </svg>
           </Button>
         </PopoverTrigger>
         <PopoverContent
