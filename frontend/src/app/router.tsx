@@ -9,6 +9,7 @@ import { setupQueryOptions } from '../api/management'
 import { ImageConfigProvider, WebConfigProvider, useWebConfig } from '../config/WebConfigContext'
 import type { BootstrapResponse, SessionListResponse } from '../api/types'
 import { ConversationPage } from '../components/conversation/ConversationPage'
+import { useConversationInteraction } from '../components/conversation/useConversationInteraction'
 import { PortfolioDetailPage } from '../components/portfolio/PortfolioDetailPage'
 import { PortfolioIndexPage } from '../components/portfolio/PortfolioIndexPage'
 import { SessionSidebar } from '../components/sidebar/SessionSidebar'
@@ -32,6 +33,9 @@ function AppShell() {
   const sidebarButtonRef = useRef<HTMLButtonElement>(null)
   const mainRef = useRef<HTMLElement>(null)
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
+  const conversation = useConversationInteraction()
+  const draftsRef = useRef(conversation.drafts)
+  draftsRef.current = conversation.drafts
   selectedSessionIdRef.current = selectedSessionId
 
   const hideMobileSidebar = useCallback(() => setMobileSidebarOpen(false), [])
@@ -43,9 +47,11 @@ function AppShell() {
 
   useEffect(() => {
     hideMobileSidebar()
+    // The conversation composer manages its own focus once it is ready.
+    if (selectedSessionId) return
     const focusFrame = window.requestAnimationFrame(() => mainRef.current?.focus())
     return () => window.cancelAnimationFrame(focusFrame)
-  }, [hideMobileSidebar, location.pathname])
+  }, [hideMobileSidebar, location.pathname, selectedSessionId])
 
   useEffect(() => {
     if (!mobileSidebarOpen) {
@@ -71,6 +77,7 @@ function AppShell() {
     let cancelled = false
 
     const discardTimer = window.setTimeout(() => {
+      if (draftsRef.current.has(previousSessionId)) return
       void discardUnusedSession(previousSessionId, { signal: controller.signal })
         .then((response) => {
           if (cancelled || selectedSessionIdRef.current === previousSessionId || !response.discarded) {
@@ -138,7 +145,7 @@ function AppShell() {
         ref={mainRef}
         tabIndex={-1}
       >
-        <Outlet />
+        <Outlet context={conversation} />
       </main>
     </div>
   )
