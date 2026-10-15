@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
+import { ChevronRight, ListTodo } from 'lucide-react'
 
 import type { RuntimeSnapshot, SessionPresentationState, TodoStatus } from '../../api/types'
-import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 
 interface PlanCardProps {
@@ -34,31 +34,20 @@ export function PlanCard({ presentation, runtime }: PlanCardProps) {
     return null
   }
 
-  const title = complete
-    ? `✓ Plan · ${completedCount}/${todos.length} completed`
-    : `Plan · ${completedCount}/${todos.length}`
-
   return (
     <Collapsible
-      className="rounded-xl border border-border bg-card/80 px-3 py-2 text-sm"
+      className="border-t border-border/50 py-4 text-sm"
       onOpenChange={setOpen}
       open={open}
     >
-      <CollapsibleTrigger asChild>
-        <Button
-          className="flex w-full cursor-pointer items-center justify-start gap-2 text-left font-medium"
-          size={null}
-          type="button"
-          variant={null}
-        >
-          <span aria-hidden="true" className="w-3 shrink-0 text-muted-foreground">
-            {open ? '▾' : '▸'}
-          </span>
-          <span>{title}</span>
-        </Button>
+      <CollapsibleTrigger className="group flex w-full items-center gap-2.5 rounded-md py-1.5 text-left hover:text-primary focus-visible:outline-ring">
+        <ListTodo className="size-4 shrink-0" aria-hidden="true" />
+        <span className="flex-1">Plan</span>
+        <span className="text-xs tabular-nums text-muted-foreground">{completedCount}/{todos.length} completed</span>
+        <ChevronRight className="size-3.5 text-muted-foreground transition-transform group-data-[state=open]:rotate-90" aria-hidden="true" />
       </CollapsibleTrigger>
-      <CollapsibleContent>
-        <ol className="mt-2 space-y-1.5 border-t border-border pt-2">
+      <CollapsibleContent className="summary-section-content">
+        <ol className="space-y-2.5 pt-3">
           {todos.map((todo, index) => (
             <li className="flex items-start gap-2 text-xs" key={`${index}:${todo.content}`}>
               <span

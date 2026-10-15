@@ -4,11 +4,12 @@ import { ArrowUpRight, Bot, BriefcaseBusiness, ChevronRight, ListChecks } from '
 import { Link } from 'react-router-dom'
 
 import { processesQueryOptions, sessionContextQueryOptions, sessionRelatedPortfoliosQueryOptions } from '../../api/queries'
-import type { RuntimeSnapshot, SessionContextStatus, SessionRecord } from '../../api/types'
+import type { RuntimeSnapshot, SessionContextStatus, SessionPresentationState, SessionRecord } from '../../api/types'
 import { errorMessage } from '../../lib/errors'
 import { portfolioPath } from '../../lib/portfolio'
 import { sessionPath, sessionTitle } from '../../lib/session'
 import { SessionProcesses } from '../processes/SessionProcesses'
+import { PlanCard } from '../plan/PlanCard'
 import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
@@ -18,7 +19,7 @@ const labels: Record<SessionContextStatus, string> = {
   idle: 'Idle', completed: 'Completed', failed: 'Failed', cancelled: 'Cancelled',
 }
 
-export function SessionContextCard({ session, runtime }: { session: SessionRecord; runtime: RuntimeSnapshot }) {
+export function SessionContextCard({ session, runtime, presentation }: { session: SessionRecord; runtime: RuntimeSnapshot; presentation: SessionPresentationState }) {
   const [open, setOpen] = useState(() => window.matchMedia('(min-width: 1280px)').matches)
   const context = useQuery(sessionContextQueryOptions(session.session_id))
   const portfolios = useQuery(sessionRelatedPortfoliosQueryOptions(session.session_id))
@@ -71,6 +72,7 @@ export function SessionContextCard({ session, runtime }: { session: SessionRecor
             </Link>
           ) : null}
         </div>
+        <PlanCard key={session.session_id} presentation={presentation} runtime={runtime} />
         {portfolios.data?.portfolios.length ? (
           <section className="border-t border-border/50 py-4">
             <h2 className="mb-2 text-xs text-muted-foreground">Related Portfolios</h2>
