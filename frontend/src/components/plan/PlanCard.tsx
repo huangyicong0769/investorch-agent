@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { ChevronRight, ListTodo } from 'lucide-react'
 
 import type { RuntimeSnapshot, SessionPresentationState, TodoStatus } from '../../api/types'
@@ -24,11 +24,7 @@ export function PlanCard({ presentation, runtime }: PlanCardProps) {
   const active = runtime.run_id !== null
   const todos = active ? runtime.todos : presentation.last_todos
   const completedCount = todos.filter((todo) => todo.status === 'completed').length
-  const complete = completedCount === todos.length
-  const [open, setOpen] = useState(() => !complete)
-  useEffect(() => {
-    setOpen(!complete)
-  }, [complete])
+  const [open, setOpen] = useState(false)
 
   if (todos.length === 0) {
     return null
