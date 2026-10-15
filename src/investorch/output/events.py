@@ -30,7 +30,14 @@ class ToolOutput:
 class AssistantMessage:
     text: str
     images: tuple[ImageContent, ...] = ()
+    message_id: str | None = None
 
 
-OutputEvent = AgentChanged | Reasoning | ToolCalled | ToolOutput | AssistantMessage
+@dataclass(frozen=True, slots=True)
+class AssistantMessageUpdate:
+    message_id: str
+    text: str
+
+
+OutputEvent = AgentChanged | Reasoning | ToolCalled | ToolOutput | AssistantMessage | AssistantMessageUpdate
 OutputHandler = Callable[[OutputEvent], Awaitable[None]]

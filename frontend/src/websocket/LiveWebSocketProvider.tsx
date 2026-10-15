@@ -34,6 +34,7 @@ import type {
   InputOrigin,
   LiveEvent,
   OutputEvent,
+  OutputEventAssistantMessageUpdate,
   RuntimeStateLiveEvent,
   SessionStateResponse,
   SessionContextResponse,
@@ -63,6 +64,7 @@ export interface LiveNotice {
 
 interface LiveSessionValue {
   records: JournalRecord[]
+  streamingMessage: (OutputEventAssistantMessageUpdate & { timestamp: string }) | null
   notices: LiveNotice[]
   resyncedRunId: string | null
 }
@@ -71,6 +73,7 @@ interface LiveWebSocketContextValue {
   selectedSessionId: string | null
   status: WebSocketConnectionStatus
   records: JournalRecord[]
+  streamingMessage: LiveSessionValue['streamingMessage']
   notices: LiveNotice[]
   resyncedRunId: string | null
 }
@@ -81,6 +84,7 @@ const LiveWebSocketContext = createContext<LiveWebSocketContextValue>({
   selectedSessionId: null,
   status: 'disconnected',
   records: EMPTY_RECORDS,
+  streamingMessage: null,
   notices: EMPTY_NOTICES,
   resyncedRunId: null,
 })
@@ -196,7 +200,13 @@ function outputEvent(value: unknown): OutputEvent | null {
     }
     case 'assistant_message': {
       const text = stringField(value, 'text')
-      return text === null ? null : { type: 'assistant_message', text, images: imageContents(value.images) }
+      const messageId = stringField(value, 'message_id')
+      return text === null ? null : { type: 'assistant_message', text, images: imageContents(value.images), ...(messageId ? { message_id: messageId } : {}) }
+    }
+    case 'assistant_message_update': {
+      const text = stringField(value, 'text')
+      const messageId = stringField(value, 'message_id')
+      return text === null || !messageId ? null : { type: 'assistant_message_update', text, message_id: messageId }
     }
     default:
       return null
@@ -467,7 +477,7 @@ function overlayRecord(event: ParsedLiveEvent, runEndedSequence: number | null =
 
   const timestamp = receivedAt()
 
-  if (event.kind === 'output' && event.journal_seq !== null) {
+  if (event.kind === 'output' && event.journal_seq !== null && event.event.type !== 'assistant_message_update') {
     return { seq: event.journal_seq, timestamp, ...event.event }
   }
 
@@ -573,6 +583,11 @@ export function LiveWebSocketProvider({ children }: PropsWithChildren) {
 
   const [status, setStatus] = useState<WebSocketConnectionStatus>('reconnecting')
   const [overlayState, setOverlayState] = useState<Map<number, JournalRecord>>(() => new Map())
+  const [streamingState, setStreamingState] = useState<{
+    sessionId: string
+    runId: string
+    message: OutputEventAssistantMessageUpdate & { timestamp: string }
+  } | null>(null)
   const [noticeState, setNoticeState] = useState<LiveNotice[]>([])
   const [resyncedRun, setResyncedRun] = useState<{ sessionId: string; runId: string } | null>(null)
   const overlayRef = useRef(overlayState)
@@ -597,6 +612,7 @@ export function LiveWebSocketProvider({ children }: PropsWithChildren) {
   const clearSelectedState = (sessionId: string | null) => {
     liveSessionRef.current = sessionId
     replaceOverlay(new Map())
+    setStreamingState(null)
     setNoticeState([])
     setResyncedRun(null)
   }
@@ -685,6 +701,24 @@ export function LiveWebSocketProvider({ children }: PropsWithChildren) {
   }
 
   const processEvent = (event: ParsedLiveEvent) => {
+    if (event.session_id === selectedSessionRef.current) {
+      if (event.kind === 'output' && event.event.type === 'assistant_message_update') {
+        const message = event.event
+        setStreamingState((current) => ({
+          sessionId: event.session_id,
+          runId: event.run_id,
+          message: {
+            ...message,
+            timestamp: current?.message.message_id === message.message_id ? current.message.timestamp : receivedAt(),
+          },
+        }))
+      } else if (event.kind === 'output' && event.event.type === 'assistant_message') {
+        const messageId = event.event.message_id
+        setStreamingState((current) => current?.message.message_id === messageId ? null : current)
+      } else if (event.kind === 'run_ended') {
+        setStreamingState((current) => current?.runId === event.run_id ? null : current)
+      }
+    }
     if (event.kind === 'runtime_state' || event.kind === 'run_ended') recordContextEventDuringFetch(queryClient, event)
     if (event.kind === 'runtime_state' || event.kind === 'run_ended' || event.kind === 'user_input_committed') {
       const record = queryClient.getQueryData<SessionResponse>(queryKeys.session(event.session_id))?.session
@@ -993,10 +1027,11 @@ export function LiveWebSocketProvider({ children }: PropsWithChildren) {
     [overlayState, selectedSessionId],
   )
   const notices = liveSessionRef.current === selectedSessionId ? noticeState : EMPTY_NOTICES
+  const streamingMessage = streamingState?.sessionId === selectedSessionId ? streamingState.message : null
   const resyncedRunId = resyncedRun?.sessionId === selectedSessionId ? resyncedRun.runId : null
   const value = useMemo<LiveWebSocketContextValue>(
-    () => ({ selectedSessionId, status, records, notices, resyncedRunId }),
-    [notices, records, resyncedRunId, selectedSessionId, status],
+    () => ({ selectedSessionId, status, records, streamingMessage, notices, resyncedRunId }),
+    [notices, records, streamingMessage, resyncedRunId, selectedSessionId, status],
   )
 
   return <LiveWebSocketContext.Provider value={value}>{children}</LiveWebSocketContext.Provider>
@@ -1011,8 +1046,8 @@ export function useLiveSession(sessionId: string): LiveSessionValue {
   return useMemo(
     () =>
       context.selectedSessionId === sessionId
-        ? { records: context.records, notices: context.notices, resyncedRunId: context.resyncedRunId }
-        : { records: EMPTY_RECORDS, notices: EMPTY_NOTICES, resyncedRunId: null },
-    [context.notices, context.records, context.resyncedRunId, context.selectedSessionId, sessionId],
+        ? { records: context.records, streamingMessage: context.streamingMessage, notices: context.notices, resyncedRunId: context.resyncedRunId }
+        : { records: EMPTY_RECORDS, streamingMessage: null, notices: EMPTY_NOTICES, resyncedRunId: null },
+    [context.notices, context.records, context.streamingMessage, context.resyncedRunId, context.selectedSessionId, sessionId],
   )
 }

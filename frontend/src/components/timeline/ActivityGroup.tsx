@@ -126,10 +126,10 @@ function ApprovalActivity({ item }: { item: TimelineApprovalViewModel }) {
 
 function activityTitle(item: TimelineActivityViewModel): string {
   if (item.type === 'reasoning') {
-    return 'Thinking…'
+    return 'Reasoning'
   }
   if (item.type === 'tool') {
-    return item.label ?? `Calling ${item.name}…`
+    return item.label ?? `Tool · ${item.name}`
   }
   if (item.type === 'unmatched_tool_output') {
     return 'Unmatched tool output'

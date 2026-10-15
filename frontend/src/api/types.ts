@@ -309,8 +309,15 @@ export interface OutputEventToolOutput {
 }
 
 export interface OutputEventAssistantMessage {
+  message_id?: string
   images?: ImageContent[]
   type: 'assistant_message'
+  text: string
+}
+
+export interface OutputEventAssistantMessageUpdate {
+  type: 'assistant_message_update'
+  message_id: string
   text: string
 }
 
@@ -320,6 +327,7 @@ export type OutputEvent =
   | OutputEventToolCalled
   | OutputEventToolOutput
   | OutputEventAssistantMessage
+  | OutputEventAssistantMessageUpdate
 
 export interface OutputLiveEvent {
   kind: 'output'
@@ -477,7 +485,7 @@ export interface RunEndedRecord extends JournalRecordBase {
   discarded_user_steer_seqs?: number[]
 }
 
-export type JournalOutputRecord = JournalRecordBase & OutputEvent
+export type JournalOutputRecord = JournalRecordBase & Exclude<OutputEvent, OutputEventAssistantMessageUpdate>
 
 export type JournalRecord =
   | UserMessageRecord

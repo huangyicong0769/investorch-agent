@@ -227,8 +227,8 @@ export function ConversationTimeline({
       ? (pendingMessage.baseNewestSeq ?? 0) + 1
       : null
   const projectionRecords = useMemo<JournalRecord[]>(
-    () =>
-      pendingSequence !== null && pendingMessage
+    () => {
+      const projected = pendingSequence !== null && pendingMessage
         ? [
             ...records,
             {
@@ -238,9 +238,21 @@ export function ConversationTimeline({
               text: pendingMessage.text,
               images: pendingMessage.images,
             },
-          ]
-        : records,
-    [pendingMessage, pendingSequence, records],
+          ] satisfies JournalRecord[]
+        : records
+      const streaming = liveSession.streamingMessage
+      if (!streaming || records.some((record) => record.type === 'assistant_message' && record.message_id === streaming.message_id)) {
+        return projected
+      }
+      return [...projected, {
+        type: 'assistant_message',
+        message_id: streaming.message_id,
+        text: streaming.text,
+        seq: projected.reduce((newest, record) => Math.max(newest, record.seq), 0) + 1,
+        timestamp: streaming.timestamp,
+      }]
+    },
+    [pendingMessage, pendingSequence, records, liveSession.streamingMessage],
   )
   const timeline = useMemo(() => projectTimeline(projectionRecords), [projectionRecords])
   const visibleTimeline = useMemo(
@@ -252,8 +264,8 @@ export function ConversationTimeline({
       `${records.reduce<number | null>(
         (newest, record) => (newest === null ? record.seq : Math.max(newest, record.seq)),
         null,
-      ) ?? ''}|${liveSession.notices.at(-1)?.id ?? ''}|${pendingVisible ? pendingMessage?.runId ?? '' : ''}`,
-    [liveSession.notices, pendingMessage, pendingVisible, records],
+      ) ?? ''}|${liveSession.streamingMessage?.text.length ?? ''}|${liveSession.notices.at(-1)?.id ?? ''}|${pendingVisible ? pendingMessage?.runId ?? '' : ''}`,
+    [liveSession.notices, liveSession.streamingMessage, pendingMessage, pendingVisible, records],
   )
 
   useEffect(() => {
@@ -450,7 +462,9 @@ export function ConversationTimeline({
           ) : null}
 
           {!isPending && !isError && timeline.length === 0 && liveSession.notices.length === 0 && !pendingVisible ? (
-            <p className="py-24 text-center text-sm text-muted-foreground">Ask InvestOrch Agent anything.</p>
+            <p className="py-24 text-center text-sm text-muted-foreground">
+              {runtime.run_phase ? 'Preparing a response…' : 'Ask InvestOrch Agent anything.'}
+            </p>
           ) : null}
 
           {visibleTimeline.map((item, index) => {

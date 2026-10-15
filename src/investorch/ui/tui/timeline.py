@@ -12,6 +12,7 @@ from investorch.inputs import InputOrigin, input_origin_from_record
 from investorch.output import (
     AgentChanged,
     AssistantMessage,
+    AssistantMessageUpdate,
     OutputEvent,
     Reasoning,
     ToolCalled,
@@ -61,8 +62,10 @@ class AssistantTurnWidget(Vertical):
     async def add_activity_group(self, group: ActivityGroup) -> None:
         await self.mount(group)
 
-    async def add_message(self, text: str) -> None:
-        await self.mount(Markdown(text, classes="assistant-markdown"))
+    async def add_message(self, text: str) -> Markdown:
+        message = Markdown(text, classes="assistant-markdown")
+        await self.mount(message)
+        return message
 
 
 class SystemNotice(Static):
@@ -82,7 +85,7 @@ class ActivitySection(Vertical):
 
 
 class ActivityStep(Collapsible):
-    def __init__(self, detail_max_height: int, title: str = "正在思考…") -> None:
+    def __init__(self, detail_max_height: int, title: str = "Reasoning") -> None:
         self.reasoning_parts: list[str] = []
         self.tool_name: str | None = None
         self.tool_arguments: str | None = None
@@ -113,7 +116,7 @@ class ActivityStep(Collapsible):
         if formatted:
             body = f"{body}\n\n{formatted}"
         self._tool.set_content(body)
-        self.title = f"正在调用 {name}"
+        self.title = f"Tool · {name}"
 
     def set_observation(self, output: str) -> None:
         self._observation.set_content(output)
@@ -151,7 +154,7 @@ class ActivityGroup(Collapsible):
         self._latest_step: ActivityStep | None = None
         self._steps = VerticalScroll(classes="activity-step-list")
         self._steps.styles.max_height = panel_max_height
-        super().__init__(self._steps, title="正在思考…", collapsed=True, classes="activity-group")
+        super().__init__(self._steps, title="Reasoning", collapsed=True, classes="activity-group")
 
     async def add_step(self, step: ActivityStep) -> None:
         step.group = self
@@ -188,6 +191,8 @@ class ChatTimeline(VerticalScroll):
         self._tool_steps: list[ActivityStep] = []
         self._activity_steps_by_target_seq: dict[int, ActivityStep] = {}
         self._recent_reasoning: list[str] = []
+        self._streaming_messages: dict[str, Markdown] = {}
+        self._completed_message_ids: set[str] = set()
 
     def _finish_activity(self) -> None:
         self._current_activity_group = None
@@ -242,11 +247,32 @@ class ChatTimeline(VerticalScroll):
         )
         self.scroll_end(animate=False)
 
-    async def add_assistant_message(self, text: str) -> None:
+    async def update_assistant_message(self, message_id: str, text: str) -> None:
+        if message_id in self._completed_message_ids:
+            return
         follow_output = self.is_vertical_scroll_end
-        turn = await self._ensure_assistant_turn()
+        message = self._streaming_messages.get(message_id)
+        if message is None:
+            turn = await self._ensure_assistant_turn()
+            self._finish_activity()
+            self._streaming_messages[message_id] = await turn.add_message(text)
+        else:
+            await message.update(text)
+        self._follow_output(follow_output)
+
+    async def add_assistant_message(self, text: str, *, message_id: str | None = None) -> None:
+        if message_id is not None and message_id in self._completed_message_ids:
+            return
+        follow_output = self.is_vertical_scroll_end
+        message = self._streaming_messages.pop(message_id, None) if message_id is not None else None
+        if message is None:
+            turn = await self._ensure_assistant_turn()
+            await turn.add_message(text)
+        else:
+            await message.update(text)
+        if message_id is not None:
+            self._completed_message_ids.add(message_id)
         self._finish_activity()
-        await turn.add_message(text)
         self._current_assistant_turn = None
         self._follow_output(follow_output)
 
@@ -340,7 +366,9 @@ class ChatTimeline(VerticalScroll):
         elif isinstance(event, ToolOutput):
             return await self.add_tool_output(_with_images(event.output, event.images))
         elif isinstance(event, AssistantMessage):
-            await self.add_assistant_message(_with_images(event.text, event.images))
+            await self.add_assistant_message(_with_images(event.text, event.images), message_id=event.message_id)
+        elif isinstance(event, AssistantMessageUpdate):
+            await self.update_assistant_message(event.message_id, event.text)
         return None
 
     def register_activity_step(self, step: ActivityStep, target_seq: int) -> None:
@@ -352,6 +380,8 @@ class ChatTimeline(VerticalScroll):
     async def reset(self) -> None:
         self._finish_activity()
         self._activity_steps_by_target_seq.clear()
+        self._streaming_messages.clear()
+        self._completed_message_ids.clear()
         self._current_assistant_turn = None
         self._active_agent_name = self._initial_agent_name
         await self.remove_children()
@@ -392,7 +422,10 @@ class ChatTimeline(VerticalScroll):
             elif event_type == "tool_output" and isinstance(record.get("output"), str):
                 await self.add_tool_output(_record_text(record, "output"))
             elif event_type == "assistant_message" and isinstance(record.get("text"), str):
-                await self.add_assistant_message(_record_text(record, "text"))
+                message_id = record.get("message_id")
+                await self.add_assistant_message(
+                    _record_text(record, "text"), message_id=message_id if isinstance(message_id, str) else None
+                )
             elif event_type == "agent_changed" and isinstance(record.get("name"), str):
                 await self.add_agent_changed(record["name"])
             elif event_type == "approval" and type(record.get("approved")) is bool:

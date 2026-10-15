@@ -1,6 +1,14 @@
 from investorch.images import serialize_images
 
-from .events import AgentChanged, AssistantMessage, OutputEvent, Reasoning, ToolCalled, ToolOutput
+from .events import (
+    AgentChanged,
+    AssistantMessage,
+    AssistantMessageUpdate,
+    OutputEvent,
+    Reasoning,
+    ToolCalled,
+    ToolOutput,
+)
 
 
 def serialize_output_event(event: OutputEvent) -> dict[str, object]:
@@ -20,7 +28,10 @@ def serialize_output_event(event: OutputEvent) -> dict[str, object]:
         return {
             "type": "assistant_message",
             "text": event.text,
+            **({"message_id": event.message_id} if event.message_id is not None else {}),
             **({"images": serialize_images(event.images)} if event.images else {}),
         }
+    if isinstance(event, AssistantMessageUpdate):
+        return {"type": "assistant_message_update", "message_id": event.message_id, "text": event.text}
 
     raise TypeError(f"Unsupported output event: {type(event).__name__}")

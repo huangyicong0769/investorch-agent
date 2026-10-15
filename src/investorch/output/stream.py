@@ -1,12 +1,45 @@
+import asyncio
 import base64
 import binascii
+import uuid
+from collections import Counter
+from dataclasses import dataclass, field
 
 from agents import ToolOutputImage, ToolOutputText
-from openai.types.responses import ResponseReasoningTextDeltaEvent
+from openai.types.responses import (
+    ResponseCreatedEvent,
+    ResponseOutputItemDoneEvent,
+    ResponseOutputMessage,
+    ResponseReasoningTextDeltaEvent,
+    ResponseTextDeltaEvent,
+)
 
 from investorch.images import ImageContent, detect_image_media_type
 
-from .events import AgentChanged, AssistantMessage, OutputHandler, Reasoning, ToolCalled, ToolOutput
+from .events import (
+    AgentChanged,
+    AssistantMessage,
+    AssistantMessageUpdate,
+    OutputHandler,
+    Reasoning,
+    ToolCalled,
+    ToolOutput,
+)
+
+
+@dataclass
+class _PendingMessage:
+    provider_id: str
+    message_id: str = field(default_factory=lambda: uuid.uuid4().hex)
+    parts: dict[int, str] = field(default_factory=dict)
+
+    @property
+    def text(self) -> str:
+        return "".join(self.parts[index] for index in sorted(self.parts))
+
+
+def _message_text(message: ResponseOutputMessage) -> str:
+    return "".join(part.text for part in message.content if part.type == "output_text")
 
 
 async def _flush_reasoning(
@@ -27,44 +60,100 @@ async def consume_run_events(
     current_agent_name: str,
 ) -> str:
     reasoning_parts: list[str] = []
+    pending_messages: dict[int, _PendingMessage] = {}
+    completed_messages: Counter[tuple[str, str]] = Counter()
 
-    async for event in result.stream_events():
-        if event.type == "agent_updated_stream_event":
+    async def flush_messages() -> None:
+        # Preserve words already shown if a provider fails or the run is stopped.
+        # The run-ended event, rather than this text record, carries the outcome.
+        for index in list(pending_messages):
+            pending = pending_messages.pop(index)
+            if pending.text:
+                await output_handler(AssistantMessage(text=pending.text, message_id=pending.message_id))
+
+    try:
+        async for event in result.stream_events():
+            if event.type == "agent_updated_stream_event":
+                await _flush_reasoning(reasoning_parts, output_handler)
+                new_agent_name = event.new_agent.name
+                if new_agent_name != current_agent_name:
+                    current_agent_name = new_agent_name
+                    await output_handler(AgentChanged(name=new_agent_name))
+                continue
+
+            if event.type == "raw_response_event":
+                if isinstance(event.data, ResponseReasoningTextDeltaEvent):
+                    reasoning_parts.append(event.data.delta)
+                elif isinstance(event.data, ResponseCreatedEvent):
+                    # Chat Completions adapters can reuse item IDs on every model turn.
+                    await flush_messages()
+                    completed_messages.clear()
+                elif isinstance(event.data, ResponseTextDeltaEvent):
+                    await _flush_reasoning(reasoning_parts, output_handler)
+                    delta = event.data
+                    if delta.output_index not in pending_messages:
+                        pending_messages[delta.output_index] = _PendingMessage(delta.item_id)
+                    pending = pending_messages[delta.output_index]
+                    pending.parts[delta.content_index] = pending.parts.get(delta.content_index, "") + delta.delta
+                    await output_handler(AssistantMessageUpdate(message_id=pending.message_id, text=pending.text))
+                    # A buffered SDK stream and a non-blocking view callback can
+                    # otherwise starve the WebSocket writer until its queue fills.
+                    await asyncio.sleep(0)
+                elif isinstance(event.data, ResponseOutputItemDoneEvent) and isinstance(
+                    event.data.item, ResponseOutputMessage
+                ):
+                    await _flush_reasoning(reasoning_parts, output_handler)
+                    item = event.data.item
+                    text = _message_text(item)
+                    pending = pending_messages.pop(event.data.output_index, None)
+                    completed_messages[item.id, text] += 1
+                    await output_handler(
+                        AssistantMessage(text=text, message_id=pending.message_id if pending else uuid.uuid4().hex)
+                    )
+                continue
+
+            if event.type != "run_item_stream_event":
+                continue
+
+            if event.name == "reasoning_item_created":
+                await _flush_reasoning(reasoning_parts, output_handler)
+                continue
+
+            # Be defensive in case a provider does not emit
+            # reasoning_item_created exactly as expected.
             await _flush_reasoning(reasoning_parts, output_handler)
-            new_agent_name = event.new_agent.name
-            if new_agent_name != current_agent_name:
-                current_agent_name = new_agent_name
-                await output_handler(AgentChanged(name=new_agent_name))
-            continue
 
-        if event.type == "raw_response_event":
-            if isinstance(event.data, ResponseReasoningTextDeltaEvent):
-                reasoning_parts.append(event.data.delta)
-            continue
+            item = event.item
 
-        if event.type != "run_item_stream_event":
-            continue
-
-        if event.name == "reasoning_item_created":
-            await _flush_reasoning(reasoning_parts, output_handler)
-            continue
-
-        # Be defensive in case a provider does not emit
-        # reasoning_item_created exactly as expected.
-        await _flush_reasoning(reasoning_parts, output_handler)
-
-        item = event.item
-
-        if event.name == "tool_called":
-            raw_item = item.raw_item
-            arguments = (
-                raw_item.get("arguments") if isinstance(raw_item, dict) else getattr(raw_item, "arguments", None)
-            )
-            await output_handler(ToolCalled(name=item.tool_name, arguments=arguments))
-        elif event.name == "tool_output":
-            await output_handler(tool_output_from_sdk(item.output))
-        elif event.name == "message_output_created":
-            pass
+            if event.name == "tool_called":
+                raw_item = item.raw_item
+                arguments = (
+                    raw_item.get("arguments") if isinstance(raw_item, dict) else getattr(raw_item, "arguments", None)
+                )
+                await output_handler(ToolCalled(name=item.tool_name, arguments=arguments))
+            elif event.name == "tool_output":
+                await output_handler(tool_output_from_sdk(item.output))
+            elif event.name == "message_output_created":
+                text = _message_text(item.raw_item)
+                key = (item.raw_item.id, text)
+                if completed_messages[key]:
+                    completed_messages[key] -= 1
+                    continue
+                pending = next(
+                    (message for message in pending_messages.values() if message.provider_id == item.raw_item.id), None
+                )
+                if pending is not None:
+                    pending_messages = {
+                        index: message for index, message in pending_messages.items() if message is not pending
+                    }
+                await output_handler(
+                    AssistantMessage(
+                        text=text,
+                        message_id=pending.message_id if pending else uuid.uuid4().hex,
+                    )
+                )
+    finally:
+        await flush_messages()
 
     await _flush_reasoning(reasoning_parts, output_handler)
     return current_agent_name
