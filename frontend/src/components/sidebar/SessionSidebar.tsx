@@ -178,7 +178,7 @@ export function SessionSidebar({
         {createMutation.isPending ? 'Creating…' : 'New'}
       </Button>
       {createMutation.isError ? (
-        <p className="mt-2 px-1 text-xs text-red-700" role="alert">
+        <p className="mt-2 px-1 text-xs text-destructive" role="alert">
           {errorMessage(createMutation.error, 'A new session could not be created.')}
         </p>
       ) : null}
@@ -248,7 +248,7 @@ export function SessionSidebar({
           ) : null}
           {sessionsQuery.isError ? (
             <div className="px-3 py-2 text-sm" role="alert">
-              <p className="text-red-700">{errorMessage(sessionsQuery.error, 'Sessions could not be loaded.')}</p>
+              <p className="text-destructive">{errorMessage(sessionsQuery.error, 'Sessions could not be loaded.')}</p>
               <Button
                 size={null}
                 variant={null}
@@ -338,7 +338,7 @@ export function SessionSidebar({
           </p>
           <DeletionPreview preview={deletePreview.data} pending={deletePreview.isPending} error={deletePreview.error} onRetry={() => void deletePreview.refetch()} onNavigate={() => setDeleteCandidate(null)} />
           {deleteMutation.error ? (
-            <p className="mt-3 text-sm text-red-700" role="alert">
+            <p className="mt-3 text-sm text-destructive" role="alert">
               {errorMessage(deleteMutation.error, 'The session could not be deleted. Try again.')}
             </p>
           ) : null}
@@ -355,8 +355,8 @@ export function SessionSidebar({
             </Button>
             <Button
               size={null}
-              variant={null}
-              className="rounded-lg bg-red-700 px-3 py-2 text-sm text-white hover:bg-red-800 disabled:opacity-60"
+              variant="destructive"
+              className="rounded-lg px-3 py-2 text-sm disabled:opacity-60"
               disabled={!deleteCandidate || deleteMutation.isPending || (!cleanupIds.length && (!deletePreview.data || Boolean(deletePreview.data.blocked.length)))}
               onClick={() => {
                 if (deleteCandidate) {

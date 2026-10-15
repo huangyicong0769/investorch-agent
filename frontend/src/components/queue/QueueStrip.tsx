@@ -172,7 +172,7 @@ export function QueueStrip({ sessionId, state, archived }: QueueStripProps) {
       </CollapsibleContent>
 
       {mutationError ? (
-        <p className="mt-2 text-xs text-red-700" role="alert">
+        <p className="mt-2 text-xs text-destructive" role="alert">
           {errorMessage(mutationError, 'The queue could not be updated. Try again.')}
         </p>
       ) : null}

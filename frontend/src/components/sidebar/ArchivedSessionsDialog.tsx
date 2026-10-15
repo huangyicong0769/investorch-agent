@@ -96,7 +96,7 @@ export function ArchivedSessionsDialog({
             ) : null}
             {archivedQuery.isError ? (
               <div className="px-3 py-2 text-sm" role="alert">
-                <p className="text-red-700">
+                <p className="text-destructive">
                   {errorMessage(archivedQuery.error, 'Archived sessions could not be loaded.')}
                 </p>
                 <Button

@@ -84,7 +84,17 @@ export function SessionContextCard({ session, runtime, presentation }: { session
         aria-label="Session summary"
         className="session-summary w-80 max-w-[calc(100vw-1.5rem)] overflow-y-auto rounded-2xl border-border/60 bg-card p-5 text-sm shadow-[0_8px_30px_-12px_rgba(0,0,0,0.22)]"
         onOpenAutoFocus={(event) => event.preventDefault()}
-        onInteractOutside={(event) => event.preventDefault()}
+        onCloseAutoFocus={(event) => {
+          event.preventDefault()
+          // Resizing must not move focus away from the composer or navigation.
+          if (document.activeElement === document.body) triggerRef.current?.focus()
+        }}
+        onInteractOutside={(event) => {
+          const target = event.target
+          // Let mobile navigation replace the summary instead of hiding beneath it.
+          if (target instanceof Element && target.closest('[aria-controls="session-sidebar"]')) return
+          event.preventDefault()
+        }}
       >
         <div className="space-y-2 pb-4">
           <p className="truncate text-sm font-medium text-muted-foreground" title={sessionTitle(session)}>{sessionTitle(session)}</p>

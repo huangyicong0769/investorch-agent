@@ -184,7 +184,7 @@ export function ApprovalCard({ approvals, sessionId }: ApprovalCardProps) {
       </div>
 
       {resolution?.error ? (
-        <p className="mt-2 text-xs text-red-700" role="alert">
+        <p className="mt-2 text-xs text-destructive" role="alert">
           {errorMessage(resolution.error, 'The approval could not be resolved. Try again.')}
         </p>
       ) : null}

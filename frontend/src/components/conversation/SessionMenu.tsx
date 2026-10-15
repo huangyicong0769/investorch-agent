@@ -351,7 +351,8 @@ export function SessionMenu({ session }: SessionMenuProps) {
                   {pendingAction === 'archive' ? 'Archiving…' : 'Archive'}
                 </DropdownMenuItem>
                 <DropdownMenuItem
-                  className="w-full rounded-md px-3 py-2 text-left text-sm text-red-700 hover:bg-muted data-[disabled]:opacity-60"
+                  className="w-full rounded-md px-3 py-2 text-left text-sm data-[disabled]:opacity-60"
+                  variant="destructive"
                   disabled={lifecycleMutation.isPending}
                   onSelect={(event) => {
                     event.preventDefault()
@@ -364,7 +365,7 @@ export function SessionMenu({ session }: SessionMenuProps) {
             )}
 
             {lifecycleMutation.error ? (
-              <p className="max-w-64 px-3 py-2 text-xs text-red-700" role="alert">
+              <p className="max-w-64 px-3 py-2 text-xs text-destructive" role="alert">
                 {lifecycleError(lifecycleMutation.error)}
               </p>
             ) : null}
@@ -423,7 +424,7 @@ export function SessionMenu({ session }: SessionMenuProps) {
               value={title}
             />
             {validationError || renameMutation.error ? (
-              <p className="mt-2 text-sm text-red-700" id={`${titleInputId}-error`} role="alert">
+              <p className="mt-2 text-sm text-destructive" id={`${titleInputId}-error`} role="alert">
                 {validationError ?? errorMessage(renameMutation.error, 'The session could not be renamed. Try again.')}
               </p>
             ) : null}
@@ -452,14 +453,14 @@ export function SessionMenu({ session }: SessionMenuProps) {
         </DialogContent>
       </Dialog>
       <Dialog open={clearOpen} onOpenChange={(open) => { if (!lifecycleMutation.isPending) setClearOpen(open) }}>
-        <DialogContent className="max-w-sm" aria-describedby={undefined} showCloseButton={!lifecycleMutation.isPending}
+        <DialogContent className="max-w-[calc(100%-2rem)] sm:max-w-sm" aria-describedby={undefined} showCloseButton={!lifecycleMutation.isPending}
           onEscapeKeyDown={(event) => { if (lifecycleMutation.isPending) event.preventDefault() }}
           onPointerDownOutside={(event) => { if (lifecycleMutation.isPending) event.preventDefault() }}>
           <DialogTitle>Clear session{clearPreview.data && clearPreview.data.sessions.length > 1 ? ` and ${clearPreview.data.sessions.length - 1} spawned descendants` : ''}?</DialogTitle>
           <p className="text-sm text-muted-foreground">Delete these Sessions and their histories, then start a new Session.</p>
           <DeletionPreview preview={clearPreview.data} pending={clearPreview.isPending} error={clearPreview.error}
             onRetry={() => void clearPreview.refetch()} onNavigate={() => setClearOpen(false)} />
-          {lifecycleMutation.error ? <p className="text-sm text-red-700" role="alert">{lifecycleError(lifecycleMutation.error)}</p> : null}
+          {lifecycleMutation.error ? <p className="text-sm text-destructive" role="alert">{lifecycleError(lifecycleMutation.error)}</p> : null}
           <div className="flex justify-end gap-2">
             <Button variant="outline" disabled={lifecycleMutation.isPending} onClick={() => setClearOpen(false)}>Cancel</Button>
             <Button variant="destructive" disabled={!clearPreview.data || Boolean(clearPreview.data.blocked.length) || lifecycleMutation.isPending}

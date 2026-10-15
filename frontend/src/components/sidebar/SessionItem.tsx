@@ -78,7 +78,7 @@ export function SessionItem({
               size={null}
               variant={null}
               aria-label={`Delete ${sessionTitle(session)}`}
-              className="rounded-md p-1.5 text-muted-foreground hover:bg-background hover:text-red-700 disabled:opacity-50"
+              className="rounded-md p-1.5 text-muted-foreground hover:bg-background hover:text-destructive disabled:opacity-50"
               disabled={actionsDisabled}
               onClick={() => onDelete(session)}
               title="Delete"

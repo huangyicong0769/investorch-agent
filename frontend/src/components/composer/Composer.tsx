@@ -317,17 +317,17 @@ export function Composer({
         </p>
       ) : null}
       {sendError ? (
-        <p className="mt-1 text-xs text-red-700" role="alert">
+        <p className="mt-1 text-xs text-destructive" role="alert">
           {errorMessage(sendError, 'The message could not be sent. Your draft is still here.')}
         </p>
       ) : null}
       {stopError ? (
-        <p className="mt-1 text-xs text-red-700" role="alert">
+        <p className="mt-1 text-xs text-destructive" role="alert">
           {errorMessage(stopError, 'The run could not be stopped. Try again.')}
         </p>
       ) : null}
       {refreshError ? (
-        <p className="mt-1 text-xs text-red-700" role="alert">
+        <p className="mt-1 text-xs text-destructive" role="alert">
           {errorMessage(refreshError, 'Session state could not be refreshed. Live updates will retry.')}
         </p>
       ) : null}
