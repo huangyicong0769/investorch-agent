@@ -24,8 +24,8 @@ export function SessionContextCard({ session, runtime }: { session: SessionRecor
   const status = runtime.run_phase ?? (runtime.queued_count || runtime.pending_steer_count ? 'pending' :
     outcome === 'completed' || outcome === 'failed' || outcome === 'cancelled' || outcome === 'pending' ? outcome : 'idle')
   const content = (
-    <div className="max-h-[calc(100dvh-10rem)] overflow-y-auto rounded-xl border border-border bg-card text-xs shadow-sm">
-      <div className="space-y-1 p-3">
+    <div className="max-h-[calc(100dvh-10rem)] overflow-y-auto rounded-xl border border-border/70 bg-card/70 text-xs">
+      <div className="space-y-1.5 p-4">
         <p className="truncate text-sm font-semibold" title={sessionTitle(session)}>{sessionTitle(session)}</p>
         <p className="text-muted-foreground">{session.archived_at ? 'Archived · ' : ''}{labels[status]}</p>
         {session.spawned_by_session_id ? (

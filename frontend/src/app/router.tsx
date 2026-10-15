@@ -164,19 +164,19 @@ function RootRoute() {
   })
 
   return (
-    <section className="mx-auto flex min-h-dvh max-w-2xl flex-col justify-center px-6 py-20">
-      <p className="text-sm font-medium text-muted-foreground">InvestOrch Agent</p>
-      <h1 className="mt-3 text-3xl font-semibold tracking-tight">What would you like to work on?</h1>
-      <p className="mt-4 text-sm leading-6 text-muted-foreground">
+    <section className="mx-auto flex min-h-dvh max-w-3xl flex-col justify-center px-6 py-20 sm:px-10">
+      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">InvestOrch Agent</p>
+      <h1 className="mt-5 max-w-xl text-balance text-4xl font-semibold leading-tight tracking-tight sm:text-5xl">What would you like to work on?</h1>
+      <p className="mt-5 max-w-lg text-base leading-7 text-muted-foreground">
         Start a conversation to research an investment, explore a strategy, or work with your portfolio.
         Your existing conversations are in the sidebar.
       </p>
-      <div className="mt-6 flex flex-wrap gap-3">
-        <Button disabled={create.isPending} onClick={() => create.mutate()} type="button">
+      <div className="mt-8 flex flex-wrap gap-3">
+        <Button className="min-h-11 rounded-xl px-5" disabled={create.isPending} onClick={() => create.mutate()} type="button">
           {create.isPending ? 'Opening conversation…' : 'New conversation'}
         </Button>
-        <Button asChild variant="outline"><Link to="/portfolios">View portfolios</Link></Button>
-        <Button asChild variant="outline"><Link to="/skills">Explore Skills</Link></Button>
+        <Button asChild className="min-h-11 rounded-xl" variant="outline"><Link to="/portfolios">View portfolios</Link></Button>
+        <Button asChild className="min-h-11 rounded-xl" variant="outline"><Link to="/skills">Explore Skills</Link></Button>
       </div>
       <ErrorNotice error={create.error} fallback="The conversation could not be created. Try again." />
     </section>
@@ -228,7 +228,7 @@ function StartupGate() {
     <h1 className="mt-3 text-2xl font-semibold">Your workspace needs attention</h1>
     <p className="mt-4 rounded-xl border border-border bg-card p-5 text-sm leading-6">{state.data.error ?? 'Existing configuration or storage requires repair before InvestOrch can start.'}</p>
     <p className="mt-4 text-sm text-muted-foreground">Review local diagnostics for the repair steps. Keep your existing files and make an offline backup before making changes.</p>
-    <div className="mt-6 flex flex-wrap gap-3"><Button asChild><Link to="/system">Open System Status</Link></Button><Button onClick={() => void state.refetch()} type="button" variant="outline">Check again</Button></div>
+    <div className="mt-8 flex flex-wrap gap-3"><Button asChild><Link to="/system">Open System Status</Link></Button><Button onClick={() => void state.refetch()} type="button" variant="outline">Check again</Button></div>
     <p className="mt-6 text-sm text-muted-foreground">Offline checks: <code>investorch doctor</code> · <code>investorch upgrade check</code></p>
   </div>
   if (location.pathname !== '/setup') return <Navigate replace to="/setup" />

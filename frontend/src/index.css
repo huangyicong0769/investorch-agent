@@ -2,38 +2,47 @@
 
 :root {
   color-scheme: light;
-  --background: #f7f7f8;
-  --foreground: #252525;
-  --muted: #ededf0;
-  --muted-foreground: #6b6b73;
-  --border: #dedee4;
+  --radius: 0.625rem;
+  --background: #f4f7f5;
+  --foreground: #1d2b25;
+  --muted: #e8efea;
+  --muted-foreground: #627269;
+  --border: #d7e1da;
   --card: #ffffff;
-  --card-foreground: #252525;
-  --primary: #252525;
+  --card-foreground: #1d2b25;
+  --primary: #24634f;
   --primary-foreground: #ffffff;
   --popover: var(--card);
   --popover-foreground: var(--card-foreground);
   --secondary: var(--muted);
   --secondary-foreground: var(--foreground);
-  --accent: var(--muted);
-  --accent-foreground: var(--foreground);
+  --accent: #dcece3;
+  --accent-foreground: #235b46;
   --destructive: #b91c1c;
   --input: var(--border);
-  --ring: var(--muted-foreground);
+  --ring: #43836b;
+  --sidebar: #eaf0ec;
+  --success: #2b7557;
+  --warning: #93621b;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
     color-scheme: dark;
-    --background: #171717;
-    --foreground: #ececec;
-    --muted: #2a2a2e;
-    --muted-foreground: #a3a3aa;
-    --border: #3a3a40;
-    --card: #202023;
-    --card-foreground: #ececec;
-    --primary: #ececec;
-    --primary-foreground: #171717;
+    --background: #121b16;
+    --foreground: #e5eee8;
+    --muted: #26362c;
+    --muted-foreground: #9eafa4;
+    --border: #34473b;
+    --card: #1b2820;
+    --card-foreground: #e5eee8;
+    --primary: #8bccb0;
+    --primary-foreground: #142d21;
+    --sidebar: #16221b;
+    --accent: #294638;
+    --accent-foreground: #b9e3cc;
+    --success: #92d2ae;
+    --warning: #e7bb76;
     --destructive: #f87171;
   }
 
@@ -61,10 +70,19 @@
   --color-destructive: var(--destructive);
   --color-input: var(--input);
   --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
 }
 
 * {
   box-sizing: border-box;
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
 }
 
 html,

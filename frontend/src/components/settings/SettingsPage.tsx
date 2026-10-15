@@ -10,6 +10,7 @@ import { SchemaField } from '../management/SchemaField'
 import { SecretFields } from '../management/SecretFields'
 import { configValue, fieldLabel, objectValue, resolveSchema, schemaAtPath } from '../management/schema'
 import { UnsavedChanges } from '../management/UnsavedChanges'
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { McpPanel } from './McpPanel'
 
@@ -64,7 +65,7 @@ function SettingsEditor({ saved, schema }: { saved: SavedConfig; schema: ConfigS
     }
     return <SchemaField disabled={busy} error={errors[path]} onChange={(next) => change(path, next)} onReset={dirty ? undefined : () => reset.mutate(path)} overridden={saved.overrides.includes(path)} path={path} root={schema} schema={raw} value={value(path)} />
   }
-  const section = (title: string, path: string, description?: string, omit?: string[]) => <section className="rounded-xl border border-border bg-card p-5" key={path}><h2 className="font-semibold">{title}</h2>{description ? <p className="mt-2 text-sm text-muted-foreground">{description}</p> : null}<div className="mt-5">{renderFields(path, omit)}</div></section>
+  const section = (title: string, path: string, description?: string, omit?: string[]) => <section key={path}><Card className="gap-5 rounded-xl border-border py-5 shadow-none"><CardHeader className="gap-2 px-5"><CardTitle><h2>{title}</h2></CardTitle>{description ? <CardDescription className="leading-6">{description}</CardDescription> : null}</CardHeader><CardContent className="px-5">{renderFields(path, omit)}</CardContent></Card></section>
   const roleNames = Object.keys(objectValue(saved.values.models))
   const referencedSecrets = roleNames.map((role) => String(value(`models.${role}.api_key_secret`) ?? '')).filter(Boolean)
   const advanced = Object.keys(schema.properties ?? {}).filter((key) => !['models', 'secrets', 'permission', 'interaction', 'compaction', 'activity', 'images', 'backtest', 'mcp', 'cnequity'].includes(key))
@@ -73,7 +74,7 @@ function SettingsEditor({ saved, schema }: { saved: SavedConfig; schema: ConfigS
     <UnsavedChanges dirty={dirty} />
     <div className="mt-8 grid gap-6 lg:grid-cols-[11rem_minmax(0,1fr)]">
       <nav aria-label="Settings categories" className="flex gap-1 overflow-x-auto pb-2 lg:sticky lg:top-6 lg:block lg:self-start">
-        {categories.map((item) => <Button aria-current={category === item ? 'page' : undefined} className={cn('shrink-0 justify-start lg:mb-1 lg:w-full', category === item && 'bg-muted')} key={item} onClick={() => setCategory(item)} type="button" variant="ghost">{item}</Button>)}
+        {categories.map((item) => <Button aria-current={category === item ? 'page' : undefined} className={cn('shrink-0 justify-start lg:mb-1 lg:w-full', category === item && 'bg-accent text-accent-foreground')} key={item} onClick={() => setCategory(item)} type="button" variant="ghost">{item}</Button>)}
       </nav>
       <div className="min-w-0 space-y-5">
         <div><h2 className="text-lg font-semibold">{category}</h2><p className="mt-1 text-sm text-muted-foreground">Editing saved configuration. Fields marked for restart retain their current runtime values until you restart.</p></div>
@@ -118,7 +119,7 @@ export function SettingsPage() {
   const config = useQuery(configQueryOptions())
   const schema = useQuery(schemaQueryOptions())
   return <div className="mx-auto w-full max-w-6xl px-4 py-16 sm:px-6 md:py-12 lg:px-8">
-    <header><h1 className="text-2xl font-semibold tracking-tight">Settings</h1><p className="mt-2 text-sm text-muted-foreground">Models, preferences and integrations for your local workspace.</p></header>
+    <header><h1 className="text-3xl font-semibold tracking-tight">Settings</h1><p className="mt-2 text-sm text-muted-foreground">Models, preferences and integrations for your local workspace.</p></header>
     <div className="mt-5"><ErrorNotice error={config.error ?? schema.error} fallback="Settings could not be loaded." /></div>
     {config.isPending || schema.isPending ? <p className="mt-6 text-sm text-muted-foreground" role="status">Loading settings…</p> : null}
     {config.isError || schema.isError ? <Button onClick={() => { void config.refetch(); void schema.refetch() }} type="button" variant="outline">Retry</Button> : null}

@@ -2,6 +2,8 @@ import { useId } from 'react'
 
 import type { ConfigSchema } from '../../api/management'
 import type { JsonValue } from '../../api/types'
+import { Input } from '@/components/ui/input'
+import { NativeSelect } from '@/components/ui/native-select'
 import { Button } from '@/components/ui/button'
 import { fieldLabel, nullableSchema, resolveSchema } from './schema'
 
@@ -32,7 +34,7 @@ export function SchemaField({ path, schema: raw, root, value, disabled, showAppl
   const description = [schema.description, schema.exclusiveMinimum === undefined ? '' : `Greater than ${schema.exclusiveMinimum}.`, schema.exclusiveMaximum === undefined ? '' : `Less than ${schema.exclusiveMaximum}.`].filter(Boolean).join(' ')
 
   return (
-    <div className="min-w-0 space-y-1.5">
+    <div className="min-w-0 space-y-1.5 [&_[data-slot=native-select-wrapper]]:w-full">
       <div className="flex items-start justify-between gap-2">
         <label className="text-sm font-medium" htmlFor={id}>{label}</label>
         {overridden && onReset && !immutable ? <Button disabled={disabled} onClick={onReset} size="xs" type="button" variant="ghost">Reset</Button> : null}
@@ -43,12 +45,12 @@ export function SchemaField({ path, schema: raw, root, value, disabled, showAppl
           <span>{value === true ? 'Enabled' : 'Disabled'}</span>
         </label>
       ) : options ? (
-        <select aria-describedby={description || error ? `${id}-description` : undefined} aria-invalid={Boolean(error)} className={fieldClass} disabled={inputDisabled} id={id} onChange={(event) => onChange(options.find((option) => String(option) === event.target.value) ?? null)} value={value == null ? '' : String(value)}>
+        <NativeSelect aria-describedby={description || error ? `${id}-description` : undefined} aria-invalid={Boolean(error)} className={fieldClass} disabled={inputDisabled} id={id} onChange={(event) => onChange(options.find((option) => String(option) === event.target.value) ?? null)} value={value == null ? '' : String(value)}>
           {nullable ? <option value="">Not set</option> : null}
           {options.map((option) => <option key={String(option)} value={String(option)}>{String(option)}</option>)}
-        </select>
+        </NativeSelect>
       ) : (
-        <input aria-describedby={description || error ? `${id}-description` : undefined} aria-invalid={Boolean(error)} autoComplete="off" className={fieldClass} disabled={inputDisabled} id={id} max={schema.maximum} maxLength={schema.maxLength} min={schema.minimum} minLength={schema.minLength} onChange={(event) => {
+        <Input aria-describedby={description || error ? `${id}-description` : undefined} aria-invalid={Boolean(error)} autoComplete="off" className={fieldClass} disabled={inputDisabled} id={id} max={schema.maximum} maxLength={schema.maxLength} min={schema.minimum} minLength={schema.minLength} onChange={(event) => {
           const next = event.target.value
           onChange(next === '' && nullable ? null : type === 'number' || type === 'integer' ? next === '' ? '' : Number(next) : next)
         }} placeholder={nullable ? 'Not set' : undefined} step={type === 'integer' ? 1 : 'any'} type={type === 'number' || type === 'integer' ? 'number' : 'text'} value={value == null ? '' : String(value)} />

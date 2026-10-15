@@ -1,8 +1,9 @@
 import { Archive, Trash2 } from 'lucide-react'
 
 import type { SessionRecord, SessionStateResponse } from '../../api/types'
-import { sessionTitle, shortSessionId } from '../../lib/session'
+import { sessionTitle } from '../../lib/session'
 import { getSessionStatus } from '../../lib/session-status'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 
 interface SessionItemProps {
@@ -36,29 +37,28 @@ export function SessionItem({
         size={null}
         variant={null}
         aria-current={active ? 'page' : undefined}
-        className={`block w-full min-w-0 rounded-lg border py-2 pl-3 text-left transition-colors ${
+        className={`block w-full min-w-0 min-h-11 rounded-lg border py-2.5 pl-3 text-left transition-colors ${
           onArchive || onDelete ? 'pr-20' : 'pr-3'
         } ${
-          active ? 'border-border bg-muted' : 'border-transparent hover:border-border hover:bg-muted/60'
+          active ? 'border-primary/15 bg-card text-accent-foreground shadow-sm' : 'border-transparent hover:bg-card/60'
         }`}
         onClick={() => onSelect(session)}
-        title={sessionTitle(session)}
+        title={`${sessionTitle(session)} · ${session.session_id}`}
         type="button"
       >
         <span className="block truncate text-sm font-medium">{sessionTitle(session)}</span>
-        <span className="mt-1 flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
-          <span className="truncate">{shortSessionId(session.session_id)}</span>
-          <span aria-label={`Status: ${status}`} className="truncate">
+        <span className={status === 'Ready' && !queuedCount && !archived ? 'sr-only' : 'mt-1.5 flex min-w-0 flex-wrap items-center gap-2 text-xs text-muted-foreground'}>
+          <Badge aria-label={`Status: ${status}`} variant="secondary" className={`border-0 px-1.5 py-0 text-[10px] ${status === 'Approval' ? 'bg-warning/10 text-warning' : status === 'Running' ? 'bg-success/10 text-success' : ''}`}>
             {status === 'Approval'
               ? `! ${approvalCount > 1 ? `${approvalCount} approvals` : 'Approval'}`
               : status}
-          </span>
+          </Badge>
           {queuedCount > 0 ? <span className="shrink-0">{queuedCount} queued</span> : null}
           {archived ? <span className="shrink-0">Archived</span> : null}
         </span>
       </Button>
       {onArchive || onDelete ? (
-        <span className="pointer-events-none absolute right-1.5 top-1/2 flex -translate-y-1/2 items-center gap-0.5 rounded-md bg-muted/95 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
+        <span className="pointer-events-auto absolute right-1.5 top-1/2 flex -translate-y-1/2 items-center gap-0.5 rounded-md bg-muted/95 opacity-100 transition-opacity md:pointer-events-none md:opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
           {onArchive ? (
             <Button
               size={null}

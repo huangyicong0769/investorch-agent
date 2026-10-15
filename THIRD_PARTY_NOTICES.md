@@ -29,7 +29,9 @@ InvestOrch Agent's Apache-2.0 license does not replace, broaden, or override eit
 
 ## Bundled Web client
 
-The built Web client contains JavaScript and CSS produced from npm dependencies under permissive licenses including MIT, Apache-2.0, ISC, and 0BSD. The complete package-by-package notices and license texts are distributed with the Web client as `THIRD_PARTY_LICENSES.txt` and are regenerated from `frontend/package-lock.json` during each production build.
+The built Web client contains JavaScript and CSS produced from npm dependencies under permissive licenses including MIT, Apache-2.0, ISC, and 0BSD. The complete package-by-package notices and license texts are distributed with the Web client as `THIRD_PARTY_LICENSES.txt` and are regenerated from `frontend/package-lock.json` and `frontend/licenses/` during each production build.
+
+The client also incorporates [shadcn/ui](https://github.com/shadcn-ui/ui) components under the MIT license. Their source attribution and full license are retained in `frontend/licenses/shadcn-ui.txt` and included in the distributed `THIRD_PARTY_LICENSES.txt`.
 
 ## External services and data
 

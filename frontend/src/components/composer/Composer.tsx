@@ -24,6 +24,7 @@ import { errorMessage } from '../../lib/errors'
 import { historyNewestSeq, type HistoryInfiniteData } from '../../lib/timeline/history'
 import type { ComposerDraft, PendingDirectMessage } from '../conversation/interaction'
 import { UsagePopover } from '../usage/UsagePopover'
+import { InputGroupTextarea } from '@/components/ui/input-group'
 import { Button } from '@/components/ui/button'
 import { ImageAttachments } from '../images/ImageAttachments'
 import { RunControlsPopover } from './RunControlsPopover'
@@ -262,19 +263,48 @@ export function Composer({
   }
 
   return (
-    <form className="rounded-2xl border border-border bg-card p-3 shadow-sm" onSubmit={handleSubmit}>
-      <ImageAttachments images={draft.images} disabled={archived || sendPendingForSession || preparingSendForSession} onReadingChange={setReadingImages} onChange={(images) => onDraftChange(sessionId, (current) => ({ ...current, images }))}>
-      <textarea
-        aria-label="Message InvestOrch Agent"
-        className="block max-h-40 min-h-10 w-full resize-none overflow-hidden bg-transparent px-1 py-1.5 text-sm leading-6 outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60"
-        disabled={archived}
-        onChange={handleDraftChange}
-        onKeyDown={handleKeyDown}
-        placeholder={archived ? 'Archived sessions are read-only.' : 'Message InvestOrch Agent'}
-        ref={textareaRef}
-        rows={1}
-        value={draft.text}
-      />
+    <form onSubmit={handleSubmit}>
+      <ImageAttachments toolbar={
+        <div className="flex min-w-0 flex-1 flex-wrap items-center justify-between gap-1">
+          <div className="flex min-w-0 flex-wrap items-center gap-1">
+            <RunControlsPopover />
+            <UsagePopover contextWindowTokens={contextWindowTokens} presentation={presentation} />
+          </div>
+          <div className="flex items-center gap-2">
+            {active ? (
+              <Button
+                size="sm"
+                variant="outline"
+                className="min-h-9 rounded-lg"
+                disabled={archived || stopping || stopPendingForSession}
+                onClick={() => stopMutation.mutate({ sessionId, runId: runtime.run_id })}
+                type="button"
+              >
+                {stopping || stopPendingForSession ? 'Stopping…' : 'Stop'}
+              </Button>
+            ) : null}
+            <Button
+              size="sm"
+              className="min-h-9 rounded-lg px-4"
+              disabled={archived || sendPendingForSession || preparingSendForSession || readingImages || (!draft.text.trim() && !draft.images.length)}
+              type="submit"
+            >
+              {sendPendingForSession || preparingSendForSession ? 'Sending…' : 'Send'}
+            </Button>
+          </div>
+        </div>
+      } images={draft.images} disabled={archived || sendPendingForSession || preparingSendForSession} onReadingChange={setReadingImages} onChange={(images) => onDraftChange(sessionId, (current) => ({ ...current, images }))}>
+        <InputGroupTextarea
+          aria-label="Message InvestOrch Agent"
+          className="max-h-40 min-h-14 resize-none overflow-hidden px-4 py-3 text-[15px] leading-6"
+          disabled={archived}
+          onChange={handleDraftChange}
+          onKeyDown={handleKeyDown}
+          placeholder={archived ? 'Archived sessions are read-only.' : 'Message InvestOrch Agent'}
+          ref={textareaRef}
+          rows={1}
+          value={draft.text}
+        />
       </ImageAttachments>
       {nativeActionNotice ? (
         <p className="mt-1 text-xs text-muted-foreground" role="status">
@@ -296,35 +326,6 @@ export function Composer({
           {errorMessage(refreshError, 'Session state could not be refreshed. Live updates will retry.')}
         </p>
       ) : null}
-      <div className="mt-2 flex flex-wrap items-center justify-between gap-2 border-t border-border pt-2">
-        <div className="flex min-w-0 flex-wrap items-center gap-1">
-          <RunControlsPopover />
-          <UsagePopover contextWindowTokens={contextWindowTokens} presentation={presentation} />
-        </div>
-        <div className="flex items-center gap-2">
-          {active ? (
-            <Button
-              size={null}
-              variant={null}
-              className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
-              disabled={archived || stopping || stopPendingForSession}
-              onClick={() => stopMutation.mutate({ sessionId, runId: runtime.run_id })}
-              type="button"
-            >
-              {stopping || stopPendingForSession ? 'Stopping…' : 'Stop'}
-            </Button>
-          ) : null}
-          <Button
-            size={null}
-            variant={null}
-            className="rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground disabled:cursor-not-allowed disabled:opacity-60"
-            disabled={archived || sendPendingForSession || preparingSendForSession || readingImages || (!draft.text.trim() && !draft.images.length)}
-            type="submit"
-          >
-            {sendPendingForSession || preparingSendForSession ? 'Sending…' : 'Send'}
-          </Button>
-        </div>
-      </div>
     </form>
   )
 }

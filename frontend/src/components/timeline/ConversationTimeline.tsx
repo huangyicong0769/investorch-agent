@@ -43,7 +43,7 @@ interface ScrollMeasurement {
 
 function AssistantTurn({ turn }: { turn: TimelineAssistantTurnViewModel }) {
   return (
-    <article className="py-4" data-seq={turn.seq}>
+    <article className="py-5" data-seq={turn.seq}>
       <div className="mb-2 flex items-center gap-2 text-xs font-medium text-muted-foreground">
         <span>InvestOrch Agent</span>
         <time dateTime={turn.timestamp}>{formatTimelineTime(turn.timestamp)}</time>
@@ -70,7 +70,7 @@ function TimelineItem({ item }: { item: TimelineViewModel }) {
             <InputAuthor origin={item.origin} />{item.type === 'steer' ? ' · Steer' : ''} ·{' '}
             <time dateTime={item.timestamp}>{formatTimelineTime(item.timestamp)}</time>
           </div>
-          {item.text ? <p className="whitespace-pre-wrap break-words rounded-2xl bg-muted px-4 py-3 text-sm leading-6">{item.text}</p> : null}
+          {item.text ? <p className="whitespace-pre-wrap break-words rounded-2xl bg-accent/60 px-4 py-3 text-sm leading-6">{item.text}</p> : null}
           <MessageImages images={item.images} />
         </div>
       </article>
@@ -86,7 +86,7 @@ function TimelineItem({ item }: { item: TimelineViewModel }) {
   }
 
   return (
-    <div className="py-2 text-center text-xs text-muted-foreground" data-seq={item.seq}>
+    <div className="py-2 text-center text-[11px] text-muted-foreground" data-seq={item.seq}>
       {item.text} · <time dateTime={item.timestamp}>{formatTimelineTime(item.timestamp)}</time>
     </div>
   )
@@ -96,7 +96,7 @@ function RunTiming({ timing }: { timing: TimelineRunTimingViewModel }) {
   const lead = timing.status === 'completed' ? 'Worked' : timing.status === 'cancelled' ? 'Stopped after' : 'Failed after'
 
   return (
-    <div className="py-2 text-center text-xs text-muted-foreground" data-seq={timing.seq}>
+    <div className="py-2 text-center text-[11px] text-muted-foreground" data-seq={timing.seq}>
       {lead} {formatDuration(timing.durationMs)} ·{' '}
       <time dateTime={timing.startedAt}>{formatTimelineTime(timing.startedAt)}</time>
       {'–'}
@@ -133,7 +133,7 @@ function ActiveRunTiming({ runtime }: { runtime: RuntimeSnapshot }) {
         : 'Working'
 
   return (
-    <div className="py-2 text-center text-xs text-muted-foreground" role="status">
+    <div className="py-2 text-center text-[11px] text-muted-foreground" role="status">
       {state} {formatDuration(durationMs)} · Started{' '}
       <time dateTime={startedAt}>{formatTimelineTime(startedAt)}</time>
     </div>
@@ -145,7 +145,7 @@ function PendingDirectBubble({ message }: { message: PendingDirectMessage }) {
     <article className="flex justify-end py-3" data-pending="true">
       <div className="max-w-[85%]">
         <div className="mb-1 text-right text-xs font-medium text-muted-foreground">You · Sending…</div>
-        {message.text ? <p className="whitespace-pre-wrap break-words rounded-2xl bg-muted px-4 py-3 text-sm leading-6">
+        {message.text ? <p className="whitespace-pre-wrap break-words rounded-2xl bg-accent/60 px-4 py-3 text-sm leading-6">
           {message.text}
         </p> : null}
         <MessageImages images={message.images} />
@@ -441,7 +441,7 @@ export function ConversationTimeline({
           ) : null}
 
           {!isPending && !isError && isFetchingNextPage ? (
-            <p className="py-2 text-center text-xs text-muted-foreground" role="status">
+            <p className="py-2 text-center text-[11px] text-muted-foreground" role="status">
               Loading older messages…
             </p>
           ) : null}
@@ -473,7 +473,7 @@ export function ConversationTimeline({
             return (
               <Fragment key={item.id}>
                 {showDay ? (
-                  <div className="py-2 text-center text-xs text-muted-foreground">
+                  <div className="py-2 text-center text-[11px] text-muted-foreground">
                     <time dateTime={item.timestamp}>{formatTimelineDay(item.timestamp)}</time>
                   </div>
                 ) : null}
@@ -494,7 +494,7 @@ export function ConversationTimeline({
 
           {!isPending && !isError
             ? liveSession.notices.map((notice) => (
-                <div className="py-2 text-center text-xs text-muted-foreground" key={notice.id} role="status">
+                <div className="py-2 text-center text-[11px] text-muted-foreground" key={notice.id} role="status">
                   {notice.text}
                 </div>
               ))

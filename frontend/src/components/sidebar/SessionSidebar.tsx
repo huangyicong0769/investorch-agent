@@ -27,6 +27,7 @@ import { ArchivedSessionsDialog } from './ArchivedSessionsDialog'
 import { SessionItem } from './SessionItem'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
 
 interface SessionSidebarProps {
@@ -147,13 +148,13 @@ export function SessionSidebar({
   return (
     <aside
       className={cn(
-        'fixed inset-y-0 z-40 flex h-dvh w-72 max-w-[calc(100vw-3rem)] shrink-0 flex-col border-r border-border bg-card px-3 py-4 shadow-xl md:sticky md:top-0 md:z-auto md:max-w-none md:self-start md:shadow-none',
+        'fixed inset-y-0 z-40 flex h-dvh w-72 max-w-[calc(100vw-3rem)] shrink-0 flex-col border-r border-border/70 bg-sidebar px-3 py-5 shadow-xl md:sticky md:top-0 md:z-auto md:max-w-none md:self-start md:shadow-none',
         mobileOpen ? 'visible left-0' : 'invisible -left-full md:visible',
       )}
       id="session-sidebar"
     >
       <div className="flex items-center justify-between px-2">
-        <div className="text-sm font-semibold">InvestOrch Agent</div>
+        <div className="flex items-center gap-2.5 text-sm font-semibold tracking-tight"><span aria-hidden="true" className="flex size-8 items-center justify-center rounded-xl bg-primary text-xs font-bold text-primary-foreground">IO</span>InvestOrch Agent</div>
         <Button
           size={null}
           variant={null}
@@ -169,7 +170,7 @@ export function SessionSidebar({
       <Button
         size={null}
         variant={null}
-        className="mt-4 flex items-center justify-start gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium hover:bg-muted disabled:opacity-60"
+        className="mt-5 flex min-h-11 items-center justify-start gap-2 rounded-xl bg-primary px-3 py-2 text-sm font-medium text-primary-foreground shadow-sm hover:bg-primary/90 disabled:opacity-60"
         disabled={createMutation.isPending}
         onClick={() => createMutation.mutate()}
         type="button"
@@ -186,8 +187,8 @@ export function SessionSidebar({
       <NavLink
         className={({ isActive }) =>
           cn(
-            'mt-2 flex items-center gap-2 rounded-lg px-3 py-2 text-sm outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/40',
-            isActive ? 'bg-muted font-medium text-foreground' : 'text-muted-foreground',
+            'mt-2 flex items-center gap-2 min-h-10 rounded-lg px-3 py-2 text-sm outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/40',
+            isActive ? 'bg-accent font-medium text-accent-foreground' : 'text-muted-foreground',
           )
         }
         onClick={onMobileClose}
@@ -197,19 +198,19 @@ export function SessionSidebar({
         Portfolios
       </NavLink>
 
-      <NavLink className={({ isActive }) => cn('mt-1 flex items-center gap-2 rounded-lg px-3 py-2 text-sm outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/40', isActive ? 'bg-muted font-medium' : 'text-muted-foreground')} onClick={onMobileClose} to="/skills"><Puzzle aria-hidden="true" size={16} />Skills</NavLink>
+      <NavLink className={({ isActive }) => cn('mt-1 flex items-center gap-2 min-h-10 rounded-lg px-3 py-2 text-sm outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/40', isActive ? 'bg-accent font-medium text-accent-foreground' : 'text-muted-foreground')} onClick={onMobileClose} to="/skills"><Puzzle aria-hidden="true" size={16} />Skills</NavLink>
 
-      <div className="relative mt-3">
+      <div className="relative mt-5">
         <Search
           aria-hidden="true"
-          className="pointer-events-none absolute left-3 top-2.5 text-muted-foreground"
+          className="pointer-events-none absolute left-3 top-3 text-muted-foreground"
           size={15}
         />
         <label className="sr-only" htmlFor={searchId}>
           Search sessions
         </label>
-        <input
-          className="w-full rounded-lg border border-border bg-background py-2 pl-9 pr-3 text-sm outline-none focus:border-primary"
+        <Input
+          className="h-10 rounded-lg border-transparent bg-card/70 pl-9 shadow-none"
           id={searchId}
           onChange={(event) => setSearch(event.target.value)}
           placeholder="Search"
@@ -295,8 +296,8 @@ export function SessionSidebar({
           <Archive aria-hidden="true" size={16} />
           Archived
         </Button>
-        <NavLink className={({ isActive }) => cn('flex items-center gap-2 rounded-lg px-3 py-2 text-sm outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/40', isActive && 'bg-muted font-medium')} onClick={onMobileClose} to="/settings"><Settings aria-hidden="true" size={16} />Settings</NavLink>
-        <NavLink className={({ isActive }) => cn('flex items-center gap-2 rounded-lg px-3 py-2 text-sm outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/40', isActive && 'bg-muted font-medium')} onClick={onMobileClose} to="/system"><Activity aria-hidden="true" size={16} />System Status</NavLink>
+        <NavLink className={({ isActive }) => cn('flex items-center gap-2 min-h-10 rounded-lg px-3 py-2 text-sm outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/40', isActive && 'bg-accent font-medium text-accent-foreground')} onClick={onMobileClose} to="/settings"><Settings aria-hidden="true" size={16} />Settings</NavLink>
+        <NavLink className={({ isActive }) => cn('flex items-center gap-2 min-h-10 rounded-lg px-3 py-2 text-sm outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/40', isActive && 'bg-accent font-medium text-accent-foreground')} onClick={onMobileClose} to="/system"><Activity aria-hidden="true" size={16} />System Status</NavLink>
         <ProcessesSheet />
       </div>
 

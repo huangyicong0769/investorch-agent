@@ -200,14 +200,14 @@ export function ActivityGroup({ group }: ActivityGroupProps) {
 
   return (
     <Collapsible
-      className="my-2 max-w-full rounded-lg border border-border/80 bg-card"
+      className="my-2 max-w-full rounded-lg border border-border/50 bg-muted/25"
       data-seq={group.seq}
       onOpenChange={setOpen}
       open={open}
     >
       <CollapsibleTrigger asChild>
         <Button
-          className="flex w-full cursor-pointer items-center justify-start gap-0 px-3 py-2 text-left text-sm font-normal text-muted-foreground"
+          className="flex w-full cursor-pointer items-center justify-start gap-0 px-3 py-2 text-left text-xs font-normal text-muted-foreground"
           size={null}
           type="button"
           variant={null}
