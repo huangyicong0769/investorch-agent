@@ -1,5 +1,7 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where([data-color-scheme="dark"], [data-color-scheme="dark"] *));
+
 :root {
   --theme-primary: #24634f;
   --theme-primary-dark: #8bccb0;
@@ -34,29 +36,27 @@
 :root[data-theme-color="amber"] { --theme-primary: #875719; --theme-primary-dark: #edc17c; }
 :root[data-theme-color="neutral"] { --theme-primary: #52525b; --theme-primary-dark: #c4c4cc; }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    color-scheme: dark;
-    --background: color-mix(in srgb, var(--theme-primary-dark) 6%, #111111);
-    --foreground: color-mix(in srgb, var(--theme-primary-dark) 10%, #eeeeee);
-    --muted: color-mix(in srgb, var(--theme-primary-dark) 16%, #202020);
-    --muted-foreground: color-mix(in srgb, var(--theme-primary-dark) 15%, #aaaaaa);
-    --border: color-mix(in srgb, var(--theme-primary-dark) 25%, #252525);
-    --card: color-mix(in srgb, var(--theme-primary-dark) 8%, #191919);
-    --primary: var(--theme-primary-dark);
-    --primary-foreground: #18221d;
-    --sidebar: color-mix(in srgb, var(--theme-primary-dark) 7%, #151515);
-    --accent: color-mix(in srgb, var(--theme-primary-dark) 25%, #202020);
-    --accent-foreground: var(--theme-primary-dark);
-    --ring: var(--theme-primary-dark);
-    --success: #92d2ae;
-    --warning: #e7bb76;
-    --destructive: #f87171;
-  }
+:root[data-color-scheme="dark"] {
+  color-scheme: dark;
+  --background: color-mix(in srgb, var(--theme-primary-dark) 6%, #111111);
+  --foreground: color-mix(in srgb, var(--theme-primary-dark) 10%, #eeeeee);
+  --muted: color-mix(in srgb, var(--theme-primary-dark) 16%, #202020);
+  --muted-foreground: color-mix(in srgb, var(--theme-primary-dark) 15%, #aaaaaa);
+  --border: color-mix(in srgb, var(--theme-primary-dark) 25%, #252525);
+  --card: color-mix(in srgb, var(--theme-primary-dark) 8%, #191919);
+  --primary: var(--theme-primary-dark);
+  --primary-foreground: #18221d;
+  --sidebar: color-mix(in srgb, var(--theme-primary-dark) 7%, #151515);
+  --accent: color-mix(in srgb, var(--theme-primary-dark) 25%, #202020);
+  --accent-foreground: var(--theme-primary-dark);
+  --ring: var(--theme-primary-dark);
+  --success: #92d2ae;
+  --warning: #e7bb76;
+  --destructive: #f87171;
+}
 
-  .text-red-700 {
-    color: #f87171;
-  }
+:root[data-color-scheme="dark"] .text-red-700 {
+  color: #f87171;
 }
 
 @theme inline {

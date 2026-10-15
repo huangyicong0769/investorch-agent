@@ -167,6 +167,7 @@ def _serialize_defaults(host: ApplicationHost) -> dict[str, str]:
 def _serialize_web_config(host: ApplicationHost) -> dict[str, int | str]:
     return {
         "theme_color": host.config["web.theme_color"],
+        "theme_mode": host.config["web.theme_mode"],
         "history_page_size": host.config["web.history_page_size"],
         "websocket_reconnect_base_delay_ms": host.config["web.websocket_reconnect_base_delay_ms"],
         "websocket_reconnect_max_delay_ms": host.config["web.websocket_reconnect_max_delay_ms"],

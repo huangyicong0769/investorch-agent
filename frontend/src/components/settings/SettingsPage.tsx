@@ -28,10 +28,11 @@ function SettingsEditor({ saved, schema }: { saved: SavedConfig; schema: ConfigS
   const value = (path: string) => path in changes ? changes[path] : configValue(saved.values, path)
   const previewTheme = useThemePreview()
   const themeColor = value('web.theme_color') as WebConfig['theme_color']
+  const themeMode = value('web.theme_mode') as WebConfig['theme_mode']
   useLayoutEffect(() => {
-    previewTheme(themeColor)
+    previewTheme({ theme_color: themeColor, theme_mode: themeMode })
     return () => previewTheme(null)
-  }, [previewTheme, themeColor])
+  }, [previewTheme, themeColor, themeMode])
   const refresh = async (requiresRestart: boolean) => {
     setNotice(requiresRestart ? 'Saved. Restart InvestOrch to apply fields marked “Restart required”. Other saved changes apply to future work.' : 'Saved.')
     await Promise.all([
@@ -71,7 +72,7 @@ function SettingsEditor({ saved, schema }: { saved: SavedConfig; schema: ConfigS
         return resolved.properties ? <fieldset className="min-w-0 rounded-xl border border-border p-4 sm:col-span-2" key={key}><legend className="px-2 text-sm font-semibold">{fieldLabel(key)}</legend>{renderFields(`${path}.${key}`)}</fieldset> : <div key={key}>{renderFields(`${path}.${key}`)}</div>
       })}</div>
     }
-    return <SchemaField disabled={busy} error={errors[path]} onChange={(next) => change(path, next)} onReset={dirty ? undefined : () => reset.mutate(path)} overridden={saved.overrides.includes(path)} path={path} root={schema} schema={raw} showApplyMode={path !== 'web.theme_color'} value={value(path)} />
+    return <SchemaField disabled={busy} error={errors[path]} onChange={(next) => change(path, next)} onReset={dirty ? undefined : () => reset.mutate(path)} overridden={saved.overrides.includes(path)} path={path} root={schema} schema={raw} showApplyMode={!['web.theme_color', 'web.theme_mode'].includes(path)} value={value(path)} />
   }
   const section = (title: string, path: string, description?: string, omit?: string[]) => <section key={path}><Card className="gap-5 rounded-xl border-border py-5 shadow-none"><CardHeader className="gap-2 px-5"><CardTitle><h2>{title}</h2></CardTitle>{description ? <CardDescription className="leading-6">{description}</CardDescription> : null}</CardHeader><CardContent className="px-5">{renderFields(path, omit)}</CardContent></Card></section>
   const roleNames = Object.keys(objectValue(saved.values.models))
@@ -90,7 +91,10 @@ function SettingsEditor({ saved, schema }: { saved: SavedConfig; schema: ConfigS
           {section('General preferences', 'runtime.default_timezone')}
           {section('Saved follow-up preference', 'interaction', 'Your persistent default, shared by Web, TUI and plain-console clients.')}
         </> : null}
-        {category === 'Appearance' ? section('Theme color', 'web.theme_color', 'Preview a color palette for buttons, navigation and surfaces. Save to keep it across reloads, or discard to restore your saved color. Light and dark appearances follow your system.') : null}
+        {category === 'Appearance' ? <>
+          {section('Light and dark mode', 'web.theme_mode', 'Choose light, dark, or system. System follows changes to your device appearance automatically. Preview immediately, then save to keep your choice.')}
+          {section('Theme color', 'web.theme_color', 'Preview a color palette for buttons, navigation and surfaces. Save to keep it across reloads, or discard to restore your saved color.')}
+        </> : null}
         {category === 'Models' ? <>
           {section('Model roles', 'models', 'Each role has its own model, endpoint, key reference and reasoning settings. Multiple roles can share a key reference.')}
           <section className="rounded-xl border border-border bg-card p-5"><h2 className="font-semibold">API keys</h2><p className="mt-2 text-sm text-muted-foreground">Restart InvestOrch after saving replacement keys so model clients use the new credentials.</p><div className="mt-5"><SecretFields allowNew configured={saved.secrets} disabled={busy} names={[...Object.keys(saved.secrets), ...referencedSecrets]} onChange={(name, key) => { setSecrets((current) => ({ ...current, [name]: key })); setNotice('') }} values={secrets} /></div></section>
@@ -113,7 +117,7 @@ function SettingsEditor({ saved, schema }: { saved: SavedConfig; schema: ConfigS
             <li>Copy the existing state and workspace directories to the intended locations, retaining the originals. Update <code>paths.state</code> and <code>paths.workspace</code> in <code>investorch.toml</code> while the application is stopped. Root is selected at startup, not through this file.</li>
             <li>Run <code>investorch doctor --root /path/to/root</code> before restarting. After startup, verify your Sessions, Portfolios and Skills before removing any original data.</li>
           </ol>
-        </section> : renderFields(path, path === 'runtime' ? ['default_timezone'] : path === 'web' ? ['theme_color'] : [])}</div></details>) : null}
+        </section> : renderFields(path, path === 'runtime' ? ['default_timezone'] : path === 'web' ? ['theme_color', 'theme_mode'] : [])}</div></details>) : null}
         <div className="sticky bottom-0 z-10 space-y-3 border-t border-border bg-background/95 py-4 backdrop-blur">
           <ErrorNotice error={save.error ?? reset.error} fallback="Configuration could not be saved." />
           {notice ? <p className="text-sm" role="status">{notice}</p> : null}

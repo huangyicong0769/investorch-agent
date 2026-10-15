@@ -145,6 +145,9 @@ class TUIConfig(ConfigSection):
 
 
 class WebConfig(ConfigSection):
+    theme_mode: Literal["system", "light", "dark"] = hot(
+        "system", description="Use the system appearance, or keep the Web interface light or dark."
+    )
     theme_color: Literal["green", "blue", "violet", "rose", "amber", "neutral"] = hot(
         "green", description="Web interface color palette. Applies immediately after saving."
     )
