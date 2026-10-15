@@ -16,7 +16,7 @@ import {
   unarchiveSession,
 } from '../../api/client'
 import { queryKeys, sessionDeletionPreviewQueryOptions } from '../../api/queries'
-import { committedDeletionIds, removeDeletedSessionCaches } from '../../api/sessionLifecycle'
+import { committedDeletionIds, reconcileSessionArchive, removeDeletedSessionCaches } from '../../api/sessionLifecycle'
 import { DeletionPreview } from './DeletionPreview'
 import type {
   BootstrapResponse,
@@ -175,50 +175,25 @@ export function SessionMenu({ session }: SessionMenuProps) {
       }
 
       const replacement = result.response.session
-      queryClient.setQueryData(queryKeys.session(replacement.session_id), result.response)
-
-      if (result.action === 'fork') {
-        queryClient.setQueryData<SessionListResponse>(queryKeys.sessions(), (current) =>
-          current ? { sessions: upsertSession(current.sessions, replacement) } : current,
-        )
-        queryClient.setQueryData<BootstrapResponse>(queryKeys.bootstrap(), (current) =>
-          current ? { ...current, sessions: upsertSession(current.sessions, replacement) } : current,
-        )
-        navigate(sessionPath(replacement.session_id))
-      } else {
-        const nowArchived = result.action === 'archive'
-        queryClient.setQueryData<SessionStateResponse>(queryKeys.sessionState(session.session_id), (current) =>
-          current ? { ...current, session: replacement } : current,
-        )
-        queryClient.setQueryData<SessionListResponse>(queryKeys.sessions(), (current) =>
-          current
-            ? {
-                sessions: nowArchived
-                  ? withoutSession(current.sessions, replacement.session_id)
-                  : upsertSession(current.sessions, replacement),
-              }
-            : current,
-        )
-        queryClient.setQueryData<SessionListResponse>(queryKeys.archivedSessions(), (current) =>
-          current
-            ? {
-                sessions: nowArchived
-                  ? upsertSession(current.sessions, replacement)
-                  : withoutSession(current.sessions, replacement.session_id),
-              }
-            : current,
-        )
-        queryClient.setQueryData<BootstrapResponse>(queryKeys.bootstrap(), (current) =>
-          current
-            ? {
-                ...current,
-                sessions: nowArchived
-                  ? withoutSession(current.sessions, replacement.session_id)
-                  : upsertSession(current.sessions, replacement),
-              }
-            : current,
-        )
+      if (result.action === 'archive' || result.action === 'unarchive') {
+        await Promise.all([
+          reconcileSessionArchive(queryClient, replacement),
+          queryClient.invalidateQueries({
+            exact: true,
+            queryKey: queryKeys.sessionState(replacement.session_id),
+          }),
+        ])
+        return
       }
+
+      queryClient.setQueryData(queryKeys.session(replacement.session_id), result.response)
+      queryClient.setQueryData<SessionListResponse>(queryKeys.sessions(), (current) =>
+        current ? { sessions: upsertSession(current.sessions, replacement) } : current,
+      )
+      queryClient.setQueryData<BootstrapResponse>(queryKeys.bootstrap(), (current) =>
+        current ? { ...current, sessions: upsertSession(current.sessions, replacement) } : current,
+      )
+      navigate(sessionPath(replacement.session_id))
 
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: queryKeys.sessions() }),

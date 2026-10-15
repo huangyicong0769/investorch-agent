@@ -4,7 +4,7 @@ import { Activity, Archive, BriefcaseBusiness, Plus, Puzzle, Search, Settings, X
 import { NavLink, useNavigate } from 'react-router-dom'
 
 import { archiveSession, createSession, deleteSession, cleanupDeletedSessions } from '../../api/client'
-import { committedDeletionIds, removeDeletedSessionCaches } from '../../api/sessionLifecycle'
+import { committedDeletionIds, reconcileSessionArchive, removeDeletedSessionCaches } from '../../api/sessionLifecycle'
 import { DeletionPreview } from '../conversation/DeletionPreview'
 import {
   queryKeys,
@@ -13,7 +13,6 @@ import {
   sessionDeletionPreviewQueryOptions,
 } from '../../api/queries'
 import type {
-  BootstrapResponse,
   DeleteSessionResponse,
   SessionListResponse,
   SessionRecord,
@@ -106,51 +105,7 @@ export function SessionSidebar({
 
   const archiveMutation = useMutation({
     mutationFn: (session: SessionRecord) => archiveSession(session.session_id),
-    onSuccess: async (response: SessionResponse) => {
-      const archivedSession = response.session
-      queryClient.setQueryData(queryKeys.session(archivedSession.session_id), response)
-      queryClient.setQueryData<SessionStateResponse>(
-        queryKeys.sessionState(archivedSession.session_id),
-        (current) => (current ? { ...current, session: archivedSession } : current),
-      )
-      queryClient.setQueryData<SessionListResponse>(queryKeys.sessions(), (current) =>
-        current
-          ? {
-              sessions: current.sessions.filter(
-                (session) => session.session_id !== archivedSession.session_id,
-              ),
-            }
-          : current,
-      )
-      queryClient.setQueryData<SessionListResponse>(queryKeys.archivedSessions(), (current) =>
-        current
-          ? {
-              sessions: [
-                archivedSession,
-                ...current.sessions.filter(
-                  (session) => session.session_id !== archivedSession.session_id,
-                ),
-              ],
-            }
-          : current,
-      )
-      queryClient.setQueryData<BootstrapResponse>(queryKeys.bootstrap(), (current) =>
-        current
-          ? {
-              ...current,
-              sessions: current.sessions.filter(
-                (session) => session.session_id !== archivedSession.session_id,
-              ),
-            }
-          : current,
-      )
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: queryKeys.sessions() }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.archivedSessions() }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.sessionContexts() }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.bootstrap() }),
-      ])
-    },
+    onSuccess: (response: SessionResponse) => reconcileSessionArchive(queryClient, response.session),
   })
 
   const deleteMutation = useMutation({
