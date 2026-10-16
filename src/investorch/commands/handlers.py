@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import webbrowser
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
@@ -20,6 +21,7 @@ from investorch.application.sessions import (
 )
 from investorch.config import FOLLOW_UP_BEHAVIORS, PERMISSION_MODES, REASONING_EFFORTS, ConfigError
 from investorch.context import AppState
+from investorch.llm.oauth import ChatGPTAuthError
 from investorch.runtime import AgentRuntime, SessionBusyError
 from investorch.storage import (
     SessionDeletionScopeChangedError,
@@ -49,6 +51,7 @@ HELP = (
     "  /fork              Fork the current session.\n"
     "  /title [title]     Show or set the session title.\n"
     "  /model [connection name effort window] Show or set the Session model.\n"
+    "  /model login|logout [connection] Manage ChatGPT authorization.\n"
     "  /effort [level]    Show or set the next Run reasoning effort.\n"
     "  /permission [mode] Show or set tool permission mode.\n"
     "  /followup [mode]   Show or set follow-up behavior.\n"
@@ -75,17 +78,22 @@ async def dispatch_command(
     sessions: SessionOperations,
     confirm_clear_scope: Callable[[dict[str, object]], Awaitable[bool]] | None = None,
 ) -> CommandResult:
-    if state.selected_session_id is None and command.name in {
-        "session",
-        "archive",
-        "fork",
-        "title",
-        "stop",
-        "clear",
-        "compact",
-        "model",
-        "effort",
-    }:
+    if (
+        state.selected_session_id is None
+        and command.name
+        in {
+            "session",
+            "archive",
+            "fork",
+            "title",
+            "stop",
+            "clear",
+            "compact",
+            "model",
+            "effort",
+        }
+        and not (command.name == "model" and len(command.args) == 2 and command.args[0] in {"login", "logout"})
+    ):
         return CommandResult("No Session selected. Use /new or /resume to continue.")
     match command.name:
         case "session":
@@ -237,6 +245,34 @@ async def dispatch_command(
 
         case "model":
             session_id = state.selected_session_id
+            if command.args and command.args[0] in {"login", "logout"}:
+                if len(command.args) > 2:
+                    return CommandResult("Usage: /model login|logout [connection]")
+                if state.chatgpt_auth is None:
+                    return CommandResult(
+                        "ChatGPT authorization is unavailable in this Host. Open Setup or Settings to sign in."
+                    )
+                connection_id = (
+                    command.args[1]
+                    if len(command.args) == 2
+                    else runtime.session_models.view(session_id).effective.model
+                )
+                try:
+                    connection = state.config.model_connection(connection_id)
+                    if connection.type != "chatgpt":
+                        return CommandResult("This connection uses an API key. Select a ChatGPT connection to sign in.")
+                    if command.args[0] == "logout":
+                        result = await state.chatgpt_auth.logout(connection.credentials)
+                        return CommandResult(result["message"])
+                    pending = await state.chatgpt_auth.start_browser_login(connection_id)
+                    opened = await asyncio.to_thread(webbrowser.open, pending["authorization_url"])
+                    if not opened:
+                        return CommandResult("The browser could not be opened. Use Setup or Settings to sign in.")
+                    return CommandResult(
+                        f"Browser authorization started for {connection_id}. Complete sign-in and grant ChatGPT plan usage in the browser."
+                    )
+                except (ConfigError, ChatGPTAuthError) as error:
+                    return CommandResult(str(error))
             if not command.args:
                 active = runtime.get_active_run(session_id)
                 view = runtime.session_models.view(session_id, active=active.options.model if active else None)
@@ -279,7 +315,10 @@ async def dispatch_command(
             if effort not in REASONING_EFFORTS:
                 return CommandResult(f"Unsupported reasoning effort: {command.args[0]}")
 
-            runtime.session_models.update(state.selected_session_id, reasoning_effort=effort)
+            try:
+                runtime.session_models.update(state.selected_session_id, reasoning_effort=effort)
+            except (ConfigError, KeyError) as error:
+                return CommandResult(str(error))
             return CommandResult(f"Next Run reasoning effort set to: {effort}. Draft is saved when a Run starts.")
 
         case "permission":

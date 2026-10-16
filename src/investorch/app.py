@@ -11,10 +11,11 @@ from investorch.application import (
     open_application_host,
 )
 from investorch.commands import dispatch_command, parse_command
-from investorch.config import AppConfig, load_config
+from investorch.config import AppConfig, ConfigError, load_config
 from investorch.context import AppState
 from investorch.initializer import initialize
 from investorch.inputs import UserInput
+from investorch.llm.oauth import ChatGPTAuthError
 from investorch.log import configure_logging
 from investorch.runtime import (
     AgentRuntime,
@@ -68,10 +69,14 @@ async def _run_console(state: AppState, runtime: AgentRuntime, sessions: Session
                     follow_up_behavior=state.follow_up_behavior,
                 ),
             )
-        except RunCapacityExceededError as error:
+        except (RunCapacityExceededError, ConfigError) as error:
             ui.write(str(error))
             continue
-        result = await active_run.task
+        try:
+            result = await active_run.task
+        except (ConfigError, ChatGPTAuthError) as error:
+            ui.write(str(error))
+            continue
         if result.auto_compaction is not None and result.auto_compaction.changed:
             ui.write("Context compacted automatically.")
         elif result.auto_compaction_consistency_uncertain:

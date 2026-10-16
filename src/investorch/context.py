@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from investorch.application.portfolios import PortfolioOperations
     from investorch.application.session_models import SessionModelStore
     from investorch.application.skills import SkillOperations
+    from investorch.llm.oauth import ChatGPTAuth
     from investorch.runtime.models import FollowUpBehavior
 
 TodoStatus = Literal["pending", "in_progress", "completed", "failed"]
@@ -85,6 +86,7 @@ class AppState:
         follow_up_behavior: FollowUpBehavior | None = None,
     ) -> None:
         self.config = config
+        self.chatgpt_auth: ChatGPTAuth | None = None
         self.execution = execution
         self.selected_session_id = selected_session_id
         from investorch.application.session_models import SessionModelStore
