@@ -15,12 +15,29 @@ logger = logging.getLogger(__name__)
 _LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
 
 WebPayload = dict[str, object]
+SnapshotKey = tuple[str, str, str]
+
+
+def _snapshot_key(payload: WebPayload) -> SnapshotKey | None:
+    event = payload.get("event")
+    if payload.get("kind") != "output" or not isinstance(event, dict):
+        return None
+    if event.get("type") != "assistant_message_update" or payload.get("journal_seq") is not None:
+        return None
+    key = (payload.get("session_id"), payload.get("run_id"), event.get("message_id"))
+    return key if all(isinstance(value, str) for value in key) else None
+
+
+@dataclass(slots=True)
+class _QueuedPayload:
+    payload: WebPayload
 
 
 @dataclass(eq=False, slots=True)
 class _WebConnection:
     websocket: WebSocket
-    queue: asyncio.Queue[WebPayload]
+    queue: asyncio.Queue[_QueuedPayload]
+    snapshots: dict[SnapshotKey, _QueuedPayload] = field(default_factory=dict)
     handler_task: asyncio.Task[None] | None = None
     writer_task: asyncio.Task[None] | None = None
     close_task: asyncio.Task[None] | None = None
@@ -45,11 +62,22 @@ class WebConnectionHub:
     def publish(self, payload: WebPayload) -> None:
         if self._closing:
             return
+        key = _snapshot_key(payload)
         for connection in tuple(self._connections):
             if connection.dropping:
                 continue
+            if key is not None and (queued := connection.snapshots.get(key)) is not None:
+                queued.payload = payload
+                continue
+            # Durable events are ordering barriers. Never move a later snapshot
+            # ahead of a tool call, a final message, or another lifecycle event.
+            if key is None:
+                connection.snapshots.clear()
+            queued = _QueuedPayload(payload)
             try:
-                connection.queue.put_nowait(payload)
+                connection.queue.put_nowait(queued)
+                if key is not None:
+                    connection.snapshots[key] = queued
             except asyncio.QueueFull:
                 logger.warning("Dropping lagging WebSocket connection because its event queue is full")
                 self._begin_drop(connection, status.WS_1013_TRY_AGAIN_LATER)
@@ -116,8 +144,11 @@ class WebConnectionHub:
     @staticmethod
     async def _write(connection: _WebConnection) -> None:
         while True:
-            payload = await connection.queue.get()
-            await connection.websocket.send_json(payload)
+            queued = await connection.queue.get()
+            key = _snapshot_key(queued.payload)
+            if key is not None and connection.snapshots.get(key) is queued:
+                del connection.snapshots[key]
+            await connection.websocket.send_json(queued.payload)
 
     def _writer_finished(self, connection: _WebConnection, task: asyncio.Task[None]) -> None:
         if task.cancelled():

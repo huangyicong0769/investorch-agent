@@ -63,11 +63,13 @@ async def approve(_request, _reason):
     return True
 
 
-async def test_buffered_sdk_tokens_do_not_disconnect_a_healthy_websocket():
-    accepted, final_sent = asyncio.Event(), asyncio.Event()
+async def test_buffered_sdk_tokens_are_coalesced_before_serialization_and_reach_a_slow_websocket():
+    accepted, final_sent, release_socket = asyncio.Event(), asyncio.Event(), asyncio.Event()
     sent, closed = [], []
+    published_text_bytes = 0
+    answer = "abcd" * 16_000
 
-    class FastSocket:
+    class SlowSocket:
         async def accept(self):
             accepted.set()
 
@@ -75,6 +77,8 @@ async def test_buffered_sdk_tokens_do_not_disconnect_a_healthy_websocket():
             await asyncio.Event().wait()
 
         async def send_json(self, payload):
+            await release_socket.wait()
+            await asyncio.sleep(0.005)
             sent.append(payload)
             if payload["event"]["type"] == "assistant_message":
                 final_sent.set()
@@ -84,17 +88,20 @@ async def test_buffered_sdk_tokens_do_not_disconnect_a_healthy_websocket():
 
     async def stream(_call):
         # The provider/SDK may fill its own queue before the view consumes it.
-        for sequence in range(1200):
-            yield text_delta("a", sequence)
+        for sequence in range(16_000):
+            yield text_delta("abcd", sequence)
         yield ResponseCompletedEvent(
-            type="response.completed", response=response_with_text("a" * 1200), sequence_number=1201
+            type="response.completed", response=response_with_text(answer), sequence_number=16_001
         )
 
-    hub = WebConnectionHub(queue_capacity=1000)
+    hub = WebConnectionHub(queue_capacity=8)
     bridge = WebEventBridge(hub)
-    connection = asyncio.create_task(hub.serve(FastSocket()))
+    connection = asyncio.create_task(hub.serve(SlowSocket()))
 
     async def capture(event):
+        nonlocal published_text_bytes
+        if isinstance(event, (AssistantMessage, AssistantMessageUpdate)):
+            published_text_bytes += len(event.text.encode())
         await bridge.handle_output(
             RuntimeOutput(session_id="session", run_id="run", event=event),
             None if isinstance(event, AssistantMessageUpdate) else 1,
@@ -108,10 +115,114 @@ async def test_buffered_sdk_tokens_do_not_disconnect_a_healthy_websocket():
             run_config=RunConfig(tracing_disabled=True),
         )
         await consume_run_events(result, capture, "Main")
+        assert not closed
+        # Leave room for slower CI while rejecting the old 512 MB token-by-token
+        # transmission for this 64 KB answer.
+        assert published_text_bytes < 4 * 1024 * 1024
+        release_socket.set()
         await asyncio.wait_for(final_sent.wait(), 1)
         assert not closed
         assert hub.connection_count == 1
-        assert sent[-1]["event"]["text"] == "a" * 1200
+        assert sent[-1]["event"]["text"] == answer
+        assert len([payload for payload in sent if payload["journal_seq"] is not None]) == 1
+    finally:
+        release_socket.set()
+        await hub.aclose()
+        await connection
+
+
+async def test_slow_socket_coalesces_only_matching_snapshots_without_crossing_durable_events():
+    accepted, sending, release, received = (asyncio.Event() for _ in range(4))
+    sent, closed = [], []
+
+    class SlowSocket:
+        async def accept(self):
+            accepted.set()
+
+        async def receive(self):
+            await asyncio.Event().wait()
+
+        async def send_json(self, payload):
+            sending.set()
+            await release.wait()
+            sent.append(payload)
+            if len(sent) == 7:
+                received.set()
+
+        async def close(self, code):
+            closed.append(code)
+
+    hub = WebConnectionHub(queue_capacity=6)
+    bridge = WebEventBridge(hub)
+    connection = asyncio.create_task(hub.serve(SlowSocket()))
+
+    async def update(text, *, session_id="session", run_id="run", message_id="message"):
+        await bridge.handle_output(
+            RuntimeOutput(
+                session_id=session_id, run_id=run_id, event=AssistantMessageUpdate(message_id=message_id, text=text)
+            ),
+            None,
+        )
+
+    try:
+        await asyncio.wait_for(accepted.wait(), 3)
+        await update("in flight")
+        await asyncio.wait_for(sending.wait(), 3)
+        for index in range(1000):
+            await update(str(index))
+        await update("other session", session_id="other")
+        await update("other run", run_id="other")
+        await update("other message", message_id="other")
+        await bridge.handle_output(RuntimeOutput(session_id="session", run_id="run", event=ToolCalled(name="tool")), 1)
+        await update("after tool")
+        assert not closed
+        release.set()
+        await asyncio.wait_for(received.wait(), 3)
+        assert [payload["event"].get("text", "tool") for payload in sent] == [
+            "in flight",
+            "999",
+            "other session",
+            "other run",
+            "other message",
+            "tool",
+            "after tool",
+        ]
+        assert not closed
+    finally:
+        release.set()
+        await hub.aclose()
+        await connection
+
+
+async def test_durable_event_overflow_still_disconnects_a_blocked_socket():
+    accepted, sending, closed = (asyncio.Event() for _ in range(3))
+    close_codes = []
+
+    class BlockedSocket:
+        async def accept(self):
+            accepted.set()
+
+        async def receive(self):
+            await asyncio.Event().wait()
+
+        async def send_json(self, _payload):
+            sending.set()
+            await asyncio.Event().wait()
+
+        async def close(self, code):
+            close_codes.append(code)
+            closed.set()
+
+    hub = WebConnectionHub(queue_capacity=2)
+    connection = asyncio.create_task(hub.serve(BlockedSocket()))
+    try:
+        await asyncio.wait_for(accepted.wait(), 3)
+        hub.publish({"kind": "runtime_state", "run_id": "first"})
+        await asyncio.wait_for(sending.wait(), 3)
+        for index in range(3):
+            hub.publish({"kind": "runtime_state", "run_id": str(index)})
+        await asyncio.wait_for(closed.wait(), 3)
+        assert close_codes == [1013]
     finally:
         await hub.aclose()
         await connection
@@ -339,6 +450,45 @@ async def test_interrupted_stream_keeps_only_received_text_once_with_run_outcome
             assert records[-1]["type"] == "run_ended" and records[-1]["status"] == outcome
         finally:
             release.set()
+
+
+@pytest.mark.parametrize("outcome", ["cancelled", "failed"])
+async def test_unpublished_tail_is_preserved_and_no_snapshot_arrives_after_interruption(outcome):
+    tail_consumed, release = asyncio.Event(), asyncio.Event()
+    events = []
+
+    async def stream_events():
+        yield SimpleNamespace(type="raw_response_event", data=text_delta("First"))
+        yield SimpleNamespace(type="raw_response_event", data=text_delta(" tail", 2))
+        tail_consumed.set()
+        await release.wait()
+        raise RuntimeError("controlled provider failure")
+
+    async def capture(event):
+        events.append(event)
+
+    task = asyncio.create_task(consume_run_events(SimpleNamespace(stream_events=stream_events), capture, "Main"))
+    try:
+        await asyncio.wait_for(tail_consumed.wait(), 3)
+        if outcome == "cancelled":
+            task.cancel()
+        else:
+            release.set()
+        with pytest.raises(asyncio.CancelledError if outcome == "cancelled" else RuntimeError):
+            await task
+        assert isinstance(events[0], AssistantMessageUpdate)
+        assert events[0].text == "First"
+        assert isinstance(events[-1], AssistantMessage)
+        assert events[-1].text == "First tail"
+        assert events[-1].message_id == events[0].message_id
+        count = len(events)
+        await asyncio.sleep(0.1)
+        assert len(events) == count
+    finally:
+        release.set()
+        if not task.done():
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
 
 
 async def test_complete_response_is_visible_while_title_generation_is_still_waiting(tmp_path: Path, monkeypatch):

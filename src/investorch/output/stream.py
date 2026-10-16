@@ -31,11 +31,13 @@ from .events import (
 class _PendingMessage:
     provider_id: str
     message_id: str = field(default_factory=lambda: uuid.uuid4().hex)
-    parts: dict[int, str] = field(default_factory=dict)
+    parts: dict[int, list[str]] = field(default_factory=dict)
+    next_update_at: float = 0
+    dirty: bool = False
 
     @property
     def text(self) -> str:
-        return "".join(self.parts[index] for index in sorted(self.parts))
+        return "".join(part for index in sorted(self.parts) for part in self.parts[index])
 
 
 def _message_text(message: ResponseOutputMessage) -> str:
@@ -62,6 +64,14 @@ async def consume_run_events(
     reasoning_parts: list[str] = []
     pending_messages: dict[int, _PendingMessage] = {}
     completed_messages: Counter[tuple[str, str]] = Counter()
+    loop = asyncio.get_running_loop()
+
+    async def flush_updates() -> None:
+        for pending in pending_messages.values():
+            if pending.dirty and loop.time() >= pending.next_update_at:
+                await output_handler(AssistantMessageUpdate(message_id=pending.message_id, text=pending.text))
+                pending.dirty = False
+                pending.next_update_at = loop.time() + 0.05
 
     async def flush_messages() -> None:
         # Preserve words already shown if a provider fails or the run is stopped.
@@ -71,8 +81,25 @@ async def consume_run_events(
             if pending.text:
                 await output_handler(AssistantMessage(text=pending.text, message_id=pending.message_id))
 
+    stream = result.stream_events().__aiter__()
+    next_event = None
     try:
-        async for event in result.stream_events():
+        while True:
+            if next_event is None:
+                next_event = asyncio.create_task(anext(stream))
+            deadlines = [pending.next_update_at for pending in pending_messages.values() if pending.dirty]
+            timeout = max(0, min(deadlines) - loop.time()) if deadlines else None
+            # Wait on the stream and the refresh deadline together: a provider
+            # pause must not leave its last received words hidden indefinitely.
+            ready, _ = await asyncio.wait((next_event,), timeout=timeout)
+            await flush_updates()
+            if not ready:
+                continue
+            completed_event, next_event = next_event, None
+            try:
+                event = completed_event.result()
+            except StopAsyncIteration:
+                break
             if event.type == "agent_updated_stream_event":
                 await _flush_reasoning(reasoning_parts, output_handler)
                 new_agent_name = event.new_agent.name
@@ -94,11 +121,9 @@ async def consume_run_events(
                     if delta.output_index not in pending_messages:
                         pending_messages[delta.output_index] = _PendingMessage(delta.item_id)
                     pending = pending_messages[delta.output_index]
-                    pending.parts[delta.content_index] = pending.parts.get(delta.content_index, "") + delta.delta
-                    await output_handler(AssistantMessageUpdate(message_id=pending.message_id, text=pending.text))
-                    # A buffered SDK stream and a non-blocking view callback can
-                    # otherwise starve the WebSocket writer until its queue fills.
-                    await asyncio.sleep(0)
+                    pending.parts.setdefault(delta.content_index, []).append(delta.delta)
+                    pending.dirty = True
+                    await flush_updates()
                 elif isinstance(event.data, ResponseOutputItemDoneEvent) and isinstance(
                     event.data.item, ResponseOutputMessage
                 ):
@@ -153,6 +178,9 @@ async def consume_run_events(
                     )
                 )
     finally:
+        if next_event is not None:
+            next_event.cancel()
+            await asyncio.gather(next_event, return_exceptions=True)
         await flush_messages()
 
     await _flush_reasoning(reasoning_parts, output_handler)
