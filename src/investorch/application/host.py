@@ -10,9 +10,7 @@ from dataclasses import dataclass
 from functools import partial
 from zoneinfo import ZoneInfo
 
-from agents import ModelSettings, OpenAIResponsesModel
 from agents.mcp import MCPServer, MCPServerManager, MCPServerStdio
-from openai import AsyncOpenAI
 
 from investorch.agents import (
     AgentLoop,
@@ -28,6 +26,8 @@ from investorch.config import AppConfig
 from investorch.context import AppState, ExecutionState
 from investorch.inputs import UserInput
 from investorch.journal import SessionJournal
+from investorch.llm.clients import ModelConnectionClients
+from investorch.llm.oauth import ChatGPTAuth
 from investorch.mcp import load_mcp_servers as load_configured_mcp_servers
 from investorch.output import AssistantMessageUpdate
 from investorch.runtime import (
@@ -115,16 +115,12 @@ class ApplicationHost:
     initial_session_id: str | None
 
     @property
+    def session_models(self):
+        return self.state.session_models
+
+    @property
     def session_lifecycle_lock(self) -> asyncio.Lock:
         return self.sessions.lifecycle_lock
-
-
-def create_model(config: AppConfig, agent: str) -> tuple[OpenAIResponsesModel, ModelSettings]:
-    model = config.model(agent)
-    client = AsyncOpenAI(api_key=config.secret(model.api_key_secret), base_url=model.base_url)
-    return OpenAIResponsesModel(model=model.name, openai_client=client), ModelSettings(
-        reasoning={"effort": model.reasoning_effort}
-    )
 
 
 def _load_agent_mcp_servers(config: AppConfig) -> list[MCPServer]:
@@ -172,6 +168,7 @@ async def open_application_host(
     callbacks: ApplicationCallbacks | None = None,
     create_initial_session: bool = True,
     enable_activity: bool = True,
+    chatgpt_auth: ChatGPTAuth | None = None,
 ) -> AsyncIterator[ApplicationHost]:
     callbacks = callbacks or ApplicationCallbacks()
     journal = SessionJournal(config.session_journal_dir, ZoneInfo(config["runtime.default_timezone"]))
@@ -255,6 +252,9 @@ async def open_application_host(
 
     runtime: AgentRuntime | None = None
     activity: ActivityCoordinator | None = None
+    owns_auth = chatgpt_auth is None
+    chatgpt_auth = chatgpt_auth or ChatGPTAuth(config)
+    model_clients = ModelConnectionClients(config, chatgpt_auth)
 
     try:
         await start_execution(execution, config.workspace_dir)
@@ -263,10 +263,10 @@ async def open_application_host(
         async with MCPServerManager(mcp_servers, drop_failed_servers=config["mcp.drop_failed_servers"]) as mcp_manager:
             try:
                 logger.info("MCP server manager started with %d active servers", len(mcp_manager.active_servers))
-                main_model, main_model_settings = create_model(config, "main")
-                title_model, title_model_settings = create_model(config, "title")
-                compact_model, compact_model_settings = create_model(config, "compact")
-                permission_model, permission_model_settings = create_model(config, "permission")
+                main_model, main_model_settings = model_clients.for_agent("main")
+                title_model, title_model_settings = model_clients.for_agent("title")
+                compact_model, compact_model_settings = model_clients.for_agent("compact")
+                permission_model, permission_model_settings = model_clients.for_agent("permission")
                 skills.review_agent = create_skill_review_agent(permission_model, permission_model_settings)
                 portfolio_context = PortfolioContextOperations(
                     config=config,
@@ -285,8 +285,10 @@ async def open_application_host(
                     create_compaction_agent(compact_model, compact_model_settings),
                     config,
                     portfolios,
+                    model_factory=model_clients.resolve,
                     successful_tool_handler=portfolio_context.observe_successful_tool,
                     skills=skills,
+                    preflight_compaction_handler=presentation_state.observe_preflight_compaction,
                 )
                 approvals = ApprovalCoordinator(
                     config=config,
@@ -310,6 +312,7 @@ async def open_application_host(
                     record_user_steer,
                     record_user_steers_activated,
                     record_user_steers_discarded,
+                    session_models=state.session_models,
                     state_handler=handle_runtime_state,
                     run_ended_handler=handle_run_ended,
                     follow_up_handler=callbacks.handle_follow_up,
@@ -329,7 +332,7 @@ async def open_application_host(
                     make_messaging_tools(submit=partial(send_message, state=state, runtime=runtime, journal=journal))
                 )
                 if enable_activity:
-                    activity_model, activity_model_settings = create_model(config, "activity")
+                    activity_model, activity_model_settings = model_clients.for_agent("activity")
                     activity = ActivityCoordinator(
                         config=config,
                         activity_agent=create_activity_agent(activity_model, activity_model_settings),
@@ -387,9 +390,16 @@ async def open_application_host(
                         if execution.sandbox is not None:
                             await close_execution(execution)
     finally:
-        if runtime is not None:
-            await runtime.aclose()
-        if execution.sandbox is not None:
-            await close_execution(execution)
-        if create_initial_session:
-            await _discard_unused_session(config, journal, state.selected_session_id)
+        try:
+            if runtime is not None:
+                await runtime.aclose()
+            if execution.sandbox is not None:
+                await close_execution(execution)
+            if create_initial_session:
+                await _discard_unused_session(config, journal, state.selected_session_id)
+        finally:
+            try:
+                await model_clients.close()
+            finally:
+                if owns_auth:
+                    await chatgpt_auth.close()

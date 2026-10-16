@@ -1,7 +1,7 @@
 import logging
 from dataclasses import dataclass
 
-from agents import Agent, ModelSettings, OpenAIResponsesModel, Runner, SQLiteSession, TResponseInputItem
+from agents import Agent, Model, ModelSettings, Runner, SQLiteSession, TResponseInputItem
 
 from investorch.config import AppConfig
 
@@ -34,7 +34,7 @@ def session_history_restore_failed(error: BaseException) -> bool:
     return isinstance(error.__cause__, SessionHistoryRestoreError)
 
 
-def create_compaction_agent(model: OpenAIResponsesModel, model_settings: ModelSettings) -> Agent:
+def create_compaction_agent(model: Model, model_settings: ModelSettings) -> Agent:
     return Agent(
         name="Context Compaction Agent",
         instructions=COMPACTION_AGENT_INSTRUCTIONS,

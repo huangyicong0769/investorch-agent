@@ -2,7 +2,7 @@ import re
 from dataclasses import dataclass
 from html import escape
 
-from agents import Agent, ModelSettings, OpenAIResponsesModel, Runner
+from agents import Agent, Model, ModelSettings, Runner
 
 from investorch.config import AppConfig
 
@@ -18,7 +18,7 @@ class ActivityLabelResult:
     usage: TokenUsage
 
 
-def create_activity_agent(model: OpenAIResponsesModel, model_settings: ModelSettings) -> Agent:
+def create_activity_agent(model: Model, model_settings: ModelSettings) -> Agent:
     return Agent(
         name="Activity Agent",
         instructions=ACTIVITY_AGENT_INSTRUCTIONS,

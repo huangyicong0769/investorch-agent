@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from html import escape
 from typing import Literal
 
-from agents import Agent, ModelSettings, OpenAIResponsesModel, Runner
+from agents import Agent, Model, ModelSettings, Runner
 from agents.exceptions import ModelBehaviorError
 from pydantic import BaseModel
 
@@ -25,7 +25,7 @@ class PermissionReviewResult:
     usage: TokenUsage
 
 
-def create_permission_agent(model: OpenAIResponsesModel, model_settings: ModelSettings) -> Agent:
+def create_permission_agent(model: Model, model_settings: ModelSettings) -> Agent:
     return Agent(
         name="Permission Agent",
         instructions=PERMISSION_AGENT_INSTRUCTIONS,

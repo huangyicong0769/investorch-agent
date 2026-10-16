@@ -12,9 +12,10 @@ from investorch.application.session_queries import read_session
 from investorch.images import ImageContent
 from investorch.inputs import UserInput
 from investorch.output import ToolOutput
-from investorch.runtime import RunOptions
+from investorch.runtime import RunDefaults
 from investorch.storage import create_session, set_session_title
 from tests.support.config import make_test_config
+from tests.support.model_connections import install_host_models
 from tests.support.runtime import run_options
 
 
@@ -47,8 +48,8 @@ async def test_sender_sdk_approval_controls_delivery_without_waiting_for_receive
 
     steps = 1 if approved == "cancel" else 3 if approved else 2
     model = ScriptedModel(tuple(ModelStep.respond(respond) for _ in range(steps)))
-    monkeypatch.setattr(
-        "investorch.application.host.create_model",
+    install_host_models(
+        monkeypatch,
         lambda _config, role: (model if role == "main" else ScriptedModel(), ModelSettings()),
     )
 
@@ -141,8 +142,8 @@ async def test_real_sdk_promotes_origin_without_duplicating_target_input(tmp_pat
         return (assistant_message("first done"),)
 
     model = ScriptedModel((ModelStep.respond(first), (assistant_message("follow-up done"),)))
-    monkeypatch.setattr(
-        "investorch.application.host.create_model",
+    install_host_models(
+        monkeypatch,
         lambda _config, role: (model if role == "main" else ScriptedModel(), ModelSettings()),
     )
 
@@ -219,7 +220,7 @@ async def test_active_agent_steer_reaches_sdk_and_frozen_permission_review_in_th
     def model_for_role(_config, role):
         return (model if role == "main" else permission if role == "permission" else ScriptedModel()), ModelSettings()
 
-    monkeypatch.setattr("investorch.application.host.create_model", model_for_role)
+    install_host_models(monkeypatch, model_for_role)
 
     async def no_manual(_request, _reason):
         raise AssertionError("The existing Permission model approved this Tool")
@@ -227,7 +228,7 @@ async def test_active_agent_steer_reaches_sdk_and_frozen_permission_review_in_th
     async with open_application_host(
         config, manual_approval_handler=no_manual, create_initial_session=False, enable_activity=False
     ) as host:
-        active = host.runtime.start_run("target", "human instruction", RunOptions("none", "review", "steer"))
+        active = host.runtime.start_run("target", "human instruction", RunDefaults("review", "steer"))
         await asyncio.wait_for(started.wait(), 3)
         receipt = await send_message(
             state=host.state,
@@ -299,8 +300,8 @@ async def test_approved_image_reference_reaches_recipient_sdk_and_does_not_appro
         )
 
     model = ScriptedModel(tuple(ModelStep.respond(respond) for _ in range(4)))
-    monkeypatch.setattr(
-        "investorch.application.host.create_model",
+    install_host_models(
+        monkeypatch,
         lambda _config, role: (model if role == "main" else ScriptedModel(), ModelSettings()),
     )
 

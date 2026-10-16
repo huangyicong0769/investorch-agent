@@ -70,7 +70,12 @@ def _validated(data: dict[str, Any]) -> dict[str, Any]:
     except ValidationError as exc:
         # Pydantic's default exception includes input values, including secrets.
         errors = exc.errors(include_input=False, include_context=False, include_url=False)
-        fields = [{"path": ".".join(map(str, error["loc"])), "message": error["msg"]} for error in errors]
+        fields = []
+        for error in errors:
+            location = list(error["loc"])
+            if len(location) > 2 and location[0] == "secrets" and location[2] in {"str", "OAuthCredentialSchema"}:
+                location.pop(2)
+            fields.append({"path": ".".join(map(str, location)), "message": error["msg"]})
         raise ConfigError("; ".join(f"{item['path']}: {item['message']}" for item in fields), errors=fields) from None
 
 
@@ -326,6 +331,14 @@ class AppConfig:
             result._saved_data = deepcopy(self._saved_data)
             return result
 
+    def activate_saved_for_startup(self) -> None:
+        """Complete Setup without replacing the instance used by OAuth writers."""
+        with self._lock:
+            current = self.root_config_path.read_bytes() if self.root_config_path.exists() else None
+            if current != self._source_bytes:
+                raise ConfigError("Configuration changed outside this instance; restart before starting the Host")
+            self._data = deepcopy(self._saved_data)
+
     def ensure_local_file(self) -> bool:
         with self._lock:
             if self.root_config_path.exists():
@@ -398,7 +411,7 @@ class AppConfig:
                 if value is None:
                     _delete_config_value(document, _split_key(key))
                 else:
-                    _set_config_value(document, _split_key(key), value)
+                    _set_config_value(document, _split_key(key), _toml_value(value))
             for key in reset_keys or []:
                 _delete_config_value(document, _split_key(key))
             # TOML has no null: null clears a nullable override to its Schema default.
@@ -505,6 +518,12 @@ def _set_config_value(data: dict[str, Any], parts: tuple[str, ...], value: Any) 
             raise ConfigError(f"Config key is not a table: {part}")
         table = child
     table[parts[-1]] = deepcopy(value)
+
+
+def _toml_value(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {key: _toml_value(item) for key, item in value.items() if item is not None}
+    return value
 
 
 def _delete_config_value(data: dict[str, Any], parts: tuple[str, ...]) -> None:

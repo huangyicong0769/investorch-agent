@@ -111,3 +111,15 @@ def test_oauth_updates_preserve_pending_settings_and_do_not_expose_tokens(tmp_pa
     with pytest.raises(ConfigError, match="cannot be used as an API key"):
         config.secret("personal")
     assert config.root_config_path.stat().st_mode & 0o777 == 0o600
+
+
+def test_connection_object_save_clears_inapplicable_fields_and_requires_restart(tmp_path: Path) -> None:
+    config = make_test_config(tmp_path)
+    config.update(
+        "models.test", {"type": "chatgpt", "credentials": "personal", "base_url": None, "api_key_secret": None}
+    )
+
+    assert config.model_connection("test").type == "openai_compatible"
+    assert load_config(config.root).model_connection("test").type == "chatgpt"
+    config.activate_saved_for_startup()
+    assert config.model_connection("test").credentials == "personal"

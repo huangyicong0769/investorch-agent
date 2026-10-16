@@ -20,6 +20,7 @@ from investorch.output import ToolOutput
 from investorch.storage import create_session, get_session, set_session_title
 from investorch.tools import make_session_tools
 from tests.support.config import make_test_config
+from tests.support.model_connections import install_host_models
 from tests.support.runtime import make_runtime_harness, run_options
 
 
@@ -119,7 +120,7 @@ async def test_real_host_agent_reads_self_and_target_states_without_side_effects
         await release_c.wait()
         return False
 
-    monkeypatch.setattr("investorch.application.host.create_model", model_for_role)
+    install_host_models(monkeypatch, model_for_role)
     async with open_application_host(
         config,
         manual_approval_handler=approve_manually,
@@ -219,7 +220,7 @@ async def test_paused_accepted_queue_is_pending_but_host_restart_reports_current
     async def unused_approval(_request: object, _reason: str | None) -> bool:
         raise AssertionError("Reading after restart must not request approval")
 
-    monkeypatch.setattr("investorch.application.host.create_model", unused_model)
+    install_host_models(monkeypatch, unused_model)
     async with open_application_host(
         harness.config, manual_approval_handler=unused_approval, create_initial_session=False, enable_activity=False
     ) as host:
@@ -265,7 +266,7 @@ async def test_first_and_repeated_host_runs_publish_unique_session_tools_and_kee
     async def unexpected_approval(_request: object, _reason: str | None) -> bool:
         raise AssertionError("Session reads must not request approval")
 
-    monkeypatch.setattr("investorch.application.host.create_model", model_for_role)
+    install_host_models(monkeypatch, model_for_role)
     async with open_application_host(
         config,
         manual_approval_handler=unexpected_approval,
@@ -335,7 +336,7 @@ async def test_two_hosts_bind_same_session_ids_to_their_own_root_history_and_run
     async def unexpected_approval(_request: object, _reason: str | None) -> bool:
         raise AssertionError("Session reads must not request approval")
 
-    monkeypatch.setattr("investorch.application.host.create_model", model_for_role)
+    install_host_models(monkeypatch, model_for_role)
     async with (
         open_application_host(
             configs[0],

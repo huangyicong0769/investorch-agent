@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from html import escape
 
-from agents import Agent, ModelSettings, OpenAIResponsesModel, Runner
+from agents import Agent, Model, ModelSettings, Runner
 
 from investorch.config import AppConfig
 
@@ -17,7 +17,7 @@ class ReviewInstructionCompactionResult:
     usage: TokenUsage
 
 
-def create_review_instruction_compactor(model: OpenAIResponsesModel, model_settings: ModelSettings) -> Agent:
+def create_review_instruction_compactor(model: Model, model_settings: ModelSettings) -> Agent:
     return Agent(
         name="Review Instruction Compactor",
         instructions=REVIEW_INSTRUCTION_COMPACTOR_INSTRUCTIONS,

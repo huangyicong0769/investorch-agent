@@ -1,6 +1,6 @@
 from .activity import ActivityCoordinator, ActivityLabelEvent
 from .approval import ApprovalCoordinator, ApprovalResolvedEvent, ManualApprovalHandler
-from .host import ApplicationCallbacks, ApplicationHost, create_model, open_application_host
+from .host import ApplicationCallbacks, ApplicationHost, open_application_host
 from .interaction import (
     ActiveRunChangedError,
     ArchivedSessionInputError,
@@ -9,7 +9,7 @@ from .interaction import (
     SteerPromotionPendingError,
     UserInputRejected,
     UserInputSubmission,
-    current_run_options,
+    current_run_defaults,
     submit_user_input,
 )
 from .portfolio_context import PortfolioContextOperations, PortfolioToolSucceededEvent
@@ -81,8 +81,7 @@ __all__ = [
     "SteerPromotionPendingError",
     "UserInputRejected",
     "UserInputSubmission",
-    "create_model",
-    "current_run_options",
+    "current_run_defaults",
     "open_application_host",
     "submit_user_input",
 ]
