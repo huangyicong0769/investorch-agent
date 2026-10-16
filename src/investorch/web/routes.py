@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from dataclasses import asdict
 from importlib.metadata import version
 from typing import Annotated, Literal
 
@@ -12,6 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field, StrictBool
 from investorch.application import ApplicationHost, submit_user_input
 from investorch.application.session_queries import read_session_context
 from investorch.application.sessions import SessionClearReplacementError, SessionDeletionCleanupError
+from investorch.config import ConfigError
 from investorch.filesystem import resolve_workspace_path
 from investorch.images import ACCEPTED_INPUT_MIME_TYPES, RENDERABLE_MIME_TYPES, ImageDetail, detect_image_media_type
 from investorch.inputs import normalize_user_input
@@ -99,9 +101,17 @@ class DeletionCleanupRequest(BaseModel):
 class UpdateDefaultsRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    reasoning_effort: ReasoningEffort | None = None
     permission_mode: PermissionMode | None = None
     follow_up_behavior: FollowUpBehavior | None = None
+
+
+class UpdateSessionModelRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    model: str | None = None
+    name: str | None = None
+    reasoning_effort: ReasoningEffort | None = None
+    context_window_tokens: int | None = Field(default=None, gt=0)
 
 
 class ResolveApprovalRequest(BaseModel):
@@ -158,7 +168,6 @@ def _portfolio_not_found(portfolio_id: str) -> APIError:
 
 def _serialize_defaults(host: ApplicationHost) -> dict[str, str]:
     return {
-        "reasoning_effort": host.state.main_reasoning_effort,
         "permission_mode": host.state.permission_mode,
         "follow_up_behavior": host.state.follow_up_behavior,
     }
@@ -226,7 +235,7 @@ async def bootstrap(host: Host, broker: Broker) -> dict[str, object]:
             "version": APPLICATION_VERSION,
             "initial_session_id": initial_session_id,
             "agent_name": host.runtime.agent_name,
-            "context_window_tokens": host.config.model("main").context_window_tokens,
+            "context_window_tokens": host.config.agent_model("main").context_window_tokens,
             "defaults": _serialize_defaults(host),
             "web_config": _serialize_web_config(host),
             "image_config": {
@@ -250,6 +259,40 @@ async def bootstrap(host: Host, broker: Broker) -> dict[str, object]:
             ),
             "pending_approvals": _serialize_pending_approvals(broker),
         }
+
+
+def _session_model_view(host: ApplicationHost, session_id: str) -> dict[str, object]:
+    run = host.runtime.get_active_run(session_id)
+    return {
+        "session_id": session_id,
+        **asdict(
+            host.session_models.view(
+                session_id,
+                active=run.options.model if run is not None else None,
+            )
+        ),
+    }
+
+
+@router.get("/sessions/{session_id}/model")
+async def get_session_model(session: Session, host: Host) -> dict[str, object]:
+    return _session_model_view(host, session.session_id)
+
+
+@router.patch("/sessions/{session_id}/model")
+async def update_session_model(
+    body: UpdateSessionModelRequest,
+    session: Session,
+    host: Host,
+) -> dict[str, object]:
+    changes = body.model_dump(exclude_unset=True)
+    if not changes or any(value is None for value in changes.values()):
+        raise APIError(422, "invalid_model", "Provide model fields with non-null values; omit fields to inherit.")
+    try:
+        host.session_models.update(session.session_id, **changes)
+    except (ConfigError, ValueError) as exc:
+        raise APIError(422, "invalid_model", str(exc)) from None
+    return _session_model_view(host, session.session_id)
 
 
 @router.get("/sessions")
@@ -662,10 +705,8 @@ async def get_defaults(host: Host) -> dict[str, str]:
 
 @router.patch("/defaults")
 async def update_defaults(request: UpdateDefaultsRequest, host: Host) -> dict[str, str]:
-    if request.reasoning_effort is None and request.permission_mode is None and request.follow_up_behavior is None:
+    if request.permission_mode is None and request.follow_up_behavior is None:
         raise APIError(400, "empty_update", "At least one default must be provided.")
-    if request.reasoning_effort is not None:
-        host.state.main_reasoning_effort = request.reasoning_effort
     if request.permission_mode is not None:
         host.state.permission_mode = request.permission_mode
     if request.follow_up_behavior is not None:

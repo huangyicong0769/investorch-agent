@@ -62,8 +62,8 @@ async def read_config(request: Request) -> dict[str, Any]:
     values.pop("secrets", None)
     overrides = config.override_keys()
     if request.app.state.host is None:
-        values = {"models": values["models"]}
-        overrides = [key for key in overrides if key.startswith(("models.", "secrets."))]
+        values = {key: values[key] for key in ("models", "agents")}
+        overrides = [key for key in overrides if key.startswith(("models.", "agents.", "secrets."))]
     return {
         "values": values,
         "secrets": {name: {"configured": present} for name, present in config.secret_status().items()},
@@ -78,7 +78,7 @@ async def read_config_schema(request: Request) -> dict[str, Any]:
     schema = config.describe()
     if request.app.state.host is None:
         schema["properties"] = {
-            key: value for key, value in schema["properties"].items() if key in ("models", "secrets")
+            key: value for key, value in schema["properties"].items() if key in ("models", "agents", "secrets")
         }
     return schema
 
