@@ -3,6 +3,7 @@ import logging
 
 from agents import set_tracing_disabled
 
+from investorch.agents import ContextBudgetError
 from investorch.application import (
     ActivityLabelEvent,
     ApplicationCallbacks,
@@ -75,7 +76,7 @@ async def _run_console(state: AppState, runtime: AgentRuntime, sessions: Session
             continue
         try:
             result = await active_run.task
-        except (ChatGPTAuthError, ChatGPTInferenceError):
+        except (ChatGPTAuthError, ChatGPTInferenceError, ContextBudgetError):
             # Runtime already emitted the safe recovery guidance to all clients.
             continue
         except ConfigError as error:

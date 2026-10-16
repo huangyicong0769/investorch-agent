@@ -17,6 +17,7 @@ from investorch.agents import (
     AgentRunResult,
     ApprovalOutcome,
     CompactionResult,
+    ContextBudgetError,
     TokenUsage,
 )
 from investorch.context import ExecutionState, TodoItem
@@ -660,7 +661,7 @@ class AgentRuntime:
             raise
         except Exception as error:
             input_journal.fail(error)
-            if isinstance(error, (ChatGPTInferenceError, ChatGPTAuthError)):
+            if isinstance(error, (ChatGPTInferenceError, ChatGPTAuthError, ContextBudgetError)):
                 await handle_output(AssistantMessage(str(error)))
             logger.exception("Failed Agent run session=%s run=%s", session_id, run_id)
             raise

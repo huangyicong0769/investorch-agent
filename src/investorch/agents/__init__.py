@@ -6,7 +6,7 @@ from .compact import (
     create_compaction_agent,
     session_history_restore_failed,
 )
-from .loop import AgentLoop, AgentRunResult, ApprovalHandler, ApprovalOutcome, should_auto_compact
+from .loop import AgentLoop, AgentRunResult, ApprovalHandler, ApprovalOutcome, ContextBudgetError, should_auto_compact
 from .main import create_agent
 from .permission import (
     PermissionDecision,
@@ -30,6 +30,7 @@ __all__ = (
     "ApprovalHandler",
     "ApprovalOutcome",
     "CompactionResult",
+    "ContextBudgetError",
     "PermissionDecision",
     "PermissionReview",
     "PermissionReviewResult",

@@ -32,6 +32,21 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+class ContextBudgetError(ValueError):
+    """A safe preflight failure containing only computed counts and fixed recovery guidance."""
+
+    def __init__(self, estimated_tokens: int, budget_tokens: int, *, after_compaction: bool = False) -> None:
+        reason = (
+            "Context still exceeds the selected model budget after Compact"
+            if after_compaction
+            else "The new input, instructions and Tools exceed the selected model context budget"
+        )
+        super().__init__(
+            f"{reason} (estimated {estimated_tokens:d} tokens; available budget {max(0, budget_tokens):d} tokens). "
+            "Main was not executed. Please shorten the input or select a larger window supported by the model."
+        )
+
+
 @dataclass(frozen=True, slots=True)
 class ApprovalOutcome:
     approved: bool
@@ -312,9 +327,7 @@ class AgentLoop:
         output_reserve = min(8192, max(256, context_window_tokens // 20))
         budget = math.floor(context_window_tokens * self._config["compaction.trigger_ratio"]) - output_reserve
         if overhead >= budget:
-            raise ValueError(
-                "The new input, instructions and Tools exceed the selected model context budget; shorten the input or select a larger window."
-            )
+            raise ContextBudgetError(overhead, budget)
         history = await session.get_items()
         if estimate_context_tokens(history) + overhead < budget:
             return None
@@ -328,8 +341,9 @@ class AgentLoop:
             raise
         if self._preflight_compaction_handler is not None:
             self._preflight_compaction_handler(session.session_id, result)
-        if estimate_context_tokens(await session.get_items()) + overhead >= budget:
-            raise ValueError("Context still exceeds the selected model budget after Compact; Main was not executed.")
+        estimated_tokens = estimate_context_tokens(await session.get_items()) + overhead
+        if estimated_tokens >= budget:
+            raise ContextBudgetError(estimated_tokens, budget, after_compaction=True)
         return result
 
     async def compact(self, session: SQLiteSession) -> CompactionResult:
