@@ -204,6 +204,10 @@ class AppConfig:
     ) -> AgentModelConfig:
         connection_id = base.model if model is None else model
         self.model_connection(connection_id)
+        if connection_id not in self._saved_data["models"]:
+            raise ConfigError(
+                f"Connection {connection_id} was deleted from saved configuration; select another connection"
+            )
         if connection_id != base.model and any(
             value is None for value in (name, reasoning_effort, context_window_tokens)
         ):
