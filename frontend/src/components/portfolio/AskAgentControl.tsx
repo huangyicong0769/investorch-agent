@@ -176,6 +176,7 @@ export function AskAgentControl({ portfolioId, portfolioName }: AskAgentControlP
                 placeholder="Message InvestOrch Agent"
                 ref={textareaRef}
                 rows={1}
+                style={{ maxHeight: webConfig.composer_max_height_px }}
                 value={text}
               />
             </ImageAttachments>

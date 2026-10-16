@@ -168,6 +168,7 @@ export function ConversationTimeline({
   const initialScrollDoneRef = useRef(false)
   const prependRef = useRef<ScrollMeasurement | null>(null)
   const nearBottomRef = useRef(true)
+  const viewportSizeRef = useRef<{ width: number; height: number } | null>(null)
   const activityKeyRef = useRef('')
   const [observerAvailable, setObserverAvailable] = useState<boolean | null>(null)
   const [showNewActivity, setShowNewActivity] = useState(false)
@@ -297,12 +298,42 @@ export function ConversationTimeline({
       return
     }
 
+    const viewportSize = viewportSizeRef.current
+    if (viewportSize && (viewportSize.width !== container.clientWidth || viewportSize.height !== container.clientHeight)) {
+      // A resized viewport can emit scroll before ResizeObserver runs. Keep
+      // the user's previous follow position until the resize is reconciled.
+      return
+    }
     const nearBottom = container.scrollHeight - container.scrollTop - container.clientHeight <= 120
     nearBottomRef.current = nearBottom
     if (nearBottom) {
       setShowNewActivity(false)
     }
   }, [])
+
+  useLayoutEffect(() => {
+    const container = scrollRef.current
+    if (!container || typeof ResizeObserver === 'undefined') return
+
+    viewportSizeRef.current = { width: container.clientWidth, height: container.clientHeight }
+    const observer = new ResizeObserver(() => {
+      const previous = viewportSizeRef.current
+      const next = { width: container.clientWidth, height: container.clientHeight }
+      viewportSizeRef.current = next
+      // Ignore the initial observation and leave history prepending to its
+      // existing scroll anchor. Width changes also reflow message content.
+      if (!previous || (previous.width === next.width && previous.height === next.height)
+        || !initialScrollDoneRef.current || prependRef.current || !nearBottomRef.current) return
+
+      container.scrollTop = container.scrollHeight
+      setShowNewActivity(false)
+    })
+    observer.observe(container)
+    return () => {
+      observer.disconnect()
+      viewportSizeRef.current = null
+    }
+  }, [sessionId])
 
   const fetchOlder = useCallback(() => {
     const container = scrollRef.current

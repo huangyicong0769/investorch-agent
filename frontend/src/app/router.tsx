@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { PanelLeft } from 'lucide-react'
+import { toast } from 'sonner'
 import { createBrowserRouter, Link, Navigate, Outlet, RouterProvider, useLocation, useMatch, useNavigate } from 'react-router-dom'
 
 import { createSession, discardUnusedSession } from '../api/client'
@@ -44,6 +45,14 @@ function AppShell() {
   const closeMobileSidebar = useCallback(() => {
     hideMobileSidebar()
     window.requestAnimationFrame(() => sidebarButtonRef.current?.focus())
+  }, [hideMobileSidebar])
+
+  useEffect(() => {
+    const desktop = window.matchMedia('(min-width: 48rem)')
+    const closeOnDesktop = () => { if (desktop.matches) hideMobileSidebar() }
+    closeOnDesktop()
+    desktop.addEventListener('change', closeOnDesktop)
+    return () => desktop.removeEventListener('change', closeOnDesktop)
   }, [hideMobileSidebar])
 
   useEffect(() => {
@@ -214,8 +223,18 @@ function NotFoundRoute() {
 
 function ReadyBoundary() {
   const bootstrap = useQuery({ ...bootstrapQueryOptions(), retry: false })
+  const { isRefetchError, error, refetch } = bootstrap
+  useEffect(() => {
+    const id = 'workspace-refresh-error'
+    if (isRefetchError) {
+      toast.error('Workspace settings could not refresh. Your drafts are kept.', {
+        id, duration: Infinity, position: 'top-right', closeButton: true,
+        action: { label: 'Retry', onClick: (event) => { event.preventDefault(); void refetch() } },
+      })
+    } else toast.dismiss(id)
+  }, [isRefetchError, error, refetch])
   if (bootstrap.isPending) return <div className="flex min-h-screen items-center justify-center text-sm text-muted-foreground" role="status">Opening your workspace…</div>
-  if (bootstrap.isError) return <div className="mx-auto max-w-xl space-y-4 px-6 py-16">
+  if (!bootstrap.data) return <div className="mx-auto max-w-xl space-y-4 px-6 py-16">
     <h1 className="text-xl font-semibold">Workspace could not open</h1>
     <ErrorNotice error={bootstrap.error} fallback="The application runtime is unavailable." />
     <Button onClick={() => void bootstrap.refetch()} type="button" variant="outline">Retry</Button>
@@ -231,8 +250,18 @@ function ReadyBoundary() {
 function StartupGate() {
   const state = useQuery(setupQueryOptions())
   const location = useLocation()
+  const { isRefetchError, error, refetch } = state
+  useEffect(() => {
+    const id = 'workspace-status-refresh-error'
+    if (isRefetchError) {
+      toast.error('Workspace status could not refresh. Showing the last known state.', {
+        id, duration: Infinity, position: 'top-right', closeButton: true,
+        action: { label: 'Retry', onClick: (event) => { event.preventDefault(); void refetch() } },
+      })
+    } else toast.dismiss(id)
+  }, [isRefetchError, error, refetch])
   if (state.isPending) return <div className="flex min-h-screen items-center justify-center text-sm text-muted-foreground" role="status">Checking workspace…</div>
-  if (state.isError) return <div className="mx-auto max-w-xl space-y-4 px-6 py-16">
+  if (!state.data) return <div className="mx-auto max-w-xl space-y-4 px-6 py-16">
     <h1 className="text-xl font-semibold">Cannot reach InvestOrch</h1>
     <ErrorNotice error={state.error} fallback="The local server could not be reached." />
     <Button onClick={() => void state.refetch()} type="button" variant="outline">Retry</Button>
