@@ -16,7 +16,7 @@ def get_config(context: RunContextWrapper[AgentContext], key: str | None = None)
     Args:
         key:
             Optional dotted config key, for example
-            "models.main.name" or "runtime.max_turns".
+            "agents.main.name" or "runtime.max_turns".
 
             If omitted, return the complete effective
             configuration.
@@ -44,7 +44,7 @@ def update_config(
     Args:
         key:
             Dotted config key, for example
-            "models.main.name" or "runtime.max_turns".
+            "runtime.max_turns" or "interaction.follow_up_behavior".
 
         value:
             New string, boolean, integer, or floating-point value.
@@ -53,11 +53,8 @@ def update_config(
             If true, persist the override to root/investorch.toml.
             If false, only modify the current process config.
     """
-    if key.startswith(("permission.", "models.permission.")):
-        raise ValueError("Permission policy cannot be modified through the Agent config tool.")
-
-    if key.startswith("secrets."):
-        raise ValueError("Secrets cannot be modified through the Agent config tool.")
+    if key.split(".", 1)[0] in {"models", "agents", "secrets", "permission"}:
+        raise ValueError("Model, credential and permission settings cannot be modified through the Agent config tool.")
 
     return context.context.config.update(
         key,
