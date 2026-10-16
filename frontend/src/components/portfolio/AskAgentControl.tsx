@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { MessageCircle, Send, X } from 'lucide-react'
+import { ArrowUp, LoaderCircle, MessageCircle, X } from 'lucide-react'
 import { useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 
@@ -13,6 +13,7 @@ import { useImageConfig } from '../../config/WebConfigContext'
 import type { DraftImage } from '../conversation/interaction'
 import { ImageAttachments } from '../images/ImageAttachments'
 import { Button } from '@/components/ui/button'
+import { InputGroupTextarea } from '@/components/ui/input-group'
 
 interface AskAgentControlProps {
   portfolioId: string
@@ -91,7 +92,7 @@ export function AskAgentControl({ portfolioId, portfolioName }: AskAgentControlP
   return (
     <div
       className={cn(
-        'w-full shrink-0 overflow-hidden transition-[max-width] duration-200 ease-out motion-reduce:transition-none',
+        'w-full shrink-0 transition-[max-width] duration-200 ease-out motion-reduce:transition-none',
         expanded ? 'sm:max-w-96' : 'sm:max-w-32',
       )}
     >
@@ -127,18 +128,21 @@ export function AskAgentControl({ portfolioId, portfolioName }: AskAgentControlP
         )}
         inert={expanded ? undefined : true}
       >
-        <div className="min-h-0 overflow-hidden">
+        <div className={cn('min-h-0', !expanded && 'overflow-hidden')}>
           <form
             aria-label={`Ask Agent about ${portfolioName}`}
-            className="w-full rounded-xl border border-border bg-card p-3 shadow-sm transition-[border-color,box-shadow] focus-within:border-ring focus-within:ring-[3px] focus-within:ring-inset focus-within:ring-ring/50"
+            className="w-full"
             id={composerId}
             onSubmit={handleSubmit}
           >
-            <ImageAttachments images={images} disabled={askMutation.isPending} onReadingChange={setReadingImages} onChange={(next) => { setImages(next); requestIdRef.current = null; askMutation.reset() }}>
-            <div className="flex items-start gap-2">
-              <textarea
+            <ImageAttachments toolbar={<div className="flex flex-1 justify-end">
+              <Button aria-label={askMutation.isPending ? 'Sending…' : 'Send'} title="Send message" className="size-9 rounded-full" disabled={askMutation.isPending || readingImages || (!text.trim() && !images.length)} size="icon" type="submit">
+                {askMutation.isPending ? <LoaderCircle aria-hidden="true" className="size-4 animate-spin" /> : <ArrowUp aria-hidden="true" className="size-5" strokeWidth={2.25} />}
+              </Button>
+            </div>} images={images} disabled={askMutation.isPending} onReadingChange={setReadingImages} onChange={(next) => { setImages(next); requestIdRef.current = null; askMutation.reset() }}>
+              <InputGroupTextarea
                 aria-label={`Message about ${portfolioName}`}
-                className="min-h-16 min-w-0 flex-1 resize-y bg-transparent px-1 py-1 text-sm leading-5 outline-none placeholder:text-muted-foreground disabled:opacity-60"
+                className="max-h-40 min-h-16 px-4 pb-3 pr-12 pt-4 text-[15px] leading-6"
                 disabled={askMutation.isPending}
                 onChange={(event) => {
                   setText(event.target.value)
@@ -155,6 +159,7 @@ export function AskAgentControl({ portfolioId, portfolioName }: AskAgentControlP
               />
               <Button
                 aria-label="Close Ask Agent"
+                className="absolute right-2 top-2 rounded-full text-muted-foreground"
                 disabled={askMutation.isPending}
                 onClick={collapseAndRestoreFocus}
                 size="icon-sm"
@@ -163,19 +168,12 @@ export function AskAgentControl({ portfolioId, portfolioName }: AskAgentControlP
               >
                 <X aria-hidden="true" />
               </Button>
-            </div>
             </ImageAttachments>
             {askMutation.isError ? (
               <p className="mt-2 text-xs text-destructive" role="alert">
                 {errorMessage(askMutation.error, 'The message could not be sent. Your text is still here.')}
               </p>
             ) : null}
-            <div className="mt-2 flex justify-end">
-              <Button disabled={askMutation.isPending || readingImages || (!text.trim() && !images.length)} size="sm" type="submit">
-                <Send aria-hidden="true" size={14} />
-                {askMutation.isPending ? 'Sending…' : 'Send'}
-              </Button>
-            </div>
           </form>
         </div>
       </div>
