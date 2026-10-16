@@ -1,17 +1,9 @@
 import { useEffect, useState } from 'react'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useIsMutating, useMutation, useQueryClient } from '@tanstack/react-query'
 
-import {
-  clearSessionQueue,
-  removeQueuedInput,
-  resumeSessionQueue,
-} from '../../api/client'
-import { queryKeys } from '../../api/queries'
-import type {
-  BootstrapResponse,
-  QueueMutationResponse,
-  SessionStateResponse,
-} from '../../api/types'
+import { clearSessionQueue, removeQueuedInput } from '../../api/client'
+import type { SessionStateResponse } from '../../api/types'
+import { applyQueueMutation, queueMutationKey } from './mutations'
 import { errorMessage } from '../../lib/errors'
 import { MessageImages } from '../images/MessageImages'
 import { InputAuthor } from '../conversation/InputAuthor'
@@ -33,43 +25,28 @@ interface RemoveMutationVariables extends SessionMutationVariables {
   queueId: string
 }
 
-function applyQueueMutation(
-  queryClient: ReturnType<typeof useQueryClient>,
-  sessionId: string,
-  response: QueueMutationResponse,
-): void {
-  queryClient.setQueryData<SessionStateResponse>(queryKeys.sessionState(sessionId), (current) =>
-    current ? { ...current, runtime: response.runtime, queue: response.queue } : current,
-  )
-  queryClient.setQueryData<BootstrapResponse>(queryKeys.bootstrap(), (current) =>
-    current?.initial_session_id === sessionId ? { ...current, runtime: response.runtime } : current,
-  )
-}
-
 export function QueueStrip({ sessionId, state, archived }: QueueStripProps) {
   const queryClient = useQueryClient()
+  const mutationPending = useIsMutating({ mutationKey: queueMutationKey(sessionId) }) > 0
   const [expanded, setExpanded] = useState(false)
   const [clearSessionId, setClearSessionId] = useState<string | null>(null)
   const queueCount = state.runtime.queued_count
   const paused = state.runtime.queue_paused
 
   const removeMutation = useMutation({
+    mutationKey: queueMutationKey(sessionId),
     mutationFn: ({ sessionId: targetSessionId, queueId }: RemoveMutationVariables) =>
       removeQueuedInput(targetSessionId, queueId),
     onSuccess: (response, variables) => applyQueueMutation(queryClient, variables.sessionId, response),
   })
   const clearMutation = useMutation({
+    mutationKey: queueMutationKey(sessionId),
     mutationFn: ({ sessionId: targetSessionId }: SessionMutationVariables) =>
       clearSessionQueue(targetSessionId, { confirm: true }),
     onSuccess: (response, variables) => {
       applyQueueMutation(queryClient, variables.sessionId, response)
       setClearSessionId((current) => current === variables.sessionId ? null : current)
     },
-  })
-  const resumeMutation = useMutation({
-    mutationFn: ({ sessionId: targetSessionId }: SessionMutationVariables) =>
-      resumeSessionQueue(targetSessionId),
-    onSuccess: (response, variables) => applyQueueMutation(queryClient, variables.sessionId, response),
   })
 
   useEffect(() => {
@@ -85,12 +62,8 @@ export function QueueStrip({ sessionId, state, archived }: QueueStripProps) {
   const clearError = clearMutation.variables?.sessionId === sessionId ? clearMutation.error : null
   const mutationError =
     (removeMutation.variables?.sessionId === sessionId ? removeMutation.error : null) ??
-    (confirmingClear ? null : clearError) ??
-    (resumeMutation.variables?.sessionId === sessionId ? resumeMutation.error : null)
-  const removePending = removeMutation.isPending && removeMutation.variables?.sessionId === sessionId
+    (confirmingClear ? null : clearError)
   const clearPending = clearMutation.isPending && clearMutation.variables?.sessionId === sessionId
-  const resumePending = resumeMutation.isPending && resumeMutation.variables?.sessionId === sessionId
-  const mutationPending = removePending || clearPending || resumePending
   const visibleQueue = queueCount < state.queue.length ? state.queue.slice(-queueCount) : state.queue
 
   const clearQueue = () => {
@@ -109,21 +82,10 @@ export function QueueStrip({ sessionId, state, archived }: QueueStripProps) {
         open={expanded}
       >
         <div className="flex items-center justify-between gap-3">
-          <span className="min-w-0 truncate text-muted-foreground">
+          <span className="min-w-0 truncate text-muted-foreground" title={paused ? 'Resume queued follow-ups with the main composer button.' : undefined}>
             {paused ? `Queue paused · ${queueCount}` : `${queueCount} queued`}
           </span>
           <div className="flex shrink-0 items-center gap-2">
-            {paused ? (
-              <Button
-                size="xs"
-                variant="ghost"
-                disabled={archived || mutationPending}
-                onClick={() => resumeMutation.mutate({ sessionId })}
-                type="button"
-              >
-                {resumePending ? 'Resuming…' : 'Resume'}
-              </Button>
-            ) : null}
             <CollapsibleTrigger asChild>
               <Button
                 size="xs"
@@ -141,6 +103,7 @@ export function QueueStrip({ sessionId, state, archived }: QueueStripProps) {
 
         <CollapsibleContent className="mt-2 border-t border-border pt-2" role="region">
           <p className="text-xs font-medium text-muted-foreground">Queued follow-ups</p>
+          {paused && queueCount > 0 ? <p className="mt-1 text-xs text-muted-foreground">With an empty message, use Resume queued follow-ups below to start the next queued message.</p> : null}
           {visibleQueue.length > 0 ? (
             <ol aria-label="Queued follow-ups" className="mt-2 max-h-[min(16rem,30dvh)] space-y-1.5 overflow-y-auto overscroll-contain rounded-sm pr-1 outline-none focus-visible:ring-2 focus-visible:ring-ring" tabIndex={0}>
               {visibleQueue.map((item, index) => (

@@ -46,6 +46,11 @@ export function SchemaField({ path, schema: raw, root, value, disabled, showAppl
           <input aria-describedby={description || error ? `${id}-description` : undefined} checked={value === true} disabled={inputDisabled} id={id} onChange={(event) => onChange(event.target.checked)} type="checkbox" className="size-4 accent-primary" />
           <span>{value === true ? 'Enabled' : 'Disabled'}</span>
         </label>
+      ) : options?.length === 1 && !nullable ? (
+        <>
+          <Input aria-describedby={`${id}-only-option${description || error ? ` ${id}-description` : ''}`} aria-invalid={Boolean(error)} className="bg-muted/40" disabled={inputDisabled} id={id} readOnly value={value == null ? String(options[0]) : String(value)} />
+          <p className="text-xs text-muted-foreground" id={`${id}-only-option`}>Only supported option</p>
+        </>
       ) : options ? (
         <Select disabled={inputDisabled} value={selectedValue} onValueChange={(next) => {
           if (nullable && next === 'unset') {

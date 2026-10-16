@@ -79,7 +79,7 @@ export function SessionContextCard({ session, runtime, presentation }: { session
       <PopoverContent
         align="end"
         side="bottom"
-        sideOffset={16}
+        sideOffset={32}
         collisionPadding={12}
         aria-label="Session summary"
         className="session-summary w-80 max-w-[calc(100vw-1.5rem)] overflow-y-auto rounded-2xl border-border/60 bg-card p-5 text-sm shadow-[0_8px_30px_-12px_rgba(0,0,0,0.22)]"

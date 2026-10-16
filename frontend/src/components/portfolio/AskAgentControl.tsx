@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { ArrowUp, LoaderCircle, MessageCircle, X } from 'lucide-react'
-import { useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
+import { MessageCircle, X } from 'lucide-react'
+import { useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { askPortfolioAgent } from '../../api/client'
@@ -9,11 +9,12 @@ import type { ImageContent, SessionListResponse } from '../../api/types'
 import { errorMessage } from '../../lib/errors'
 import { sessionPath } from '../../lib/session'
 import { cn } from '../../lib/utils'
-import { useImageConfig } from '../../config/WebConfigContext'
+import { useImageConfig, useWebConfig } from '../../config/WebConfigContext'
 import type { DraftImage } from '../conversation/interaction'
 import { ImageAttachments } from '../images/ImageAttachments'
 import { Button } from '@/components/ui/button'
 import { InputGroupTextarea } from '@/components/ui/input-group'
+import { ComposerActionButton } from '../composer/ComposerActionButton'
 
 interface AskAgentControlProps {
   portfolioId: string
@@ -23,6 +24,7 @@ interface AskAgentControlProps {
 export function AskAgentControl({ portfolioId, portfolioName }: AskAgentControlProps) {
   const navigate = useNavigate()
   const imageConfig = useImageConfig()
+  const webConfig = useWebConfig()
   const [images, setImages] = useState<DraftImage[]>([])
   const [readingImages, setReadingImages] = useState(false)
   const queryClient = useQueryClient()
@@ -60,6 +62,14 @@ export function AskAgentControl({ portfolioId, portfolioName }: AskAgentControlP
     }
   }, [expanded])
 
+  useLayoutEffect(() => {
+    if (!expanded || !textareaRef.current) return
+    const textarea = textareaRef.current
+    textarea.style.height = 'auto'
+    textarea.style.height = `${Math.min(textarea.scrollHeight, webConfig.composer_max_height_px)}px`
+    textarea.style.overflowY = textarea.scrollHeight > webConfig.composer_max_height_px ? 'auto' : 'hidden'
+  }, [expanded, text, webConfig.composer_max_height_px])
+
   const submit = () => {
     if ((!text.trim() && !images.length) || readingImages || askMutation.isPending) {
       return
@@ -92,8 +102,8 @@ export function AskAgentControl({ portfolioId, portfolioName }: AskAgentControlP
   return (
     <div
       className={cn(
-        'w-full shrink-0 transition-[max-width] duration-200 ease-out motion-reduce:transition-none',
-        expanded ? 'sm:max-w-96' : 'sm:max-w-32',
+        'shrink-0',
+        expanded ? 'w-full basis-full' : 'w-full sm:w-32',
       )}
     >
       <div
@@ -131,18 +141,20 @@ export function AskAgentControl({ portfolioId, portfolioName }: AskAgentControlP
         <div className={cn('min-h-0', !expanded && 'overflow-hidden')}>
           <form
             aria-label={`Ask Agent about ${portfolioName}`}
-            className="w-full"
+            className="mx-auto w-full max-w-4xl sm:px-6"
             id={composerId}
             onSubmit={handleSubmit}
           >
+            <div className="mb-2 flex items-center justify-between gap-3 px-1">
+              <p className="text-xs text-muted-foreground">Ask about {portfolioName}</p>
+              <Button aria-label="Close Ask Agent" className="rounded-full text-muted-foreground" disabled={askMutation.isPending} onClick={collapseAndRestoreFocus} size="icon-sm" type="button" variant="ghost"><X aria-hidden="true" /></Button>
+            </div>
             <ImageAttachments toolbar={<div className="flex flex-1 justify-end">
-              <Button aria-label={askMutation.isPending ? 'Sending…' : 'Send'} title="Send message" className="size-9 rounded-full" disabled={askMutation.isPending || readingImages || (!text.trim() && !images.length)} size="icon" type="submit">
-                {askMutation.isPending ? <LoaderCircle aria-hidden="true" className="size-4 animate-spin" /> : <ArrowUp aria-hidden="true" className="size-5" strokeWidth={2.25} />}
-              </Button>
+              <ComposerActionButton action="send" busy={askMutation.isPending} disabled={askMutation.isPending || readingImages || (!text.trim() && !images.length)} type="submit" />
             </div>} images={images} disabled={askMutation.isPending} onReadingChange={setReadingImages} onChange={(next) => { setImages(next); requestIdRef.current = null; askMutation.reset() }}>
               <InputGroupTextarea
                 aria-label={`Message about ${portfolioName}`}
-                className="max-h-40 min-h-16 px-4 pb-3 pr-12 pt-4 text-[15px] leading-6"
+                className="max-h-40 min-h-16 resize-none overflow-hidden px-4 pb-3 pt-4 text-[15px] leading-6 sm:px-5"
                 disabled={askMutation.isPending}
                 onChange={(event) => {
                   setText(event.target.value)
@@ -152,22 +164,11 @@ export function AskAgentControl({ portfolioId, portfolioName }: AskAgentControlP
                   }
                 }}
                 onKeyDown={handleKeyDown}
-                placeholder="What would you like to know?"
+                placeholder="Message InvestOrch Agent"
                 ref={textareaRef}
-                rows={2}
+                rows={1}
                 value={text}
               />
-              <Button
-                aria-label="Close Ask Agent"
-                className="absolute right-2 top-2 rounded-full text-muted-foreground"
-                disabled={askMutation.isPending}
-                onClick={collapseAndRestoreFocus}
-                size="icon-sm"
-                type="button"
-                variant="ghost"
-              >
-                <X aria-hidden="true" />
-              </Button>
             </ImageAttachments>
             {askMutation.isError ? (
               <p className="mt-2 text-xs text-destructive" role="alert">

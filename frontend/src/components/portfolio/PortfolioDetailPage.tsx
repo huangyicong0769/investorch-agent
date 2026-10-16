@@ -83,7 +83,7 @@ export function PortfolioDetailPage() {
             <ArrowLeft aria-hidden="true" size={15} />
             Portfolios
           </Link>
-          <div className="mt-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="mt-6 flex flex-wrap items-start justify-between gap-x-4 gap-y-6">
             <div className="min-w-0">
               <h1 className="break-words text-2xl font-semibold tracking-tight">{detail.portfolio.name}</h1>
               <p className="mt-2 text-xs font-medium tracking-wide text-muted-foreground">

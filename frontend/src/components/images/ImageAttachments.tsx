@@ -69,7 +69,7 @@ export function ImageAttachments({ images, onChange, onReadingChange, disabled =
     }} onDragOver={(event) => { if (event.dataTransfer.types.includes('Files')) event.preventDefault() }} onDrop={(event) => {
       if (event.dataTransfer.files.length) { event.preventDefault(); void addFiles(Array.from(event.dataTransfer.files)) }
     }}>
-      {toolbar ? <InputGroup className="h-auto rounded-3xl border-border bg-card shadow-sm">
+      {toolbar ? <InputGroup className="h-auto rounded-3xl border-border bg-card shadow-sm has-[[data-slot=input-group-control]:focus-visible]:ring-2 has-[[data-slot=input-group-control]:focus-visible]:ring-ring/20">
         {children}
         {previews}
         <InputGroupAddon align="block-end" className="flex-wrap gap-0.5 px-2.5 pb-2.5 pt-0.5">

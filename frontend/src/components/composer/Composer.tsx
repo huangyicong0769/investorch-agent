@@ -8,9 +8,8 @@ import {
   type KeyboardEvent,
 } from 'react'
 import { useIsMutating, useMutation, useQueryClient } from '@tanstack/react-query'
-import { ArrowUp, LoaderCircle, Square } from 'lucide-react'
 
-import { getSessionHistory, getSessionState, sendMessage, stopSession } from '../../api/client'
+import { getSessionHistory, getSessionState, resumeSessionQueue, sendMessage, stopSession } from '../../api/client'
 import { queryKeys } from '../../api/queries'
 import { useImageConfig, useWebConfig } from '../../config/WebConfigContext'
 import type {
@@ -26,7 +25,8 @@ import { historyNewestSeq, type HistoryInfiniteData } from '../../lib/timeline/h
 import type { ComposerDraft, PendingDirectMessage } from '../conversation/interaction'
 import { UsagePopover } from '../usage/UsagePopover'
 import { InputGroupTextarea } from '@/components/ui/input-group'
-import { Button } from '@/components/ui/button'
+import { ComposerActionButton } from './ComposerActionButton'
+import { applyQueueMutation, queueMutationKey } from '../queue/mutations'
 import { ImageAttachments } from '../images/ImageAttachments'
 import { RUN_DEFAULTS_MUTATION_KEY, RunControlMenu } from './RunControlsPopover'
 
@@ -89,6 +89,7 @@ export function Composer({
   const imageConfig = useImageConfig()
   const [readingImages, setReadingImages] = useState(false)
   const queryClient = useQueryClient()
+  const queueMutationPending = useIsMutating({ mutationKey: queueMutationKey(sessionId) }) > 0
   const savingRunControls = useIsMutating({ mutationKey: RUN_DEFAULTS_MUTATION_KEY }) > 0
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const stopRunIdRef = useRef<string | null>(null)
@@ -149,15 +150,40 @@ export function Composer({
     },
   })
 
+  const resumeMutation = useMutation({
+    mutationKey: queueMutationKey(sessionId),
+    mutationFn: ({ sessionId: targetSessionId }: { sessionId: string }) => resumeSessionQueue(targetSessionId),
+    onSuccess: (response, variables) => applyQueueMutation(queryClient, variables.sessionId, response),
+  })
+
   const sendPendingForSession =
     sendMutation.isPending && sendMutation.variables?.sessionId === sessionId
   const preparingSendForSession = preparingSendSessionId === sessionId
   const stopPendingForSession =
     stopMutation.isPending && stopMutation.variables?.sessionId === sessionId
+  const resumePendingForSession =
+    resumeMutation.isPending && resumeMutation.variables?.sessionId === sessionId
+  const resumeError = resumeMutation.variables?.sessionId === sessionId ? resumeMutation.error : null
   const sendError = sendMutation.variables?.sessionId === sessionId ? sendMutation.error : null
   const stopError = stopMutation.variables?.sessionId === sessionId ? stopMutation.error : null
   const stopping =
     (stopRequested && stopSessionIdRef.current === sessionId) || runtime.run_phase === 'stopping'
+
+  const hasDraft = Boolean(draft.text.trim() || draft.images.length)
+  const canResumeQueue = !active && runtime.queue_paused && runtime.queued_count > 0
+  const action = stopping || stopPendingForSession ? 'stop'
+    : sendPendingForSession || preparingSendForSession ? 'send'
+      : resumePendingForSession ? 'resume'
+        : hasDraft ? 'send' : active ? 'stop' : canResumeQueue ? 'resume' : 'send'
+  const actionBusy = stopping || stopPendingForSession || sendPendingForSession || preparingSendForSession
+    || resumePendingForSession || readingImages || (action !== 'stop' && savingRunControls)
+    || (action === 'resume' && queueMutationPending)
+  const actionLabel = stopping || stopPendingForSession ? 'Stopping…'
+    : sendPendingForSession || preparingSendForSession ? 'Sending…'
+      : resumePendingForSession ? 'Resuming queued follow-ups…'
+        : readingImages ? 'Reading images…'
+          : action !== 'stop' && savingRunControls ? 'Saving run controls…'
+            : action === 'resume' && queueMutationPending ? 'Updating queued follow-ups…' : undefined
 
   useEffect(() => {
     setNativeActionNotice(null)
@@ -193,7 +219,7 @@ export function Composer({
 
   const submit = async () => {
     const targetSessionId = sessionId
-    if (archived || sendPendingForSession || preparingSendForSession || readingImages || savingRunControls) {
+    if (archived || stopping || stopPendingForSession || resumePendingForSession || sendPendingForSession || preparingSendForSession || readingImages || savingRunControls) {
       return
     }
 
@@ -272,30 +298,18 @@ export function Composer({
           <div className="ml-auto flex items-center gap-1">
             <RunControlMenu field="reasoning_effort" />
             <UsagePopover contextWindowTokens={contextWindowTokens} presentation={presentation} />
-            {active ? (
-              <Button
-                size="icon"
-                variant="secondary"
-                className="size-9 rounded-full"
-                aria-label={stopping || stopPendingForSession ? 'Stopping…' : 'Stop'}
-                title={stopping || stopPendingForSession ? 'Stopping…' : 'Stop'}
-                disabled={archived || stopping || stopPendingForSession}
-                onClick={() => stopMutation.mutate({ sessionId, runId: runtime.run_id })}
-                type="button"
-              >
-                {stopping || stopPendingForSession ? <LoaderCircle aria-hidden="true" className="size-4 animate-spin" /> : <Square aria-hidden="true" className="size-3.5 fill-current" />}
-              </Button>
-            ) : null}
-            <Button
-              size="icon"
-              className="ml-1 size-9 rounded-full"
-              aria-label={savingRunControls ? 'Saving run controls…' : sendPendingForSession || preparingSendForSession ? 'Sending…' : 'Send'}
-              title={savingRunControls ? 'Saving run controls…' : 'Send message'}
-              disabled={archived || sendPendingForSession || preparingSendForSession || readingImages || savingRunControls || (!draft.text.trim() && !draft.images.length)}
-              type="submit"
-            >
-              {sendPendingForSession || preparingSendForSession ? <LoaderCircle aria-hidden="true" className="size-4 animate-spin" /> : <ArrowUp aria-hidden="true" className="size-5" strokeWidth={2.25} />}
-            </Button>
+            <ComposerActionButton
+              action={action}
+              busy={actionBusy}
+              label={actionLabel}
+              disabled={archived || (action === 'send' && !hasDraft)}
+              type={action === 'send' ? 'submit' : 'button'}
+              onClick={action === 'stop' ? () => {
+                if (!archived && !actionBusy) stopMutation.mutate({ sessionId, runId: runtime.run_id })
+              } : action === 'resume' ? () => {
+                if (!archived && !actionBusy && canResumeQueue) resumeMutation.mutate({ sessionId })
+              } : undefined}
+            />
           </div>
         </div>
       } images={draft.images} disabled={archived || sendPendingForSession || preparingSendForSession} onReadingChange={setReadingImages} onChange={(images) => onDraftChange(sessionId, (current) => ({ ...current, images }))}>
@@ -324,6 +338,11 @@ export function Composer({
       {stopError ? (
         <p className="mt-1 text-xs text-destructive" role="alert">
           {errorMessage(stopError, 'The run could not be stopped. Try again.')}
+        </p>
+      ) : null}
+      {resumeError ? (
+        <p className="mt-1 text-xs text-destructive" role="alert">
+          {errorMessage(resumeError, 'Queued follow-ups could not be resumed. Try again.')}
         </p>
       ) : null}
       {refreshError ? (
