@@ -126,7 +126,7 @@ See OpenAI's [local sign-in guide](https://developers.openai.com/siwc/token-shar
 
 ## Session model controls
 
-The control at the bottom right of the Web composer shows the model and reasoning effort together. It opens **Model and reasoning effort**, including the connection and context window, and separates the current Run, the last saved selection and the next Run's Draft. TUI and plain use:
+The control at the bottom right of the Web composer shows the model and thinking level. Select a model or open **Thinking** to change the level; selections apply immediately to the next Run. **Context window** opens the window setting. When a new model has no configured window, enter its supported limit before choosing **Use model**. **Manage models** opens connection settings. TUI and plain use:
 
 ```text
 /model

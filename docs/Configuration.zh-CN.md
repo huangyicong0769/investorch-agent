@@ -126,7 +126,7 @@ Settings 复用连接与 Agent 编辑器。连接定义、Agent 默认值、API 
 
 ## Session 模型控制
 
-Web 输入框右下以同一入口显示模型与推理强度；展开 **Model and reasoning effort** 后可编辑连接、模型、effort 和上下文窗口，并区分当前 Run、最近持久设置和下一轮 Draft。TUI/plain 使用：
+Web 输入框右下显示模型与思考强度。点选模型或在 **Thinking** 中选择强度后，立即用于下一次 Run。**Context window** 单独设置窗口；新模型没有已配置窗口时，先填写其支持的上限，再点击 **Use model**。**Manage models** 打开连接设置。TUI/plain 使用：
 
 ```text
 /model
