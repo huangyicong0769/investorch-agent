@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from datetime import datetime, timedelta
 from urllib.parse import parse_qs, urlsplit
 
 import httpx
@@ -50,7 +51,7 @@ def oauth_service(tmp_path):
                 return httpx.Response(503)
             return httpx.Response(200, json={"keys": [jwk]})
         if request.url.path.endswith("/revoke"):
-            return httpx.Response(200)
+            return httpx.Response(state.get("revoke_status", 200))
         if request.url.path.endswith("/models"):
             return httpx.Response(
                 200,
@@ -74,21 +75,25 @@ def oauth_service(tmp_path):
             "aud": "oaiapp_test",
             "sub": state["subject"],
             "iat": int(time.time()),
-            "exp": int(time.time()) + 3600,
+            "exp": int(time.time()) + state.get("id_lifetime", 3600),
         }
         if not refresh:
             claims["nonce"] = state["nonce"]
-        return httpx.Response(
-            200,
-            json={
-                "access_token": "new-access" if refresh else "access",
-                "refresh_token": "new-refresh" if refresh else "refresh",
-                "id_token": jwt.encode(claims, key, algorithm="RS256", headers={"kid": "test"}),
-                "token_type": "Bearer",
-                "expires_in": 3600,
-                "scope": state.get("scope", "openid offline_access resource.invoke chatgpt.tokens.use.direct"),
-            },
-        )
+        claims.update(state.get("claims", {}))
+        data = {
+            "access_token": "new-access" if refresh else "access",
+            "refresh_token": "new-refresh" if refresh else "refresh",
+            "id_token": jwt.encode(claims, key, algorithm="RS256", headers={"kid": "test"}),
+            "token_type": "Bearer",
+            "expires_in": 3600,
+            "scope": state.get("scope", "openid offline_access resource.invoke chatgpt.tokens.use.direct"),
+        }
+        if state.get("identity_only"):
+            data = {"id_token": data["id_token"], "scope": "openid profile email"}
+        if refresh and state.get("omit_refresh_identity"):
+            data.pop("id_token")
+            data.pop("scope")
+        return httpx.Response(200, json=data)
 
     return store, state, httpx.AsyncClient(transport=httpx.MockTransport(handle))
 
@@ -169,6 +174,42 @@ async def test_reauthorization_rejects_another_identity_and_keeps_original_token
     assert store.root_config_path.read_bytes() == before
 
 
+@pytest.mark.parametrize(
+    "claims",
+    [
+        {"iss": "https://untrusted.example"},
+        {"aud": "another-client"},
+        {"nonce": "wrong-nonce"},
+        {"exp": 1},
+        {"azp": "another-client"},
+        {"sub": ""},
+    ],
+)
+async def test_invalid_signed_oidc_claims_never_replace_previous_credentials(oauth_service, claims):
+    store, state, client = oauth_service
+    auth = ChatGPTAuth(store, http_client=client)
+    await sign_in(auth, state)
+    before = store.root_config_path.read_bytes()
+    state["claims"] = claims
+    with pytest.raises(ChatGPTAuthError) as error:
+        await sign_in(auth, state)
+    assert error.value.code == "invalid_id_token"
+    assert store.root_config_path.read_bytes() == before
+    assert auth.status("personal")["error"]["code"] == "invalid_id_token"
+
+
+async def test_cancelled_sign_in_does_not_exchange_the_authorization_code(oauth_service):
+    store, state, client = oauth_service
+    auth = ChatGPTAuth(store, http_client=client)
+    attempt = auth.begin("personal", "http://127.0.0.1:8765/auth/callback")
+    auth.cancel(attempt["state"])
+    with pytest.raises(ChatGPTAuthError) as error:
+        await auth.complete(state=attempt["state"], code="unused", client_id="oaiapp_test")
+    assert error.value.code == "invalid_state"
+    assert state["requests"] == []
+    assert store.oauth_credential("personal") is None
+
+
 async def test_rotation_survives_a_jwks_outage_and_process_restart(oauth_service):
     store, state, client = oauth_service
     auth = ChatGPTAuth(store, http_client=client)
@@ -231,6 +272,64 @@ async def test_identity_only_consent_is_saved_but_cannot_run_inference(oauth_ser
     with pytest.raises(ChatGPTAuthError) as error:
         await auth.access_token("personal")
     assert error.value.code == "plan_use_disabled"
+
+
+async def test_identity_only_response_without_access_token_remains_a_verified_login(oauth_service):
+    store, state, client = oauth_service
+    state["identity_only"] = True
+    auth = ChatGPTAuth(store, http_client=client)
+    result = await sign_in(auth, state)
+    assert result["status"] == "connected"
+    assert result["plan_use"] is False
+    assert load_config(root=store.root).oauth_credential("personal")["subject"] == "account-1"
+    with pytest.raises(ChatGPTAuthError) as error:
+        await auth.access_token("personal")
+    assert error.value.code == "plan_use_disabled"
+
+
+async def test_refresh_preserves_identity_and_scope_when_the_response_omits_them(oauth_service):
+    store, state, client = oauth_service
+    auth = ChatGPTAuth(store, http_client=client)
+    await sign_in(auth, state)
+    old_identity = store.oauth_credential("personal")["id_token"]
+    expire(store)
+    state["omit_refresh_identity"] = True
+    assert await auth.access_token("personal") == "new-access"
+    assert store.oauth_credential("personal")["id_token"] == old_identity
+    assert auth.status("personal")["plan_use"] is True
+
+
+async def test_pending_identity_is_verified_at_receipt_after_a_prolonged_jwks_outage(oauth_service, monkeypatch):
+    store, state, client = oauth_service
+    auth = ChatGPTAuth(store, http_client=client)
+    await sign_in(auth, state)
+    expire(store)
+    state.update(jwks_error=True, id_lifetime=10)
+    with pytest.raises(ChatGPTAuthError):
+        await auth.access_token("personal")
+    state["jwks_error"] = False
+
+    class LaterDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime.now(tz) + timedelta(hours=1)
+
+    monkeypatch.setattr(jwt.api_jwt, "datetime", LaterDateTime)
+    restarted = ChatGPTAuth(load_config(root=store.root), http_client=client)
+    assert await restarted.access_token("personal") == "new-access"
+    assert state["refreshes"] == 1
+
+
+async def test_local_logout_reports_unconfirmed_remote_revocation(oauth_service):
+    store, state, client = oauth_service
+    auth = ChatGPTAuth(store, http_client=client)
+    await sign_in(auth, state)
+    state["revoke_status"] = 503
+    result = await auth.logout("personal")
+    assert result["status"] == "disconnected"
+    assert result["revoked"] is False
+    assert "not confirmed" in result["message"]
+    assert len([r for r in state["requests"] if r.url.path.endswith("/revoke")]) == 2
 
 
 async def test_refresh_waits_for_server_earliest_time_and_never_sends_expired_token(oauth_service):

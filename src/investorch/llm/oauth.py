@@ -66,7 +66,7 @@ def _timestamp(value: object) -> float | None:
         result = (
             datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp() if isinstance(value, str) else float(value)
         )
-        if not math.isfinite(result) or isinstance(value, bool):
+        if not math.isfinite(result) or result < 0 or isinstance(value, bool):
             raise ValueError
         return result
     except (TypeError, ValueError, OverflowError):
@@ -96,6 +96,7 @@ class ChatGPTAuth:
         self._attempts: dict[str, _Attempt] = {}
         self._locks: dict[str, asyncio.Lock] = {}
         self._pending: dict[str, dict[str, Any]] = {}
+        self._errors: dict[str, dict[str, str]] = {}
         self._closed = False
 
     def _lock(self, credential: str) -> asyncio.Lock:
@@ -120,6 +121,7 @@ class ChatGPTAuth:
         if not credential or len(credential) > 128 or any(not (c.isalnum() or c in "_-") for c in credential):
             raise ChatGPTAuthError("invalid_credential", "Choose a valid ChatGPT credential name.")
         record = self.config.oauth_credential(credential) or {}
+        self._errors.pop(credential, None)
         now = time.time()
         self._attempts = {s: a for s, a in self._attempts.items() if a.expires > now and a.credential != credential}
         state, nonce, verifier = (secrets.token_urlsafe(32) for _ in range(3))
@@ -150,7 +152,7 @@ class ChatGPTAuth:
 
     def status(self, credential: str) -> dict[str, Any]:
         record = self.config.oauth_credential(credential) or {}
-        connected = bool(record.get("access_token"))
+        connected = bool(record.get("access_token") or (record.get("subject") and record.get("id_token")))
         return {
             "credential": credential,
             "status": "connected" if connected else "disconnected",
@@ -158,6 +160,7 @@ class ChatGPTAuth:
             "display_name": record.get("display_name"),
             "manage_usage_url": USAGE_URL,
             "refresh_pending": bool(record.get("pending_rotation") or credential in self._pending),
+            "error": self._errors.get(credential),
         }
 
     async def _request(self, method: str, url: str, **kwargs: Any) -> httpx.Response:
@@ -191,7 +194,9 @@ class ChatGPTAuth:
                 raise ChatGPTAuthError("invalid_discovery", "ChatGPT identity endpoints could not be verified.")
         return data
 
-    async def _identity(self, token: str, client_id: str, nonce: str | None = None) -> dict[str, Any]:
+    async def _identity(
+        self, token: str, client_id: str, nonce: str | None = None, *, received_at: float | None = None
+    ) -> dict[str, Any]:
         discovery = await self._discovery()
         response = await self._request("GET", discovery["jwks_uri"])
         if response.status_code != 200:
@@ -206,9 +211,20 @@ class ChatGPTAuth:
                 algorithms=["RS256"],
                 issuer=ISSUER,
                 audience=client_id,
-                options={"require": ["iss", "aud", "exp", "iat", "sub"]},
+                options={
+                    "require": ["iss", "aud", "exp", "iat", "sub"],
+                    "verify_exp": received_at is None,
+                    "verify_iat": received_at is None,
+                    "verify_nbf": received_at is None,
+                },
                 leeway=5,
             )
+            if received_at is not None and (
+                float(claims["exp"]) <= received_at - 5
+                or float(claims["iat"]) > received_at + 5
+                or float(claims.get("nbf", 0)) > received_at + 5
+            ):
+                raise ValueError
             if (
                 not isinstance(claims["sub"], str)
                 or not claims["sub"]
@@ -245,6 +261,19 @@ class ChatGPTAuth:
         if not isinstance(scope, str):
             raise ChatGPTAuthError("invalid_token_response", "ChatGPT did not confirm granted permissions.")
         scopes = scope.split()
+        if (
+            not data.get("access_token")
+            and previous is None
+            and not {"offline_access", PLAN_SCOPE}.intersection(scopes)
+        ):
+            return {
+                "access_token": None,
+                "refresh_token": None,
+                "id_token": data.get("id_token"),
+                "expires_at": 0.0,
+                "earliest_refresh_at": None,
+                "scopes": scopes,
+            }
         expires = data.get("expires_in")
         if (
             not isinstance(data.get("access_token"), str)
@@ -279,6 +308,17 @@ class ChatGPTAuth:
     async def complete(
         self, *, state: str, code: str | None = None, client_id: str | None = None, error: str | None = None
     ) -> dict[str, Any]:
+        attempt = self._attempts.get(state)
+        try:
+            return await self._complete(state=state, code=code, client_id=client_id, error=error)
+        except ChatGPTAuthError as exc:
+            if attempt:
+                self._errors[attempt.credential] = {"code": exc.code, "message": str(exc)}
+            raise
+
+    async def _complete(
+        self, *, state: str, code: str | None, client_id: str | None, error: str | None
+    ) -> dict[str, Any]:
         self._ensure_open()
         attempt = self._attempts.pop(state, None)
         if attempt is None or attempt.expires <= time.time():
@@ -296,6 +336,7 @@ class ChatGPTAuth:
                 "registration_incomplete", "ChatGPT returned a different or incomplete registration."
             )
         async with self._lock(attempt.credential):
+            self._ensure_open()
             old = self.config.oauth_credential(attempt.credential) or {}
             if old.get("subject") != attempt.subject or old.get("client_id") != attempt.client_id:
                 raise ChatGPTAuthError("connection_changed", "This ChatGPT connection changed. Start sign-in again.")
@@ -353,7 +394,7 @@ class ChatGPTAuth:
         # The successor refresh token must survive a subsequent JWKS outage.
         self._save(credential, {**record, "pending_rotation": pending})
         if pending.get("id_token") and pending["id_token"] != record.get("id_token"):
-            claims = await self._identity(pending["id_token"], record["client_id"])
+            claims = await self._identity(pending["id_token"], record["client_id"], received_at=pending["received_at"])
             if claims["sub"] != record["subject"]:
                 self._save(credential, _cleared(record))
                 self._pending.pop(credential, None)
@@ -364,9 +405,23 @@ class ChatGPTAuth:
         return replacement
 
     async def access_token(self, credential: str) -> str:
+        try:
+            token = await self._access_token(credential)
+            self._errors.pop(credential, None)
+            return token
+        except ChatGPTAuthError as exc:
+            self._errors[credential] = {"code": exc.code, "message": str(exc)}
+            raise
+
+    async def _access_token(self, credential: str) -> str:
         self._ensure_open()
         async with self._lock(credential):
+            self._ensure_open()
             record = self.config.oauth_credential(credential) or {}
+            if record.get("id_token") and PLAN_SCOPE not in record.get("scopes", []):
+                raise ChatGPTAuthError(
+                    "plan_use_disabled", "Enable ChatGPT plan usage for this connection.", status=403
+                )
             if not record.get("access_token"):
                 raise ChatGPTAuthError("sign_in_required", "Sign in with ChatGPT to use this connection.", status=401)
             if PLAN_SCOPE not in record.get("scopes", []):
@@ -419,6 +474,7 @@ class ChatGPTAuth:
         self._ensure_open()
         self._attempts = {s: a for s, a in self._attempts.items() if a.credential != credential}
         async with self._lock(credential):
+            self._ensure_open()
             record = self.config.oauth_credential(credential) or {}
             pending = self._pending.get(credential) or record.get("pending_rotation") or {}
             token = pending.get("refresh_token") or record.get("refresh_token")
@@ -426,17 +482,30 @@ class ChatGPTAuth:
             if token:
                 try:
                     discovery = await self._discovery()
-                    response = await self._request(
-                        "POST",
-                        discovery["revocation_endpoint"],
-                        data={"token": token, "token_type_hint": "refresh_token", "client_id": record["client_id"]},
-                    )
-                    revoked = response.status_code == 200
+                    for attempt in range(2):
+                        try:
+                            response = await self._request(
+                                "POST",
+                                discovery["revocation_endpoint"],
+                                data={
+                                    "token": token,
+                                    "token_type_hint": "refresh_token",
+                                    "client_id": record["client_id"],
+                                },
+                            )
+                            revoked = response.status_code == 200
+                            retryable = response.status_code >= 500
+                        except ChatGPTAuthError:
+                            retryable = True
+                        if revoked or not retryable or attempt == 1:
+                            break
+                        await asyncio.sleep(0.25)
                 except ChatGPTAuthError:
                     revoked = False
             if record:
                 self._save(credential, _cleared(record))
             self._pending.pop(credential, None)
+            self._errors.pop(credential, None)
             return {
                 **self.status(credential),
                 "revoked": revoked,
