@@ -137,7 +137,7 @@ async def test_saved_connection(body: TestConnectionRequest, request: Request) -
         ):
             stream = await client.responses.create(
                 model=body.name,
-                input="Reply with OK.",
+                input=[{"role": "user", "content": "Reply with OK."}],
                 reasoning={"effort": body.reasoning_effort},
                 store=False,
                 stream=True,

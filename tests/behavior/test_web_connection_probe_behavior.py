@@ -36,6 +36,8 @@ async def test_saved_connection_probe_uses_selected_auth_and_a_completed_stream(
 
         async def create(self, **kwargs):
             calls.append(kwargs)
+            if connection_type == "chatgpt" and not isinstance(kwargs["input"], list):
+                raise ValueError("Input must be a list")
             return Stream()
 
     async def token(_self, credential):
