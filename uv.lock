@@ -1,5 +1,5 @@
 version = 1
-revision = 5
+revision = 2
 requires-python = ">=3.12, <3.15"
 resolution-markers = [
     "python_full_version >= '3.14'",
@@ -795,6 +795,7 @@ dependencies = [
     { name = "fastapi" },
     { name = "openai-agents" },
     { name = "pydantic" },
+    { name = "pyjwt", extra = ["crypto"] },
     { name = "pyyaml" },
     { name = "rqalpha" },
     { name = "socksio" },
@@ -822,6 +823,7 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.143.0,<0.144" },
     { name = "openai-agents", specifier = ">=0.23.1,<0.24" },
     { name = "pydantic", specifier = ">=2.14.1,<3" },
+    { name = "pyjwt", extras = ["crypto"], specifier = ">=2.10,<3" },
     { name = "pyyaml", specifier = ">=6.0.3,<7" },
     { name = "rqalpha", specifier = "==6.4.1" },
     { name = "socksio", specifier = "==1.*" },
