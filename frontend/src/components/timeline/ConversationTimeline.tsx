@@ -98,7 +98,6 @@ function RunFailure({ children }: { children?: ReactNode }) {
     <CircleAlert aria-hidden="true" className="mt-0.5 size-5 shrink-0 text-destructive" />
     <div className="min-w-0">
       <p className="text-sm font-semibold text-destructive">Run failed</p>
-      <p className="mt-1 text-sm leading-6 text-foreground">Review the messages above, then send a follow-up to continue.</p>
       {children ? <div className="mt-2 text-xs text-muted-foreground">{children}</div> : null}
     </div>
   </div>
