@@ -35,6 +35,7 @@ class ModelConnectionClients:
                 client = self._client_factory(
                     api_key=partial(self._auth.access_token, connection.credentials),
                     base_url="https://api.openai.com/v1",
+                    max_retries=0,
                 )
             else:
                 client = self._client_factory(

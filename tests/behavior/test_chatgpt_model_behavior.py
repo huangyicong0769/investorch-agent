@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import time
+from dataclasses import replace
 
 import httpx2
 import pytest
@@ -8,7 +10,7 @@ from agents import Agent, ModelBehaviorError, ModelSettings, Runner, function_to
 from openai import AsyncOpenAI
 from pydantic import BaseModel
 
-from investorch.llm.models import ChatGPTResponsesModel, chatgpt_tools
+from investorch.llm.models import ChatGPTInferenceError, ChatGPTResponsesModel, chatgpt_tools
 
 
 def response(output, *, status="completed"):
@@ -229,3 +231,93 @@ async def test_api_key_model_keeps_parameters_that_chatgpt_filters():
     assert result.final_output == "ok"
     assert requests[0]["max_output_tokens"] == 100
     assert requests[0]["temperature"] == 0.2
+
+
+@pytest.mark.parametrize(
+    ("status", "code", "guidance"),
+    [
+        (401, "subscription_sharing_invalid_user", "Sign in again"),
+        (403, "subscription_sharing_user_not_eligible", "not eligible"),
+        (403, "chatpass_v2_scope_not_authorized", "granted permissions"),
+        (429, "subscription_sharing_usage_limit_exceeded", "Manage Usage"),
+        (429, "usage_limit_reached", "Manage Usage"),
+        (503, "subscription_sharing_usage_unavailable", "Credentials are retained"),
+        (401, "private-code-with-token", "Sign in again"),
+    ],
+)
+async def test_chatgpt_http_errors_use_safe_categories_without_retries_or_billing_fallback(
+    tmp_path, status, code, guidance
+):
+    from investorch.llm.clients import ModelConnectionClients
+    from investorch.llm.oauth import ChatGPTAuth
+    from tests.support.config import make_test_config
+
+    config = make_test_config(tmp_path, {"models": {"chatgpt": {"type": "chatgpt", "credentials": "personal"}}})
+    config.save_oauth_credential(
+        "personal",
+        {
+            "client_id": "issued-client",
+            "subject": "test-subject",
+            "access_token": "private-oauth-token",
+            "refresh_token": "private-refresh-token",
+            "expires_at": time.time() + 3600,
+            "scopes": ["chatgpt.tokens.use.direct"],
+        },
+    )
+    requests = []
+
+    def handle(request):
+        requests.append(request)
+        return httpx2.Response(
+            status, json={"error": {"code": code, "message": "private-provider-body", "param": "private-param"}}
+        )
+
+    def factory(**kwargs):
+        return AsyncOpenAI(**kwargs, http_client=httpx2.AsyncClient(transport=httpx2.MockTransport(handle)))
+
+    auth = ChatGPTAuth(config)
+    clients = ModelConnectionClients(config, auth, client_factory=factory)
+    before = config.root_config_path.read_bytes()
+    try:
+        selected = replace(config.agent_model("main"), model="chatgpt")
+        agent = Agent(name="Main", model=clients.resolve(selected))
+        with pytest.raises(ChatGPTInferenceError) as caught:
+            await Runner.run(agent, "hello", run_config={"tracing_disabled": True})
+        assert caught.value.status == status
+        assert guidance in str(caught.value)
+        assert "private-" not in str(caught.value)
+        if not code.startswith("private-"):
+            assert caught.value.code == code
+        assert len(requests) == 1
+        assert str(requests[0].url) == "https://api.openai.com/v1/responses"
+        assert requests[0].headers["authorization"] == "Bearer private-oauth-token"
+        assert config.root_config_path.read_bytes() == before
+    finally:
+        await clients.close()
+        await auth.close()
+
+
+async def test_streamed_plan_limit_is_safe_failure_before_forwarding_provider_body():
+    payload = response([], status="failed")
+    payload["error"] = {"code": "subscription_sharing_usage_limit_exceeded", "message": "private-provider-body"}
+    event = {"type": "response.failed", "sequence_number": 0, "response": payload}
+
+    def handle(request):
+        return httpx2.Response(
+            200, headers={"content-type": "text/event-stream"}, content=f"data: {json.dumps(event)}\n\n".encode()
+        )
+
+    async with AsyncOpenAI(
+        api_key="private-token", http_client=httpx2.AsyncClient(transport=httpx2.MockTransport(handle))
+    ) as client:
+        result = Runner.run_streamed(
+            Agent(name="Main", model=ChatGPTResponsesModel("test", client)),
+            "hello",
+            run_config={"tracing_disabled": True},
+        )
+        with pytest.raises(ChatGPTInferenceError) as caught:
+            async for emitted in result.stream_events():
+                assert "private-" not in str(emitted)
+    assert caught.value.code == "subscription_sharing_usage_limit_exceeded"
+    assert "Manage Usage" in str(caught.value)
+    assert "private-" not in str(caught.value)
