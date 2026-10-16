@@ -60,7 +60,8 @@ export interface LiveNotice {
   id: string
   text: string
   timestamp: string
-  stoppedRunId?: string
+  endedRunId?: string
+  severity?: 'error'
 }
 
 interface LiveSessionValue {
@@ -618,14 +619,14 @@ export function LiveWebSocketProvider({ children }: PropsWithChildren) {
     setResyncedRun(null)
   }
 
-  const addNotice = (sessionId: string, key: string, text: string, stoppedRunId?: string) => {
+  const addNotice = (sessionId: string, key: string, text: string, endedRunId?: string, severity?: 'error') => {
     if (selectedSessionRef.current !== sessionId) {
       return
     }
 
-    if (stoppedRunId) {
+    if (endedRunId) {
       const activeRunId = queryClient.getQueryData<SessionStateResponse>(queryKeys.sessionState(sessionId))?.runtime.run_id
-      if (canonicalRunEndedIds(queryClient, sessionId).has(stoppedRunId) || (activeRunId && activeRunId !== stoppedRunId)) return
+      if (canonicalRunEndedIds(queryClient, sessionId).has(endedRunId) || (activeRunId && activeRunId !== endedRunId)) return
     }
 
     if (liveSessionRef.current !== sessionId) {
@@ -638,8 +639,9 @@ export function LiveWebSocketProvider({ children }: PropsWithChildren) {
     const notice: LiveNotice = {
       id,
       text,
+      severity,
       timestamp: receivedAt(),
-      ...(stoppedRunId ? { stoppedRunId } : {}),
+      ...(endedRunId ? { endedRunId } : {}),
     }
     setNoticeState((current) =>
       current.some((item) => item.id === id)
@@ -648,14 +650,14 @@ export function LiveWebSocketProvider({ children }: PropsWithChildren) {
     )
   }
 
-  const pruneStoppedNotices = (sessionId: string, activeRunId: string | null = null) => {
+  const pruneEndedNotices = (sessionId: string, activeRunId: string | null = null) => {
     if (selectedSessionRef.current !== sessionId || liveSessionRef.current !== sessionId) return
     const canonicalRunIds = canonicalRunEndedIds(queryClient, sessionId)
     setNoticeState((current) => {
       if (selectedSessionRef.current !== sessionId || liveSessionRef.current !== sessionId) return current
-      // Stop is a temporary fallback; durable timing stays at its original place in history.
-      const next = current.filter((notice) => !notice.stoppedRunId || (
-        !canonicalRunIds.has(notice.stoppedRunId) && (!activeRunId || notice.stoppedRunId === activeRunId)
+      // Terminal notices are temporary fallbacks; durable outcomes stay at their original place in history.
+      const next = current.filter((notice) => !notice.endedRunId || (
+        !canonicalRunIds.has(notice.endedRunId) && (!activeRunId || notice.endedRunId === activeRunId)
       ))
       return next.length === current.length ? current : next
     })
@@ -799,7 +801,7 @@ export function LiveWebSocketProvider({ children }: PropsWithChildren) {
     } else if (event.kind === 'approval_cancelled') {
       updateSessionApproval(queryClient, event.session_id, (current) => removePendingApproval(current, event.approval_id))
     } else if (event.kind === 'runtime_state') {
-      if (event.run_id) pruneStoppedNotices(event.session_id, event.run_id)
+      if (event.run_id) pruneEndedNotices(event.session_id, event.run_id)
       queryClient.setQueryData<SessionStateResponse>(queryKeys.sessionState(event.session_id), (current) =>
         current ? { ...current, runtime: event } : current,
       )
@@ -815,7 +817,7 @@ export function LiveWebSocketProvider({ children }: PropsWithChildren) {
       if (event.status === 'cancelled') {
         addNotice(event.session_id, `${event.run_id}:cancelled`, 'Run stopped.', event.run_id)
       } else if (event.status === 'failed') {
-        addNotice(event.session_id, `${event.run_id}:failed`, 'Run failed.')
+        addNotice(event.session_id, `${event.run_id}:failed`, 'Run failed.', event.run_id, 'error')
       }
       if (event.auto_compaction_changed === true) {
         addNotice(event.session_id, `${event.run_id}:compacted`, 'Context compacted automatically.')
@@ -969,7 +971,7 @@ export function LiveWebSocketProvider({ children }: PropsWithChildren) {
       }
     }
     drainingRef.current = false
-    pruneStoppedNotices(sessionId, queryClient.getQueryData<SessionStateResponse>(queryKeys.sessionState(sessionId))?.runtime.run_id ?? null)
+    pruneEndedNotices(sessionId, queryClient.getQueryData<SessionStateResponse>(queryKeys.sessionState(sessionId))?.runtime.run_id ?? null)
     const deferredSessionId = deferredResyncRef.current
     deferredResyncRef.current = null
     if (deferredSessionId && selectedSessionRef.current === deferredSessionId) {
