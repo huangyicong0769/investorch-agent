@@ -146,6 +146,7 @@ class RuntimeRunEnded:
     discarded_steer_count: int = 0
     discarded_steer_seqs: tuple[int, ...] = ()
     partial_auxiliary_usage: TokenUsage = field(default_factory=TokenUsage)
+    error: str | None = None
 
     @property
     def auxiliary_usage(self) -> TokenUsage:

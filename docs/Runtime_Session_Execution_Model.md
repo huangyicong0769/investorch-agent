@@ -55,6 +55,8 @@ The task opens the SDK Session, journals accepted input when needed, then persis
 
 Different Sessions may run concurrently. Manual compaction, clear, fork, archive, and a top-level Run are mutually exclusive only for the same Session through a maintenance reservation.
 
+Failed Runs carry an optional public `error` in their runtime event and durable `run_ended` record. Provider validation messages and known connection failures are bounded and stripped of credentials before either is emitted; arbitrary exception bodies stay in local logs. Compaction failures identify their stage. Web shows the same cause live and after reloading history. Older outcomes may receive an append-only `run_error` diagnostic keyed by Run ID after their cause has been verified from logs; the timeline merges the latest diagnostic into the original outcome without moving or duplicating it.
+
 ## Future defaults and Run snapshots
 
 The Host-owned `SessionModelStore` exposes Persisted, Draft, Effective and Active model views. Resolution is Draft → last persisted model → `agents.main` for a new or legacy unbound Session. All effective models have a positive window. Session edits are process-local until a new Run commits them; exit may discard unused Drafts. An active Run keeps its frozen connection, actual model, effort and window.

@@ -37,6 +37,7 @@ from investorch.runtime import (
     RuntimeRunEnded,
     RuntimeSessionSnapshot,
 )
+from investorch.runtime.errors import format_run_error
 from investorch.storage import create_session, delete_unused_session, list_sessions
 from investorch.tools import close_execution, make_messaging_tools, make_session_tools, start_execution
 
@@ -232,6 +233,7 @@ async def open_application_host(
                 event.started_at,
                 event.ended_at,
                 discarded_user_steer_seqs=event.discarded_steer_seqs,
+                error=event.error,
             )
         except Exception:
             logger.exception(
@@ -316,6 +318,7 @@ async def open_application_host(
                     session_models=state.session_models,
                     state_handler=handle_runtime_state,
                     run_ended_handler=handle_run_ended,
+                    error_formatter=lambda error: format_run_error(error, secrets=config.secret_values()),
                     follow_up_handler=callbacks.handle_follow_up,
                     max_concurrent_runs=lambda: config["runtime.max_concurrent_runs"],
                 )

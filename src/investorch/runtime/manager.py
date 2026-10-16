@@ -27,6 +27,7 @@ from investorch.llm.oauth import ChatGPTAuthError
 from investorch.output import AssistantMessage, OutputEvent
 
 from .control import RunControl
+from .errors import format_run_error
 from .models import (
     ActiveRun,
     ApprovalRequest,
@@ -113,6 +114,7 @@ class AgentRuntime:
         run_ended_handler: RunEndedHandler | None = None,
         follow_up_handler: RuntimeFollowUpHandler | None = None,
         max_concurrent_runs: Callable[[], int] = lambda: 3,
+        error_formatter: Callable[[Exception], str] = format_run_error,
     ) -> None:
         self.session_models = session_models
         session_models.on_change = self._model_changed
@@ -129,6 +131,7 @@ class AgentRuntime:
         self._record_user_steers_discarded = record_user_steers_discarded
         self._follow_up_handler = follow_up_handler
         self._max_concurrent_runs = max_concurrent_runs
+        self._error_formatter = error_formatter
         self._active_by_session: dict[str, ActiveRun] = {}
         self._active_by_run: dict[str, ActiveRun] = {}
         self._run_tasks: set[asyncio.Task[AgentRunResult]] = set()
@@ -550,6 +553,7 @@ class AgentRuntime:
         discarded_steer_count = 0
         discarded_steer_seqs: tuple[int, ...] = ()
         partial_auxiliary_usage = TokenUsage()
+        failure: str | None = None
 
         def record_preflight_usage(usage: TokenUsage) -> None:
             nonlocal partial_auxiliary_usage
@@ -661,6 +665,7 @@ class AgentRuntime:
             raise
         except Exception as error:
             input_journal.fail(error)
+            failure = self._error_formatter(error)
             if isinstance(error, (ChatGPTInferenceError, ChatGPTAuthError, ContextBudgetError)):
                 await handle_output(AssistantMessage(str(error)))
             logger.exception("Failed Agent run session=%s run=%s", session_id, run_id)
@@ -733,6 +738,7 @@ class AgentRuntime:
                         discarded_steer_count=discarded_steer_count,
                         discarded_steer_seqs=discarded_steer_seqs,
                         partial_auxiliary_usage=partial_auxiliary_usage,
+                        error=failure,
                     )
                 )
                 await self._promote_follow_ups(session_id)

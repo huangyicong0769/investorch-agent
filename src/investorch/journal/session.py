@@ -125,6 +125,7 @@ class SessionJournal:
         ended_at: datetime,
         *,
         discarded_user_steer_seqs: tuple[int, ...] = (),
+        error: str | None = None,
     ) -> int:
         if status not in {"completed", "cancelled", "failed"}:
             raise ValueError("run-ended status must be completed, cancelled, or failed")
@@ -152,6 +153,10 @@ class SessionJournal:
         }
         if discarded_user_steer_seqs:
             record["discarded_user_steer_seqs"] = list(discarded_user_steer_seqs)
+        if error is not None:
+            if status != "failed" or not isinstance(error, str) or not error.strip():
+                raise ValueError("Only failed Runs may include a non-empty error")
+            record["error"] = error
         return await self._record(
             session_id,
             record,
@@ -159,6 +164,12 @@ class SessionJournal:
 
     async def record_output(self, session_id: str, event: OutputEvent) -> int:
         return await self._record(session_id, serialize_output_event(event))
+
+    async def record_run_error(self, session_id: str, run_id: str, error: str) -> int:
+        """Append a recovered public diagnostic without rewriting the original outcome."""
+        if not run_id or not error.strip():
+            raise ValueError("A recovered Run error requires its Run identity and explanation")
+        return await self._record(session_id, {"type": "run_error", "run_id": run_id, "error": error})
 
     async def record_approval(
         self,

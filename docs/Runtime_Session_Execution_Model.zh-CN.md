@@ -63,6 +63,8 @@ Permission mode 与 follow-up behavior 保留提交时捕获语义。Queue **不
 
 接纳顺序是先按既有 barrier 记录输入，再持久化冻结模型，之后才允许 AgentLoop 推理；Journal 与 SQLite 模型元数据不是跨存储事务。模型写入失败阻止推理，但可能已有输入记录。提交只清理被接纳版本的 Draft，不覆盖更新的编辑。
 
+失败 Run 在 Runtime 事件与持久 `run_ended` 记录中携带可选的公开 `error`。提供商校验信息和已知连接异常先限制长度并脱敏，再进入实时事件与 Journal；任意异常正文仍留在本地日志。压缩失败注明发生阶段，Web 实时和刷新后显示相同原因。旧失败经日志确认原因后，可按 Run ID 追加 `run_error` 诊断；时间线将最新诊断合入原失败项，不移动或重复显示原记录。
+
 ## Follow-up
 
 ### Steer

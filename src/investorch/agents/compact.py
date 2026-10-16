@@ -91,12 +91,16 @@ async def compact_session(
         return CompactionResult(changed=False, usage=TokenUsage(), source_items=source_items, summary_chars=0)
 
     settings = agent.model_settings.resolve({"max_tokens": config["compaction.max_output_tokens"]})
-    result = await Runner.run(
-        agent.clone(model_settings=settings),
-        history,
-        max_turns=1,
-        run_config=RunConfig(call_model_input_filter=portable_history_filter(history)),
-    )
+    try:
+        result = await Runner.run(
+            agent.clone(model_settings=settings),
+            history,
+            max_turns=1,
+            run_config=RunConfig(call_model_input_filter=portable_history_filter(history)),
+        )
+    except Exception as error:
+        error.add_note("Context compaction failed.")
+        raise
     usage = TokenUsage.from_sdk(result.context_wrapper.usage)
     if usage_handler is not None:
         usage_handler(usage)

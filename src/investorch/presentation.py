@@ -94,6 +94,7 @@ def serialize_run_ended(event: RuntimeRunEnded) -> dict[str, object]:
         "session_id": event.session_id,
         "run_id": event.run_id,
         "status": event.status,
+        "error": event.error,
         "started_at": event.started_at.isoformat(),
         "ended_at": event.ended_at.isoformat(),
         "duration_ms": max(0, round((event.ended_at - event.started_at).total_seconds() * 1000)),
