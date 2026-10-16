@@ -147,7 +147,7 @@ Web 对话支持选择、粘贴或拖放 JPEG、PNG、GIF、WebP，也支持纯�
 
 ## Settings 与 System Status
 
-- **Settings** 使用 Python Schema 提供的类型、默认值、约束和生命周期编辑持久配置。Reset 删除本地覆盖；热更新影响后续适用操作，需要重启的修改保存为下次启动值。临时 Permission/follow-up 默认值仅属于当前进程。0.3.0 中，对话顶部及 `/model`、`/effort` 修改选中 Session 的模型 Draft；下一次 Run 才持久化，活动 Run 保持冻结模型。
+- **Settings** 使用 Python Schema 提供的类型、默认值、约束和生命周期编辑持久配置。Reset 删除本地覆盖；热更新影响后续适用操作，需要重启的修改保存为下次启动值。临时 Permission/follow-up 默认值仅属于当前进程。0.3.0 中，输入框右下的模型/推理强度入口及 `/model`、`/effort` 修改选中 Session 的模型 Draft；下一次 Run 才持久化，活动 Run 保持冻结模型。
 - **Integrations** 管理独立的 `mcp.toml`，仅支持 `streamable_http`。未修改的 URL/Header 隐藏凭据会保留，修改需要重启。未实际探测的连接显示为 Unknown。
 - **Skills** 展示与检查已安装内容。Create/Install 及具体 Skill 的 Edit/Fork 打开正常 Agent Session，沿用现有审查与审批。用户可直接启停，或确认删除自定义 Skill。
 - **System Status** 展示与离线 CLI 相同的本地检查：

@@ -126,7 +126,7 @@ Settings 复用连接与 Agent 编辑器。连接定义、Agent 默认值、API 
 
 ## Session 模型控制
 
-Web 对话头部的 **Session model** 区分当前 Run、最近持久设置和下一轮 Draft；输入框的 effort 也修改同一份 Session Draft。TUI/plain 使用：
+Web 输入框右下以同一入口显示模型与推理强度；展开 **Model and reasoning effort** 后可编辑连接、模型、effort 和上下文窗口，并区分当前 Run、最近持久设置和下一轮 Draft。TUI/plain 使用：
 
 ```text
 /model

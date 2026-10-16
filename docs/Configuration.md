@@ -126,7 +126,7 @@ See OpenAI's [local sign-in guide](https://developers.openai.com/siwc/token-shar
 
 ## Session model controls
 
-The Web conversation header opens **Session model**. It separates the current Run, the last saved selection and the next Run's Draft. Composer effort edits the same Session Draft. TUI and plain use:
+The control at the bottom right of the Web composer shows the model and reasoning effort together. It opens **Model and reasoning effort**, including the connection and context window, and separates the current Run, the last saved selection and the next Run's Draft. TUI and plain use:
 
 ```text
 /model

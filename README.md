@@ -147,7 +147,7 @@ For the unreleased 0.3.0 work, Agents can discover exact Session IDs with `list_
 
 ## Settings and System Status
 
-- **Settings** edits persistent configuration using the Python Schema for types, defaults, constraints and lifecycle. Reset removes a local override. Hot changes apply to future applicable operations; restart-required changes are saved for the next start. Temporary Permission/follow-up defaults remain process-local. In 0.3.0, the conversation header and `/model` or `/effort` edit the selected Session model Draft; its next Run persists that choice, while an active Run keeps its frozen model.
+- **Settings** edits persistent configuration using the Python Schema for types, defaults, constraints and lifecycle. Reset removes a local override. Hot changes apply to future applicable operations; restart-required changes are saved for the next start. Temporary Permission/follow-up defaults remain process-local. In 0.3.0, the composer’s model/effort control and `/model` or `/effort` edit the selected Session model Draft; its next Run persists that choice, while an active Run keeps its frozen model.
 - **Integrations** manages the separate `mcp.toml` registry. Only `streamable_http` is supported. Hidden URL/header credentials are preserved when left unchanged, and edits require restart. An untested connection is shown as unknown.
 - **Skills** lists and inspects installed content. Create/Install and per-Skill Edit/Fork open Agent Sessions with normal review and approval. Operators can directly enable, disable, or confirm removal of custom Skills.
 - **System Status** presents the same local checks as the offline CLI:

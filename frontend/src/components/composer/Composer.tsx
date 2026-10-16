@@ -24,11 +24,12 @@ import { errorMessage } from '../../lib/errors'
 import { historyNewestSeq, type HistoryInfiniteData } from '../../lib/timeline/history'
 import type { ComposerDraft, PendingDirectMessage } from '../conversation/interaction'
 import { UsagePopover } from '../usage/UsagePopover'
+import { SessionModelEditor } from '../conversation/SessionModelEditor'
 import { InputGroupTextarea } from '@/components/ui/input-group'
 import { ComposerActionButton } from './ComposerActionButton'
 import { applyQueueMutation, queueMutationKey } from '../queue/mutations'
 import { ImageAttachments } from '../images/ImageAttachments'
-import { RUN_DEFAULTS_MUTATION_KEY, RunControlMenu } from './RunControlsPopover'
+import { RUN_DEFAULTS_MUTATION_KEY, PermissionControlMenu } from './RunControlsPopover'
 
 interface ComposerProps {
   sessionId: string
@@ -289,9 +290,9 @@ export function Composer({
     <form onSubmit={handleSubmit}>
       <ImageAttachments toolbar={
         <div className="flex min-w-0 flex-1 flex-wrap items-center justify-between gap-x-2 gap-y-1">
-          <RunControlMenu field="permission_mode" sessionId={sessionId} />
-          <div className="ml-auto flex items-center gap-1">
-            <RunControlMenu field="reasoning_effort" sessionId={sessionId} />
+          <PermissionControlMenu />
+          <div className="ml-auto flex min-w-0 max-w-full items-center gap-1">
+            <SessionModelEditor key={sessionId} sessionId={sessionId} />
             <UsagePopover contextWindowTokens={contextWindowTokens} presentation={presentation} />
             <ComposerActionButton
               action={action}
