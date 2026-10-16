@@ -14,7 +14,7 @@ export function SecretFields({ configured, names, values, onChange, disabled = f
   const id = useId()
   const [newName, setNewName] = useState('')
   const [addedNames, setAddedNames] = useState<string[]>([])
-  const allNames = [...new Set([...names, ...addedNames])].sort()
+  const allNames = [...new Set([...names, ...addedNames, ...Object.keys(values)])].sort()
   return <div className="space-y-4">
     {allNames.map((name, index) => <div className="min-w-0" key={name}>
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
@@ -26,7 +26,12 @@ export function SecretFields({ configured, names, values, onChange, disabled = f
     {!allNames.length ? <p className="text-sm text-muted-foreground">Set a key reference in the model settings to enter its API key here.</p> : null}
     {allowNew ? <div className="flex flex-wrap items-end gap-2 border-t border-border pt-4">
       <div className="min-w-0 flex-1"><label className="mb-2 block text-sm font-medium" htmlFor={`${id}-new`}>New secret name</label><input className={fieldClass} disabled={disabled} id={`${id}-new`} onChange={(event) => setNewName(event.target.value)} value={newName} /></div>
-      <Button disabled={disabled || !newName} onClick={() => { setAddedNames((current) => [...current, newName]); setNewName('') }} type="button" variant="outline">Add key field</Button>
+      <Button disabled={disabled || !newName.trim()} onClick={() => {
+        const name = newName.trim()
+        if (!name) return
+        setAddedNames((current) => current.includes(name) ? current : [...current, name])
+        setNewName('')
+      }} type="button" variant="outline">Add key field</Button>
     </div> : null}
     <p className="text-xs text-muted-foreground">Keys are write-only. Leave a field empty to keep its saved value; successful saves clear the inputs.</p>
   </div>

@@ -76,14 +76,14 @@ function SetupForm({ saved, schema }: { saved: SavedConfig; schema: ConfigSchema
       <div className="mt-5 grid gap-5 sm:grid-cols-2">
         {Object.entries(modelSchema.properties ?? {}).map(([key, field]) => <SchemaField showApplyMode={false} disabled={busy} error={errors[`models.main.${key}`]} key={key} onChange={(next) => set(`models.main.${key}`, next)} path={`models.main.${key}`} root={schema} schema={field} value={value(`models.main.${key}`)} />)}
       </div>
-      {!keyName ? <Button className="mt-3" disabled={busy} onClick={() => set('models.main.api_key_secret', 'PRIMARY_API_KEY')} size="sm" type="button" variant="outline">Use suggested key reference: PRIMARY_API_KEY</Button> : null}
+      {!keyName ? <Button className="mt-3 h-auto max-w-full whitespace-normal py-2" disabled={busy} onClick={() => set('models.main.api_key_secret', 'PRIMARY_API_KEY')} size="sm" type="button" variant="outline">Use suggested key reference: PRIMARY_API_KEY</Button> : null}
     </section>
     <section className="rounded-xl border border-border bg-card p-5 sm:p-6">
       <div className="flex items-center gap-3"><span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold">2</span><h2 className="font-semibold">Credentials and roles</h2></div>
       <div className="mt-5"><SecretFields configured={saved.secrets} names={referencedKeys} values={keyValues} disabled={busy} onChange={(name, next) => { setKeyValues((current) => ({ ...current, [name]: next })); probe.reset() }} /></div>
       <div className="mt-5 rounded-lg border border-border p-4">
         <p className="text-sm">Primary, Title, Activity, Permission / Skill Review and Compact can share the primary endpoint, model and key reference. Each role keeps its own reasoning and context settings.</p>
-        <Button className="mt-3 max-w-full whitespace-normal" disabled={busy} onClick={() => {
+        <Button className="mt-3 h-auto max-w-full whitespace-normal py-2" disabled={busy} onClick={() => {
           const next = { ...changes }
           for (const role of roles) for (const field of ['name', 'base_url', 'api_key_secret']) next[`models.${role}.${field}`] = value(`models.main.${field}`) ?? null
           setChanges(next)
