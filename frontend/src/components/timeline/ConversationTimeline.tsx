@@ -67,7 +67,7 @@ function TimelineItem({ item }: { item: TimelineViewModel }) {
       <article className="flex justify-end py-3" data-seq={item.seq}>
         <div className="max-w-[85%]">
           <div className="mb-1 text-right text-xs font-medium text-muted-foreground">
-            <InputAuthor origin={item.origin} />{item.type === 'steer' ? ' · Steer' : ''} ·{' '}
+            <InputAuthor origin={item.origin} /> ·{' '}
             <time dateTime={item.timestamp}>{formatTimelineTime(item.timestamp)}</time>
           </div>
           {item.text ? <p className="whitespace-pre-wrap break-words rounded-2xl bg-accent/60 px-4 py-3 text-sm leading-6">{item.text}</p> : null}
