@@ -3,7 +3,7 @@ import { errorMessage } from '../../lib/errors'
 
 export function ErrorNotice({ error, fallback = 'The action could not be completed. Try again.' }: { error: unknown; fallback?: string }) {
   if (!error) return null
-  return <p className="rounded-lg border border-destructive/25 bg-destructive/5 px-3 py-2 text-sm text-destructive" role="alert">{errorMessage(error, fallback)}</p>
+  return <p className="min-w-0 break-words rounded-lg border border-destructive/25 bg-destructive/5 px-3 py-2 text-sm text-destructive [overflow-wrap:anywhere]" role="alert">{errorMessage(error, fallback)}</p>
 }
 
 export function fieldErrors(error: unknown): Record<string, string> {

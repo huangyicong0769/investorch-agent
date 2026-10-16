@@ -15,7 +15,7 @@ from agents.tool import Tool
 from investorch.config import AppConfig
 from investorch.context import AgentContext, ExecutionState, TodoUpdateHandler
 from investorch.inputs import UserInput
-from investorch.output import OutputHandler, consume_run_events
+from investorch.output import AssistantMessage, OutputEvent, OutputHandler, consume_run_events
 from investorch.output.stream import assistant_message_from_result
 
 from .compact import CompactionResult, compact_session, session_history_restore_failed
@@ -164,11 +164,18 @@ class AgentLoop:
 
         current_agent_name = run_agent.name
         approval_usage = TokenUsage()
+        last_message: AssistantMessage | None = None
+
+        async def stream_output(event: OutputEvent) -> None:
+            nonlocal last_message
+            await output_handler(event)
+            if isinstance(event, AssistantMessage):
+                last_message = event
 
         while True:
             run_control.bind_stream(result)
             try:
-                current_agent_name = await consume_run_events(result, output_handler, current_agent_name)
+                current_agent_name = await consume_run_events(result, stream_output, current_agent_name)
             finally:
                 run_control.unbind_stream(result)
 
@@ -235,8 +242,13 @@ class AgentLoop:
         message = assistant_message_from_result(result)
         output = message.text
         main_usage = TokenUsage.from_sdk(result.context_wrapper.usage)
+        if last_message is None or last_message.text != message.text:
+            await output_handler(message)
+        elif message.images:
+            # Image generation results are separate SDK items; keep them without
+            # repeating the final text already delivered by message_output_created.
+            await output_handler(AssistantMessage(text="", images=message.images))
         title_usage = await ensure_session_title(self._title_agent, session, self._config.sessions_db)
-        await output_handler(message)
         auto_compaction, auto_compaction_failed, consistency_uncertain = await self._auto_compact(session, main_usage)
         auxiliary_usage = (
             approval_usage + title_usage + (auto_compaction.usage if auto_compaction is not None else TokenUsage())

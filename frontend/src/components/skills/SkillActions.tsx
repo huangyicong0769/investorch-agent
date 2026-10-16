@@ -20,7 +20,7 @@ export function SkillActions({ skill, disabled, onWorkflow, onRemove }: { skill:
 
 export function RemoveSkillDialog({ skill, pending, error, onClose, onConfirm }: { skill: SkillRecord | null; pending: boolean; error: unknown; onClose: () => void; onConfirm: () => void }) {
   return <Dialog open={skill !== null} onOpenChange={(open) => { if (!open && !pending) onClose() }}>
-    <DialogContent className="max-w-[calc(100vw-2rem)] sm:max-w-sm" onEscapeKeyDown={(event) => { if (pending) event.preventDefault() }} onPointerDownOutside={(event) => { if (pending) event.preventDefault() }}>
+    <DialogContent className="max-w-[calc(100vw-2rem)] sm:max-w-sm" onEscapeKeyDown={(event) => { if (pending) event.preventDefault() }} onPointerDownOutside={(event) => { if (pending) event.preventDefault() }} showCloseButton={!pending}>
       <DialogTitle>Remove this Skill?</DialogTitle>
       <DialogDescription><span className="break-all">{skill?.name}</span> and its installed files will be permanently deleted. This cannot be undone.</DialogDescription>
       <ErrorNotice error={error} fallback="The Skill could not be removed." />

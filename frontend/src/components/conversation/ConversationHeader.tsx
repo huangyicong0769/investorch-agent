@@ -14,10 +14,10 @@ export function ConversationHeader({ session, context }: ConversationHeaderProps
   const connectionStatus = useWebSocketStatus()
 
   return (
-    <header className="flex min-h-16 items-center justify-between gap-4 border-b border-border py-2 pl-14 pr-4 sm:pr-6 md:pl-6">
+    <header className="flex min-h-16 shrink-0 items-center justify-between gap-4 border-b border-border py-2 pl-14 pr-4 sm:pr-6 md:pl-6">
       <div className="min-w-0">
         <h1 className="truncate text-sm font-semibold">{sessionTitle(session)}</h1>
-        <div className="mt-0.5 flex items-center gap-2 text-xs text-muted-foreground">
+        <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
           {session.branch_from_session_id ? (
             <span title={session.branch_from_session_id}>Forked from {shortSessionId(session.branch_from_session_id)}</span>
           ) : null}
@@ -30,8 +30,8 @@ export function ConversationHeader({ session, context }: ConversationHeaderProps
         </div>
       </div>
       <div className="flex shrink-0 items-center gap-1">
-        {context}
         <SessionMenu key={session.session_id} session={session} />
+        {context}
       </div>
     </header>
   )

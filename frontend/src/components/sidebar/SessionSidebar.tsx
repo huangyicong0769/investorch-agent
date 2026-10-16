@@ -1,10 +1,11 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Activity, Archive, BriefcaseBusiness, Plus, Puzzle, Search, Settings, X } from 'lucide-react'
-import { NavLink, useNavigate } from 'react-router-dom'
+import { NavLink, useLocation, useNavigate } from 'react-router-dom'
+import { toast } from 'sonner'
 
 import { archiveSession, createSession, deleteSession, cleanupDeletedSessions } from '../../api/client'
-import { committedDeletionIds, removeDeletedSessionCaches } from '../../api/sessionLifecycle'
+import { committedDeletionIds, reconcileSessionArchive, removeDeletedSessionCaches } from '../../api/sessionLifecycle'
 import { DeletionPreview } from '../conversation/DeletionPreview'
 import {
   queryKeys,
@@ -13,7 +14,6 @@ import {
   sessionDeletionPreviewQueryOptions,
 } from '../../api/queries'
 import type {
-  BootstrapResponse,
   DeleteSessionResponse,
   SessionListResponse,
   SessionRecord,
@@ -21,13 +21,12 @@ import type {
   SessionStateResponse,
 } from '../../api/types'
 import { errorMessage } from '../../lib/errors'
-import { sessionMatches, sessionPath } from '../../lib/session'
+import { sessionMatches, sessionPath, sessionTitle } from '../../lib/session'
 import { cn } from '../../lib/utils'
-import { ProcessesSheet } from '../processes/ProcessesSheet'
-import { ArchivedSessionsDialog } from './ArchivedSessionsDialog'
 import { SessionItem } from './SessionItem'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
 
 interface SessionSidebarProps {
@@ -44,13 +43,20 @@ export function SessionSidebar({
   selectedSessionId,
 }: SessionSidebarProps) {
   const navigate = useNavigate()
+  const location = useLocation()
+  const locationKeyRef = useRef<string | null>(location.key)
+  const selectedSessionIdRef = useRef(selectedSessionId)
+  selectedSessionIdRef.current = selectedSessionId
+  useEffect(() => {
+    locationKeyRef.current = location.key
+    return () => { locationKeyRef.current = null }
+  }, [location.key])
   const queryClient = useQueryClient()
   const searchId = useId()
   const deleteDescriptionId = useId()
   const mobileCloseButtonRef = useRef<HTMLButtonElement>(null)
-  const archivedTriggerRef = useRef<HTMLButtonElement>(null)
+  const deleteTriggerRef = useRef<HTMLButtonElement | null>(null)
   const [search, setSearch] = useState('')
-  const [archivedOpen, setArchivedOpen] = useState(false)
   const [deleteCandidate, setDeleteCandidate] = useState<SessionRecord | null>(null)
   const deletePreview = useQuery({ ...sessionDeletionPreviewQueryOptions(deleteCandidate?.session_id ?? ''), enabled: Boolean(deleteCandidate) })
   const sessionsQuery = useQuery(sessionsQueryOptions())
@@ -89,7 +95,8 @@ export function SessionSidebar({
 
   const createMutation = useMutation({
     mutationFn: createSession,
-    onSuccess: async (response: SessionResponse) => {
+    onMutate: () => location.key,
+    onSuccess: async (response: SessionResponse, _variables, sourceLocationKey) => {
       queryClient.setQueryData<SessionListResponse>(queryKeys.sessions(), (current) => ({
         sessions: [
           response.session,
@@ -97,9 +104,11 @@ export function SessionSidebar({
         ],
       }))
       queryClient.setQueryData(queryKeys.session(response.session.session_id), response)
-      setSearch('')
-      navigate(sessionPath(response.session.session_id))
-      onMobileNavigate()
+      if (locationKeyRef.current === sourceLocationKey) {
+        setSearch('')
+        navigate(sessionPath(response.session.session_id))
+        onMobileNavigate()
+      }
       await queryClient.invalidateQueries({ queryKey: queryKeys.sessions() })
     },
   })
@@ -107,49 +116,8 @@ export function SessionSidebar({
   const archiveMutation = useMutation({
     mutationFn: (session: SessionRecord) => archiveSession(session.session_id),
     onSuccess: async (response: SessionResponse) => {
-      const archivedSession = response.session
-      queryClient.setQueryData(queryKeys.session(archivedSession.session_id), response)
-      queryClient.setQueryData<SessionStateResponse>(
-        queryKeys.sessionState(archivedSession.session_id),
-        (current) => (current ? { ...current, session: archivedSession } : current),
-      )
-      queryClient.setQueryData<SessionListResponse>(queryKeys.sessions(), (current) =>
-        current
-          ? {
-              sessions: current.sessions.filter(
-                (session) => session.session_id !== archivedSession.session_id,
-              ),
-            }
-          : current,
-      )
-      queryClient.setQueryData<SessionListResponse>(queryKeys.archivedSessions(), (current) =>
-        current
-          ? {
-              sessions: [
-                archivedSession,
-                ...current.sessions.filter(
-                  (session) => session.session_id !== archivedSession.session_id,
-                ),
-              ],
-            }
-          : current,
-      )
-      queryClient.setQueryData<BootstrapResponse>(queryKeys.bootstrap(), (current) =>
-        current
-          ? {
-              ...current,
-              sessions: current.sessions.filter(
-                (session) => session.session_id !== archivedSession.session_id,
-              ),
-            }
-          : current,
-      )
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: queryKeys.sessions() }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.archivedSessions() }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.sessionContexts() }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.bootstrap() }),
-      ])
+      await reconcileSessionArchive(queryClient, response.session)
+      toast.success('Session archived.', { action: { label: 'View archive', onClick: () => { navigate('/archive'); onMobileNavigate() } } })
     },
   })
 
@@ -163,8 +131,9 @@ export function SessionSidebar({
     },
     onSuccess: async (response: DeleteSessionResponse, { session: deletedSession }) => {
       const ids = response.deleted_session_ids ?? [deletedSession.session_id]
+      deleteTriggerRef.current = null
       setDeleteCandidate(null)
-      if (selectedSessionId && ids.includes(selectedSessionId)) {
+      if (selectedSessionIdRef.current && ids.includes(selectedSessionIdRef.current)) {
         navigate('/')
         onMobileNavigate()
       }
@@ -173,7 +142,8 @@ export function SessionSidebar({
     onError: async (error) => {
       const ids = committedDeletionIds(error)
       if (ids.length) {
-        if (selectedSessionId && ids.includes(selectedSessionId)) navigate('/')
+        deleteTriggerRef.current = null
+        if (selectedSessionIdRef.current && ids.includes(selectedSessionIdRef.current)) navigate('/')
         await removeDeletedSessionCaches(queryClient, ids)
       }
     },
@@ -192,13 +162,13 @@ export function SessionSidebar({
   return (
     <aside
       className={cn(
-        'fixed inset-y-0 z-40 flex h-dvh w-72 max-w-[calc(100vw-3rem)] shrink-0 flex-col border-r border-border bg-card px-3 py-4 shadow-xl md:sticky md:top-0 md:z-auto md:max-w-none md:self-start md:shadow-none',
+        'fixed inset-y-0 z-40 flex h-dvh w-72 max-w-[calc(100vw-3rem)] shrink-0 flex-col border-r border-border/70 bg-sidebar px-3 py-5 shadow-xl md:sticky md:top-0 md:z-auto md:max-w-none md:self-start md:shadow-none',
         mobileOpen ? 'visible left-0' : 'invisible -left-full md:visible',
       )}
       id="session-sidebar"
     >
       <div className="flex items-center justify-between px-2">
-        <div className="text-sm font-semibold">InvestOrch Agent</div>
+        <div className="flex items-center gap-2.5 text-sm font-semibold tracking-tight"><span aria-hidden="true" className="flex size-8 items-center justify-center rounded-xl bg-primary text-xs font-bold text-primary-foreground">IO</span>InvestOrch Agent</div>
         <Button
           size={null}
           variant={null}
@@ -214,7 +184,7 @@ export function SessionSidebar({
       <Button
         size={null}
         variant={null}
-        className="mt-4 flex items-center justify-start gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium hover:bg-muted disabled:opacity-60"
+        className="mt-5 flex min-h-11 items-center justify-start gap-2 rounded-xl bg-primary px-3 py-2 text-sm font-medium text-primary-foreground shadow-sm hover:bg-primary/90 disabled:opacity-60"
         disabled={createMutation.isPending}
         onClick={() => createMutation.mutate()}
         type="button"
@@ -223,7 +193,7 @@ export function SessionSidebar({
         {createMutation.isPending ? 'Creating…' : 'New'}
       </Button>
       {createMutation.isError ? (
-        <p className="mt-2 px-1 text-xs text-red-700" role="alert">
+        <p className="mt-2 px-1 text-xs text-destructive" role="alert">
           {errorMessage(createMutation.error, 'A new session could not be created.')}
         </p>
       ) : null}
@@ -231,8 +201,8 @@ export function SessionSidebar({
       <NavLink
         className={({ isActive }) =>
           cn(
-            'mt-2 flex items-center gap-2 rounded-lg px-3 py-2 text-sm outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/40',
-            isActive ? 'bg-muted font-medium text-foreground' : 'text-muted-foreground',
+            'mt-2 flex items-center gap-2 min-h-10 rounded-lg px-3 py-2 text-sm outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/40',
+            isActive ? 'bg-accent font-medium text-accent-foreground' : 'text-muted-foreground',
           )
         }
         onClick={onMobileClose}
@@ -242,19 +212,19 @@ export function SessionSidebar({
         Portfolios
       </NavLink>
 
-      <NavLink className={({ isActive }) => cn('mt-1 flex items-center gap-2 rounded-lg px-3 py-2 text-sm outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/40', isActive ? 'bg-muted font-medium' : 'text-muted-foreground')} onClick={onMobileClose} to="/skills"><Puzzle aria-hidden="true" size={16} />Skills</NavLink>
+      <NavLink className={({ isActive }) => cn('mt-1 flex items-center gap-2 min-h-10 rounded-lg px-3 py-2 text-sm outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/40', isActive ? 'bg-accent font-medium text-accent-foreground' : 'text-muted-foreground')} onClick={onMobileClose} to="/skills"><Puzzle aria-hidden="true" size={16} />Skills</NavLink>
 
-      <div className="relative mt-3">
+      <div className="relative mt-5">
         <Search
           aria-hidden="true"
-          className="pointer-events-none absolute left-3 top-2.5 text-muted-foreground"
+          className="pointer-events-none absolute left-3 top-3 text-muted-foreground"
           size={15}
         />
         <label className="sr-only" htmlFor={searchId}>
           Search sessions
         </label>
-        <input
-          className="w-full rounded-lg border border-border bg-background py-2 pl-9 pr-3 text-sm outline-none focus:border-primary"
+        <Input
+          className="h-10 rounded-lg border-transparent bg-card/70 pl-9 shadow-none"
           id={searchId}
           onChange={(event) => setSearch(event.target.value)}
           placeholder="Search"
@@ -262,6 +232,10 @@ export function SessionSidebar({
           value={search}
         />
       </div>
+
+      {archiveMutation.error ? <p className="mt-3 break-words px-2 text-xs text-destructive" role="alert">
+        {errorMessage(archiveMutation.error, `“${archiveMutation.variables ? sessionTitle(archiveMutation.variables) : 'This session'}” could not be archived. Try again.`)}
+      </p> : null}
 
       <ScrollArea
         className="mt-3 min-h-0 flex-1"
@@ -293,7 +267,7 @@ export function SessionSidebar({
           ) : null}
           {sessionsQuery.isError ? (
             <div className="px-3 py-2 text-sm" role="alert">
-              <p className="text-red-700">{errorMessage(sessionsQuery.error, 'Sessions could not be loaded.')}</p>
+              <p className="text-destructive">{errorMessage(sessionsQuery.error, 'Sessions could not be loaded.')}</p>
               <Button
                 size={null}
                 variant={null}
@@ -306,7 +280,10 @@ export function SessionSidebar({
             </div>
           ) : null}
           {sessionsQuery.isSuccess && filteredSessions.length === 0 ? (
-            <p className="px-3 py-2 text-sm text-muted-foreground">No sessions found.</p>
+            <div className="px-3 py-2 text-sm text-muted-foreground">
+              <p>{search.trim() ? 'No matching sessions.' : 'No conversations yet.'}</p>
+              {search.trim() ? <Button className="mt-1 h-auto p-0 text-xs" onClick={() => setSearch('')} type="button" variant="link">Clear search</Button> : <p className="mt-1 text-xs">Select New to start a conversation.</p>}
+            </div>
           ) : null}
           <ul className="space-y-1">
             {filteredSessions.map((session) => (
@@ -315,7 +292,8 @@ export function SessionSidebar({
                 active={session.session_id === selectedSessionId}
                 key={session.session_id}
                 onArchive={(target) => archiveMutation.mutate(target)}
-                onDelete={(target) => {
+                onDelete={(target, trigger) => {
+                  deleteTriggerRef.current = trigger
                   deleteMutation.reset()
                   setDeleteCandidate(target)
                 }}
@@ -329,29 +307,11 @@ export function SessionSidebar({
       </ScrollArea>
 
       <div className="mt-3 space-y-1 border-t border-border pt-3">
-        <Button
-          size={null}
-          variant={null}
-          className="flex w-full items-center justify-start gap-2 rounded-lg px-3 py-2 text-left text-sm hover:bg-muted"
-          onClick={() => setArchivedOpen(true)}
-          ref={archivedTriggerRef}
-          type="button"
-        >
-          <Archive aria-hidden="true" size={16} />
-          Archived
-        </Button>
-        <NavLink className={({ isActive }) => cn('flex items-center gap-2 rounded-lg px-3 py-2 text-sm outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/40', isActive && 'bg-muted font-medium')} onClick={onMobileClose} to="/settings"><Settings aria-hidden="true" size={16} />Settings</NavLink>
-        <NavLink className={({ isActive }) => cn('flex items-center gap-2 rounded-lg px-3 py-2 text-sm outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/40', isActive && 'bg-muted font-medium')} onClick={onMobileClose} to="/system"><Activity aria-hidden="true" size={16} />System Status</NavLink>
-        <ProcessesSheet />
+        <NavLink className={({ isActive }) => cn('flex items-center gap-2 min-h-10 rounded-lg px-3 py-2 text-sm outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/40', isActive && 'bg-accent font-medium text-accent-foreground')} onClick={onMobileNavigate} to="/archive"><Archive aria-hidden="true" size={16} />Archive</NavLink>
+        <NavLink className={({ isActive }) => cn('flex items-center gap-2 min-h-10 rounded-lg px-3 py-2 text-sm outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/40', isActive && 'bg-accent font-medium text-accent-foreground')} onClick={onMobileClose} to="/settings"><Settings aria-hidden="true" size={16} />Settings</NavLink>
+        <NavLink className={({ isActive }) => cn('flex items-center gap-2 min-h-10 rounded-lg px-3 py-2 text-sm outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/40', isActive && 'bg-accent font-medium text-accent-foreground')} onClick={onMobileClose} to="/system"><Activity aria-hidden="true" size={16} />System Status</NavLink>
       </div>
 
-      <ArchivedSessionsDialog
-        onClose={() => setArchivedOpen(false)}
-        onRestoreFocus={() => archivedTriggerRef.current?.focus()}
-        onSelect={selectSession}
-        open={archivedOpen}
-        selectedSessionId={selectedSessionId}
-      />
       <Dialog
         open={deleteCandidate !== null}
         onOpenChange={(open) => {
@@ -363,6 +323,12 @@ export function SessionSidebar({
         <DialogContent
           aria-describedby={deleteDescriptionId}
           className="w-full max-w-[calc(100%-2rem)] gap-0 rounded-xl border border-border bg-card p-5 shadow-xl sm:max-w-sm"
+          onCloseAutoFocus={(event) => {
+            event.preventDefault()
+            const trigger = deleteTriggerRef.current
+            deleteTriggerRef.current = null
+            if (trigger?.isConnected && !trigger.disabled) trigger.focus({ preventScroll: true })
+          }}
           onEscapeKeyDown={(event) => {
             if (deleteMutation.isPending) {
               event.preventDefault()
@@ -377,18 +343,18 @@ export function SessionSidebar({
           showCloseButton={false}
         >
           <DialogTitle className="text-base font-semibold">Delete session{deletePreview.data && deletePreview.data.sessions.length > 1 ? ` and ${deletePreview.data.sessions.length - 1} spawned descendants` : ''}?</DialogTitle>
-          <p className="mt-2 text-sm text-muted-foreground" id={deleteDescriptionId}>
+          <p className="mt-2 break-words text-sm text-muted-foreground" id={deleteDescriptionId}>
             {deleteCandidate
               ? `“${deleteCandidate.title?.trim() || deleteCandidate.session_id.slice(0, 8)}” and its timeline will be permanently deleted. This cannot be undone.`
               : null}
           </p>
-          <DeletionPreview preview={deletePreview.data} pending={deletePreview.isPending} error={deletePreview.error} onRetry={() => void deletePreview.refetch()} onNavigate={() => setDeleteCandidate(null)} />
+          <DeletionPreview preview={deletePreview.data} pending={deletePreview.isPending} error={deletePreview.error} onRetry={() => void deletePreview.refetch()} onNavigate={() => { deleteTriggerRef.current = null; setDeleteCandidate(null); onMobileNavigate() }} />
           {deleteMutation.error ? (
-            <p className="mt-3 text-sm text-red-700" role="alert">
+            <p className="mt-3 text-sm text-destructive" role="alert">
               {errorMessage(deleteMutation.error, 'The session could not be deleted. Try again.')}
             </p>
           ) : null}
-          <div className="mt-5 flex justify-end gap-2">
+          <div className="mt-5 flex flex-wrap justify-end gap-2">
             <Button
               size={null}
               variant={null}
@@ -401,8 +367,8 @@ export function SessionSidebar({
             </Button>
             <Button
               size={null}
-              variant={null}
-              className="rounded-lg bg-red-700 px-3 py-2 text-sm text-white hover:bg-red-800 disabled:opacity-60"
+              variant="destructive"
+              className="rounded-lg px-3 py-2 text-sm disabled:opacity-60"
               disabled={!deleteCandidate || deleteMutation.isPending || (!cleanupIds.length && (!deletePreview.data || Boolean(deletePreview.data.blocked.length)))}
               onClick={() => {
                 if (deleteCandidate) {

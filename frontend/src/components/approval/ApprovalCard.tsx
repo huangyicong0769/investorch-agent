@@ -107,7 +107,7 @@ export function ApprovalCard({ approvals, sessionId }: ApprovalCardProps) {
       aria-labelledby={`approval-title-${approval.approval_id}`}
       className="rounded-xl border border-border bg-card px-4 py-3 shadow-sm"
     >
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-sm font-semibold" id={`approval-title-${approval.approval_id}`}>
           Approval required · {activeIndex + 1} of {selectedApprovals.length}
         </h2>
@@ -139,7 +139,7 @@ export function ApprovalCard({ approvals, sessionId }: ApprovalCardProps) {
         ) : null}
       </div>
 
-      <p className="mt-2 text-sm">
+      <p className="mt-2 break-words text-sm">
         InvestOrch Agent wants to run <span className="font-medium">{approval.tool_name}</span>
       </p>
       <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-muted px-3 py-2 font-mono text-xs leading-5">
@@ -155,7 +155,7 @@ export function ApprovalCard({ approvals, sessionId }: ApprovalCardProps) {
         </div>
       ) : null}
 
-      <div className="mt-3 flex items-center justify-end gap-2">
+      <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
         {resolving ? (
           <span className="mr-auto text-xs text-muted-foreground" role="status">
             Resolving…
@@ -184,7 +184,7 @@ export function ApprovalCard({ approvals, sessionId }: ApprovalCardProps) {
       </div>
 
       {resolution?.error ? (
-        <p className="mt-2 text-xs text-red-700" role="alert">
+        <p className="mt-2 break-words text-xs text-destructive" role="alert">
           {errorMessage(resolution.error, 'The approval could not be resolved. Try again.')}
         </p>
       ) : null}

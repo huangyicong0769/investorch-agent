@@ -7,9 +7,9 @@ import {
   type FormEvent,
   type KeyboardEvent,
 } from 'react'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useIsMutating, useMutation, useQueryClient } from '@tanstack/react-query'
 
-import { getSessionHistory, getSessionState, sendMessage, stopSession } from '../../api/client'
+import { getSessionHistory, getSessionState, resumeSessionQueue, sendMessage, stopSession } from '../../api/client'
 import { queryKeys } from '../../api/queries'
 import { useImageConfig, useWebConfig } from '../../config/WebConfigContext'
 import type {
@@ -24,9 +24,11 @@ import { errorMessage } from '../../lib/errors'
 import { historyNewestSeq, type HistoryInfiniteData } from '../../lib/timeline/history'
 import type { ComposerDraft, PendingDirectMessage } from '../conversation/interaction'
 import { UsagePopover } from '../usage/UsagePopover'
-import { Button } from '@/components/ui/button'
+import { InputGroupTextarea } from '@/components/ui/input-group'
+import { ComposerActionButton } from './ComposerActionButton'
+import { applyQueueMutation, queueMutationKey } from '../queue/mutations'
 import { ImageAttachments } from '../images/ImageAttachments'
-import { RunControlsPopover } from './RunControlsPopover'
+import { RUN_DEFAULTS_MUTATION_KEY, RunControlMenu } from './RunControlsPopover'
 
 interface ComposerProps {
   sessionId: string
@@ -45,6 +47,10 @@ interface SendVariables {
   text: string
   images: ImageContent[]
   draft: ComposerDraft
+}
+
+interface SendResult {
+  submission: UserInputSubmission
   baseNewestSeq: number | null
   baseSequenceKnown: boolean
 }
@@ -55,6 +61,7 @@ interface StopVariables {
 }
 
 const NATIVE_ACTIONS = new Set(['/new', '/fork', '/stop', '/archive', '/unarchive', '/clear', '/compact'])
+const sendMutationKey = (sessionId: string) => ['send-message', sessionId] as const
 
 async function refreshSessionState(
   queryClient: ReturnType<typeof useQueryClient>,
@@ -87,6 +94,9 @@ export function Composer({
   const imageConfig = useImageConfig()
   const [readingImages, setReadingImages] = useState(false)
   const queryClient = useQueryClient()
+  const queueMutationPending = useIsMutating({ mutationKey: queueMutationKey(sessionId) }) > 0
+  const savingRunControls = useIsMutating({ mutationKey: RUN_DEFAULTS_MUTATION_KEY }) > 0
+  const sendPendingForSession = useIsMutating({ mutationKey: sendMutationKey(sessionId) }) > 0
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const stopRunIdRef = useRef<string | null>(null)
   const stopSessionIdRef = useRef(sessionId)
@@ -95,14 +105,31 @@ export function Composer({
   const [nativeActionNotice, setNativeActionNotice] = useState<string | null>(null)
   const [refreshError, setRefreshError] = useState<unknown>(null)
   const [stopRequested, setStopRequested] = useState(false)
-  const [preparingSendSessionId, setPreparingSendSessionId] = useState<string | null>(null)
 
   const runtime = state.runtime
   const active = runtime.run_phase !== null
 
-  const sendMutation = useMutation<UserInputSubmission, Error, SendVariables>({
-    mutationFn: ({ sessionId: targetSessionId, text, images }) => sendMessage(targetSessionId, { text, images }),
-    onSuccess: (response, variables) => {
+  const sendMutation = useMutation<SendResult, Error, SendVariables>({
+    mutationKey: sendMutationKey(sessionId),
+    mutationFn: async ({ sessionId: targetSessionId, text, images }) => {
+      // Keep preparation and submission in the shared mutation so returning to
+      // this conversation cannot send the retained draft a second time.
+      const history = queryClient.getQueryData<HistoryInfiniteData>(queryKeys.sessionHistoryPages(targetSessionId))
+      let baseNewestSeq = historyNewestSeq(history)
+      let baseSequenceKnown = history !== undefined
+      if (!baseSequenceKnown) {
+        try {
+          const latest = await getSessionHistory(targetSessionId, { limit: webConfig.history_page_size })
+          baseNewestSeq = latest.newest_seq
+          baseSequenceKnown = true
+        } catch {
+          // Sending can still succeed when history is temporarily unavailable.
+        }
+      }
+      const submission = await sendMessage(targetSessionId, { text, images })
+      return { submission, baseNewestSeq, baseSequenceKnown }
+    },
+    onSuccess: ({ submission: response, baseNewestSeq, baseSequenceKnown }, variables) => {
       onDraftSubmitted(variables.sessionId, variables.draft)
       if (variables.sessionId === activeSessionIdRef.current) {
         setNativeActionNotice(null)
@@ -115,8 +142,8 @@ export function Composer({
           images: variables.images,
           runId: response.run_id,
           submittedAt: new Date().toISOString(),
-          baseNewestSeq: variables.baseNewestSeq,
-          baseSequenceKnown: variables.baseSequenceKnown,
+          baseNewestSeq,
+          baseSequenceKnown,
         })
       }
 
@@ -146,15 +173,37 @@ export function Composer({
     },
   })
 
-  const sendPendingForSession =
-    sendMutation.isPending && sendMutation.variables?.sessionId === sessionId
-  const preparingSendForSession = preparingSendSessionId === sessionId
+  const resumeMutation = useMutation({
+    mutationKey: queueMutationKey(sessionId),
+    mutationFn: ({ sessionId: targetSessionId }: { sessionId: string }) => resumeSessionQueue(targetSessionId),
+    onSuccess: (response, variables) => applyQueueMutation(queryClient, variables.sessionId, response),
+  })
+
   const stopPendingForSession =
     stopMutation.isPending && stopMutation.variables?.sessionId === sessionId
+  const resumePendingForSession =
+    resumeMutation.isPending && resumeMutation.variables?.sessionId === sessionId
+  const resumeError = resumeMutation.variables?.sessionId === sessionId ? resumeMutation.error : null
   const sendError = sendMutation.variables?.sessionId === sessionId ? sendMutation.error : null
   const stopError = stopMutation.variables?.sessionId === sessionId ? stopMutation.error : null
   const stopping =
     (stopRequested && stopSessionIdRef.current === sessionId) || runtime.run_phase === 'stopping'
+
+  const hasDraft = Boolean(draft.text.trim() || draft.images.length)
+  const canResumeQueue = !active && runtime.queue_paused && runtime.queued_count > 0
+  const action = stopping || stopPendingForSession ? 'stop'
+    : sendPendingForSession ? 'send'
+      : resumePendingForSession ? 'resume'
+        : hasDraft ? 'send' : active ? 'stop' : canResumeQueue ? 'resume' : 'send'
+  const actionBusy = stopping || stopPendingForSession || sendPendingForSession
+    || resumePendingForSession || readingImages || (action !== 'stop' && savingRunControls)
+    || (action === 'resume' && queueMutationPending)
+  const actionLabel = stopping || stopPendingForSession ? 'Stopping…'
+    : sendPendingForSession ? 'Sending…'
+      : resumePendingForSession ? 'Resuming queued follow-ups…'
+        : readingImages ? 'Reading images…'
+          : action !== 'stop' && savingRunControls ? 'Saving run controls…'
+            : action === 'resume' && queueMutationPending ? 'Updating queued follow-ups…' : undefined
 
   useEffect(() => {
     setNativeActionNotice(null)
@@ -188,9 +237,9 @@ export function Composer({
     textarea.style.overflowY = textarea.scrollHeight > webConfig.composer_max_height_px ? 'auto' : 'hidden'
   }, [draft, webConfig.composer_max_height_px])
 
-  const submit = async () => {
+  const submit = () => {
     const targetSessionId = sessionId
-    if (archived || sendPendingForSession || preparingSendForSession || readingImages) {
+    if (archived || stopping || stopPendingForSession || resumePendingForSession || queryClient.isMutating({ mutationKey: sendMutationKey(targetSessionId) }) > 0 || readingImages || savingRunControls) {
       return
     }
 
@@ -205,39 +254,14 @@ export function Composer({
       return
     }
 
-    setPreparingSendSessionId(targetSessionId)
-    try {
-      const history = queryClient.getQueryData<HistoryInfiniteData>(
-        queryKeys.sessionHistoryPages(targetSessionId),
-      )
-      let baseNewestSeq = historyNewestSeq(history)
-      let baseSequenceKnown = history !== undefined
-
-      if (!baseSequenceKnown) {
-        try {
-          const latest = await getSessionHistory(targetSessionId, { limit: webConfig.history_page_size })
-          baseNewestSeq = latest.newest_seq
-          baseSequenceKnown = true
-        } catch {
-          // Sending can still succeed when history is temporarily unavailable.
-        }
-      }
-
-      if (activeSessionIdRef.current === targetSessionId) {
-        setNativeActionNotice(null)
-        setRefreshError(null)
-      }
-      sendMutation.mutate({
-        sessionId: targetSessionId,
-        text,
-        draft,
-        images: draft.images.map((image) => ({ image_url: image.imageUrl, media_type: image.mediaType, filename: image.filename, detail: imageConfig.default_detail })),
-        baseNewestSeq,
-        baseSequenceKnown,
-      })
-    } finally {
-      setPreparingSendSessionId((current) => (current === targetSessionId ? null : current))
-    }
+    setNativeActionNotice(null)
+    setRefreshError(null)
+    sendMutation.mutate({
+      sessionId: targetSessionId,
+      text,
+      draft,
+      images: draft.images.map((image) => ({ image_url: image.imageUrl, media_type: image.mediaType, filename: image.filename, detail: imageConfig.default_detail })),
+    })
   }
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
@@ -262,19 +286,40 @@ export function Composer({
   }
 
   return (
-    <form className="rounded-2xl border border-border bg-card p-3 shadow-sm" onSubmit={handleSubmit}>
-      <ImageAttachments images={draft.images} disabled={archived || sendPendingForSession || preparingSendForSession} onReadingChange={setReadingImages} onChange={(images) => onDraftChange(sessionId, (current) => ({ ...current, images }))}>
-      <textarea
-        aria-label="Message InvestOrch Agent"
-        className="block max-h-40 min-h-10 w-full resize-none overflow-hidden bg-transparent px-1 py-1.5 text-sm leading-6 outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60"
-        disabled={archived}
-        onChange={handleDraftChange}
-        onKeyDown={handleKeyDown}
-        placeholder={archived ? 'Archived sessions are read-only.' : 'Message InvestOrch Agent'}
-        ref={textareaRef}
-        rows={1}
-        value={draft.text}
-      />
+    <form onSubmit={handleSubmit}>
+      <ImageAttachments toolbar={
+        <div className="flex min-w-0 flex-1 flex-wrap items-center justify-between gap-x-2 gap-y-1">
+          <RunControlMenu field="permission_mode" />
+          <div className="ml-auto flex items-center gap-1">
+            <RunControlMenu field="reasoning_effort" />
+            <UsagePopover contextWindowTokens={contextWindowTokens} presentation={presentation} />
+            <ComposerActionButton
+              action={action}
+              busy={actionBusy}
+              label={actionLabel}
+              disabled={archived || (action === 'send' && !hasDraft)}
+              type={action === 'send' ? 'submit' : 'button'}
+              onClick={action === 'stop' ? () => {
+                if (!archived && !actionBusy) stopMutation.mutate({ sessionId, runId: runtime.run_id })
+              } : action === 'resume' ? () => {
+                if (!archived && !actionBusy && canResumeQueue) resumeMutation.mutate({ sessionId })
+              } : undefined}
+            />
+          </div>
+        </div>
+      } images={draft.images} disabled={archived || sendPendingForSession} onReadingChange={setReadingImages} onChange={(images) => onDraftChange(sessionId, (current) => ({ ...current, images }))}>
+        <InputGroupTextarea
+          aria-label="Message InvestOrch Agent"
+          className="min-h-16 resize-none overflow-hidden px-4 pb-3 pt-4 text-[15px] leading-6 sm:px-5"
+          disabled={archived}
+          onChange={handleDraftChange}
+          onKeyDown={handleKeyDown}
+          placeholder={archived ? 'Archived sessions are read-only.' : 'Message InvestOrch Agent'}
+          ref={textareaRef}
+          rows={1}
+          style={{ maxHeight: webConfig.composer_max_height_px }}
+          value={draft.text}
+        />
       </ImageAttachments>
       {nativeActionNotice ? (
         <p className="mt-1 text-xs text-muted-foreground" role="status">
@@ -282,49 +327,25 @@ export function Composer({
         </p>
       ) : null}
       {sendError ? (
-        <p className="mt-1 text-xs text-red-700" role="alert">
+        <p className="mt-1 text-xs text-destructive" role="alert">
           {errorMessage(sendError, 'The message could not be sent. Your draft is still here.')}
         </p>
       ) : null}
       {stopError ? (
-        <p className="mt-1 text-xs text-red-700" role="alert">
+        <p className="mt-1 text-xs text-destructive" role="alert">
           {errorMessage(stopError, 'The run could not be stopped. Try again.')}
         </p>
       ) : null}
+      {resumeError ? (
+        <p className="mt-1 text-xs text-destructive" role="alert">
+          {errorMessage(resumeError, 'Queued follow-ups could not be resumed. Try again.')}
+        </p>
+      ) : null}
       {refreshError ? (
-        <p className="mt-1 text-xs text-red-700" role="alert">
+        <p className="mt-1 text-xs text-destructive" role="alert">
           {errorMessage(refreshError, 'Session state could not be refreshed. Live updates will retry.')}
         </p>
       ) : null}
-      <div className="mt-2 flex flex-wrap items-center justify-between gap-2 border-t border-border pt-2">
-        <div className="flex min-w-0 flex-wrap items-center gap-1">
-          <RunControlsPopover />
-          <UsagePopover contextWindowTokens={contextWindowTokens} presentation={presentation} />
-        </div>
-        <div className="flex items-center gap-2">
-          {active ? (
-            <Button
-              size={null}
-              variant={null}
-              className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
-              disabled={archived || stopping || stopPendingForSession}
-              onClick={() => stopMutation.mutate({ sessionId, runId: runtime.run_id })}
-              type="button"
-            >
-              {stopping || stopPendingForSession ? 'Stopping…' : 'Stop'}
-            </Button>
-          ) : null}
-          <Button
-            size={null}
-            variant={null}
-            className="rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground disabled:cursor-not-allowed disabled:opacity-60"
-            disabled={archived || sendPendingForSession || preparingSendForSession || readingImages || (!draft.text.trim() && !draft.images.length)}
-            type="submit"
-          >
-            {sendPendingForSession || preparingSendForSession ? 'Sending…' : 'Send'}
-          </Button>
-        </div>
-      </div>
     </form>
   )
 }

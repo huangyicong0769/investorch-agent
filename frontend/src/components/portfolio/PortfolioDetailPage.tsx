@@ -10,6 +10,7 @@ import { HoldingsTable } from './HoldingsTable'
 import { PortfolioLedger } from './PortfolioLedger'
 import { PortfolioOverview } from './PortfolioOverview'
 import { Button } from '@/components/ui/button'
+import { ErrorNotice } from '../management/Feedback'
 
 function DetailLoading() {
   return (
@@ -44,13 +45,13 @@ export function PortfolioDetailPage() {
     )
   }
 
-  if (portfolioQuery.isError) {
+  if (!portfolioQuery.data) {
     const missing = portfolioQuery.error instanceof ApiError && portfolioQuery.error.code === 'portfolio_not_found'
     return (
       <div className="flex min-h-dvh items-center justify-center px-4">
         <div className="max-w-md text-center">
           <h1 className="text-xl font-semibold">{missing ? 'Portfolio not found' : 'Unable to load Portfolio'}</h1>
-          <p className="mt-2 text-sm text-muted-foreground">
+          <p className="mt-2 break-words text-sm text-muted-foreground">
             {missing
               ? 'This Portfolio does not exist or is no longer available.'
               : errorMessage(portfolioQuery.error, 'The Portfolio could not be loaded.')}
@@ -83,19 +84,20 @@ export function PortfolioDetailPage() {
             <ArrowLeft aria-hidden="true" size={15} />
             Portfolios
           </Link>
-          <div className="mt-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="mt-6 flex flex-wrap items-start justify-between gap-x-4 gap-y-6">
             <div className="min-w-0">
               <h1 className="break-words text-2xl font-semibold tracking-tight">{detail.portfolio.name}</h1>
               <p className="mt-2 text-xs font-medium tracking-wide text-muted-foreground">
                 {detail.portfolio.status} · {detail.portfolio.base_currency}
               </p>
               {detail.portfolio.description ? (
-                <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">
+                <p className="mt-3 max-w-2xl break-words text-sm leading-6 text-muted-foreground">
                   {detail.portfolio.description}
                 </p>
               ) : null}
             </div>
             <AskAgentControl
+              key={detail.portfolio.portfolio_id}
               portfolioId={detail.portfolio.portfolio_id}
               portfolioName={detail.portfolio.name}
             />
@@ -103,6 +105,7 @@ export function PortfolioDetailPage() {
         </header>
 
         <div className="mt-8 space-y-6">
+          {portfolioQuery.isError ? <div className="space-y-3"><ErrorNotice error={portfolioQuery.error} fallback="This Portfolio could not be refreshed." /><p className="text-sm text-muted-foreground">Showing previously loaded details. Your message draft is kept.</p><Button disabled={portfolioQuery.isFetching} onClick={() => void portfolioQuery.refetch()} size="sm" type="button" variant="outline">{portfolioQuery.isFetching ? 'Retrying…' : 'Retry refresh'}</Button></div> : null}
           <PortfolioOverview detail={detail} />
           <HoldingsTable holdings={detail.state.holdings} />
           <PortfolioLedger portfolioId={detail.portfolio.portfolio_id} />

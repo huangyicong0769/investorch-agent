@@ -1,6 +1,7 @@
 from .events import (
     AgentChanged,
     AssistantMessage,
+    AssistantMessageUpdate,
     OutputEvent,
     OutputHandler,
     Reasoning,
@@ -13,6 +14,7 @@ from .stream import consume_run_events
 __all__ = [
     "AgentChanged",
     "AssistantMessage",
+    "AssistantMessageUpdate",
     "OutputEvent",
     "OutputHandler",
     "Reasoning",

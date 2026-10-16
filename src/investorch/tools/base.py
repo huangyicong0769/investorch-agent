@@ -15,7 +15,7 @@ from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
 from agents import RunContextWrapper, ToolOutputImage, ToolOutputText
-from agents.sandbox import Manifest
+from agents.sandbox import Manifest, SandboxPathGrant
 from agents.sandbox.errors import PtySessionNotFoundError
 from agents.sandbox.sandboxes.unix_local import UnixLocalSandboxClient
 
@@ -885,7 +885,14 @@ async def _ensure_sandbox(execution: ExecutionState, workspace: Path) -> Any:
 
     client = UnixLocalSandboxClient()
     sandbox = await client.create(
-        manifest=Manifest(root=str(workspace)),
+        manifest=Manifest(
+            root=str(workspace),
+            # The SDK also grants resolved symlink targets (notably zoneinfo).
+            extra_path_grants=tuple(
+                SandboxPathGrant(path=path, read_only=True)
+                for path in ("/usr/share/file", "/usr/share/i18n", "/usr/share/zoneinfo")
+            ),
+        ),
     )
     await sandbox.start()
     execution.workspace_root = workspace

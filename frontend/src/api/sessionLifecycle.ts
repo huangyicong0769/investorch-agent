@@ -1,7 +1,36 @@
 import type { QueryClient } from '@tanstack/react-query'
 import { ApiError } from './client'
 import { queryKeys } from './queries'
-import type { BootstrapResponse, SessionListResponse } from './types'
+import type { BootstrapResponse, SessionListResponse, SessionRecord, SessionStateResponse } from './types'
+
+export async function reconcileSessionArchive(client: QueryClient, session: SessionRecord) {
+  const archived = session.archived_at !== null
+  const reconcileList = (records: SessionRecord[], include: boolean) => {
+    const remaining = records.filter((record) => record.session_id !== session.session_id)
+    return include ? [session, ...remaining] : remaining
+  }
+
+  client.setQueryData(queryKeys.session(session.session_id), { session })
+  client.setQueryData<SessionStateResponse>(queryKeys.sessionState(session.session_id), (current) =>
+    current ? { ...current, session } : current,
+  )
+  client.setQueryData<SessionListResponse>(queryKeys.sessions(), (current) =>
+    current ? { sessions: reconcileList(current.sessions, !archived) } : current,
+  )
+  client.setQueryData<SessionListResponse>(queryKeys.archivedSessions(), (current) =>
+    current ? { sessions: reconcileList(current.sessions, archived) } : current,
+  )
+  client.setQueryData<BootstrapResponse>(queryKeys.bootstrap(), (current) =>
+    current ? { ...current, sessions: reconcileList(current.sessions, !archived) } : current,
+  )
+
+  await Promise.all([
+    client.invalidateQueries({ queryKey: queryKeys.sessions() }),
+    client.invalidateQueries({ queryKey: queryKeys.archivedSessions() }),
+    client.invalidateQueries({ queryKey: queryKeys.sessionContexts() }),
+    client.invalidateQueries({ queryKey: queryKeys.bootstrap() }),
+  ])
+}
 
 export function committedDeletionIds(error: unknown): string[] {
   const value = error instanceof ApiError ? error.details.deleted_session_ids : null

@@ -105,6 +105,8 @@ export interface Defaults {
 }
 
 export interface WebConfig {
+  theme_mode: 'system' | 'light' | 'dark'
+  theme_color: 'green' | 'blue' | 'violet' | 'rose' | 'amber' | 'neutral'
   history_page_size: number
   websocket_reconnect_base_delay_ms: number
   websocket_reconnect_max_delay_ms: number
@@ -309,8 +311,15 @@ export interface OutputEventToolOutput {
 }
 
 export interface OutputEventAssistantMessage {
+  message_id?: string
   images?: ImageContent[]
   type: 'assistant_message'
+  text: string
+}
+
+export interface OutputEventAssistantMessageUpdate {
+  type: 'assistant_message_update'
+  message_id: string
   text: string
 }
 
@@ -320,6 +329,7 @@ export type OutputEvent =
   | OutputEventToolCalled
   | OutputEventToolOutput
   | OutputEventAssistantMessage
+  | OutputEventAssistantMessageUpdate
 
 export interface OutputLiveEvent {
   kind: 'output'
@@ -477,7 +487,7 @@ export interface RunEndedRecord extends JournalRecordBase {
   discarded_user_steer_seqs?: number[]
 }
 
-export type JournalOutputRecord = JournalRecordBase & OutputEvent
+export type JournalOutputRecord = JournalRecordBase & Exclude<OutputEvent, OutputEventAssistantMessageUpdate>
 
 export type JournalRecord =
   | UserMessageRecord

@@ -7,6 +7,7 @@ from investorch.application import (
     PortfolioToolSucceededEvent,
 )
 from investorch.inputs import UserInput
+from investorch.output import AssistantMessageUpdate
 from investorch.presentation import (
     serialize_activity_label,
     serialize_approval_cancelled,
@@ -45,7 +46,7 @@ class WebEventBridge:
         )
 
     async def handle_output(self, output: RuntimeOutput, journal_seq: int | None) -> None:
-        if journal_seq is None:
+        if journal_seq is None and not isinstance(output.event, AssistantMessageUpdate):
             return
         self._connections.publish(serialize_runtime_output(output, journal_seq=journal_seq))
 

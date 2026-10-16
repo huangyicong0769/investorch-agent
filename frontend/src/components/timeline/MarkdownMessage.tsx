@@ -35,7 +35,7 @@ const markdownComponents: Components = {
   },
   a({ node: _node, ...props }) {
     void _node
-    return <a {...props} rel="noopener noreferrer" target="_blank" />
+    return <a {...props} className="text-primary underline decoration-primary/30 underline-offset-4 hover:decoration-primary" rel="noopener noreferrer" target="_blank" />
   },
   blockquote({ node: _node, ...props }) {
     void _node
@@ -104,7 +104,7 @@ const markdownComponents: Components = {
 
 export function MarkdownMessage({ text }: MarkdownMessageProps) {
   return (
-    <div className="min-w-0 text-sm leading-6">
+    <div className="min-w-0 text-[15px] leading-7">
       <Markdown components={markdownComponents} remarkPlugins={[remarkGfm]} skipHtml urlTransform={(url, key) => key === 'src' ? url : defaultUrlTransform(url)}>
         {text}
       </Markdown>

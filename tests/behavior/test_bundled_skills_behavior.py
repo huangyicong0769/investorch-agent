@@ -9,6 +9,7 @@ from investorch.initializer import initialize
 from investorch.skills.bundled import update_builtins
 from investorch.skills.domain import SkillRegistration, SkillSource
 from investorch.skills.registry import read_registry, write_registry
+from investorch.skills.validation import validate_skill
 from tests.support.config import make_test_config
 
 
@@ -24,7 +25,8 @@ def test_update_restores_package_authority_and_preserves_disabled_state(tmp_path
     if mutation == "content":
         (root / "SKILL.md").write_text(content + "\nUser modification", encoding="utf-8")
     elif mutation == "higher-version":
-        (root / "SKILL.md").write_text(content.replace("1.0.0", "999.0.0"), encoding="utf-8")
+        version = validate_skill(root, source_type="builtin").metadata.version
+        (root / "SKILL.md").write_text(content.replace(f"version: {version}", "version: 999.0.0"), encoding="utf-8")
     elif mutation == "empty-directory":
         (root / "obsolete-empty").mkdir()
     elif mutation == "extra-file":

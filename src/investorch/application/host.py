@@ -29,6 +29,7 @@ from investorch.context import AppState, ExecutionState
 from investorch.inputs import UserInput
 from investorch.journal import SessionJournal
 from investorch.mcp import load_mcp_servers as load_configured_mcp_servers
+from investorch.output import AssistantMessageUpdate
 from investorch.runtime import (
     AgentRuntime,
     RuntimeFollowUpEvent,
@@ -211,6 +212,9 @@ async def open_application_host(
         return await journal.record_user_steers_discarded(session_id, run_id, steer_seqs)
 
     async def handle_output(output: RuntimeOutput) -> None:
+        if isinstance(output.event, AssistantMessageUpdate):
+            await callbacks.handle_output(output, None)
+            return
         journal_seq = None
         try:
             journal_seq = await journal.record_output(output.session_id, output.event)

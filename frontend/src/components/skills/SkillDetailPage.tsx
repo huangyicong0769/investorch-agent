@@ -1,10 +1,10 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 
 import { managementKeys, removeSkill, setSkillEnabled, skillQueryOptions } from '../../api/management'
 import { ErrorNotice } from '../management/Feedback'
-import { fieldClass } from '../management/SchemaField'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { fieldLabel } from '../management/schema'
 import { MarkdownMessage } from '../timeline/MarkdownMessage'
 import { RemoveSkillDialog, SkillActions } from './SkillActions'
@@ -28,6 +28,11 @@ function SkillDetail({ name }: { name: string }) {
   const [resource, setResource] = useState('SKILL.md')
   const [confirmRemoval, setConfirmRemoval] = useState(false)
   const [notice, setNotice] = useState('')
+  const mounted = useRef(false)
+  useEffect(() => {
+    mounted.current = true
+    return () => { mounted.current = false }
+  }, [])
   const query = useQuery(skillQueryOptions(name))
   const preview = useQuery({ ...skillQueryOptions(name, resource), enabled: resource !== 'SKILL.md' })
   const content = resource === 'SKILL.md' ? query : preview
@@ -38,9 +43,10 @@ function SkillDetail({ name }: { name: string }) {
   })
   const remove = useMutation({
     mutationFn: () => removeSkill(name),
-    onSuccess: async () => { await queryClient.invalidateQueries({ queryKey: managementKeys.skills() }); navigate('/skills') },
+    onSuccess: async () => { await queryClient.invalidateQueries({ queryKey: managementKeys.skills() }); if (mounted.current) navigate('/skills') },
   })
   const skill = query.data
+  const resourceFiles = [...new Set(['SKILL.md', ...(skill?.resources ?? [])])]
   return <div className="mx-auto w-full max-w-5xl px-4 py-16 sm:px-6 md:py-12 lg:px-8">
     <Link className="text-sm text-muted-foreground underline underline-offset-4" to="/skills">All Skills</Link>
     <div className="mt-5"><ErrorNotice error={query.error ?? workflow.error ?? toggle.error} fallback="The Skill could not be loaded or updated." /></div>
@@ -49,19 +55,21 @@ function SkillDetail({ name }: { name: string }) {
     {skill ? <>
       <header className="mt-5 rounded-xl border border-border bg-card p-5 sm:p-6">
         <div className="flex items-start justify-between gap-3"><h1 className="min-w-0 break-words text-2xl font-semibold tracking-tight">{skill.name}</h1><SkillActions disabled={workflow.isPending} onRemove={() => { remove.reset(); setConfirmRemoval(true) }} onWorkflow={(action) => workflow.mutate({ action, name })} skill={skill} /></div>
-        <p className="mt-3 text-sm leading-6 text-muted-foreground">{skill.description ?? 'Skill content is unavailable.'}</p>
-        <dl className="mt-5 grid gap-3 text-sm sm:grid-cols-3"><div><dt className="text-xs text-muted-foreground">Version</dt><dd className="mt-1">{skill.version ?? 'Unavailable'}</dd></div><div><dt className="text-xs text-muted-foreground">Source</dt><dd className="mt-1 break-all">{skill.source.type === 'builtin' ? 'Built-in' : fieldLabel(skill.source.type)}{skill.source.origin ? ` · ${skill.source.origin}` : ''}</dd></div><div><dt className="text-xs text-muted-foreground">Status</dt><dd className="mt-1">{fieldLabel(skill.status)}</dd></div></dl>
-        <label className="mt-5 flex items-center gap-2 text-sm"><input checked={skill.enabled} disabled={toggle.isPending} onChange={(event) => toggle.mutate(event.target.checked)} type="checkbox" />Enabled</label>
+        <p className="mt-3 break-words text-sm leading-6 text-muted-foreground">{skill.description ?? 'Skill content is unavailable.'}</p>
+        <dl className="mt-5 grid gap-3 text-sm sm:grid-cols-3"><div className="min-w-0"><dt className="text-xs text-muted-foreground">Version</dt><dd className="mt-1 break-all">{skill.version ?? 'Unavailable'}</dd></div><div className="min-w-0"><dt className="text-xs text-muted-foreground">Source</dt><dd className="mt-1 break-all">{skill.source.type === 'builtin' ? 'Built-in' : fieldLabel(skill.source.type)}{skill.source.origin ? ` · ${skill.source.origin}` : ''}</dd></div><div><dt className="text-xs text-muted-foreground">Status</dt><dd className="mt-1">{fieldLabel(skill.status)}</dd></div></dl>
+        <label className="mt-5 flex items-center gap-2 text-sm"><input aria-label={`Enable ${skill.name}`} className="size-4 accent-primary" checked={skill.enabled} disabled={toggle.isPending} onChange={(event) => { setNotice(''); toggle.mutate(event.target.checked) }} type="checkbox" />{toggle.isPending ? 'Saving…' : 'Enabled'}</label>
         {skill.source.type === 'builtin' ? <p className="mt-3 text-xs text-muted-foreground">Built-in Skills can be forked into a custom Skill. Update managed built-ins explicitly with <code>investorch --update</code>.</p> : null}
         {notice ? <p className="mt-4 text-sm" role="status">{notice}</p> : null}
         {workflow.isPending ? <p className="mt-4 text-sm" role="status">Starting a new Agent Session…</p> : null}
       </header>
-      {skill.status === 'invalid' || skill.status === 'missing' ? <div className="mt-5 rounded-xl border border-destructive/25 bg-destructive/5 p-5 text-sm" role="alert"><h2 className="font-semibold">{fieldLabel(skill.status)} Skill</h2><p className="mt-2">{skill.validation_error ?? 'The registered Skill directory is missing. Restore its files or remove the custom registration.'}</p>{skill.source.type === 'builtin' ? <p className="mt-2">Run <code>investorch --update</code> to restore the packaged version.</p> : null}</div> : <section className="mt-5 rounded-xl border border-border bg-card p-5 sm:p-6">
-        <div className="mb-5 flex flex-wrap items-end justify-between gap-3"><div><h2 className="font-semibold">Read-only preview</h2><p className="mt-1 text-xs text-muted-foreground">Viewing this content does not load it into an Agent Session.</p></div><div className="min-w-0 max-w-full"><label className="mb-1 block text-xs font-medium" htmlFor="skill-resource">File</label><select className={fieldClass} id="skill-resource" onChange={(event) => setResource(event.target.value)} value={resource}>{['SKILL.md', ...skill.resources].map((file) => <option key={file} value={file}>{file}</option>)}</select></div></div>
+      {skill.status === 'invalid' || skill.status === 'missing' ? <div className="mt-5 rounded-xl border border-destructive/25 bg-destructive/5 p-5 text-sm" role="alert"><h2 className="font-semibold">{fieldLabel(skill.status)} Skill</h2><p className="mt-2 break-words">{skill.validation_error ?? 'The registered Skill directory is missing. Restore its files or remove the custom registration.'}</p>{skill.source.type === 'builtin' ? <p className="mt-2">Run <code>investorch --update</code> to restore the packaged version.</p> : null}</div> : <section className="mt-5 min-w-0 rounded-xl border border-border bg-card p-5 sm:p-6">
+        <div className="mb-5 flex flex-wrap items-end justify-between gap-3"><div><h2 className="font-semibold">Read-only preview</h2><p className="mt-1 text-xs text-muted-foreground">Viewing this content does not load it into an Agent Session.</p></div><div className="w-full min-w-0 sm:w-72"><label className="mb-1 block text-xs font-medium" htmlFor="skill-resource">File</label>{resourceFiles.length === 1 ? <output className="block break-all rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm" id="skill-resource">{resourceFiles[0]}</output> : <Select value={resource} onValueChange={setResource}><SelectTrigger className="w-full min-w-0 bg-background" id="skill-resource" title={resource}><SelectValue className="min-w-0 truncate" /></SelectTrigger><SelectContent align="end" position="popper" className="max-w-[calc(100vw-2rem)]">{resourceFiles.map((file) => <SelectItem className="break-all" key={file} value={file}>{file}</SelectItem>)}</SelectContent></Select>}</div></div>
+        {resource !== 'SKILL.md' ? <p className="mb-3 break-all font-mono text-xs text-muted-foreground">{resource}</p> : null}
         <ErrorNotice error={content.error} fallback="This resource cannot be previewed as bounded UTF-8 text." />
+        {content.isError ? <Button className="mt-3" disabled={content.isFetching} onClick={() => void content.refetch()} size="sm" type="button" variant="outline">{content.isFetching ? 'Retrying…' : 'Retry preview'}</Button> : null}
         {content.isPending ? <p className="text-sm text-muted-foreground" role="status">Loading resource…</p> : null}
         {content.data?.truncated ? <p className="mb-3 text-xs text-muted-foreground">Preview truncated to the configured text limit.</p> : null}
-        {content.data?.content != null ? resource === 'SKILL.md' ? <SkillPreview text={content.data.content} /> : <pre className="max-w-full overflow-x-auto whitespace-pre-wrap break-words rounded-lg bg-muted p-4 text-xs leading-6">{content.data.content}</pre> : null}
+        {content.data?.content === '' ? <p className="rounded-lg border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">This file is empty.</p> : content.data?.content != null ? resource === 'SKILL.md' ? <SkillPreview text={content.data.content} /> : <pre className="max-w-full overflow-x-auto whitespace-pre-wrap break-words rounded-lg bg-muted p-4 text-xs leading-6">{content.data.content}</pre> : null}
       </section>}
       <RemoveSkillDialog error={remove.error} onClose={() => setConfirmRemoval(false)} onConfirm={() => remove.mutate()} pending={remove.isPending} skill={confirmRemoval ? skill : null} />
     </> : null}

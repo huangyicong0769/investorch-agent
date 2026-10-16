@@ -1,4 +1,4 @@
-import { useRef } from 'react'
+import { useEffect, useRef } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 
@@ -11,6 +11,11 @@ export function useSkillWorkflow() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const requests = useRef(new Map<string, string>())
+  const mounted = useRef(false)
+  useEffect(() => {
+    mounted.current = true
+    return () => { mounted.current = false }
+  }, [])
   return useMutation({
     mutationFn: ({ action, name }: { action: SkillAction; name?: string }) => {
       const identity = `${action}:${name ?? ''}`
@@ -24,7 +29,7 @@ export function useSkillWorkflow() {
         sessions: [response.session, ...(current?.sessions.filter((item) => item.session_id !== response.session.session_id) ?? [])],
       }))
       queryClient.setQueryData(queryKeys.session(response.session.session_id), { session: response.session })
-      navigate(sessionPath(response.session.session_id))
+      if (mounted.current) navigate(sessionPath(response.session.session_id))
       await queryClient.invalidateQueries({ queryKey: queryKeys.sessions() })
     },
   })

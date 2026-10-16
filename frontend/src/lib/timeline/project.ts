@@ -184,7 +184,7 @@ function activityTitle(group: TimelineActivityGroupViewModel): string {
     return latestTool.label
   }
   if (latestTool) {
-    return `Calling ${latestTool.name}…`
+    return `Tool · ${latestTool.name}`
   }
 
   const latestUnmatched = [...group.items]
@@ -207,7 +207,7 @@ function activityTitle(group: TimelineActivityGroupViewModel): string {
     return `${outcome} · ${latestApproval.toolName}`
   }
 
-  return 'Thinking…'
+  return 'Reasoning'
 }
 
 function refreshActivityTitle(group: TimelineActivityGroupViewModel): void {
@@ -246,7 +246,7 @@ function ensureActivityGroup(
     id: `activity-${record.seq}`,
     seq: record.seq,
     timestamp: record.timestamp,
-    title: 'Thinking…',
+    title: 'Reasoning',
     collapsed: true,
     items,
   }
@@ -439,7 +439,7 @@ export function projectTimeline(records: readonly JournalRecord[]): TimelineView
       activeTurn = ensureAssistantTurn(activeTurn, record)
       const message: TimelineAssistantMessageViewModel = {
         type: 'assistant_message',
-        id: `assistant-message-${record.seq}`,
+        id: `assistant-message-${record.message_id ?? record.seq}`,
         seq: record.seq,
         timestamp: record.timestamp,
         text: record.text,

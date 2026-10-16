@@ -1,6 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { useCallback, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useOutletContext, useParams } from 'react-router-dom'
 
 import {
   bootstrapQueryOptions,
@@ -9,18 +8,18 @@ import {
 import { errorMessage } from '../../lib/errors'
 import { ApprovalCard } from '../approval/ApprovalCard'
 import { Composer } from '../composer/Composer'
-import { PlanCard } from '../plan/PlanCard'
 import { QueueStrip } from '../queue/QueueStrip'
 import { SessionContextCard } from './SessionContextCard'
 import { ConversationTimeline } from '../timeline/ConversationTimeline'
 import { ConversationHeader } from './ConversationHeader'
-import { EMPTY_DRAFT, type ComposerDraft, type PendingDirectMessage } from './interaction'
+import { EMPTY_DRAFT } from './interaction'
+import type { ConversationInteraction } from './useConversationInteraction'
 import { Button } from '@/components/ui/button'
 
 export function ConversationPage() {
   const { sessionId = '' } = useParams<'sessionId'>()
-  const [drafts, setDrafts] = useState<Map<string, ComposerDraft>>(() => new Map())
-  const [pendingMessages, setPendingMessages] = useState<Map<string, PendingDirectMessage>>(() => new Map())
+  const { drafts, pendingMessages, updateDraft, clearSubmittedDraft, setPendingMessage, clearPendingMessage } =
+    useOutletContext<ConversationInteraction>()
   const stateQuery = useQuery({
     ...sessionStateQueryOptions(sessionId),
     enabled: Boolean(sessionId),
@@ -28,47 +27,6 @@ export function ConversationPage() {
   const bootstrapQuery = useQuery(bootstrapQueryOptions())
   const draft = drafts.get(sessionId) ?? EMPTY_DRAFT
   const pendingMessage = pendingMessages.get(sessionId) ?? null
-  const updateDraft = useCallback(
-    (targetSessionId: string, update: (draft: ComposerDraft) => ComposerDraft) => {
-      setDrafts((current) => {
-        const nextDraft = update(current.get(targetSessionId) ?? EMPTY_DRAFT)
-        const next = new Map(current)
-        if (nextDraft.text || nextDraft.images.length) {
-          next.set(targetSessionId, nextDraft)
-        } else {
-          next.delete(targetSessionId)
-        }
-        return next
-      })
-    },
-    [],
-  )
-  const clearSubmittedDraft = useCallback((targetSessionId: string, submittedDraft: ComposerDraft) => {
-    setDrafts((current) => {
-      if (current.get(targetSessionId) !== submittedDraft) {
-        return current
-      }
-      const next = new Map(current)
-      next.delete(targetSessionId)
-      return next
-    })
-  }, [])
-  const setPendingMessage = useCallback(
-    (targetSessionId: string, message: PendingDirectMessage) => {
-      setPendingMessages((current) => new Map(current).set(targetSessionId, message))
-    },
-    [],
-  )
-  const clearPendingMessage = useCallback((targetSessionId: string, runId: string) => {
-    setPendingMessages((current) => {
-      if (current.get(targetSessionId)?.runId !== runId) {
-        return current
-      }
-      const next = new Map(current)
-      next.delete(targetSessionId)
-      return next
-    })
-  }, [])
 
   if (!sessionId) {
     return <ConversationError message="The session URL is incomplete." />
@@ -92,8 +50,8 @@ export function ConversationPage() {
   }
 
   return (
-    <section className="relative flex h-dvh min-w-0 flex-col bg-background xl:pr-80">
-      <ConversationHeader session={stateQuery.data.session} context={<SessionContextCard session={stateQuery.data.session} runtime={stateQuery.data.runtime} />} />
+    <section data-conversation-layout className="relative flex h-dvh min-w-0 flex-col bg-background">
+      <ConversationHeader session={stateQuery.data.session} context={<SessionContextCard session={stateQuery.data.session} runtime={stateQuery.data.runtime} presentation={stateQuery.data.presentation} />} />
       <ConversationTimeline
         onPendingMessageCanonical={() => {
           if (pendingMessage) {
@@ -104,8 +62,7 @@ export function ConversationPage() {
         runtime={stateQuery.data.runtime}
         sessionId={sessionId}
       />
-      <div className="mx-auto w-full max-w-4xl space-y-2 px-4 pb-4 pt-2 sm:px-6">
-        <PlanCard presentation={stateQuery.data.presentation} runtime={stateQuery.data.runtime} />
+      <div data-conversation-width className="mx-auto max-h-[70dvh] w-full max-w-4xl shrink-0 space-y-2 overflow-y-auto overscroll-contain px-4 pb-4 pt-2 sm:px-6">
         <QueueStrip
           archived={stateQuery.data.session.archived_at !== null}
           sessionId={sessionId}
