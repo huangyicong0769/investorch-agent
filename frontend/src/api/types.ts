@@ -367,6 +367,7 @@ export interface RunEndedLiveEvent {
   session_id: string
   run_id: string
   status: 'completed' | 'cancelled' | 'failed'
+  error?: string | null
   started_at?: string
   ended_at?: string
   duration_ms?: number
@@ -479,10 +480,17 @@ export interface RunEndedRecord extends JournalRecordBase {
   type: 'run_ended'
   run_id: string
   status: 'completed' | 'cancelled' | 'failed'
+  error?: string | null
   started_at?: string
   ended_at?: string
   duration_ms?: number
   discarded_user_steer_seqs?: number[]
+}
+
+export interface RunErrorRecord extends JournalRecordBase {
+  type: 'run_error'
+  run_id: string
+  error: string
 }
 
 export type JournalOutputRecord = JournalRecordBase & Exclude<OutputEvent, OutputEventAssistantMessageUpdate>
@@ -494,6 +502,7 @@ export type JournalRecord =
   | ActivityLabelRecord
   | ApprovalRecord
   | RunEndedRecord
+  | RunErrorRecord
   | JournalOutputRecord
 
 export interface HistoryResponse {

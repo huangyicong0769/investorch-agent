@@ -93,11 +93,12 @@ function TimelineItem({ item }: { item: TimelineViewModel }) {
   )
 }
 
-function RunFailure({ children }: { children?: ReactNode }) {
+function RunFailure({ error, children }: { error?: string | null; children?: ReactNode }) {
   return <div className="my-3 flex gap-3 rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3.5" role="alert">
     <CircleAlert aria-hidden="true" className="mt-0.5 size-5 shrink-0 text-destructive" />
     <div className="min-w-0">
       <p className="text-sm font-semibold text-destructive">Run failed</p>
+      {error ? <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-6">{error}</p> : null}
       {children ? <div className="mt-2 text-xs text-muted-foreground">{children}</div> : null}
     </div>
   </div>
@@ -113,7 +114,7 @@ function RunTiming({ timing }: { timing: TimelineRunTimingViewModel }) {
   </>
 
   if (timing.status === 'failed') {
-    return <div data-seq={timing.seq}><RunFailure>{description}</RunFailure></div>
+    return <div data-seq={timing.seq}><RunFailure error={timing.error}>{description}</RunFailure></div>
   }
 
   return (
@@ -543,7 +544,7 @@ export function ConversationTimeline({
 
           {!isPending && !isError
             ? liveSession.notices.filter((notice) => !notice.endedRunId || !visibleTimeline.some((item) => item.type === 'run_timing' && item.runId === notice.endedRunId)).map((notice) => notice.severity === 'error' ? (
-                <RunFailure key={notice.id} />
+                <RunFailure error={notice.error} key={notice.id} />
               ) : (
                 <div className="py-2 text-center text-[11px] text-muted-foreground" key={notice.id} role="status">
                   {notice.text}

@@ -62,6 +62,7 @@ export interface LiveNotice {
   timestamp: string
   endedRunId?: string
   severity?: 'error'
+  error?: string | null
 }
 
 interface LiveSessionValue {
@@ -96,6 +97,7 @@ type ParsedRunEndedEvent = {
   session_id: string
   run_id: string
   status: 'completed' | 'cancelled' | 'failed'
+  error: string | null
   started_at: string | null
   ended_at: string | null
   duration_ms: number | null
@@ -368,6 +370,8 @@ function parseLiveEvent(value: unknown): ParsedLiveEvent | null {
       const sessionId = stringField(value, 'session_id')
       const runId = stringField(value, 'run_id')
       const status = value.status
+      const error = nullableStringField(value, 'error')
+      if ('error' in value && error === undefined) return null
       const autoCompaction = value.auto_compaction
       const startedAt = isoTimestampField(value, 'started_at')
       const endedAt = isoTimestampField(value, 'ended_at')
@@ -393,6 +397,7 @@ function parseLiveEvent(value: unknown): ParsedLiveEvent | null {
             session_id: sessionId,
             run_id: runId,
             status,
+            error: error ?? null,
             started_at: timing?.started_at ?? null,
             ended_at: timing?.ended_at ?? null,
             duration_ms: timing?.duration_ms ?? null,
@@ -471,6 +476,7 @@ function overlayRecord(event: ParsedLiveEvent, runEndedSequence: number | null =
       type: 'run_ended',
       run_id: event.run_id,
       status: event.status,
+      error: event.error,
       started_at: event.started_at,
       ended_at: event.ended_at,
       duration_ms: event.duration_ms,
@@ -619,7 +625,7 @@ export function LiveWebSocketProvider({ children }: PropsWithChildren) {
     setResyncedRun(null)
   }
 
-  const addNotice = (sessionId: string, key: string, text: string, endedRunId?: string, severity?: 'error') => {
+  const addNotice = (sessionId: string, key: string, text: string, endedRunId?: string, severity?: 'error', error?: string | null) => {
     if (selectedSessionRef.current !== sessionId) {
       return
     }
@@ -640,6 +646,7 @@ export function LiveWebSocketProvider({ children }: PropsWithChildren) {
       id,
       text,
       severity,
+      error,
       timestamp: receivedAt(),
       ...(endedRunId ? { endedRunId } : {}),
     }
@@ -817,7 +824,7 @@ export function LiveWebSocketProvider({ children }: PropsWithChildren) {
       if (event.status === 'cancelled') {
         addNotice(event.session_id, `${event.run_id}:cancelled`, 'Run stopped.', event.run_id)
       } else if (event.status === 'failed') {
-        addNotice(event.session_id, `${event.run_id}:failed`, 'Run failed.', event.run_id, 'error')
+        addNotice(event.session_id, `${event.run_id}:failed`, 'Run failed.', event.run_id, 'error', event.error)
       }
       if (event.auto_compaction_changed === true) {
         addNotice(event.session_id, `${event.run_id}:compacted`, 'Context compacted automatically.')

@@ -119,6 +119,7 @@ export interface TimelineRunTimingViewModel {
   timestamp: string
   runId: string
   status: 'completed' | 'cancelled' | 'failed'
+  error: string | null
   startedAt: string
   endedAt: string
   durationMs: number
@@ -335,10 +336,14 @@ function appendApproval(activeTurn: MutableAssistantTurn, record: Extract<Journa
 export function projectTimeline(records: readonly JournalRecord[]): TimelineViewModel[] {
   const orderedRecords = canonicalRecords(records)
   const labels = new Map<number, string>()
+  const runErrors = new Map<string, string>()
 
   for (const record of orderedRecords) {
     if (record.type === 'activity_label' && record.text.trim()) {
       labels.set(record.target_seq, record.text.trim())
+    }
+    if (record.type === 'run_error') {
+      runErrors.set(record.run_id, record.error)
     }
   }
 
@@ -355,7 +360,7 @@ export function projectTimeline(records: readonly JournalRecord[]): TimelineView
   }
 
   for (const record of orderedRecords) {
-    if (record.type === 'activity_label') {
+    if (record.type === 'activity_label' || record.type === 'run_error') {
       continue
     }
 
@@ -408,6 +413,7 @@ export function projectTimeline(records: readonly JournalRecord[]): TimelineView
         timestamp: record.timestamp,
         runId: record.run_id,
         status: record.status,
+        error: runErrors.get(record.run_id) ?? record.error ?? null,
         startedAt: record.started_at,
         endedAt: record.ended_at,
         durationMs: record.duration_ms,
