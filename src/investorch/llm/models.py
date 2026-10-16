@@ -11,7 +11,8 @@ from agents.items import ModelResponse, TResponseInputItem, TResponseStreamEvent
 from agents.models.interface import ModelTracing
 from agents.tool import Tool
 from agents.usage import Usage
-from openai import APIStatusError, AsyncOpenAI
+from openai import APIStatusError, AsyncOpenAI, omit
+from openai.lib.streaming.responses import ResponseStreamState
 from openai.types.responses import Response
 from openai.types.responses.response_prompt_param import ResponsePromptParam
 
@@ -198,6 +199,8 @@ class ChatGPTResponsesModel(OpenAIResponsesModel):
         prompt: ResponsePromptParam | None = None,
     ) -> ModelResponse:
         final: Response | None = None
+        collector = ResponseStreamState(input_tools=omit, text_format=omit)
+        has_completed_items = False
         async for event in self.stream_response(
             system_instructions,
             input,
@@ -210,8 +213,15 @@ class ChatGPTResponsesModel(OpenAIResponsesModel):
             conversation_id,
             prompt,
         ):
-            if event.type == "response.completed":
-                final = event.response
+            if event.type == "response.output_item.done":
+                has_completed_items = True
+            if event.type == "response.completed" and not event.response.output and has_completed_items:
+                # SIWC may omit output from the final envelope after emitting finalized items.
+                # The SDK collector recovers those items when the envelope output is absent.
+                event = event.model_copy(update={"response": event.response.model_copy(update={"output": None})})
+            for collected in collector.handle_event(event):
+                if collected.type == "response.completed":
+                    final = collected.response
         if final is None:
             raise ModelBehaviorError("ChatGPT stream ended without response.completed.")
         raw = final.usage

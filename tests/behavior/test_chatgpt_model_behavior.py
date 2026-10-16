@@ -34,13 +34,20 @@ def response(output, *, status="completed"):
     }
 
 
-def events(payload):
-    return (
-        f"event: response.completed\ndata: {json.dumps({'type': 'response.completed', 'sequence_number': 0, 'response': payload})}\n\n"
+def events(payload, *, streamed_output=None):
+    records = [{"type": "response.created", "response": response([], status="in_progress")}]
+    for index, item in enumerate(streamed_output or []):
+        records.append({"type": "response.output_item.done", "output_index": index, "item": item})
+    records.append({"type": "response.completed", "response": payload})
+    return "".join(
+        f"data: {json.dumps({**record, 'sequence_number': index})}\n\n" for index, record in enumerate(records)
     ).encode()
 
 
-async def test_nonstream_runner_uses_streaming_http_and_preserves_structured_output_and_usage():
+@pytest.mark.parametrize("output_in_completed_event", ["full", "null", "empty"])
+async def test_nonstream_runner_uses_streaming_http_and_preserves_structured_output_and_usage(
+    output_in_completed_event,
+):
     requests = []
 
     class Answer(BaseModel):
@@ -60,7 +67,16 @@ async def test_nonstream_runner_uses_streaming_http_and_preserves_structured_out
         return httpx2.Response(
             200,
             headers={"content-type": "text/event-stream", "x-request-id": "req-test"},
-            content=events(response(output)),
+            content=events(
+                response(
+                    output
+                    if output_in_completed_event == "full"
+                    else None
+                    if output_in_completed_event == "null"
+                    else []
+                ),
+                streamed_output=output,
+            ),
         )
 
     async with AsyncOpenAI(
@@ -72,7 +88,7 @@ async def test_nonstream_runner_uses_streaming_http_and_preserves_structured_out
             output_type=Answer,
             model_settings=ModelSettings(max_tokens=200, temperature=0.2, store=True, metadata={"name": "review"}),
         )
-        result = await Runner.run(agent, "Review this", run_config={"tracing_disabled": True})
+        result = await Runner.run(agent, "Review this", max_turns=1, run_config={"tracing_disabled": True})
     assert result.final_output == Answer(answer="ready")
     assert result.context_wrapper.usage.input_tokens == 11
     assert result.context_wrapper.usage.output_tokens_details.reasoning_tokens == 2
