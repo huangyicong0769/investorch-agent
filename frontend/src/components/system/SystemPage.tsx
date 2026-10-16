@@ -3,7 +3,9 @@ import { RefreshCw } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
 import { systemQueryOptions, type DiagnosticCheck } from '../../api/management'
+import { processesQueryOptions } from '../../api/queries'
 import { ErrorNotice } from '../management/Feedback'
+import { SessionProcesses } from '../processes/SessionProcesses'
 import { Button } from '@/components/ui/button'
 import { cn } from '../../lib/utils'
 import { fieldLabel } from '../management/schema'
@@ -33,6 +35,7 @@ function SkillIssues({ check }: { check: SkillDiagnosticCheck }) {
 
 export function SystemPage({ standalone = false }: { standalone?: boolean }) {
   const query = useQuery(systemQueryOptions())
+  const processes = useQuery({ ...processesQueryOptions(), enabled: !standalone, refetchInterval: standalone ? false : 2_000, staleTime: 0 })
   const checkedAt = query.data?.checks[0]?.checked_at
   const checks = [...(query.data?.checks ?? [])].sort((left, right) => statusOrder[left.status] - statusOrder[right.status])
   return <div className="mx-auto w-full max-w-5xl px-4 py-16 sm:px-6 md:py-12 lg:px-8">
@@ -45,6 +48,9 @@ export function SystemPage({ standalone = false }: { standalone?: boolean }) {
       </div>
       <Button disabled={query.isFetching} onClick={() => void query.refetch()} type="button" variant="outline"><RefreshCw aria-hidden="true" className={query.isFetching ? 'animate-spin' : ''} />{query.isFetching ? 'Checking…' : 'Refresh'}</Button>
     </header>
+    {!standalone ? <div className="mt-6">
+      <SessionProcesses scope="all" processes={processes.data?.processes ?? []} loading={processes.isPending} error={processes.error} onRetry={() => void processes.refetch()} />
+    </div> : null}
     {query.data ? <div aria-label="Diagnostic summary" className="mt-6 flex flex-wrap gap-x-5 gap-y-2 rounded-xl border border-border bg-card px-4 py-3 text-sm" role="status">
       {(Object.keys(statusOrder) as DiagnosticCheck['status'][]).map((status) => {
         const count = checks.filter((check) => check.status === status).length

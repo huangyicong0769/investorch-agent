@@ -12,7 +12,7 @@ function formatTimestamp(value: string | null): string {
   return Number.isNaN(timestamp.getTime()) ? value : timestamp.toLocaleString()
 }
 
-function ProcessItem({ process }: { process: BackgroundJob }) {
+function ProcessItem({ process, showOwner }: { process: BackgroundJob; showOwner: boolean }) {
   return (
     <li>
       <Collapsible>
@@ -31,6 +31,10 @@ function ProcessItem({ process }: { process: BackgroundJob }) {
         <CollapsibleContent className="summary-section-content space-y-3 px-1.5 pb-3 text-xs">
           <pre className="max-h-28 overflow-auto whitespace-pre-wrap break-all rounded-md bg-muted p-2 font-mono text-xs leading-5">{process.command}</pre>
           <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1">
+            {showOwner ? <>
+              <dt className="text-muted-foreground">Owner Session</dt>
+              <dd className="break-all">{process.owner_session_id}</dd>
+            </> : null}
             <dt className="text-muted-foreground">Started</dt>
             <dd className="break-words">{formatTimestamp(process.started_at)}</dd>
             {process.finished_at !== null ? <>
@@ -61,20 +65,21 @@ function ProcessItem({ process }: { process: BackgroundJob }) {
 }
 
 interface SessionProcessesProps {
+  scope?: 'session' | 'all'
   processes: BackgroundJob[]
   loading: boolean
   error: unknown
   onRetry: () => void
 }
 
-export function SessionProcesses({ processes, loading, error, onRetry }: SessionProcessesProps) {
+export function SessionProcesses({ processes, loading, error, onRetry, scope = 'session' }: SessionProcessesProps) {
   const running = processes.filter((process) => process.status === 'running').length
   const lost = processes.filter((process) => process.status === 'lost').length
   const status = running ? `${running} running` : lost ? `${lost} lost` : 'Finished'
 
   return (
-    <section className="border-t border-border/50 pt-4" aria-label="Session processes">
-      <h2 className="mb-2 text-xs text-muted-foreground">Background processes</h2>
+    <section className="border-t border-border/50 pt-4" aria-label={scope === 'all' ? 'All processes' : 'Session processes'}>
+      <h2 className="mb-2 text-xs text-muted-foreground">{scope === 'all' ? 'All background processes' : 'Background processes'}</h2>
       {loading ? <p className="text-xs text-muted-foreground" role="status">Loading processes…</p> : null}
       {error ? <div className="text-xs" role="alert">
         <p className="text-destructive">{errorMessage(error, 'Processes could not be loaded.')}</p>
@@ -90,7 +95,7 @@ export function SessionProcesses({ processes, loading, error, onRetry }: Session
         </CollapsibleTrigger>
         <CollapsibleContent className="summary-section-content">
           <ul className="divide-y divide-border/50 pt-2">
-            {processes.map((process) => <ProcessItem key={process.job_id} process={process} />)}
+            {processes.map((process) => <ProcessItem key={process.job_id} process={process} showOwner={scope === 'all'} />)}
           </ul>
         </CollapsibleContent>
       </Collapsible> : null}
