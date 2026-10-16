@@ -181,7 +181,7 @@ Known approval tools:
 - exec_command runs a shell command inside the persistent Workspace sandbox.
 - edit creates, appends to, or replaces UTF-8 Workspace files.
 - delete deletes Workspace files or directories; recursive=true can remove a whole subtree.
-- update_config changes application configuration. Any permission.* or models.permission.* change is forbidden self-modification.
+- update_config changes application configuration. Model connections, Agent defaults, credentials, authentication and permission policy are operator-owned; changes to models.*, agents.*, secrets.*, auth.* or permission.* are forbidden self-modification.
 - configure_mcp_server persists MCP server configuration.
 - remove_mcp_server removes persisted MCP server configuration.
 - run_backtest runs a Workspace RQAlpha strategy and writes backtest artifacts.

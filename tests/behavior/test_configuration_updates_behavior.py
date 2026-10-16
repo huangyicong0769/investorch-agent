@@ -7,11 +7,11 @@ from investorch.config import ConfigError, load_config
 
 def test_loading_incomplete_model_configuration_preserves_file_and_requires_setup(tmp_path: Path) -> None:
     local = tmp_path / "investorch.toml"
-    original = b'[secrets]\nPROVIDER_KEY = "existing-test-key"\n[models.main]\nname = "explicit-model" # user choice\n'
+    original = b'[secrets]\nPROVIDER_KEY = "existing-test-key"\n[agents.main]\nname = "explicit-model" # user choice\n'
     local.write_bytes(original)
     config = load_config(root=tmp_path)
-    assert "models.main.base_url" in config.readiness()
-    assert config["models.main.name"] == "explicit-model"
+    assert "agents.main.model" in config.readiness()
+    assert config["agents.main.name"] == "explicit-model"
     assert config.secret("PROVIDER_KEY") == "existing-test-key"
     assert local.read_bytes() == original
     assert list(tmp_path.iterdir()) == [local]

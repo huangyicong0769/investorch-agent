@@ -81,13 +81,20 @@ def running_web(executable: str, home: Path):
 
 
 def complete_neutral_setup(origin: str) -> None:
-    changes = {"secrets.PACKAGE_SMOKE_KEY": "not-a-real-provider-key"}
+    changes = {
+        "secrets.PACKAGE_SMOKE_KEY": "not-a-real-provider-key",
+        "models.primary": {
+            "type": "openai_compatible",
+            "base_url": "http://127.0.0.1:9/v1",
+            "api_key_secret": "PACKAGE_SMOKE_KEY",
+        },
+    }
     for role in ("main", "title", "activity", "permission", "compact"):
         changes.update(
             {
-                f"models.{role}.name": "package-smoke-model",
-                f"models.{role}.base_url": "http://127.0.0.1:9/v1",
-                f"models.{role}.api_key_secret": "PACKAGE_SMOKE_KEY",
+                f"agents.{role}.model": "primary",
+                f"agents.{role}.name": "package-smoke-model",
+                f"agents.{role}.context_window_tokens": 131072,
             }
         )
     request(origin, "/api/setup/config", method="PATCH", body={"changes": changes})
@@ -173,7 +180,7 @@ def main() -> None:
             assert "properties" in schema
             config = load_config(root=root)
             assert config["runtime.max_turns"] == 100
-            assert config["models.main.name"] is None
+            assert config["agents.main.name"] is None
             assert config.readiness()
             complete_neutral_setup(origin)
             assert request(origin, "/api/setup/state")["status"] == "ready"

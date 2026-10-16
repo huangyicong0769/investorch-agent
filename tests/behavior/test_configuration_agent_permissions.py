@@ -11,7 +11,7 @@ from tests.behavior.test_workspace_capabilities import make_tool_context
 
 @pytest.mark.parametrize(
     "key",
-    ["models.main.name", "agents.main.name", "secrets.TEST_API_KEY", "permission.mode"],
+    ["models.test.base_url", "agents.main.name", "secrets.TEST_API_KEY", "permission.mode", "auth.chatgpt_host_id"],
 )
 async def test_agent_cannot_modify_model_or_authorization_settings(tmp_path: Path, key: str) -> None:
     context = make_tool_context(tmp_path)

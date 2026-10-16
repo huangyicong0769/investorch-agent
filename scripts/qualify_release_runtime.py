@@ -43,7 +43,7 @@ from rqalpha.utils.datetime_func import convert_date_to_int, convert_int_to_date
 
 from investorch.application import PortfolioOperations
 from investorch.config import AppConfig
-from investorch.config_schema import REQUIRED_MODEL_AGENTS
+from investorch.config_schema import REQUIRED_AGENT_ROLES
 from investorch.context import AgentContext, ExecutionState
 from investorch.initializer import initialize
 from investorch.tools import base
@@ -73,18 +73,18 @@ def manifest(root: Path) -> dict[str, tuple[int, int]]:
 
 
 def make_config(root: Path) -> AppConfig:
-    models = {
-        role: {
-            "name": "qualification-no-provider-call",
-            "base_url": "http://127.0.0.1:1/v1",
-            "api_key_secret": "unused",
-        }
-        for role in REQUIRED_MODEL_AGENTS
+    models = {"primary": {"type": "openai_compatible", "base_url": "http://127.0.0.1:1/v1", "api_key_secret": "unused"}}
+    agents = {
+        role: {"model": "primary", "name": "qualification-no-provider-call", "context_window_tokens": 131072}
+        for role in REQUIRED_AGENT_ROLES
     }
-    models["main"]["context_window_tokens"] = 131072
-    config = AppConfig({"paths": {"root": str(root)}, "models": models, "secrets": {"unused": "unused"}})
+    config = AppConfig(
+        {"paths": {"root": str(root)}, "models": models, "agents": agents, "secrets": {"unused": "unused"}}
+    )
     initialize(config)
-    config.root_config_path.write_text(tomlkit.dumps({"models": models, "secrets": {"unused": "unused"}}))
+    config.root_config_path.write_text(
+        tomlkit.dumps({"models": models, "agents": agents, "secrets": {"unused": "unused"}})
+    )
     config.root_config_path.chmod(0o600)
     return config
 

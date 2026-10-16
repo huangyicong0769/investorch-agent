@@ -12,6 +12,7 @@ import json
 import struct
 import tempfile
 import zlib
+from contextlib import AsyncExitStack
 
 from agents import SQLiteSession, set_tracing_disabled
 
@@ -24,12 +25,13 @@ from investorch.agents import (
     create_title_agent,
 )
 from investorch.application import PortfolioOperations
-from investorch.application.host import create_model
 from investorch.config import AppConfig, load_config
 from investorch.context import ExecutionState
 from investorch.images import ImageContent
 from investorch.initializer import initialize
 from investorch.inputs import UserInput
+from investorch.llm.clients import ModelConnectionClients
+from investorch.llm.oauth import ChatGPTAuth
 from investorch.output import ToolOutput
 from investorch.runtime.control import RunControl
 from investorch.storage import create_session, get_session_title
@@ -55,105 +57,118 @@ async def qualify() -> None:
         data["secrets"] = source.secrets
         data["paths"]["root"] = directory
         data["backtest"]["use_cnequity"] = False
-        for role in ("main", "title", "compact"):
-            data["models"][role]["name"] = "deepseek-flash"
+        if any(connection["type"] != "openai_compatible" for connection in data["models"].values()):
+            raise ValueError(
+                "Sign in separately in an isolated Root for ChatGPT qualification; do not copy rotating tokens"
+            )
         config = AppConfig(data)
         initialize(config)
         image_bytes = red_png()
         (config.workspace_dir / "sample.png").write_bytes(image_bytes)
         url = "data:image/png;base64," + base64.b64encode(image_bytes).decode()
-        main = create_agent(*create_model(config, "main"), config)
-        title = create_title_agent(*create_model(config, "title"))
-        compact = create_compaction_agent(*create_model(config, "compact"))
-        loop = AgentLoop(main, title, compact, config, PortfolioOperations(config=config))
-        execution = ExecutionState(workspace_root=config.workspace_dir)
-        report = {"model": "deepseek-flash", "checks": {}}
+        async with AsyncExitStack() as stack:
+            auth = ChatGPTAuth(config)
+            stack.push_async_callback(auth.close)
+            clients = ModelConnectionClients(config, auth)
+            stack.push_async_callback(clients.close)
+            main = create_agent(*clients.for_agent("main"), config)
+            title = create_title_agent(*clients.for_agent("title"))
+            compact = create_compaction_agent(*clients.for_agent("compact"))
+            loop = AgentLoop(
+                main, title, compact, config, PortfolioOperations(config=config), model_factory=clients.resolve
+            )
+            execution = ExecutionState(workspace_root=config.workspace_dir)
+            report = {"model": config.agent_model("main").name, "checks": {}}
 
-        async def reject_action(*_args) -> ApprovalOutcome:
-            return ApprovalOutcome(False, TokenUsage())
+            async def reject_action(*_args) -> ApprovalOutcome:
+                return ApprovalOutcome(False, TokenUsage())
 
-        cases = [
-            ("text_only", UserInput("Reply exactly: structured text works"), None),
-            (
-                "image_only",
-                UserInput("", (ImageContent(url),)),
-                "Describe the dominant color of the supplied image. No tools.",
-            ),
-            (
-                "text_image",
-                UserInput("What is the dominant color? Reply with the color only. No tools.", (ImageContent(url),)),
-                None,
-            ),
-            (
-                "original_detail",
-                UserInput(
-                    "What is the dominant color? Reply with the color only. No tools.", (ImageContent(url, "original"),)
+            cases = [
+                ("text_only", UserInput("Reply exactly: structured text works"), None),
+                (
+                    "image_only",
+                    UserInput("", (ImageContent(url),)),
+                    "Describe the dominant color of the supplied image. No tools.",
                 ),
-                None,
-            ),
-            (
-                "explore",
-                UserInput("Read sample.png using explore and report its dominant color. Do not use any other tools."),
-                None,
-            ),
-        ]
-        for name, user_input, instruction in cases:
-            create_session(config.sessions_db, name)
-            session = SQLiteSession(name, config.sessions_db)
-            events = []
+                (
+                    "text_image",
+                    UserInput("What is the dominant color? Reply with the color only. No tools.", (ImageContent(url),)),
+                    None,
+                ),
+                (
+                    "original_detail",
+                    UserInput(
+                        "What is the dominant color? Reply with the color only. No tools.",
+                        (ImageContent(url, "original"),),
+                    ),
+                    None,
+                ),
+                (
+                    "explore",
+                    UserInput(
+                        "Read sample.png using explore and report its dominant color. Do not use any other tools."
+                    ),
+                    None,
+                ),
+            ]
+            for name, user_input, instruction in cases:
+                create_session(config.sessions_db, name)
+                session = SQLiteSession(name, config.sessions_db)
+                events = []
 
-            async def output(event, collected=events):
-                collected.append(event)
+                async def output(event, collected=events):
+                    collected.append(event)
 
-            try:
-                async with asyncio.timeout(180):
-                    result = await loop.run(
-                        user_input,
-                        session,
-                        execution,
-                        run_id=name,
-                        session_id=name,
-                        reasoning_effort="none",
-                        approval_handler=reject_action,
-                        output_handler=output,
-                        run_control=RunControl(name, name, lambda: None),
-                        application_instruction=instruction,
-                    )
-                color_correct = "red" in result.output.lower() or "红" in result.output
-                passed = "structured text works" in result.output.lower() if name == "text_only" else color_correct
-                if name == "explore":
-                    passed = passed and any(isinstance(event, ToolOutput) and event.images for event in events)
-                report["checks"][name] = {
-                    "passed": bool(passed),
-                    "title_generated": bool(get_session_title(config.sessions_db, name)),
-                    "main_tokens": result.main_usage.total_tokens,
-                }
-                if name == "text_image":
+                try:
                     async with asyncio.timeout(180):
-                        compaction = await loop.compact(session)
-                        continued = await loop.run(
-                            UserInput("What color was the image? Reply with the color only. No tools."),
+                        result = await loop.run(
+                            user_input,
                             session,
                             execution,
-                            run_id="continued",
+                            run_id=name,
                             session_id=name,
-                            reasoning_effort="none",
+                            model_config=config.agent_model("main"),
                             approval_handler=reject_action,
                             output_handler=output,
-                            run_control=RunControl(name, "continued", lambda: None),
+                            run_control=RunControl(name, name, lambda: None),
+                            application_instruction=instruction,
                         )
-                    report["checks"]["compact_continuation"] = {
-                        "passed": compaction.changed and ("red" in continued.output.lower() or "红" in continued.output)
+                    color_correct = "red" in result.output.lower() or "红" in result.output
+                    passed = "structured text works" in result.output.lower() if name == "text_only" else color_correct
+                    if name == "explore":
+                        passed = passed and any(isinstance(event, ToolOutput) and event.images for event in events)
+                    report["checks"][name] = {
+                        "passed": bool(passed),
+                        "title_generated": bool(get_session_title(config.sessions_db, name)),
+                        "main_tokens": result.main_usage.total_tokens,
                     }
-            except Exception as exc:
-                # Provider exception messages can contain request payloads.
-                report["checks"][name] = {"passed": False, "error_type": type(exc).__name__}
-            finally:
-                session.close()
-            print(json.dumps({"check": name, "result": report["checks"][name]}), flush=True)
-        print(json.dumps(report, indent=2), flush=True)
-        if not all(result["passed"] for result in report["checks"].values()):
-            raise SystemExit(1)
+                    if name == "text_image":
+                        async with asyncio.timeout(180):
+                            compaction = await loop.compact(session)
+                            continued = await loop.run(
+                                UserInput("What color was the image? Reply with the color only. No tools."),
+                                session,
+                                execution,
+                                run_id="continued",
+                                session_id=name,
+                                model_config=config.agent_model("main"),
+                                approval_handler=reject_action,
+                                output_handler=output,
+                                run_control=RunControl(name, "continued", lambda: None),
+                            )
+                        report["checks"]["compact_continuation"] = {
+                            "passed": compaction.changed
+                            and ("red" in continued.output.lower() or "红" in continued.output)
+                        }
+                except Exception as exc:
+                    # Provider exception messages can contain request payloads.
+                    report["checks"][name] = {"passed": False, "error_type": type(exc).__name__}
+                finally:
+                    session.close()
+                print(json.dumps({"check": name, "result": report["checks"][name]}), flush=True)
+            print(json.dumps(report, indent=2), flush=True)
+            if not all(result["passed"] for result in report["checks"].values()):
+                raise SystemExit(1)
 
 
 if __name__ == "__main__":

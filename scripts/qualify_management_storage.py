@@ -22,7 +22,7 @@ from package_smoke import request, running_web
 
 from investorch.application.skills import SkillOperations
 from investorch.backup import create_backup, verify_backup
-from investorch.config import REQUIRED_MODEL_AGENTS, load_config
+from investorch.config import REQUIRED_AGENT_ROLES, load_config
 from investorch.initializer import initialize
 from investorch.portfolio import init_portfolio_storage, list_ledger_entries, list_portfolios
 from investorch.portfolio.migration import migrate_portfolio
@@ -46,15 +46,18 @@ def configured_home(base: Path, name: str) -> Path:
     root = home / ".investorch"
     root.mkdir(parents=True)
     models = {
-        role: {
-            "name": "qualification-model",
+        "primary": {
+            "type": "openai_compatible",
             "base_url": "http://127.0.0.1:9/v1",
             "api_key_secret": "QUALIFICATION_KEY",
         }
-        for role in REQUIRED_MODEL_AGENTS
+    }
+    agents = {
+        role: {"model": "primary", "name": "qualification-model", "context_window_tokens": 131072}
+        for role in REQUIRED_AGENT_ROLES
     }
     (root / "investorch.toml").write_text(
-        tomlkit.dumps({"models": models, "secrets": {"QUALIFICATION_KEY": KEY}}), encoding="utf-8"
+        tomlkit.dumps({"models": models, "agents": agents, "secrets": {"QUALIFICATION_KEY": KEY}}), encoding="utf-8"
     )
     return home
 
