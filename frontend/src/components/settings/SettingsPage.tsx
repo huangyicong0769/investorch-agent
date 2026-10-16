@@ -1,5 +1,6 @@
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useSearchParams } from 'react-router-dom'
 
 import { configQueryOptions, managementKeys, resetConfig, saveConfig, schemaQueryOptions, type ConfigSchema, type SavedConfig } from '../../api/management'
 import { defaultsQueryOptions, bootstrapQueryOptions } from '../../api/queries'
@@ -34,7 +35,8 @@ const categoryDescriptions: Record<Category, string> = {
 
 function SettingsEditor({ saved, schema }: { saved: SavedConfig; schema: ConfigSchema }) {
   const queryClient = useQueryClient()
-  const [category, setCategory] = useState<Category>('General')
+  const [searchParams] = useSearchParams()
+  const [category, setCategory] = useState<Category>(() => searchParams.get('section') === 'models' ? 'Models' : 'General')
   const editorRef = useRef<HTMLDivElement>(null)
   const selectCategory = (next: Category) => {
     setCategory(next)

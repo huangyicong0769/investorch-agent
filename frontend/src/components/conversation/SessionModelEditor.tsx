@@ -161,7 +161,7 @@ export function SessionModelEditor({ sessionId }: { sessionId: string }) {
         }} type="button" variant="ghost">Context window<ChevronRight aria-hidden="true" className="size-3.5 text-muted-foreground" /></Button>
         <div className="my-1 border-t" />
         {model.data?.active ? <p className="px-2.5 py-1 text-[11px] text-muted-foreground">Applies to your next message</p> : null}
-        <Link className="block rounded-md px-2.5 py-2 text-xs text-muted-foreground hover:bg-accent hover:text-foreground" onClick={(event) => { if (busy) event.preventDefault(); else setOpen(false) }} to="/settings">Manage models</Link>
+        <Link className="block rounded-md px-2.5 py-2 text-xs text-muted-foreground hover:bg-accent hover:text-foreground" onClick={(event) => { if (busy) event.preventDefault(); else setOpen(false) }} to="/settings?section=models">Manage models</Link>
       </> : panel.kind === 'thinking' ? <div aria-label="Thinking level">
         {EFFORTS.map((item) => <Button className={rowClass} disabled={!ready || busy} key={item.value} onClick={() => {
           if (item.value === selected?.reasoning_effort) setOpen(false)
