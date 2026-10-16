@@ -37,8 +37,8 @@ export function ArchivePage() {
     <div className="mt-5 space-y-4">
       <ErrorNotice error={query.error ?? restore.error} fallback="Archived sessions could not be loaded or restored." />
       {query.isError ? <Button onClick={() => void query.refetch()} variant="outline">Retry</Button> : null}
-      {notice ? <p className="text-sm text-muted-foreground" role="status">{notice}</p> : null}
-      {query.isPending ? <p className="text-sm text-muted-foreground" role="status">Loading archived sessions…</p> : null}
+      {notice ? <p className="break-words text-sm text-muted-foreground" role="status">{notice}</p> : null}
+      {query.isPending ? <p className="break-words text-sm text-muted-foreground" role="status">Loading archived sessions…</p> : null}
       {query.isSuccess && sessions.length === 0 ? <div className="rounded-xl border border-dashed border-border px-6 py-12 text-center">
         <Archive aria-hidden="true" className="mx-auto mb-3 size-6 text-muted-foreground" />
         <h2 className="text-sm font-medium">{search.trim() ? 'No matching conversations' : 'No archived conversations'}</h2>

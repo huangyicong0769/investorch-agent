@@ -64,7 +64,7 @@ export function QueueStrip({ sessionId, state, archived }: QueueStripProps) {
     (removeMutation.variables?.sessionId === sessionId ? removeMutation.error : null) ??
     (confirmingClear ? null : clearError)
   const clearPending = clearMutation.isPending && clearMutation.variables?.sessionId === sessionId
-  const visibleQueue = queueCount < state.queue.length ? state.queue.slice(-queueCount) : state.queue
+  const visibleQueue = queueCount === 0 ? [] : queueCount < state.queue.length ? state.queue.slice(-queueCount) : state.queue
 
   const clearQueue = () => {
     if (clearSessionId === sessionId && !archived && !mutationPending) {
@@ -146,7 +146,7 @@ export function QueueStrip({ sessionId, state, archived }: QueueStripProps) {
         </CollapsibleContent>
 
         {mutationError ? (
-          <p className="mt-2 text-xs text-destructive" role="alert">
+          <p className="mt-2 break-words text-xs text-destructive" role="alert">
             {errorMessage(mutationError, 'The queue could not be updated. Try again.')}
           </p>
         ) : null}
@@ -159,8 +159,8 @@ export function QueueStrip({ sessionId, state, archived }: QueueStripProps) {
       >
         <DialogTitle>Clear all queued follow-ups?</DialogTitle>
         <DialogDescription>This removes all queued follow-ups from this conversation. The current run will continue.</DialogDescription>
-        {clearError ? <p className="text-sm text-destructive" role="alert">{errorMessage(clearError, 'The queue could not be cleared. Try again.')}</p> : null}
-        <div className="flex justify-end gap-2">
+        {clearError ? <p className="break-words text-sm text-destructive" role="alert">{errorMessage(clearError, 'The queue could not be cleared. Try again.')}</p> : null}
+        <div className="flex flex-wrap justify-end gap-2">
           <Button disabled={clearPending} onClick={() => setClearSessionId(null)} type="button" variant="outline">Cancel</Button>
           <Button disabled={archived || mutationPending} onClick={clearQueue} type="button" variant="destructive">{clearPending ? 'Clearing…' : 'Clear all'}</Button>
         </div>

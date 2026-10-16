@@ -23,7 +23,7 @@ export function PortfolioCard({ portfolio }: PortfolioCardProps) {
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <h2 className={cn('truncate text-base font-semibold', archived ? 'text-foreground/75' : 'text-foreground')}>
+          <h2 className={cn('line-clamp-2 break-words text-base font-semibold', archived ? 'text-foreground/75' : 'text-foreground')} title={portfolio.name}>
             {portfolio.name}
           </h2>
           <p className="mt-1 text-xs font-medium tracking-wide text-muted-foreground">
@@ -32,7 +32,7 @@ export function PortfolioCard({ portfolio }: PortfolioCardProps) {
         </div>
         <ArrowUpRight
           aria-hidden="true"
-          className="mt-0.5 text-muted-foreground transition-colors group-hover:text-foreground"
+          className="mt-0.5 shrink-0 text-muted-foreground transition-colors group-hover:text-foreground"
           size={16}
         />
       </div>

@@ -1,7 +1,8 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Activity, Archive, BriefcaseBusiness, Plus, Puzzle, Search, Settings, X } from 'lucide-react'
-import { NavLink, useNavigate } from 'react-router-dom'
+import { NavLink, useLocation, useNavigate } from 'react-router-dom'
+import { toast } from 'sonner'
 
 import { archiveSession, createSession, deleteSession, cleanupDeletedSessions } from '../../api/client'
 import { committedDeletionIds, reconcileSessionArchive, removeDeletedSessionCaches } from '../../api/sessionLifecycle'
@@ -20,7 +21,7 @@ import type {
   SessionStateResponse,
 } from '../../api/types'
 import { errorMessage } from '../../lib/errors'
-import { sessionMatches, sessionPath } from '../../lib/session'
+import { sessionMatches, sessionPath, sessionTitle } from '../../lib/session'
 import { cn } from '../../lib/utils'
 import { SessionItem } from './SessionItem'
 import { Button } from '@/components/ui/button'
@@ -42,10 +43,19 @@ export function SessionSidebar({
   selectedSessionId,
 }: SessionSidebarProps) {
   const navigate = useNavigate()
+  const location = useLocation()
+  const locationKeyRef = useRef<string | null>(location.key)
+  const selectedSessionIdRef = useRef(selectedSessionId)
+  selectedSessionIdRef.current = selectedSessionId
+  useEffect(() => {
+    locationKeyRef.current = location.key
+    return () => { locationKeyRef.current = null }
+  }, [location.key])
   const queryClient = useQueryClient()
   const searchId = useId()
   const deleteDescriptionId = useId()
   const mobileCloseButtonRef = useRef<HTMLButtonElement>(null)
+  const deleteTriggerRef = useRef<HTMLButtonElement | null>(null)
   const [search, setSearch] = useState('')
   const [deleteCandidate, setDeleteCandidate] = useState<SessionRecord | null>(null)
   const deletePreview = useQuery({ ...sessionDeletionPreviewQueryOptions(deleteCandidate?.session_id ?? ''), enabled: Boolean(deleteCandidate) })
@@ -85,7 +95,8 @@ export function SessionSidebar({
 
   const createMutation = useMutation({
     mutationFn: createSession,
-    onSuccess: async (response: SessionResponse) => {
+    onMutate: () => location.key,
+    onSuccess: async (response: SessionResponse, _variables, sourceLocationKey) => {
       queryClient.setQueryData<SessionListResponse>(queryKeys.sessions(), (current) => ({
         sessions: [
           response.session,
@@ -93,16 +104,21 @@ export function SessionSidebar({
         ],
       }))
       queryClient.setQueryData(queryKeys.session(response.session.session_id), response)
-      setSearch('')
-      navigate(sessionPath(response.session.session_id))
-      onMobileNavigate()
+      if (locationKeyRef.current === sourceLocationKey) {
+        setSearch('')
+        navigate(sessionPath(response.session.session_id))
+        onMobileNavigate()
+      }
       await queryClient.invalidateQueries({ queryKey: queryKeys.sessions() })
     },
   })
 
   const archiveMutation = useMutation({
     mutationFn: (session: SessionRecord) => archiveSession(session.session_id),
-    onSuccess: (response: SessionResponse) => reconcileSessionArchive(queryClient, response.session),
+    onSuccess: async (response: SessionResponse) => {
+      await reconcileSessionArchive(queryClient, response.session)
+      toast.success('Session archived.', { action: { label: 'View archive', onClick: () => { navigate('/archive'); onMobileNavigate() } } })
+    },
   })
 
   const deleteMutation = useMutation({
@@ -115,8 +131,9 @@ export function SessionSidebar({
     },
     onSuccess: async (response: DeleteSessionResponse, { session: deletedSession }) => {
       const ids = response.deleted_session_ids ?? [deletedSession.session_id]
+      deleteTriggerRef.current = null
       setDeleteCandidate(null)
-      if (selectedSessionId && ids.includes(selectedSessionId)) {
+      if (selectedSessionIdRef.current && ids.includes(selectedSessionIdRef.current)) {
         navigate('/')
         onMobileNavigate()
       }
@@ -125,7 +142,8 @@ export function SessionSidebar({
     onError: async (error) => {
       const ids = committedDeletionIds(error)
       if (ids.length) {
-        if (selectedSessionId && ids.includes(selectedSessionId)) navigate('/')
+        deleteTriggerRef.current = null
+        if (selectedSessionIdRef.current && ids.includes(selectedSessionIdRef.current)) navigate('/')
         await removeDeletedSessionCaches(queryClient, ids)
       }
     },
@@ -215,6 +233,10 @@ export function SessionSidebar({
         />
       </div>
 
+      {archiveMutation.error ? <p className="mt-3 break-words px-2 text-xs text-destructive" role="alert">
+        {errorMessage(archiveMutation.error, `“${archiveMutation.variables ? sessionTitle(archiveMutation.variables) : 'This session'}” could not be archived. Try again.`)}
+      </p> : null}
+
       <ScrollArea
         className="mt-3 min-h-0 flex-1"
         viewportProps={{ className: '[&>div]:!block [&>div]:w-full [&>div]:min-w-0' }}
@@ -258,7 +280,10 @@ export function SessionSidebar({
             </div>
           ) : null}
           {sessionsQuery.isSuccess && filteredSessions.length === 0 ? (
-            <p className="px-3 py-2 text-sm text-muted-foreground">No sessions found.</p>
+            <div className="px-3 py-2 text-sm text-muted-foreground">
+              <p>{search.trim() ? 'No matching sessions.' : 'No conversations yet.'}</p>
+              {search.trim() ? <Button className="mt-1 h-auto p-0 text-xs" onClick={() => setSearch('')} type="button" variant="link">Clear search</Button> : <p className="mt-1 text-xs">Select New to start a conversation.</p>}
+            </div>
           ) : null}
           <ul className="space-y-1">
             {filteredSessions.map((session) => (
@@ -267,7 +292,8 @@ export function SessionSidebar({
                 active={session.session_id === selectedSessionId}
                 key={session.session_id}
                 onArchive={(target) => archiveMutation.mutate(target)}
-                onDelete={(target) => {
+                onDelete={(target, trigger) => {
+                  deleteTriggerRef.current = trigger
                   deleteMutation.reset()
                   setDeleteCandidate(target)
                 }}
@@ -297,6 +323,12 @@ export function SessionSidebar({
         <DialogContent
           aria-describedby={deleteDescriptionId}
           className="w-full max-w-[calc(100%-2rem)] gap-0 rounded-xl border border-border bg-card p-5 shadow-xl sm:max-w-sm"
+          onCloseAutoFocus={(event) => {
+            event.preventDefault()
+            const trigger = deleteTriggerRef.current
+            deleteTriggerRef.current = null
+            if (trigger?.isConnected && !trigger.disabled) trigger.focus({ preventScroll: true })
+          }}
           onEscapeKeyDown={(event) => {
             if (deleteMutation.isPending) {
               event.preventDefault()
@@ -311,18 +343,18 @@ export function SessionSidebar({
           showCloseButton={false}
         >
           <DialogTitle className="text-base font-semibold">Delete session{deletePreview.data && deletePreview.data.sessions.length > 1 ? ` and ${deletePreview.data.sessions.length - 1} spawned descendants` : ''}?</DialogTitle>
-          <p className="mt-2 text-sm text-muted-foreground" id={deleteDescriptionId}>
+          <p className="mt-2 break-words text-sm text-muted-foreground" id={deleteDescriptionId}>
             {deleteCandidate
               ? `“${deleteCandidate.title?.trim() || deleteCandidate.session_id.slice(0, 8)}” and its timeline will be permanently deleted. This cannot be undone.`
               : null}
           </p>
-          <DeletionPreview preview={deletePreview.data} pending={deletePreview.isPending} error={deletePreview.error} onRetry={() => void deletePreview.refetch()} onNavigate={() => setDeleteCandidate(null)} />
+          <DeletionPreview preview={deletePreview.data} pending={deletePreview.isPending} error={deletePreview.error} onRetry={() => void deletePreview.refetch()} onNavigate={() => { deleteTriggerRef.current = null; setDeleteCandidate(null); onMobileNavigate() }} />
           {deleteMutation.error ? (
             <p className="mt-3 text-sm text-destructive" role="alert">
               {errorMessage(deleteMutation.error, 'The session could not be deleted. Try again.')}
             </p>
           ) : null}
-          <div className="mt-5 flex justify-end gap-2">
+          <div className="mt-5 flex flex-wrap justify-end gap-2">
             <Button
               size={null}
               variant={null}

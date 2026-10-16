@@ -59,7 +59,7 @@ function AppShell() {
       return
     }
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
+      if (event.key === 'Escape' && !event.defaultPrevented) {
         closeMobileSidebar()
       }
     }
@@ -109,15 +109,14 @@ function AppShell() {
     }
   }, [queryClient, selectedSessionId, webConfig.unused_session_discard_delay_ms])
 
-  return (
-    <div className="flex min-h-dvh bg-background text-foreground">
+  const sidebarToggle = (
       <Button
-        size={null}
-        variant={null}
+        size="icon"
+        variant="ghost"
         aria-controls="session-sidebar"
         aria-expanded={mobileSidebarOpen}
         aria-label="Open session sidebar"
-        className="fixed left-3 top-3 z-20 rounded-lg p-2 text-muted-foreground hover:bg-muted hover:text-foreground md:hidden"
+        className={selectedSessionId ? 'fixed left-3 top-3 z-20 rounded-lg text-muted-foreground md:hidden' : 'size-10 rounded-lg text-muted-foreground'}
         onClick={() => setMobileSidebarOpen(true)}
         ref={sidebarButtonRef}
         tabIndex={mobileSidebarOpen ? -1 : 0}
@@ -125,6 +124,11 @@ function AppShell() {
       >
         <PanelLeft aria-hidden="true" size={19} />
       </Button>
+  )
+
+  return (
+    <div className="flex min-h-dvh bg-background text-foreground">
+      {selectedSessionId ? sidebarToggle : null}
       {mobileSidebarOpen ? (
         <button
           aria-hidden="true"
@@ -146,6 +150,10 @@ function AppShell() {
         ref={mainRef}
         tabIndex={-1}
       >
+        {!selectedSessionId ? <header className="sticky top-0 z-20 flex h-14 items-center gap-2 border-b border-border bg-background px-3 md:hidden">
+          {sidebarToggle}
+          <Link className="rounded-md text-sm font-semibold outline-none focus-visible:ring-2 focus-visible:ring-ring" to="/">InvestOrch Agent</Link>
+        </header> : null}
         <Outlet context={conversation} />
       </main>
     </div>
@@ -154,18 +162,25 @@ function AppShell() {
 
 function RootRoute() {
   const navigate = useNavigate()
+  const location = useLocation()
+  const locationKeyRef = useRef<string | null>(location.key)
+  useEffect(() => {
+    locationKeyRef.current = location.key
+    return () => { locationKeyRef.current = null }
+  }, [location.key])
   const queryClient = useQueryClient()
   const create = useMutation({
     mutationFn: createSession,
-    onSuccess: (response) => {
+    onMutate: () => location.key,
+    onSuccess: (response, _variables, sourceLocationKey) => {
       queryClient.setQueryData(queryKeys.session(response.session.session_id), response)
       void queryClient.invalidateQueries({ queryKey: queryKeys.sessions() })
-      navigate(`/c/${response.session.session_id}`)
+      if (locationKeyRef.current === sourceLocationKey) navigate(`/c/${response.session.session_id}`)
     },
   })
 
   return (
-    <section className="mx-auto flex min-h-dvh max-w-3xl flex-col justify-center px-6 py-20 sm:px-10">
+    <section className="mx-auto flex min-h-[calc(100dvh-3.5rem)] max-w-3xl flex-col md:min-h-dvh justify-center px-6 py-20 sm:px-10">
       <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">InvestOrch Agent</p>
       <h1 className="mt-5 max-w-xl text-balance text-4xl font-semibold leading-tight tracking-tight sm:text-5xl">What would you like to work on?</h1>
       <p className="mt-5 max-w-lg text-base leading-7 text-muted-foreground">

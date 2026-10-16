@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Plus } from 'lucide-react'
-import { useRef } from 'react'
+import { useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { startPortfolioSession } from '../../api/client'
@@ -29,6 +29,11 @@ export function PortfolioIndexPage() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const requestIdRef = useRef<string | null>(null)
+  const mounted = useRef(false)
+  useEffect(() => {
+    mounted.current = true
+    return () => { mounted.current = false }
+  }, [])
   const portfoliosQuery = useQuery(portfoliosQueryOptions())
   const portfolios = portfoliosQuery.data?.portfolios ?? []
   const startMutation = useMutation({
@@ -45,7 +50,7 @@ export function PortfolioIndexPage() {
         ],
       }))
       queryClient.setQueryData(queryKeys.session(response.session.session_id), { session: response.session })
-      navigate(sessionPath(response.session.session_id))
+      if (mounted.current) navigate(sessionPath(response.session.session_id))
       await queryClient.invalidateQueries({ queryKey: queryKeys.sessions() })
     },
   })
@@ -73,7 +78,7 @@ export function PortfolioIndexPage() {
         </header>
 
         {startMutation.isError ? (
-          <p className="mt-4 text-sm text-destructive" role="alert">
+          <p className="mt-4 break-words text-sm text-destructive" role="alert">
             {errorMessage(startMutation.error, 'The Portfolio workflow could not be started. Try again.')}
           </p>
         ) : null}
@@ -88,17 +93,19 @@ export function PortfolioIndexPage() {
 
         {portfoliosQuery.isError ? (
           <div className="mt-8 rounded-xl border border-border bg-card p-6" role="alert">
-            <p className="text-sm text-destructive">
+            <p className="break-words text-sm text-destructive">
               {errorMessage(portfoliosQuery.error, 'Portfolios could not be loaded.')}
             </p>
+            {portfoliosQuery.data ? <p className="mt-2 text-sm text-muted-foreground">Showing previously loaded portfolios.</p> : null}
             <Button
               className="mt-4"
+              disabled={portfoliosQuery.isFetching}
               onClick={() => void portfoliosQuery.refetch()}
               size="sm"
               type="button"
               variant="outline"
             >
-              Retry
+              {portfoliosQuery.isFetching ? 'Retrying…' : 'Retry'}
             </Button>
           </div>
         ) : null}
@@ -120,7 +127,7 @@ export function PortfolioIndexPage() {
           </div>
         ) : null}
 
-        {portfoliosQuery.isSuccess && portfolios.length > 0 ? (
+        {portfoliosQuery.data && portfolios.length > 0 ? (
           <div className="mt-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
             {portfolios.map((portfolio) => (
               <PortfolioCard key={portfolio.portfolio_id} portfolio={portfolio} />

@@ -11,7 +11,7 @@ interface SessionItemProps {
   actionsDisabled?: boolean
   archived?: boolean
   onArchive?: (session: SessionRecord) => void
-  onDelete?: (session: SessionRecord) => void
+  onDelete?: (session: SessionRecord, trigger: HTMLButtonElement) => void
   onSelect: (session: SessionRecord) => void
   session: SessionRecord
   state?: SessionStateResponse
@@ -80,7 +80,7 @@ export function SessionItem({
               aria-label={`Delete ${sessionTitle(session)}`}
               className="rounded-md p-1.5 text-muted-foreground hover:bg-background hover:text-destructive disabled:opacity-50"
               disabled={actionsDisabled}
-              onClick={() => onDelete(session)}
+              onClick={(event) => onDelete(session, event.currentTarget)}
               title="Delete"
               type="button"
             >

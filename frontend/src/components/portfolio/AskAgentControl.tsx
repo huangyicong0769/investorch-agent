@@ -32,6 +32,7 @@ export function AskAgentControl({ portfolioId, portfolioName }: AskAgentControlP
   const collapsedButtonRef = useRef<HTMLButtonElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const requestIdRef = useRef<string | null>(null)
+  const mounted = useRef(false)
   const [expanded, setExpanded] = useState(false)
   const [text, setText] = useState('')
   const askMutation = useMutation({
@@ -41,9 +42,11 @@ export function AskAgentControl({ portfolioId, portfolioName }: AskAgentControlP
     },
     onSuccess: async (response) => {
       requestIdRef.current = null
-      setText('')
-      setImages([])
-      setExpanded(false)
+      if (mounted.current) {
+        setText('')
+        setImages([])
+        setExpanded(false)
+      }
       queryClient.setQueryData<SessionListResponse>(queryKeys.sessions(), (current) => ({
         sessions: [
           response.session,
@@ -51,10 +54,15 @@ export function AskAgentControl({ portfolioId, portfolioName }: AskAgentControlP
         ],
       }))
       queryClient.setQueryData(queryKeys.session(response.session.session_id), { session: response.session })
-      navigate(sessionPath(response.session.session_id))
+      if (mounted.current) navigate(sessionPath(response.session.session_id))
       await queryClient.invalidateQueries({ queryKey: queryKeys.sessions() })
     },
   })
+
+  useEffect(() => {
+    mounted.current = true
+    return () => { mounted.current = false }
+  }, [])
 
   useEffect(() => {
     if (expanded) {
@@ -141,12 +149,13 @@ export function AskAgentControl({ portfolioId, portfolioName }: AskAgentControlP
         <div className={cn('min-h-0', !expanded && 'overflow-hidden')}>
           <form
             aria-label={`Ask Agent about ${portfolioName}`}
+            aria-busy={askMutation.isPending || readingImages}
             className="mx-auto w-full max-w-4xl sm:px-6"
             id={composerId}
             onSubmit={handleSubmit}
           >
             <div className="mb-2 flex items-center justify-between gap-3 px-1">
-              <p className="text-xs text-muted-foreground">Ask about {portfolioName}</p>
+              <p className="min-w-0 break-words text-xs text-muted-foreground">Ask about {portfolioName}</p>
               <Button aria-label="Close Ask Agent" className="rounded-full text-muted-foreground" disabled={askMutation.isPending} onClick={collapseAndRestoreFocus} size="icon-sm" type="button" variant="ghost"><X aria-hidden="true" /></Button>
             </div>
             <ImageAttachments toolbar={<div className="flex flex-1 justify-end">
@@ -154,7 +163,7 @@ export function AskAgentControl({ portfolioId, portfolioName }: AskAgentControlP
             </div>} images={images} disabled={askMutation.isPending} onReadingChange={setReadingImages} onChange={(next) => { setImages(next); requestIdRef.current = null; askMutation.reset() }}>
               <InputGroupTextarea
                 aria-label={`Message about ${portfolioName}`}
-                className="max-h-40 min-h-16 resize-none overflow-hidden px-4 pb-3 pt-4 text-[15px] leading-6 sm:px-5"
+                className="min-h-16 resize-none overflow-hidden px-4 pb-3 pt-4 text-[15px] leading-6 sm:px-5"
                 disabled={askMutation.isPending}
                 onChange={(event) => {
                   setText(event.target.value)
@@ -171,7 +180,7 @@ export function AskAgentControl({ portfolioId, portfolioName }: AskAgentControlP
               />
             </ImageAttachments>
             {askMutation.isError ? (
-              <p className="mt-2 text-xs text-destructive" role="alert">
+              <p className="mt-2 break-words text-xs text-destructive" role="alert">
                 {errorMessage(askMutation.error, 'The message could not be sent. Your text is still here.')}
               </p>
             ) : null}

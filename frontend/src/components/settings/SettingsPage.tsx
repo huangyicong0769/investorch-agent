@@ -1,4 +1,4 @@
-import { useLayoutEffect, useState, type ReactNode } from 'react'
+import { useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { configQueryOptions, managementKeys, resetConfig, saveConfig, schemaQueryOptions, type ConfigSchema, type SavedConfig } from '../../api/management'
@@ -34,6 +34,11 @@ const categoryDescriptions: Record<Category, string> = {
 function SettingsEditor({ saved, schema }: { saved: SavedConfig; schema: ConfigSchema }) {
   const queryClient = useQueryClient()
   const [category, setCategory] = useState<Category>('General')
+  const editorRef = useRef<HTMLDivElement>(null)
+  const selectCategory = (next: Category) => {
+    setCategory(next)
+    editorRef.current?.scrollIntoView({ block: 'start' })
+  }
   const [changes, setChanges] = useState<Record<string, JsonValue>>({})
   const [secrets, setSecrets] = useState<Record<string, string>>({})
   const [notice, setNotice] = useState('')
@@ -73,6 +78,8 @@ function SettingsEditor({ saved, schema }: { saved: SavedConfig; schema: ConfigS
       return updated
     })
     setNotice('')
+    save.reset()
+    reset.reset()
   }
   const renderFields = (path: string, omit: string[] = [], singleColumn = false): ReactNode => {
     const raw = schemaAtPath(schema, path)
@@ -96,9 +103,9 @@ function SettingsEditor({ saved, schema }: { saved: SavedConfig; schema: ConfigS
 
   return <>
     <UnsavedChanges dirty={dirty} />
-    <div className="mt-8 grid gap-6 lg:grid-cols-[11rem_minmax(0,1fr)]">
+    <div className="mt-8 grid scroll-mt-20 gap-6 md:scroll-mt-6 lg:grid-cols-[11rem_minmax(0,1fr)]" ref={editorRef}>
       <nav aria-label="Settings categories" className="flex gap-1 overflow-x-auto pb-2 lg:sticky lg:top-6 lg:block lg:self-start">
-        {categories.map((item) => <Button aria-current={category === item ? 'page' : undefined} className={cn('shrink-0 justify-start lg:mb-1 lg:w-full', category === item && 'bg-accent text-accent-foreground')} key={item} onClick={() => setCategory(item)} type="button" variant="ghost">{item}</Button>)}
+        {categories.map((item) => <Button aria-current={category === item ? 'page' : undefined} className={cn('shrink-0 justify-start lg:mb-1 lg:w-full', category === item && 'bg-accent text-accent-foreground')} key={item} onClick={() => selectCategory(item)} type="button" variant="ghost">{item}</Button>)}
       </nav>
       <div className="min-w-0 space-y-5">
         <div><h2 className="text-lg font-semibold">{category}</h2><p className="mt-1 max-w-2xl text-sm leading-6 text-muted-foreground">{categoryDescriptions[category]}</p></div>
@@ -112,11 +119,11 @@ function SettingsEditor({ saved, schema }: { saved: SavedConfig; schema: ConfigS
         </> : null}
         {category === 'Models' ? <>
           {section('Model roles', 'models', 'Each role has its own model, endpoint, key reference and reasoning settings. Multiple roles can share a key reference.')}
-          <section className="rounded-xl border border-border bg-card p-5"><h2 className="font-semibold">API keys</h2><p className="mt-2 text-sm text-muted-foreground">Restart InvestOrch after saving replacement keys so model clients use the new credentials.</p><div className="mt-5"><SecretFields allowNew configured={saved.secrets} disabled={busy} names={[...Object.keys(saved.secrets), ...referencedSecrets]} onChange={(name, key) => { setSecrets((current) => ({ ...current, [name]: key })); setNotice('') }} values={secrets} /></div></section>
+          <section className="rounded-xl border border-border bg-card p-5"><h2 className="font-semibold">API keys</h2><p className="mt-2 text-sm text-muted-foreground">Restart InvestOrch after saving replacement keys so model clients use the new credentials.</p><div className="mt-5"><SecretFields allowNew configured={saved.secrets} disabled={busy} errors={errors} names={[...Object.keys(saved.secrets), ...referencedSecrets]} onChange={(name, key) => { setSecrets((current) => ({ ...current, [name]: key })); setNotice(''); save.reset(); reset.reset() }} values={secrets} /></div></section>
         </> : null}
         {category === 'Safety & Approval' ? <>
           {section('Approval policy', 'permission', 'Saved defaults for future runs. Changes to the approval policy take effect after restart.')}
-          <p className="text-sm text-muted-foreground">The Permission role also reviews Skills. <Button onClick={() => setCategory('Models')} size="sm" type="button" variant="link">Edit review model in Models</Button></p>
+          <p className="text-sm text-muted-foreground">The Permission role also reviews Skills. <Button onClick={() => selectCategory('Models')} size="sm" type="button" variant="link">Edit review model in Models</Button></p>
         </> : null}
         {category === 'Context' ? <>{section('Compaction', 'compaction')}{section('Activity summaries', 'activity')}</> : null}
         {category === 'Images' ? <>{section('Image detail', 'images.default_detail', 'The default detail level requested when sending images to a model.')}{section('Attachment limits', 'images', 'Limit the number and size of images accepted with a message.', ['default_detail'])}</> : null}
@@ -126,7 +133,7 @@ function SettingsEditor({ saved, schema }: { saved: SavedConfig; schema: ConfigS
         <div className="sticky bottom-0 z-10 space-y-3 border-t border-border bg-background/95 py-4 backdrop-blur">
           <ErrorNotice error={save.error ?? reset.error} fallback="Configuration could not be saved." />
           {notice ? <p className="text-sm" role="status">{notice}</p> : null}
-          <div className="flex flex-wrap items-center justify-between gap-3"><p className="text-xs text-muted-foreground">{dirty ? 'Unsaved changes across settings categories' : 'No unsaved changes · Reset removes a local override'}</p><div className="flex gap-2"><Button disabled={!dirty || busy} onClick={() => { setChanges({}); setSecrets({}); save.reset(); setNotice('') }} type="button" variant="outline">Discard</Button><Button disabled={!dirty || busy} onClick={() => save.mutate()} type="button">{save.isPending ? 'Saving…' : 'Save changes'}</Button></div></div>
+          <div className="flex flex-wrap items-center justify-between gap-3"><p className="text-xs text-muted-foreground">{dirty ? 'Unsaved changes across settings categories' : 'No unsaved changes · Reset removes a local override'}</p><div className="flex gap-2"><Button disabled={!dirty || busy} onClick={() => { setChanges({}); setSecrets({}); save.reset(); reset.reset(); setNotice('') }} type="button" variant="outline">Discard</Button><Button disabled={!dirty || busy} onClick={() => save.mutate()} type="button">{save.isPending ? 'Saving…' : 'Save changes'}</Button></div></div>
         </div>
       </div>
     </div>

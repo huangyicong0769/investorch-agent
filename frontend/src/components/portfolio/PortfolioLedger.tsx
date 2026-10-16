@@ -16,7 +16,7 @@ export function PortfolioLedger({ portfolioId }: PortfolioLedgerProps) {
 
   return (
     <section aria-labelledby="portfolio-ledger-heading" className="overflow-hidden rounded-xl border border-border bg-card">
-      <div className="flex items-baseline justify-between gap-4 border-b border-border px-5 py-4">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-2 border-b border-border px-5 py-4">
         <h2 className="text-base font-semibold" id="portfolio-ledger-heading">
           Recent Ledger
         </h2>
@@ -40,17 +40,19 @@ export function PortfolioLedger({ portfolioId }: PortfolioLedgerProps) {
 
       {ledgerQuery.isError ? (
         <div className="px-5 py-8 text-center" role="alert">
-          <p className="text-sm text-destructive">
+          <p className="break-words text-sm text-destructive">
             {errorMessage(ledgerQuery.error, 'Recent Ledger entries could not be loaded.')}
           </p>
+          {ledger ? <p className="mt-2 text-sm text-muted-foreground">Showing previously loaded entries.</p> : null}
           <Button
             className="mt-4"
+            disabled={ledgerQuery.isFetching}
             onClick={() => void ledgerQuery.refetch()}
             size="sm"
             type="button"
             variant="outline"
           >
-            Retry
+            {ledgerQuery.isFetching ? 'Retrying…' : 'Retry'}
           </Button>
         </div>
       ) : null}
@@ -59,7 +61,7 @@ export function PortfolioLedger({ portfolioId }: PortfolioLedgerProps) {
         <p className="px-5 py-10 text-center text-sm text-muted-foreground">No Ledger entries</p>
       ) : null}
 
-      {ledgerQuery.isSuccess && entries.length > 0 ? (
+      {ledger && entries.length > 0 ? (
         <div>
           {entries.map((entry) => (
             <LedgerEntryRow entry={entry} key={entry.entry_id} />

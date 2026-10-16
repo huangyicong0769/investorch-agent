@@ -16,7 +16,7 @@ export function UnsavedChanges({ dirty }: { dirty: boolean }) {
     <DialogContent className="max-w-[calc(100vw-2rem)] sm:max-w-sm">
       <DialogTitle>Discard unsaved changes?</DialogTitle>
       <DialogDescription>Your edits have not been saved. Stay here to continue editing or discard them to leave.</DialogDescription>
-      <div className="flex justify-end gap-2">
+      <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
         <Button type="button" variant="outline" onClick={() => { if (blocker.state === 'blocked') blocker.reset() }}>Keep editing</Button>
         <Button type="button" variant="destructive" onClick={() => { if (blocker.state === 'blocked') blocker.proceed() }}>Discard and leave</Button>
       </div>

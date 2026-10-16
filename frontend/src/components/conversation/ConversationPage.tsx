@@ -62,7 +62,7 @@ export function ConversationPage() {
         runtime={stateQuery.data.runtime}
         sessionId={sessionId}
       />
-      <div data-conversation-width className="mx-auto w-full max-w-4xl space-y-2 px-4 pb-4 pt-2 sm:px-6">
+      <div data-conversation-width className="mx-auto max-h-[70dvh] w-full max-w-4xl shrink-0 space-y-2 overflow-y-auto overscroll-contain px-4 pb-4 pt-2 sm:px-6">
         <QueueStrip
           archived={stateQuery.data.session.archived_at !== null}
           sessionId={sessionId}

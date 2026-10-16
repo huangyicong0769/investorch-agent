@@ -9,6 +9,12 @@ import { fieldLabel, nullableSchema, resolveSchema } from './schema'
 
 export const fieldClass = 'w-full min-w-0 rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30 disabled:opacity-60'
 
+const modelFields: Record<string, { label: string; description?: string }> = {
+  name: { label: 'Model name' },
+  base_url: { label: 'Endpoint URL' },
+  api_key_secret: { label: 'API key reference', description: 'Credential name, such as PRIMARY_API_KEY. Enter the key itself in the matching API key field.' },
+}
+
 interface SchemaFieldProps {
   path: string
   schema: ConfigSchema
@@ -26,14 +32,16 @@ export function SchemaField({ path, schema: raw, root, value, disabled, showAppl
   const id = useId()
   const schema = resolveSchema(raw, root)
   const nullable = nullableSchema(raw)
-  const label = schema.title ?? fieldLabel(path.split('.').at(-1) ?? path)
+  const fieldName = path.split('.').at(-1) ?? path
+  const modelField = path.startsWith('models.') ? modelFields[fieldName] : undefined
+  const label = modelField?.label ?? schema.title ?? fieldLabel(fieldName)
   const immutable = schema.apply_mode === 'immutable'
   const inputDisabled = disabled || immutable
   const type = schema.type
   const options = schema.enum ?? (schema.const !== undefined ? [schema.const] : undefined)
   const selectedIndex = options?.findIndex((option) => Object.is(option, value)) ?? -1
   const selectedValue = nullable && value == null ? 'unset' : selectedIndex < 0 ? '' : `option-${selectedIndex}`
-  const description = [schema.description, schema.exclusiveMinimum === undefined ? '' : `Greater than ${schema.exclusiveMinimum}.`, schema.exclusiveMaximum === undefined ? '' : `Less than ${schema.exclusiveMaximum}.`].filter(Boolean).join(' ')
+  const description = [modelField?.description, schema.description, schema.exclusiveMinimum === undefined ? '' : `Greater than ${schema.exclusiveMinimum}.`, schema.exclusiveMaximum === undefined ? '' : `Less than ${schema.exclusiveMaximum}.`].filter(Boolean).join(' ')
 
   return (
     <div className="min-w-0 space-y-1.5">
