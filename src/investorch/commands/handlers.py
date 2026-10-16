@@ -18,7 +18,7 @@ from investorch.application.sessions import (
     SessionDeletionCleanupError,
     SessionDeletionUnsafeError,
 )
-from investorch.config import FOLLOW_UP_BEHAVIORS, PERMISSION_MODES, REASONING_EFFORTS
+from investorch.config import FOLLOW_UP_BEHAVIORS, PERMISSION_MODES, REASONING_EFFORTS, ConfigError
 from investorch.context import AppState
 from investorch.runtime import AgentRuntime, SessionBusyError
 from investorch.storage import (
@@ -48,7 +48,8 @@ HELP = (
     "  /unarchive [prefix] List or restore an archived session.\n"
     "  /fork              Fork the current session.\n"
     "  /title [title]     Show or set the session title.\n"
-    "  /effort [level]    Show or set Main reasoning effort.\n"
+    "  /model [connection name effort window] Show or set the Session model.\n"
+    "  /effort [level]    Show or set the next Run reasoning effort.\n"
     "  /permission [mode] Show or set tool permission mode.\n"
     "  /followup [mode]   Show or set follow-up behavior.\n"
     "  /stop              Stop the current Agent run.\n"
@@ -82,6 +83,8 @@ async def dispatch_command(
         "stop",
         "clear",
         "compact",
+        "model",
+        "effort",
     }:
         return CommandResult("No Session selected. Use /new or /resume to continue.")
     match command.name:
@@ -232,9 +235,43 @@ async def dispatch_command(
                 return CommandResult("Cannot update this session while it has an active operation.")
             return CommandResult(f"Set session title to: {title}")
 
+        case "model":
+            session_id = state.selected_session_id
+            if not command.args:
+                active = runtime.get_active_run(session_id)
+                view = runtime.session_models.view(session_id, active=active.options.model if active else None)
+
+                def describe(model):
+                    return (
+                        f"{model.model} / {model.name} · effort {model.reasoning_effort} · window {model.context_window_tokens}"
+                        if model
+                        else "none"
+                    )
+
+                return CommandResult(
+                    f"Active: {describe(view.active)}\nSaved: {describe(view.persisted)}\nNext Run: {describe(view.effective)}"
+                )
+            if len(command.args) != 4:
+                return CommandResult("Usage: /model [connection name effort context_window_tokens]")
+            try:
+                selected = runtime.session_models.update(
+                    session_id,
+                    model=command.args[0],
+                    name=command.args[1],
+                    reasoning_effort=command.args[2],
+                    context_window_tokens=int(command.args[3]),
+                )
+            except (ConfigError, ValueError, KeyError) as error:
+                return CommandResult(str(error))
+            return CommandResult(
+                f"Next Run model: {selected.model} / {selected.name}. Draft is saved when a Run starts; otherwise lost on exit."
+            )
+
         case "effort":
             if not command.args:
-                return CommandResult(f"Main reasoning effort: {state.main_reasoning_effort}")
+                return CommandResult(
+                    f"Next Run reasoning effort: {runtime.session_models.view(state.selected_session_id).effective.reasoning_effort}"
+                )
             if len(command.args) != 1:
                 return CommandResult("Usage: /effort [none|minimal|low|medium|high|xhigh|max]")
 
@@ -242,8 +279,8 @@ async def dispatch_command(
             if effort not in REASONING_EFFORTS:
                 return CommandResult(f"Unsupported reasoning effort: {command.args[0]}")
 
-            state.main_reasoning_effort = effort
-            return CommandResult(f"Main reasoning effort set to: {effort}")
+            runtime.session_models.update(state.selected_session_id, reasoning_effort=effort)
+            return CommandResult(f"Next Run reasoning effort set to: {effort}. Draft is saved when a Run starts.")
 
         case "permission":
             if not command.args:
