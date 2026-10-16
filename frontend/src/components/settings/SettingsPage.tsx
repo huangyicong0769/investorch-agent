@@ -8,6 +8,7 @@ import { useThemePreview } from '../../config/WebConfigContext'
 import { cn } from '../../lib/utils'
 import { ErrorNotice, fieldErrors } from '../management/Feedback'
 import { SchemaField } from '../management/SchemaField'
+import { ModelConfiguration, modelConfigValues } from '../management/ModelConfiguration'
 import { SecretFields } from '../management/SecretFields'
 import { configValue, fieldLabel, objectValue, resolveSchema, schemaAtPath } from '../management/schema'
 import { UnsavedChanges } from '../management/UnsavedChanges'
@@ -22,7 +23,7 @@ type Category = typeof categories[number]
 const categoryDescriptions: Record<Category, string> = {
   General: 'Choose the defaults for everyday conversations.',
   Appearance: 'Make this workspace your own. Preview changes here, then save to keep them.',
-  Models: 'Configure the models and credentials used by each Agent role.',
+  Models: 'Manage connections and choose the model used by each Agent role.',
   'Safety & Approval': 'Control how actions are reviewed and approved.',
   Context: 'Manage conversation compaction and activity summaries.',
   Images: 'Choose how images are sent to models and set attachment limits.',
@@ -72,7 +73,7 @@ function SettingsEditor({ saved, schema }: { saved: SavedConfig; schema: ConfigS
   const busy = save.isPending || reset.isPending
   const change = (path: string, next: JsonValue) => {
     setChanges((current) => {
-      const updated = { ...current }
+      const updated = Object.fromEntries(Object.entries(current).filter(([key]) => !key.startsWith(`${path}.`)))
       if (next === configValue(saved.values, path)) delete updated[path]
       else updated[path] = next
       return updated
@@ -98,8 +99,9 @@ function SettingsEditor({ saved, schema }: { saved: SavedConfig; schema: ConfigS
     return <SchemaField disabled={busy} error={errors[path]} onChange={(next) => change(path, next)} onReset={dirty ? undefined : () => reset.mutate(path)} overridden={saved.overrides.includes(path)} path={path} root={schema} schema={raw} showApplyMode={!['web.theme_color', 'web.theme_mode'].includes(path)} value={value(path)} />
   }
   const section = (title: string, path: string, description?: string, omit?: string[]) => <section key={path}><Card className="gap-5 rounded-xl border-border py-5 shadow-none"><CardHeader className="gap-2 px-5"><CardTitle><h2>{title}</h2></CardTitle>{description ? <CardDescription className="leading-6">{description}</CardDescription> : null}</CardHeader><CardContent className="px-5">{renderFields(path, omit)}</CardContent></Card></section>
-  const roleNames = Object.keys(objectValue(saved.values.models))
-  const referencedSecrets = roleNames.map((role) => String(value(`models.${role}.api_key_secret`) ?? '')).filter(Boolean)
+  const connections = modelConfigValues(saved.values, changes, 'models')
+  const agents = modelConfigValues(saved.values, changes, 'agents')
+  const referencedSecrets = Object.values(connections).map((connection) => String(objectValue(connection).api_key_secret ?? '')).filter(Boolean)
 
   return <>
     <UnsavedChanges dirty={dirty} />
@@ -118,8 +120,8 @@ function SettingsEditor({ saved, schema }: { saved: SavedConfig; schema: ConfigS
           {section('Color palette', 'web.theme_color', 'Choose an accent for buttons, navigation and surfaces. Each palette includes light and dark shades.')}
         </> : null}
         {category === 'Models' ? <>
-          {section('Model roles', 'models', 'Each role has its own model, endpoint, key reference and reasoning settings. Multiple roles can share a key reference.')}
-          <section className="rounded-xl border border-border bg-card p-5"><h2 className="font-semibold">API keys</h2><p className="mt-2 text-sm text-muted-foreground">Restart InvestOrch after saving replacement keys so model clients use the new credentials.</p><div className="mt-5"><SecretFields allowNew configured={saved.secrets} disabled={busy} errors={errors} names={[...Object.keys(saved.secrets), ...referencedSecrets]} onChange={(name, key) => { setSecrets((current) => ({ ...current, [name]: key })); setNotice(''); save.reset(); reset.reset() }} values={secrets} /></div></section>
+          <ModelConfiguration agents={agents} connections={connections} disabled={busy} errors={errors} onChange={change} onDelete={dirty ? undefined : (id) => reset.mutate(`models.${id}`)} savedConnections={objectValue(saved.values.models)} />
+          <section className="rounded-xl border border-border bg-card p-5"><h2 className="font-semibold">API keys</h2><p className="mt-2 text-sm text-muted-foreground">Restart InvestOrch after saving replacement keys so model clients use the new credentials.</p><div className="mt-5"><SecretFields allowNew configured={saved.secrets} disabled={busy} errors={errors} names={referencedSecrets} onChange={(name, key) => { setSecrets((current) => ({ ...current, [name]: key })); setNotice(''); save.reset(); reset.reset() }} values={secrets} /></div></section>
         </> : null}
         {category === 'Safety & Approval' ? <>
           {section('Approval policy', 'permission', 'Saved defaults for future runs. Changes to the approval policy take effect after restart.')}

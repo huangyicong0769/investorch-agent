@@ -169,3 +169,29 @@ export function saveMcp(name: string, changes: McpChanges, existing: boolean): P
 export function removeMcp(name: string): Promise<{ removed: boolean; requires_restart: boolean }> {
   return request(`/api/integrations/mcp/${encodeURIComponent(name)}`, { method: 'DELETE', body: { confirm: true } })
 }
+
+export interface ChatGPTStatus {
+  status: 'connected' | 'disconnected'
+  plan_use: boolean
+  display_name: string | null
+  manage_usage_url: string
+  refresh_pending: boolean
+}
+export const chatGPTStatusOptions = (connection: string) => queryOptions({
+  queryKey: [...managementKeys.config(), 'chatgpt', connection],
+  queryFn: ({ signal }) => request<ChatGPTStatus>(`/api/auth/chatgpt/${encodeURIComponent(connection)}`, { signal }),
+})
+export const chatGPTModelsOptions = (connection: string) => queryOptions({
+  queryKey: [...managementKeys.config(), 'chatgpt', connection, 'models'],
+  queryFn: ({ signal }) => request<{ models: { slug: string; display_name: string }[] }>(`/api/auth/chatgpt/${encodeURIComponent(connection)}/models`, { signal }),
+  retry: false,
+})
+export function loginChatGPT(connection: string, reconsent = false) {
+  return request<{ authorization_url: string; state: string }>(`/api/auth/chatgpt/${encodeURIComponent(connection)}/login`, { method: 'POST', body: { reconsent } })
+}
+export function cancelChatGPT(state: string) {
+  return request('/api/auth/chatgpt/cancel', { method: 'POST', body: { state } })
+}
+export function logoutChatGPT(connection: string) {
+  return request<ChatGPTStatus & { message: string }>(`/api/auth/chatgpt/${encodeURIComponent(connection)}/logout`, { method: 'POST', body: {} })
+}
