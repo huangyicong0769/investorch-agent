@@ -1,10 +1,11 @@
 import logging
 from dataclasses import dataclass
 
-from agents import Agent, Model, ModelSettings, Runner, SQLiteSession, TResponseInputItem
+from agents import Agent, Model, ModelSettings, RunConfig, Runner, SQLiteSession, TResponseInputItem
 
 from investorch.config import AppConfig
 
+from .continuation import portable_history_filter
 from .prompts import COMPACTION_AGENT_INSTRUCTIONS
 from .usage import TokenUsage
 
@@ -83,7 +84,12 @@ async def compact_session(agent: Agent, session: SQLiteSession, config: AppConfi
         return CompactionResult(changed=False, usage=TokenUsage(), source_items=source_items, summary_chars=0)
 
     settings = agent.model_settings.resolve({"max_tokens": config["compaction.max_output_tokens"]})
-    result = await Runner.run(agent.clone(model_settings=settings), history, max_turns=1)
+    result = await Runner.run(
+        agent.clone(model_settings=settings),
+        history,
+        max_turns=1,
+        run_config=RunConfig(call_model_input_filter=portable_history_filter(history)),
+    )
     summary = str(result.final_output).strip()
 
     if not summary:

@@ -8,7 +8,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from agents import Agent, Model, RunContextWrapper, Runner, SQLiteSession, TResponseInputItem, UserError
+from agents import Agent, Model, RunConfig, RunContextWrapper, Runner, SQLiteSession, TResponseInputItem, UserError
 from agents.lifecycle import RunHooksBase
 from agents.tool import FunctionTool, Tool
 
@@ -20,6 +20,7 @@ from investorch.output import AssistantMessage, OutputEvent, OutputHandler, cons
 from investorch.output.stream import assistant_message_from_result
 
 from .compact import CompactionResult, compact_session, session_history_restore_failed
+from .continuation import portable_history_filter
 from .title import ensure_session_title
 from .usage import TokenUsage
 
@@ -168,12 +169,14 @@ class AgentLoop:
             model_input,
             model_config.context_window_tokens,
         )
+        run_config = RunConfig(call_model_input_filter=portable_history_filter(await session.get_items()))
         result = Runner.run_streamed(
             run_agent,
             model_input,
             session=session,
             context=agent_context,
             max_turns=self._config["runtime.max_turns"],
+            run_config=run_config,
             hooks=hooks,
         )
 
@@ -249,6 +252,7 @@ class AgentLoop:
                     sdk_state,
                     session=session,
                     max_turns=self._config["runtime.max_turns"],
+                    run_config=run_config,
                     hooks=hooks,
                 )
                 continue
