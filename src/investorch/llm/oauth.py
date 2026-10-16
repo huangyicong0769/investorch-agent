@@ -34,7 +34,7 @@ TERMINAL_REFRESH_ERRORS = frozenset(
 
 
 class CredentialConfig(Protocol):
-    def oauth_credential(self, name: str, saved: bool = False) -> dict[str, Any] | None: ...
+    def oauth_credential(self, name: str, *, saved: bool = False) -> dict[str, Any] | None: ...
     def save_oauth_credential(self, name: str, value: dict[str, Any]) -> None: ...
     def ensure_chatgpt_host_id(self) -> str: ...
 
@@ -301,7 +301,7 @@ class ChatGPTAuth:
                 raise ChatGPTAuthError("connection_changed", "This ChatGPT connection changed. Start sign-in again.")
             # Retain the issued registration if a one-use code expires before exchange.
             if not old:
-                old = {"client_id": issued, "subject": "", "scopes": []}
+                old = {"client_id": issued, "subject": None, "scopes": []}
                 self._save(attempt.credential, old)
             data = await self._token(
                 {
