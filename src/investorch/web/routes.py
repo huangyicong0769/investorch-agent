@@ -235,7 +235,6 @@ async def bootstrap(host: Host, broker: Broker) -> dict[str, object]:
             "version": APPLICATION_VERSION,
             "initial_session_id": initial_session_id,
             "agent_name": host.runtime.agent_name,
-            "context_window_tokens": host.config.agent_model("main").context_window_tokens,
             "defaults": _serialize_defaults(host),
             "web_config": _serialize_web_config(host),
             "image_config": {

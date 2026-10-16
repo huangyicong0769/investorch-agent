@@ -98,3 +98,57 @@ async def complete_setup(request: Request) -> dict[str, Any]:
     require_setup(request)
     await request.app.state.start_host()
     return setup_state(request)
+
+
+class TestConnectionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    connection: str
+    name: str = Field(min_length=1)
+    reasoning_effort: ReasoningEffort = "high"
+
+
+@router.post("/test-connection")
+async def test_saved_connection(body: TestConnectionRequest, request: Request) -> dict[str, Any]:
+    """Probe saved Settings or Setup without starting another Agent Host."""
+    from investorch.config import ConfigError
+    from investorch.llm.oauth import ChatGPTAuthError
+
+    config = available_config(request).snapshot()
+    try:
+        config.activate_saved_for_startup()
+        connection = config.model_connection(body.connection)
+        if connection.type == "chatgpt":
+            token = await request.app.state.chatgpt_auth.access_token(connection.credentials)
+            endpoint = "https://api.openai.com/v1"
+        else:
+            token = config.secret(connection.api_key_secret)
+            endpoint = connection.base_url
+    except ChatGPTAuthError as exc:
+        raise APIError(exc.status, exc.code, str(exc)) from None
+    except ConfigError:
+        raise APIError(
+            422, "invalid_connection", "Save a complete connection and its credentials before testing."
+        ) from None
+    try:
+        async with (
+            asyncio.timeout(20),
+            AsyncOpenAI(api_key=token, base_url=endpoint, timeout=15, max_retries=0) as client,
+        ):
+            stream = await client.responses.create(
+                model=body.name,
+                input="Reply with OK.",
+                reasoning={"effort": body.reasoning_effort},
+                store=False,
+                stream=True,
+            )
+            async with stream:
+                async for event in stream:
+                    if event.type == "response.completed":
+                        return {"ok": True, "message": "The model responded successfully."}
+        return {"ok": False, "message": "The model response ended without completing."}
+    except Exception:
+        return {
+            "ok": False,
+            "message": "Connection test failed or timed out. Check model access, account usage and connection settings.",
+        }

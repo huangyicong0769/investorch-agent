@@ -8,7 +8,7 @@ import { useThemePreview } from '../../config/WebConfigContext'
 import { cn } from '../../lib/utils'
 import { ErrorNotice, fieldErrors } from '../management/Feedback'
 import { SchemaField } from '../management/SchemaField'
-import { ModelConfiguration, modelConfigValues } from '../management/ModelConfiguration'
+import { ModelConfiguration, modelConfigValues, modelConfigChanges } from '../management/ModelConfiguration'
 import { SecretFields } from '../management/SecretFields'
 import { configValue, fieldLabel, objectValue, resolveSchema, schemaAtPath } from '../management/schema'
 import { UnsavedChanges } from '../management/UnsavedChanges'
@@ -62,7 +62,7 @@ function SettingsEditor({ saved, schema }: { saved: SavedConfig; schema: ConfigS
   }
   const save = useMutation({
     mutationFn: () => {
-      const updates = { ...changes }
+      const updates = modelConfigChanges(saved.values, changes)
       for (const [name, key] of Object.entries(secrets)) if (key) updates[`secrets.${name}`] = key
       return saveConfig(updates)
     },

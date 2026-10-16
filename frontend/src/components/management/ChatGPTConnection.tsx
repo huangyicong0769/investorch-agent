@@ -19,6 +19,7 @@ export function ChatGPTConnection({ connection, disabled }: { connection: string
     <div className="flex flex-wrap gap-2"><Button disabled={busy || Boolean(pending)} onClick={() => login.mutate()} size="sm" type="button" variant="outline">{status.data?.status === 'connected' ? 'Reauthorize ChatGPT plan usage' : 'Continue with ChatGPT'}</Button>{status.data?.status === 'connected' ? <Button disabled={busy} onClick={() => logout.mutate()} size="sm" type="button" variant="ghost">Sign out</Button> : null}{status.data?.manage_usage_url ? <a className="self-center text-sm underline" href={status.data.manage_usage_url} rel="noreferrer" target="_blank">Manage Usage</a> : null}</div>
     {pending ? <div className="flex flex-wrap items-center gap-3 text-sm"><a href={pending.authorization_url} rel="noreferrer" target="_blank">Open sign-in page ↗</a><Button disabled={busy} onClick={() => cancel.mutate()} size="sm" type="button" variant="ghost">{status.data?.plan_use ? 'Done' : 'Cancel sign-in'}</Button></div> : null}
     <ErrorNotice error={login.error ?? cancel.error ?? logout.error ?? status.error} fallback="ChatGPT authorization could not be updated." />
+    {status.data?.error ? <p className="text-xs text-destructive" role="alert">{status.data.error.message}</p> : null}
     {notice ? <p className="text-xs text-muted-foreground" role="status">{notice}</p> : null}
   </div>
 }

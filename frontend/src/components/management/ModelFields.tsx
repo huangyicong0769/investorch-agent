@@ -8,13 +8,14 @@ import { objectValue } from './schema'
 export const EFFORTS = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const
 export const AGENT_ROLES = ['main', 'title', 'activity', 'permission', 'compact'] as const
 
-export function ModelFields({ value, connections, onChange, disabled, errors = {}, prefix = '' }: {
+export function ModelFields({ value, connections, onChange, disabled, errors = {}, prefix = '', probe = false }: {
   value: JsonObject
   connections: JsonObject
   onChange: (field: string, value: JsonValue) => void
   disabled?: boolean
   errors?: Record<string, string>
   prefix?: string
+  probe?: boolean
 }) {
   const id = useId()
   const connectionId = String(value.model ?? '')
@@ -33,6 +34,6 @@ export function ModelFields({ value, connections, onChange, disabled, errors = {
     {field('reasoning_effort', 'Reasoning effort', <select className={fieldClass} disabled={disabled} id={`${id}-reasoning_effort`} onChange={(e) => onChange('reasoning_effort', e.target.value)} value={String(value.reasoning_effort ?? 'high')}>
       {EFFORTS.map((effort) => <option key={effort} value={effort}>{effort}</option>)}
     </select>)}
-    {field('context_window_tokens', 'Context window (tokens)', <input className={fieldClass} disabled={disabled} id={`${id}-context_window_tokens`} min={1} onChange={(e) => onChange('context_window_tokens', e.target.value ? Number(e.target.value) : null)} placeholder="Enter the model’s documented window" step={1} type="number" value={typeof value.context_window_tokens === 'number' ? value.context_window_tokens : ''} />)}
+    {!probe && field('context_window_tokens', 'Context window (tokens)', <input className={fieldClass} disabled={disabled} id={`${id}-context_window_tokens`} min={1} onChange={(e) => onChange('context_window_tokens', e.target.value ? Number(e.target.value) : null)} placeholder="Enter the model’s documented window" step={1} type="number" value={typeof value.context_window_tokens === 'number' ? value.context_window_tokens : ''} />)}
   </div>
 }

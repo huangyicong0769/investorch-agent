@@ -119,7 +119,6 @@ export interface BootstrapResponse {
   version: string
   initial_session_id: string | null
   agent_name: string
-  context_window_tokens: number
   defaults: Defaults
   image_config: ImageConfig
   web_config: WebConfig

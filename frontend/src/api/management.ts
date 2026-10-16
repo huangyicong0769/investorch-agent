@@ -176,6 +176,7 @@ export interface ChatGPTStatus {
   display_name: string | null
   manage_usage_url: string
   refresh_pending: boolean
+  error?: { code: string; message: string } | null
 }
 export const chatGPTStatusOptions = (connection: string) => queryOptions({
   queryKey: [...managementKeys.config(), 'chatgpt', connection],
@@ -194,4 +195,7 @@ export function cancelChatGPT(state: string) {
 }
 export function logoutChatGPT(connection: string) {
   return request<ChatGPTStatus & { message: string }>(`/api/auth/chatgpt/${encodeURIComponent(connection)}/logout`, { method: 'POST', body: {} })
+}
+export function testSavedConnection(body: { connection: string; name: string; reasoning_effort: string }) {
+  return request<{ ok: boolean; message: string }>('/api/setup/test-connection', { method: 'POST', body })
 }

@@ -4,7 +4,7 @@ import { Link } from 'react-router-dom'
 import { completeSetup, configQueryOptions, managementKeys, saveConfig, testModel, type SavedConfig } from '../../api/management'
 import type { JsonValue } from '../../api/types'
 import { ErrorNotice, fieldErrors } from '../management/Feedback'
-import { ModelConfiguration, modelConfigValues } from '../management/ModelConfiguration'
+import { ModelConfiguration, modelConfigValues, modelConfigChanges } from '../management/ModelConfiguration'
 import { objectValue } from '../management/schema'
 import { SecretFields } from '../management/SecretFields'
 import { UnsavedChanges } from '../management/UnsavedChanges'
@@ -21,7 +21,7 @@ function SetupForm({ saved }: { saved: SavedConfig }) {
   const dirty = Object.keys(changes).length > 0 || Object.values(keys).some(Boolean)
   const save = useMutation({
     mutationFn: async (finish: boolean) => {
-      const updates = { ...changes }
+      const updates = modelConfigChanges(saved.values, changes)
       for (const [key, value] of Object.entries(keys)) if (value) updates[`secrets.${key}`] = value
       if (Object.keys(updates).length) await saveConfig(updates, true)
       setChanges({}); setKeys({})

@@ -38,7 +38,7 @@ async def test_skill_startup_failure_enters_recovery_without_reopening_model_set
         assert next(check for check in checks if check["code"] == "skills")["status"] in ("warning", "error")
         assert (await client.post("/api/setup/complete", json={})).status_code == 409
         assert (
-            await client.patch("/api/setup/config", json={"changes": {"models.main.name": "unrelated-change"}})
+            await client.patch("/api/setup/config", json={"changes": {"agents.main.name": "unrelated-change"}})
         ).status_code == 409
     after = {path.relative_to(config.root): path.read_bytes() for path in config.root.rglob("*") if path.is_file()}
     assert after == before
@@ -74,8 +74,6 @@ async def test_nonblocking_skill_warnings_do_not_prevent_ready(tmp_path: Path, w
 
 
 async def test_failed_setup_completion_transitions_to_recovery(tmp_path: Path) -> None:
-    from investorch.config import REQUIRED_MODEL_AGENTS
-
     config = make_test_config(tmp_path)
     config.root_config_path.write_text("# Model configuration is incomplete\n")
     app = create_web_app(root=config.root)
@@ -85,10 +83,9 @@ async def test_failed_setup_completion_transitions_to_recovery(tmp_path: Path) -
     ):
         assert (await client.get("/api/setup/state")).json()["status"] == "setup_required"
         changes = {f"secrets.{name}": value for name, value in config.secrets.items()}
-        for role in REQUIRED_MODEL_AGENTS:
-            for field in ("name", "base_url", "api_key_secret"):
-                key = f"models.{role}.{field}"
-                changes[key] = config[key]
+        for section in ("models", "agents"):
+            for name, value in config.public()[section].items():
+                changes[f"{section}.{name}"] = {key: item for key, item in value.items() if item is not None}
         assert (await client.patch("/api/setup/config", json={"changes": changes})).status_code == 200
         saved = config.root_config_path.read_bytes()
         skill = config.workspace_dir / "skills/skill-creator/SKILL.md"
