@@ -11,7 +11,7 @@ from agents import RunResultStreaming
 
 from investorch.inputs import UserInput
 
-from .models import PendingSteer, RunOptions
+from .models import PendingSteer, RunDefaults
 
 
 @dataclass(slots=True)
@@ -49,7 +49,7 @@ class RunControl:
         self._bound_stream = None
         self._after_turn_requested = False
 
-    def reserve_steer(self, user_input: UserInput | str, options: RunOptions) -> PendingSteer:
+    def reserve_steer(self, user_input: UserInput | str, options: RunDefaults) -> PendingSteer:
         if not self._accepting_submissions:
             raise RuntimeError("Run no longer accepts follow-up submissions")
         steer = PendingSteer(
