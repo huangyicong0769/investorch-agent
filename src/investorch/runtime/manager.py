@@ -8,7 +8,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from agents import SQLiteSession
 
@@ -30,6 +30,7 @@ from .models import (
     PendingSteer,
     QueuedInput,
     RunCapacityExceededError,
+    RunDefaults,
     RunOptions,
     RuntimeFollowUpEvent,
     RuntimeOutput,
@@ -37,6 +38,9 @@ from .models import (
     RuntimeSessionSnapshot,
     SessionBusyError,
 )
+
+if TYPE_CHECKING:
+    from investorch.application.session_models import SessionModelSnapshot, SessionModelStore
 
 logger = logging.getLogger(__name__)
 
@@ -100,11 +104,14 @@ class AgentRuntime:
         record_user_steer: RecordUserSteer,
         record_user_steers_activated: RecordUserSteersActivated,
         record_user_steers_discarded: RecordUserSteersDiscarded,
+        session_models: SessionModelStore,
         state_handler: RuntimeStateHandler | None = None,
         run_ended_handler: RunEndedHandler | None = None,
         follow_up_handler: RuntimeFollowUpHandler | None = None,
         max_concurrent_runs: Callable[[], int] = lambda: 3,
     ) -> None:
+        self.session_models = session_models
+        session_models.on_change = self._notify_state
         self._agent_loop = agent_loop
         self._execution = execution
         self._sessions_db = sessions_db
@@ -131,7 +138,11 @@ class AgentRuntime:
         self._maintenance_sessions: set[str] = set()
         self._closed = False
 
-    def start_run(self, session_id: str, user_input: UserInput | str, options: RunOptions) -> ActiveRun:
+    @property
+    def closed(self) -> bool:
+        return self._closed
+
+    def start_run(self, session_id: str, user_input: UserInput | str, options: RunDefaults) -> ActiveRun:
         return self._start_run(
             session_id, UserInput(user_input) if isinstance(user_input, str) else user_input, options
         )
@@ -141,7 +152,7 @@ class AgentRuntime:
         session_id: str,
         user_input: UserInput | str,
         application_instruction: str,
-        options: RunOptions,
+        options: RunDefaults,
     ) -> ActiveRun:
         user_input = UserInput(user_input) if isinstance(user_input, str) else user_input
         if not application_instruction.strip():
@@ -157,7 +168,7 @@ class AgentRuntime:
         self,
         session_id: str,
         application_instruction: str,
-        options: RunOptions,
+        options: RunDefaults,
     ) -> ActiveRun:
         if not application_instruction.strip():
             raise ValueError("Application instruction must not be empty")
@@ -178,7 +189,7 @@ class AgentRuntime:
         self,
         session_id: str,
         user_input: UserInput | None,
-        options: RunOptions,
+        options: RunDefaults,
         *,
         record_user_message: bool = True,
         start_gate: asyncio.Event | None = None,
@@ -200,6 +211,8 @@ class AgentRuntime:
         if len(self._active_by_session) >= limit:
             raise RunCapacityExceededError(active=len(self._active_by_session), limit=limit)
 
+        model_snapshot = self.session_models.snapshot(session_id)
+        options = RunOptions(model_snapshot.model, options.permission_mode, options.follow_up_behavior)
         run_id = uuid.uuid4().hex
         started_at = datetime.now(UTC)
         run_control = RunControl(session_id, run_id, lambda: self._notify_state(session_id))
@@ -214,6 +227,7 @@ class AgentRuntime:
                 run_control,
                 input_journal,
                 started_at,
+                model_snapshot,
                 record_user_message=record_user_message,
                 start_gate=start_gate,
                 application_instruction=application_instruction,
@@ -281,7 +295,7 @@ class AgentRuntime:
         return any(self._queued_by_session.values())
 
     async def submit_follow_up(
-        self, session_id: str, user_input: UserInput | str, next_run_options: RunOptions
+        self, session_id: str, user_input: UserInput | str, next_run_options: RunDefaults
     ) -> FollowUpSubmission:
         user_input = UserInput(user_input) if isinstance(user_input, str) else user_input
         task = asyncio.current_task()
@@ -294,7 +308,7 @@ class AgentRuntime:
             self._submission_tasks.discard(task)
 
     async def _submit_follow_up(
-        self, session_id: str, user_input: UserInput | str, next_run_options: RunOptions
+        self, session_id: str, user_input: UserInput | str, next_run_options: RunDefaults
     ) -> FollowUpSubmission:
         if self._closed:
             raise RuntimeError("Agent runtime is closed")
@@ -520,6 +534,7 @@ class AgentRuntime:
         run_control: RunControl,
         input_journal: _InputJournalBarrier,
         started_at: datetime,
+        model_snapshot: SessionModelSnapshot,
         *,
         record_user_message: bool,
         start_gate: asyncio.Event | None,
@@ -604,13 +619,20 @@ class AgentRuntime:
                 input_journal.succeed(instruction_head_seq)
             else:
                 instruction_head_seq = await input_journal.wait()
+            try:
+                await self.session_models.commit(session_id, model_snapshot)
+            except Exception as error:
+                raise RuntimeError(
+                    "Run input was journaled but not executed: Session model metadata could not be saved. "
+                    "Inspect Session history before explicitly retrying the input."
+                ) from error
             result = await self._agent_loop.run(
                 user_input,
                 session,
                 self._execution,
                 run_id=run_id,
                 session_id=session_id,
-                reasoning_effort=options.reasoning_effort,
+                model_config=options.model,
                 approval_handler=handle_approval,
                 output_handler=handle_output,
                 run_control=run_control,

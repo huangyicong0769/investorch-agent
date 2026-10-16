@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import TYPE_CHECKING, Literal
 
+from investorch.config import AgentModelConfig
 from investorch.context import TodoItem
 from investorch.inputs import UserInput
 from investorch.output import OutputEvent
@@ -18,10 +19,18 @@ RunPhase = Literal["running", "waiting_approval", "stopping"]
 
 
 @dataclass(frozen=True, slots=True)
-class RunOptions:
-    """Future-run defaults captured when a top-level Agent run starts."""
+class RunDefaults:
+    """Permission and follow-up choices captured when input is submitted."""
 
-    reasoning_effort: str
+    permission_mode: str
+    follow_up_behavior: FollowUpBehavior
+
+
+@dataclass(frozen=True, slots=True)
+class RunOptions:
+    """Immutable model and behavior selected for an admitted Run."""
+
+    model: AgentModelConfig
     permission_mode: str
     follow_up_behavior: FollowUpBehavior
 
@@ -67,7 +76,7 @@ class PendingSteer:
     session_id: str
     source_run_id: str
     user_input: UserInput
-    options: RunOptions
+    options: RunDefaults
     created_at: datetime
     journal_seq: int | None = None
 
@@ -81,7 +90,7 @@ class QueuedInput:
     queue_id: str
     session_id: str
     user_input: UserInput
-    options: RunOptions
+    options: RunDefaults
     created_at: datetime
 
     @property

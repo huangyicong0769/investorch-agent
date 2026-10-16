@@ -20,7 +20,7 @@ from investorch.runtime import (
     AgentRuntime,
     ApprovalRequest,
     RunCapacityExceededError,
-    RunOptions,
+    RunDefaults,
     RuntimeFollowUpEvent,
     RuntimeOutput,
     RuntimeRunEnded,
@@ -63,8 +63,7 @@ async def _run_console(state: AppState, runtime: AgentRuntime, sessions: Session
             active_run = runtime.start_run(
                 session_id,
                 UserInput(user_input),
-                RunOptions(
-                    reasoning_effort=state.main_reasoning_effort,
+                RunDefaults(
                     permission_mode=state.permission_mode,
                     follow_up_behavior=state.follow_up_behavior,
                 ),

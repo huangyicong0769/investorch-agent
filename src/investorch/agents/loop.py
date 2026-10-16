@@ -8,13 +8,14 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from agents import Agent, RunContextWrapper, Runner, SQLiteSession, TResponseInputItem, UserError
+from agents import Agent, Model, RunContextWrapper, Runner, SQLiteSession, TResponseInputItem, UserError
 from agents.lifecycle import RunHooksBase
-from agents.tool import Tool
+from agents.tool import FunctionTool, Tool
 
-from investorch.config import AppConfig
+from investorch.config import AgentModelConfig, AppConfig
 from investorch.context import AgentContext, ExecutionState, TodoUpdateHandler
 from investorch.inputs import UserInput
+from investorch.llm.models import ChatGPTResponsesModel, chatgpt_tools
 from investorch.output import AssistantMessage, OutputEvent, OutputHandler, consume_run_events
 from investorch.output.stream import assistant_message_from_result
 
@@ -96,16 +97,20 @@ class AgentLoop:
         compaction_agent: Agent,
         config: AppConfig,
         portfolios: PortfolioOperations,
+        model_factory: Callable[[AgentModelConfig], Model],
         successful_tool_handler: SuccessfulToolHandler = _ignore_successful_tool,
         skills: SkillOperations | None = None,
+        preflight_compaction_handler: Callable[[str, CompactionResult], None] | None = None,
     ) -> None:
         self._agent = agent
+        self._model_factory = model_factory
         self._title_agent = title_agent
         self._compaction_agent = compaction_agent
         self._config = config
         self._portfolios = portfolios
         self._skills = skills
         self._successful_tool_handler = successful_tool_handler
+        self._preflight_compaction_handler = preflight_compaction_handler
 
     async def run(
         self,
@@ -115,7 +120,7 @@ class AgentLoop:
         *,
         run_id: str,
         session_id: str,
-        reasoning_effort: str,
+        model_config: AgentModelConfig,
         approval_handler: ApprovalHandler,
         output_handler: OutputHandler,
         run_control: RunControl,
@@ -124,8 +129,8 @@ class AgentLoop:
         steer_activated_handler: SteerActivatedHandler | None = None,
         application_instruction: str | None = None,
     ) -> AgentRunResult:
-        settings = self._agent.model_settings.resolve({"reasoning": {"effort": reasoning_effort}})
-        run_agent = self._agent.clone(model_settings=settings)
+        settings = self._agent.model_settings.resolve({"reasoning": {"effort": model_config.reasoning_effort}})
+        run_agent = self._agent.clone(model=self._model_factory(model_config), model_settings=settings)
         agent_context = AgentContext(
             config=self._config,
             execution=execution,
@@ -135,6 +140,9 @@ class AgentLoop:
             skills=self._skills,
             todo_update_handler=todo_update_handler,
         )
+        if isinstance(run_agent.model, ChatGPTResponsesModel):
+            all_tools = await run_agent.get_all_tools(RunContextWrapper(agent_context))
+            run_agent = run_agent.clone(tools=chatgpt_tools(all_tools), mcp_servers=[])
         hooks = _SuccessfulToolHooks(
             session_id=session_id,
             run_id=run_id,
@@ -153,6 +161,13 @@ class AgentLoop:
         if not model_input:
             raise ValueError("Run requires user input or an application instruction")
 
+        preflight_compaction = await self._preflight_compact(
+            session,
+            run_agent,
+            agent_context,
+            model_input,
+            model_config.context_window_tokens,
+        )
         result = Runner.run_streamed(
             run_agent,
             model_input,
@@ -249,9 +264,14 @@ class AgentLoop:
             # repeating the final text already delivered by message_output_created.
             await output_handler(AssistantMessage(text="", images=message.images))
         title_usage = await ensure_session_title(self._title_agent, session, self._config.sessions_db)
-        auto_compaction, auto_compaction_failed, consistency_uncertain = await self._auto_compact(session, main_usage)
+        auto_compaction, auto_compaction_failed, consistency_uncertain = await self._auto_compact(
+            session, main_usage, model_config.context_window_tokens
+        )
         auxiliary_usage = (
-            approval_usage + title_usage + (auto_compaction.usage if auto_compaction is not None else TokenUsage())
+            approval_usage
+            + title_usage
+            + (auto_compaction.usage if auto_compaction is not None else TokenUsage())
+            + (preflight_compaction.usage if preflight_compaction is not None else TokenUsage())
         )
         return AgentRunResult(
             output=output,
@@ -262,15 +282,56 @@ class AgentLoop:
             auto_compaction_consistency_uncertain=consistency_uncertain,
         )
 
+    async def _preflight_compact(
+        self,
+        session: SQLiteSession,
+        agent: Agent[AgentContext],
+        context: AgentContext,
+        model_input: list[TResponseInputItem],
+        context_window_tokens: int,
+    ) -> CompactionResult | None:
+        wrapper = RunContextWrapper(context)
+        instructions = await agent.get_system_prompt(wrapper)
+        tools = await agent.get_all_tools(wrapper)
+        tool_schemas = [
+            {"name": tool.name, "description": tool.description, "parameters": tool.params_json_schema}
+            if isinstance(tool, FunctionTool)
+            else {"type": type(tool).__name__, "protocol_reserve": " " * 1024}
+            for tool in tools
+        ]
+        # One token per UTF-8 byte deliberately overestimates text, including non-Latin text.
+        # Images are budgeted separately: base64 size is unrelated to visual tokenization.
+        overhead = estimate_context_tokens([instructions, tool_schemas, model_input]) + 1024
+        output_reserve = min(8192, max(256, context_window_tokens // 20))
+        budget = math.floor(context_window_tokens * self._config["compaction.trigger_ratio"]) - output_reserve
+        if overhead >= budget:
+            raise ValueError(
+                "The new input, instructions and Tools exceed the selected model context budget; shorten the input or select a larger window."
+            )
+        history = await session.get_items()
+        if estimate_context_tokens(history) + overhead < budget:
+            return None
+        try:
+            result = await self.compact(session)
+        except BaseException as error:
+            if session_history_restore_failed(error):
+                raise RuntimeError(
+                    "Preflight Compact failed: continuation consistency uncertain; Main was not executed."
+                ) from error
+            raise
+        if self._preflight_compaction_handler is not None:
+            self._preflight_compaction_handler(session.session_id, result)
+        if estimate_context_tokens(await session.get_items()) + overhead >= budget:
+            raise ValueError("Context still exceeds the selected model budget after Compact; Main was not executed.")
+        return result
+
     async def compact(self, session: SQLiteSession) -> CompactionResult:
         return await compact_session(self._compaction_agent, session, self._config)
 
     async def _auto_compact(
-        self, session: SQLiteSession, main_usage: TokenUsage
+        self, session: SQLiteSession, main_usage: TokenUsage, context_window_tokens: int
     ) -> tuple[CompactionResult | None, bool, bool]:
         context_tokens = main_usage.last_request_total_tokens
-        context_window_tokens = self._config.model("main").context_window_tokens
-        assert context_window_tokens is not None
         trigger_ratio = self._config["compaction.trigger_ratio"]
         if not should_auto_compact(
             enabled=self._config["compaction.auto_enabled"],
@@ -333,3 +394,17 @@ def user_input_to_response_item(user_input: UserInput) -> dict[str, Any]:
         {"type": "input_image", "image_url": image.image_url, "detail": image.detail} for image in user_input.images
     )
     return {"role": "user", "content": content}
+
+
+def estimate_context_tokens(value: object) -> int:
+    """Budget serialized text conservatively and reserve visual tokens per image."""
+    if isinstance(value, dict):
+        kind = value.get("type")
+        if isinstance(kind, str) and kind in {"input_image", "image_url"}:
+            return 32768
+        return sum(len(str(key).encode("utf-8")) + estimate_context_tokens(item) + 8 for key, item in value.items())
+    if isinstance(value, (list, tuple)):
+        return sum(estimate_context_tokens(item) + 8 for item in value)
+    if value is None:
+        return 0
+    return len(str(value).encode("utf-8")) + 8

@@ -74,3 +74,13 @@ class SessionPresentationStore:
             last_todo_run_id=state.last_todo_run_id,
             last_todos=state.last_todos,
         )
+
+    def observe_preflight_compaction(self, session_id: str, result: CompactionResult) -> None:
+        if result.changed:
+            state = self._states.get(session_id, SessionPresentationState())
+            self._states[session_id] = SessionPresentationState(
+                usage=state.usage,
+                main_context_tokens=None,
+                last_todo_run_id=state.last_todo_run_id,
+                last_todos=state.last_todos,
+            )

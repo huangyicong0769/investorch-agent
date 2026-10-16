@@ -16,7 +16,6 @@ def make_app_state(harness: RuntimeHarness, session_id: str) -> AppState:
         config=harness.config,
         execution=ExecutionState(workspace_root=harness.config.workspace_dir),
         selected_session_id=session_id,
-        main_reasoning_effort="none",
         permission_mode="manual",
     )
 

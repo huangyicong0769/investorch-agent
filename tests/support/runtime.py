@@ -8,11 +8,12 @@ from typing import cast
 from zoneinfo import ZoneInfo
 
 from investorch.agents import AgentLoop, ApprovalOutcome, TokenUsage
+from investorch.application.session_models import SessionModelStore
 from investorch.config import AppConfig
 from investorch.context import ExecutionState
 from investorch.inputs import UserInput
 from investorch.journal import SessionJournal
-from investorch.runtime import AgentRuntime, RunOptions, RuntimeFollowUpEvent, RuntimeRunEnded, RuntimeSessionSnapshot
+from investorch.runtime import AgentRuntime, RunDefaults, RuntimeFollowUpEvent, RuntimeRunEnded, RuntimeSessionSnapshot
 from investorch.runtime.models import ApprovalRequest, FollowUpBehavior, RuntimeOutput
 from tests.support.config import make_test_config
 from tests.support.controlled_agent import ControlledAgentLoop
@@ -22,9 +23,8 @@ RecordUserSteer = Callable[[str, str, str], Awaitable[int]]
 RecordUserSteerDisposition = Callable[[str, str, tuple[int, ...]], Awaitable[int]]
 
 
-def run_options(follow_up_behavior: FollowUpBehavior = "steer") -> RunOptions:
-    return RunOptions(
-        reasoning_effort="none",
+def run_options(follow_up_behavior: FollowUpBehavior = "steer") -> RunDefaults:
+    return RunDefaults(
         permission_mode="manual",
         follow_up_behavior=follow_up_behavior,
     )
@@ -198,6 +198,7 @@ def make_runtime_harness(
         record_user_steer or journal.record_user_steer,
         record_user_steers_activated or journal.record_user_steers_activated,
         record_user_steers_discarded or journal.record_user_steers_discarded,
+        session_models=SessionModelStore(config),
         state_handler=handle_state,
         run_ended_handler=handle_run_ended,
         follow_up_handler=handle_follow_up,

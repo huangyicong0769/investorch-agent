@@ -8,7 +8,7 @@ from investorch.context import AppState
 from investorch.inputs import UserInput
 from investorch.runtime import AgentRuntime
 
-from .interaction import current_run_options
+from .interaction import current_run_defaults
 from .sessions import SessionOperations
 from .skills import SkillOperations
 
@@ -61,7 +61,7 @@ class SkillSessionWorkflows:
                 ) or await self._sessions.has_agent_activity(session_id):
                     return SkillSessionResult(session_id, None, False)
             active = self._runtime.start_contextual_run(
-                session_id, UserInput(visible), instruction, current_run_options(self._state)
+                session_id, UserInput(visible), instruction, current_run_defaults(self._state)
             )
             await self._sessions.mark_application_workflow_started(session_id)
             return SkillSessionResult(session_id, active.run_id, True)

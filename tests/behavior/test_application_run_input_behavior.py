@@ -41,7 +41,14 @@ async def test_agent_loop_keeps_application_context_separate_from_visible_user_i
     model = ScriptedModel(((assistant_message("done"),),))
     agent = Agent[AgentContext](name="Main", instructions="test", model=model)
     unused_agent = Agent(name="Unused", instructions="test", model=ScriptedModel())
-    loop = AgentLoop(agent, unused_agent, unused_agent, config, PortfolioOperations(config=config))
+    loop = AgentLoop(
+        agent,
+        unused_agent,
+        unused_agent,
+        config,
+        PortfolioOperations(config=config),
+        model_factory=lambda _: agent.model,
+    )
     session = SQLiteSession("session-a", config.sessions_db)
 
     async def approval_handler(_head_seq: int | None, _tool_name: str, _arguments: str | None) -> ApprovalOutcome:
@@ -57,7 +64,7 @@ async def test_agent_loop_keeps_application_context_separate_from_visible_user_i
             ExecutionState(workspace_root=config.workspace_dir),
             run_id="run-a",
             session_id="session-a",
-            reasoning_effort="none",
+            model_config=config.agent_model("main"),
             approval_handler=approval_handler,
             output_handler=output_handler,
             run_control=RunControl("session-a", "run-a", lambda: None),

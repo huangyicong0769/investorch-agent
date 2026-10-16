@@ -52,6 +52,7 @@ async def run_scripted_tool(
         config,
         portfolios,
         successful_tool_handler=context.observe_successful_tool,
+        model_factory=lambda _: agent.model,
     )
     session = SQLiteSession(session_id, config.sessions_db)
 
@@ -68,7 +69,7 @@ async def run_scripted_tool(
             ExecutionState(workspace_root=config.workspace_dir),
             run_id="run-a",
             session_id=session_id,
-            reasoning_effort="none",
+            model_config=config.agent_model("main"),
             approval_handler=approval_handler,
             output_handler=output_handler,
             run_control=RunControl(session_id, "run-a", lambda: None),

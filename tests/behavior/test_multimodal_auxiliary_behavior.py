@@ -38,7 +38,7 @@ async def test_title_vision_failure_does_not_fail_main_image_run(tmp_path: Path)
 
     main = Agent(name="Main", model=ScriptedModel(((assistant_message("Main completed"),),)))
     title = Agent(name="Title", model=ScriptedModel((ModelStep.respond(reject_vision),)))
-    loop = AgentLoop(main, title, title, config, PortfolioOperations(config=config))
+    loop = AgentLoop(main, title, title, config, PortfolioOperations(config=config), model_factory=lambda _: main.model)
 
     async def approve(*_args):
         return ApprovalOutcome(approved=True, usage=TokenUsage())
@@ -53,7 +53,7 @@ async def test_title_vision_failure_does_not_fail_main_image_run(tmp_path: Path)
             ExecutionState(workspace_root=config.workspace_dir),
             run_id="run",
             session_id="session",
-            reasoning_effort="none",
+            model_config=config.agent_model("main"),
             approval_handler=approve,
             output_handler=output,
             run_control=RunControl("session", "run", lambda: None),

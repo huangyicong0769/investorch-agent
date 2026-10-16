@@ -160,6 +160,7 @@ async def test_image_steer_reaches_sdk_continuation_or_fallback(tmp_path: Path, 
 
     from investorch.agents import AgentLoop, ApprovalOutcome, TokenUsage
     from investorch.application import PortfolioOperations
+    from investorch.application.session_models import SessionModelStore
     from investorch.context import ExecutionState
     from investorch.journal import SessionJournal
     from investorch.runtime import AgentRuntime
@@ -195,7 +196,12 @@ async def test_image_steer_reaches_sdk_continuation_or_fallback(tmp_path: Path, 
     model = ScriptedModel((ModelStep.respond(first_turn), ModelStep.respond(next_turn)))
     unused = Agent(name="Unused", model=ScriptedModel())
     loop = AgentLoop(
-        Agent(name="Main", model=model, tools=[read_status]), unused, unused, config, PortfolioOperations(config=config)
+        Agent(name="Main", model=model, tools=[read_status]),
+        unused,
+        unused,
+        config,
+        PortfolioOperations(config=config),
+        model_factory=lambda _: model,
     )
 
     async def approve(_request):
@@ -219,6 +225,7 @@ async def test_image_steer_reaches_sdk_continuation_or_fallback(tmp_path: Path, 
         journal.record_user_steer,
         journal.record_user_steers_activated,
         journal.record_user_steers_discarded,
+        session_models=SessionModelStore(config),
         run_ended_handler=run_ended,
     )
     try:

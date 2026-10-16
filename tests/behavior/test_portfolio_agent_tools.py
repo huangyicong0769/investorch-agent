@@ -5,7 +5,8 @@ from decimal import Decimal
 from pathlib import Path
 
 import pytest
-from agents import Agent, ModelSettings
+from agents import Agent, ModelSettings, SQLiteSession
+from agents.testing import ScriptedModel
 from agents.tool import FunctionTool
 from agents.tool_context import ToolContext
 
@@ -713,6 +714,7 @@ async def test_run_created_agent_context_uses_host_portfolio_state(
             Agent(name="Compaction", instructions="test"),
             harness.host.config,
             harness.host.portfolios,
+            model_factory=lambda _: ScriptedModel(),
         )
         captured: dict[str, AgentContext] = {}
 
@@ -725,18 +727,20 @@ async def test_run_created_agent_context_uses_host_portfolio_state(
         async def unused_handler(*_args: object) -> None:
             raise AssertionError("handler should not be reached")
 
+        session = SQLiteSession("session-a", harness.host.config.sessions_db)
         with pytest.raises(RuntimeError, match="controlled SDK boundary"):
             await agent_loop.run(
                 "read the portfolio",
-                None,  # type: ignore[arg-type]
+                session,
                 harness.host.execution,
                 run_id="run-a",
                 session_id="session-a",
-                reasoning_effort="none",
+                model_config=harness.host.config.agent_model("main"),
                 approval_handler=unused_handler,  # type: ignore[arg-type]
                 output_handler=unused_handler,
                 run_control=None,  # type: ignore[arg-type]
             )
+        session.close()
 
         context = ToolContext(
             context=captured["context"],

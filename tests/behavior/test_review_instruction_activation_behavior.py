@@ -10,6 +10,7 @@ from agents.testing import ModelStep, ScriptedModel, assistant_message, function
 
 from investorch.agents import AgentLoop, ApprovalOutcome, TokenUsage
 from investorch.application import PortfolioOperations, ReviewContext
+from investorch.application.session_models import SessionModelStore
 from investorch.context import AgentContext, ExecutionState
 from investorch.journal import SessionJournal, read_session_journal
 from investorch.runtime import AgentRuntime, ApprovalRequest, RuntimeOutput, RuntimeRunEnded
@@ -68,7 +69,7 @@ async def test_activated_steer_advances_the_next_approval_instruction_boundary(t
     )
     agent = Agent[AgentContext](name="Main", instructions="test", model=model, tools=[create_portfolio])
     unused_agent = Agent(name="Unused", instructions="test", model=ScriptedModel())
-    loop = AgentLoop(agent, unused_agent, unused_agent, config, portfolios)
+    loop = AgentLoop(agent, unused_agent, unused_agent, config, portfolios, model_factory=lambda _: agent.model)
 
     async def approval_handler(request: ApprovalRequest) -> ApprovalOutcome:
         approval_requests.append(request)
@@ -92,6 +93,7 @@ async def test_activated_steer_advances_the_next_approval_instruction_boundary(t
         journal.record_user_steer,
         journal.record_user_steers_activated,
         journal.record_user_steers_discarded,
+        session_models=SessionModelStore(config),
         run_ended_handler=run_ended_handler,
     )
     runtime.start_run("session-a", "initial instruction", run_options("steer"))
@@ -200,6 +202,7 @@ async def test_cancel_after_activation_commit_does_not_add_a_conflicting_discard
         unused_agent,
         config,
         portfolios,
+        model_factory=lambda _: model,
     )
     runtime = AgentRuntime(
         loop,
@@ -211,6 +214,7 @@ async def test_cancel_after_activation_commit_does_not_add_a_conflicting_discard
         journal.record_user_steer,
         delayed_activation,
         journal.record_user_steers_discarded,
+        session_models=SessionModelStore(config),
         run_ended_handler=run_ended_handler,
     )
     active = runtime.start_run("session-a", "initial instruction", run_options("steer"))
@@ -311,6 +315,7 @@ async def test_activation_write_failure_stops_the_run_and_discards_the_unconsume
         unused_agent,
         config,
         portfolios,
+        model_factory=lambda _: model,
     )
     runtime = AgentRuntime(
         loop,
@@ -322,6 +327,7 @@ async def test_activation_write_failure_stops_the_run_and_discards_the_unconsume
         journal.record_user_steer,
         fail_activation,
         journal.record_user_steers_discarded,
+        session_models=SessionModelStore(config),
         run_ended_handler=run_ended_handler,
     )
     active = runtime.start_run("session-a", "initial instruction", run_options("steer"))
@@ -411,6 +417,7 @@ async def test_fallback_activation_write_failure_never_starts_the_promoted_model
         unused_agent,
         config,
         portfolios,
+        model_factory=lambda _: model,
     )
     runtime = AgentRuntime(
         loop,
@@ -422,6 +429,7 @@ async def test_fallback_activation_write_failure_never_starts_the_promoted_model
         journal.record_user_steer,
         fail_activation,
         journal.record_user_steers_discarded,
+        session_models=SessionModelStore(config),
         run_ended_handler=run_ended_handler,
     )
     active = runtime.start_run("session-a", "initial instruction", run_options("steer"))

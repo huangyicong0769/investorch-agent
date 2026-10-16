@@ -4,7 +4,7 @@ from typing import Literal
 
 from investorch.context import AppState
 from investorch.inputs import UserInput
-from investorch.runtime import AgentRuntime, RunOptions, SessionBusyError
+from investorch.runtime import AgentRuntime, RunDefaults, SessionBusyError
 from investorch.storage import get_session, is_session_archived
 
 InputDisposition = Literal["run_started", "steer_submitted", "queue_submitted"]
@@ -48,9 +48,8 @@ class FollowUpSubmissionError(UserInputRejected):
     pass
 
 
-def current_run_options(state: AppState) -> RunOptions:
-    return RunOptions(
-        reasoning_effort=state.main_reasoning_effort,
+def current_run_defaults(state: AppState) -> RunDefaults:
+    return RunDefaults(
         permission_mode=state.permission_mode,
         follow_up_behavior=state.follow_up_behavior,
     )
@@ -81,7 +80,7 @@ async def submit_user_input(
 
     if runtime.is_session_active(session_id):
         try:
-            submission = await runtime.submit_follow_up(session_id, user_input, current_run_options(state))
+            submission = await runtime.submit_follow_up(session_id, user_input, current_run_defaults(state))
         except SessionBusyError as exc:
             raise ActiveRunChangedError(follow_up=True) from exc
         except Exception as exc:
@@ -100,7 +99,7 @@ async def submit_user_input(
         raise QueuedFollowUpsPendingError(paused=snapshot.queue_paused)
 
     try:
-        active_run = runtime.start_run(session_id, user_input, current_run_options(state))
+        active_run = runtime.start_run(session_id, user_input, current_run_defaults(state))
     except SessionBusyError as exc:
         raise ActiveRunChangedError(follow_up=False) from exc
     return UserInputSubmission(session_id=session_id, disposition="run_started", run_id=active_run.run_id)
