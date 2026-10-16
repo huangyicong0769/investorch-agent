@@ -1,3 +1,5 @@
+import pytest
+
 from investorch.commands.handlers import dispatch_command
 from investorch.commands.parser import parse_command
 from investorch.context import AppState
@@ -86,7 +88,8 @@ async def test_terminal_chatgpt_login_uses_the_existing_host_and_keeps_authoriza
         assert auth_calls[-1] == ("logout", "personal")
 
 
-async def test_plain_app_recovers_from_missing_session_connection_and_expired_auth(tmp_path, monkeypatch):
+@pytest.mark.parametrize("failure", ["auth", "quota"])
+async def test_plain_app_recovers_from_missing_session_connection_and_expired_auth(tmp_path, monkeypatch, failure):
     from dataclasses import asdict
 
     from agents import ModelSettings
@@ -94,6 +97,7 @@ async def test_plain_app_recovers_from_missing_session_connection_and_expired_au
 
     from investorch.app import run_app
     from investorch.journal.reader import read_session_journal
+    from investorch.llm.models import ChatGPTInferenceError
     from investorch.llm.oauth import ChatGPTAuthError
     from investorch.storage import list_sessions, set_session_title
     from investorch.storage.sessions import set_session_model
@@ -104,7 +108,11 @@ async def test_plain_app_recovers_from_missing_session_connection_and_expired_au
     config = make_test_config(tmp_path, {"backtest": {"use_cnequity": False}, "compaction": {"auto_enabled": False}})
     model = ScriptedModel(
         (
-            ModelStep.raise_error(ChatGPTAuthError("login_required", "Sign in to ChatGPT again.")),
+            ModelStep.raise_error(
+                ChatGPTAuthError("login_required", "Sign in to ChatGPT again.")
+                if failure == "auth"
+                else ChatGPTInferenceError("usage_limit_reached", 429)
+            ),
             (assistant_message("recovered"),),
         )
     )
@@ -143,7 +151,8 @@ async def test_plain_app_recovers_from_missing_session_connection_and_expired_au
     monkeypatch.setattr("investorch.app.configure_logging", lambda _: None)
     await run_app(plain=True)
     assert sum("missing" in text for text in output) == 2
-    assert "Sign in to ChatGPT again." in output
+    guidance = "Sign in to ChatGPT again." if failure == "auth" else "Manage Usage"
+    assert sum(guidance in text for text in output) == 1
     assert "Agent: recovered" in output
     model.assert_complete()
     records = read_session_journal(config.session_journal_dir, selected[0])

@@ -46,12 +46,13 @@ class SessionPresentationStore:
 
     def observe_run_ended(self, event: RuntimeRunEnded) -> None:
         if event.status != "completed" or event.result is None:
+            self.add_usage(event.session_id, event.auxiliary_usage)
             return
         result = event.result
         state = self._states.get(event.session_id, SessionPresentationState())
         compacted = result.auto_compaction is not None and result.auto_compaction.changed
         self._states[event.session_id] = SessionPresentationState(
-            usage=state.usage + result.main_usage + result.auxiliary_usage,
+            usage=state.usage + result.main_usage + event.auxiliary_usage,
             main_context_tokens=None if compacted else result.main_usage.last_request_total_tokens,
             last_todo_run_id=state.last_todo_run_id,
             last_todos=state.last_todos,

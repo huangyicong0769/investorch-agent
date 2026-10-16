@@ -906,6 +906,7 @@ class InvestOrchAgentTUI(App[None]):
             return
 
         try:
+            self._add_usage(event.session_id, event.auxiliary_usage)
             if event.status == "completed":
                 if event.result is None:
                     logger.error(
@@ -922,7 +923,6 @@ class InvestOrchAgentTUI(App[None]):
                     self._set_main_context_tokens(
                         event.session_id, None if compacted else result.main_usage.last_request_total_tokens
                     )
-                    self._add_usage(event.session_id, result.auxiliary_usage)
                     if compacted:
                         if event.session_id == self.state.selected_session_id:
                             await self.query_one(ChatTimeline).add_notice(

@@ -15,6 +15,7 @@ from investorch.config import AppConfig, ConfigError, load_config
 from investorch.context import AppState
 from investorch.initializer import initialize
 from investorch.inputs import UserInput
+from investorch.llm.models import ChatGPTInferenceError
 from investorch.llm.oauth import ChatGPTAuthError
 from investorch.log import configure_logging
 from investorch.runtime import (
@@ -74,7 +75,10 @@ async def _run_console(state: AppState, runtime: AgentRuntime, sessions: Session
             continue
         try:
             result = await active_run.task
-        except (ConfigError, ChatGPTAuthError) as error:
+        except (ChatGPTAuthError, ChatGPTInferenceError):
+            # Runtime already emitted the safe recovery guidance to all clients.
+            continue
+        except ConfigError as error:
             ui.write(str(error))
             continue
         if result.auto_compaction is not None and result.auto_compaction.changed:

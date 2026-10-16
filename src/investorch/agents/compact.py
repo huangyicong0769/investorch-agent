@@ -1,4 +1,5 @@
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from agents import Agent, Model, ModelSettings, RunConfig, Runner, SQLiteSession, TResponseInputItem
@@ -76,7 +77,13 @@ async def _replace_session_history(
         raise
 
 
-async def compact_session(agent: Agent, session: SQLiteSession, config: AppConfig) -> CompactionResult:
+async def compact_session(
+    agent: Agent,
+    session: SQLiteSession,
+    config: AppConfig,
+    *,
+    usage_handler: Callable[[TokenUsage], None] | None = None,
+) -> CompactionResult:
     history = await session.get_items()
     source_items = len(history)
 
@@ -90,6 +97,9 @@ async def compact_session(agent: Agent, session: SQLiteSession, config: AppConfi
         max_turns=1,
         run_config=RunConfig(call_model_input_filter=portable_history_filter(history)),
     )
+    usage = TokenUsage.from_sdk(result.context_wrapper.usage)
+    if usage_handler is not None:
+        usage_handler(usage)
     summary = str(result.final_output).strip()
 
     if not summary:
@@ -102,7 +112,7 @@ async def compact_session(agent: Agent, session: SQLiteSession, config: AppConfi
     )
     return CompactionResult(
         changed=True,
-        usage=TokenUsage.from_sdk(result.context_wrapper.usage),
+        usage=usage,
         source_items=source_items,
         summary_chars=len(summary),
     )

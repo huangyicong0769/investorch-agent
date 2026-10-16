@@ -99,7 +99,7 @@ def serialize_run_ended(event: RuntimeRunEnded) -> dict[str, object]:
         "duration_ms": max(0, round((event.ended_at - event.started_at).total_seconds() * 1000)),
         "discarded_steer_count": event.discarded_steer_count,
         "main_usage": serialize_token_usage(result.main_usage) if result is not None else None,
-        "auxiliary_usage": serialize_token_usage(result.auxiliary_usage) if result is not None else None,
+        "auxiliary_usage": serialize_token_usage(event.auxiliary_usage),
         "main_context_tokens": None if result is None or compacted else result.main_usage.last_request_total_tokens,
         "auto_compaction": serialize_compaction_result(result.auto_compaction)
         if result is not None and result.auto_compaction is not None

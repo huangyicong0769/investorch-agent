@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import TYPE_CHECKING, Literal
 
+from investorch.agents.usage import TokenUsage
 from investorch.config import AgentModelConfig
 from investorch.context import TodoItem
 from investorch.inputs import UserInput
@@ -144,6 +145,11 @@ class RuntimeRunEnded:
     result: AgentRunResult | None
     discarded_steer_count: int = 0
     discarded_steer_seqs: tuple[int, ...] = ()
+    partial_auxiliary_usage: TokenUsage = field(default_factory=TokenUsage)
+
+    @property
+    def auxiliary_usage(self) -> TokenUsage:
+        return self.result.auxiliary_usage if self.result is not None else self.partial_auxiliary_usage
 
 
 @dataclass(frozen=True, slots=True)

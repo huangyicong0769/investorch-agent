@@ -129,6 +129,7 @@ class AgentLoop:
         instruction_head_seq: int | None = None,
         steer_activated_handler: SteerActivatedHandler | None = None,
         application_instruction: str | None = None,
+        preflight_usage_handler: Callable[[TokenUsage], None] | None = None,
     ) -> AgentRunResult:
         settings = self._agent.model_settings.resolve({"reasoning": {"effort": model_config.reasoning_effort}})
         run_agent = self._agent.clone(model=self._model_factory(model_config), model_settings=settings)
@@ -168,6 +169,7 @@ class AgentLoop:
             agent_context,
             model_input,
             model_config.context_window_tokens,
+            preflight_usage_handler,
         )
         run_config = RunConfig(call_model_input_filter=portable_history_filter(await session.get_items()))
         result = Runner.run_streamed(
@@ -293,6 +295,7 @@ class AgentLoop:
         context: AgentContext,
         model_input: list[TResponseInputItem],
         context_window_tokens: int,
+        usage_handler: Callable[[TokenUsage], None] | None,
     ) -> CompactionResult | None:
         wrapper = RunContextWrapper(context)
         instructions = await agent.get_system_prompt(wrapper)
@@ -316,7 +319,7 @@ class AgentLoop:
         if estimate_context_tokens(history) + overhead < budget:
             return None
         try:
-            result = await self.compact(session)
+            result = await compact_session(self._compaction_agent, session, self._config, usage_handler=usage_handler)
         except BaseException as error:
             if session_history_restore_failed(error):
                 raise RuntimeError(
