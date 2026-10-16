@@ -2,7 +2,95 @@
 
 [English](Upgrade.md)
 
-本文介绍如何升级到 0.2.0。版本范围与软件包名称见[发行说明](releases/0.2.0.zh-CN.md)。
+本文说明尚未发布的 0.3.0 模型配置迁移，并保留早期 0.2.0 升级流程。版本范围见 [0.3.0 发行说明](releases/0.3.0.zh-CN.md)。
+
+## 0.2.0 → 0.3.0 模型配置（尚未发布）
+
+0.3.0 包含 **TOML Breaking Change**：没有 `config_version`，也不自动转换旧 TOML。原五个 `[models.<role>]` 拆成任意命名的连接与固定 Agent 默认值：
+
+| 旧版有效字段 | 新字段 |
+| --- | --- |
+| `models.<role>.base_url`、`api_key_secret` | `models.<connection>` 下的同名字段，并声明 `type = "openai_compatible"` |
+| `models.<role>.name`、`reasoning_effort`、`context_window_tokens` | `agents.<role>` 下的同名字段 |
+| 角色与连接的关系 | `agents.<role>.model = "<connection>"` |
+
+应还原**旧版有效配置**，不能只搬 Local TOML 中出现的字段：0.2.0 的本地文件覆盖 Python 默认值，省略字段仍可能有有效值。不同 Endpoint 或认证身份保留独立连接，只有两者都相同时才共用连接。每个有效模型必须有正整数窗口；辅助角色只允许在连接与真实模型相同的情况下继承。示例与账号配置见[Configuration](Configuration.zh-CN.md)。
+
+### 使用旧版可用安装准备
+
+1. 记录 Session ID/标题、Portfolio ID/Ledger 数量、Skill 启用状态和重要 Workspace 文件哈希。停止所有 InvestOrch 写入者，包括 Web/TUI/plain 和能写 Root 的受管任务。
+2. 用旧版做离线检查，在 Root 外创建完整私有备份，并保留旧软件包/环境。包含敏感配置的 ZIP 与停机后的完整 Root 副本配套保留；常规备份会排除日志、行情包等已记录项目。
+
+```sh
+# 在替换软件前，使用现有 0.2.0 安装执行。
+investorch doctor
+investorch upgrade check --json
+umask 077
+instance_root="$HOME/.investorch"
+backup_dir="$HOME/investorch-private-backups/$(date +%Y%m%d-%H%M%S)"
+mkdir -p "$backup_dir"
+chmod 700 "$backup_dir"
+cp -a "$instance_root" "$backup_dir/root"
+investorch backup create --root "$instance_root" --output "$backup_dir/state.zip" --include-sensitive-config
+investorch backup verify "$backup_dir/state.zip"
+```
+
+副本含明文凭据和私人历史，应仅放在本机私有存储中。旧 CLI 无法解析配置时，也应先保留停机后的完整 Root 副本，再修复。排除项及归档恢复步骤见[备份与恢复](Backup_and_Recovery.zh-CN.md)。
+
+3. 用旧版可用源码/环境，将各角色的有效模型名、Endpoint、Secret **引用**、effort 与窗口记入私有本地文件，不打印或导出 Secret 值。0.2.0 源码环境可使用下列命令：
+
+```sh
+uv run --project /path/to/old-0.2.0-checkout --locked python - "$instance_root" "$backup_dir/model-settings.json" <<'PY'
+import json
+import sys
+from dataclasses import asdict
+from pathlib import Path
+from investorch.config import load_config
+config = load_config(root=Path(sys.argv[1]))
+roles = ("main", "title", "activity", "permission", "compact")
+target = Path(sys.argv[2])
+with target.open("x", encoding="utf-8") as output:
+    json.dump({role: asdict(config.model(role)) for role in roles}, output, indent=2)
+target.chmod(0o600)
+PY
+```
+
+### 离线转换与验证
+
+4. Review 预期修改后，在独立环境安装选定的 0.3.0 开发构建。保持写入者停止，编辑私有 `investorch.toml`：把旧角色表拆为两层，保留非模型设置及原 API key 值，补全必需的有效窗口。不要把 TOML 复制到仓库或报告。ChatGPT 凭据由结构转换完成后的浏览器授权流程生成。
+5. 使用新构建做离线校验，不启动 Host。隔离演练时，将参数换成复制的 Root：
+
+```sh
+uv run --project /path/to/0.3.0-checkout --locked python - "$instance_root" <<'PY'
+import sys
+from pathlib import Path
+from investorch.config import load_config
+config = load_config(root=Path(sys.argv[1]))
+print("Missing setup fields:", config.readiness())
+PY
+uv run --project /path/to/0.3.0-checkout --locked investorch doctor --root "$instance_root"
+uv run --project /path/to/0.3.0-checkout --locked investorch upgrade check --root "$instance_root" --json
+```
+
+6. 用新构建启动一个界面，完成需要的 ChatGPT 授权，逐角色测试，并与第 1 步清单比对。验证 Web/TUI 模型选择、恢复、Fork 和新 Run；确认已执行选择跨重启保留、未执行 Draft 会丢失。准备好替换内置 Skill 时再运行 `--update` 并重启。
+7. 失败时先停止新写入者，恢复**配套的完整升级前状态与旧环境**。不要仅把旧 TOML 覆回已升级数据库，也不要用旧软件包打开这些数据库。保留失败 Root，便于继续诊断。
+
+停止所有写入者后，使用保留的完整副本与旧环境恢复：
+
+```sh
+# Reuse the exact backup_dir selected above; do not choose a new timestamp here.
+failed_root="${instance_root}.failed-$(date +%Y%m%d-%H%M%S)"
+mv "$instance_root" "$failed_root"
+cp -a "$backup_dir/root" "$instance_root"
+uv run --project /path/to/old-0.2.0-checkout --locked investorch doctor --root "$instance_root"
+uv run --project /path/to/old-0.2.0-checkout --locked investorch upgrade check --root "$instance_root" --json
+```
+
+Session 模型元数据使用正常的 SQLite 增量初始化：旧记录可没有模型绑定，在首次实际 Run 时填入；空 Session 也不必提前持久化模型。数据库升级保留 Session 身份、Portfolio 与 Journal，与手工转换 TOML 是不同操作。下文的 Portfolio 迁移要求仍独立适用。
+
+离线检查只证明配置结构和凭据存在性，不证明 ChatGPT 额度权限或 Token 实时有效。连接定义与 Agent 默认值重启生效，OAuth 登录/注销/刷新即时生效。安装软件或阅读本文不代表已迁移本机；应在代码与私有迁移改动经 review 后再执行。
+
+## 早期 0.2.0 升级流程
 
 使用 Python 3.12–3.14（`>=3.12,<3.15`）。下方命令显式选择 Python 3.12。
 

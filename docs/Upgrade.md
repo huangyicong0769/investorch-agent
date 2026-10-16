@@ -2,7 +2,95 @@
 
 [简体中文](Upgrade.zh-CN.md)
 
-This guide covers upgrading to 0.2.0. See the [release notes](releases/0.2.0.md) for scope and package names.
+This guide covers the unreleased 0.3.0 model transition and retains the earlier 0.2.0 upgrade procedure. See [0.3.0 release notes](releases/0.3.0.md).
+
+## 0.2.0 → 0.3.0 model configuration (unreleased)
+
+0.3.0 makes a **breaking TOML change**. There is no `config_version` and no automatic TOML conversion. The five old `[models.<role>]` tables split into named connections and fixed Agent defaults:
+
+| Old effective field | New field |
+| --- | --- |
+| `models.<role>.base_url`, `api_key_secret` | `models.<connection>.base_url`, `api_key_secret`, with `type = "openai_compatible"` |
+| `models.<role>.name`, `reasoning_effort`, `context_window_tokens` | `agents.<role>` fields of the same names |
+| Role-to-connection relationship | `agents.<role>.model = "<connection>"` |
+
+Use the **effective old configuration**, not just fields present in Local TOML: 0.2.0 overrides Python defaults, so omitted fields may still have been active. Preserve separate endpoints or credentials as separate connections. Reuse a connection only when the endpoint and authentication identity agree. Each effective model needs a positive window; auxiliary inheritance is limited to the same connection and actual model. Examples and account setup are in [Configuration](Configuration.md).
+
+### Prepare with the old working installation
+
+1. Record Session IDs/titles, Portfolio IDs and Ledger counts, Skill enabled state and important Workspace hashes. Stop every InvestOrch writer, including Web/TUI/plain and managed jobs that can write the Root.
+2. Run the old installation's offline checks and create a private, complete backup outside the Root. Keep the prior package/environment. The ZIP with sensitive configuration complements a full stopped-Root copy, because normal backups omit logs, market-data bundles and other documented exclusions.
+
+```sh
+# Run these with the existing 0.2.0 installation, before replacing it.
+investorch doctor
+investorch upgrade check --json
+umask 077
+instance_root="$HOME/.investorch"
+backup_dir="$HOME/investorch-private-backups/$(date +%Y%m%d-%H%M%S)"
+mkdir -p "$backup_dir"
+chmod 700 "$backup_dir"
+cp -a "$instance_root" "$backup_dir/root"
+investorch backup create --root "$instance_root" --output "$backup_dir/state.zip" --include-sensitive-config
+investorch backup verify "$backup_dir/state.zip"
+```
+
+These copies contain plaintext credentials and private history; keep them on private local storage. If the old CLI cannot read the configuration, retain the full stopped-Root copy before repair. Follow [Backup and Recovery](Backup_and_Recovery.md) for exclusions and archive restoration.
+
+3. With the old working source/environment, record each role's effective name, endpoint, secret **reference**, effort and window in a private local note. Do not print or export secret values. For a 0.2.0 source checkout, this writes only those model settings to the private backup:
+
+```sh
+uv run --project /path/to/old-0.2.0-checkout --locked python - "$instance_root" "$backup_dir/model-settings.json" <<'PY'
+import json
+import sys
+from dataclasses import asdict
+from pathlib import Path
+from investorch.config import load_config
+config = load_config(root=Path(sys.argv[1]))
+roles = ("main", "title", "activity", "permission", "compact")
+target = Path(sys.argv[2])
+with target.open("x", encoding="utf-8") as output:
+    json.dump({role: asdict(config.model(role)) for role in roles}, output, indent=2)
+target.chmod(0o600)
+PY
+```
+
+### Convert and validate offline
+
+4. After reviewing the intended changes, install the chosen 0.3.0 development build in its own environment. Edit the private `investorch.toml` while writers remain stopped: replace old role tables with the two layers, preserve non-model settings and existing API-key values, and set every required effective window. Never copy this TOML into the repository or a report. ChatGPT credential records come from the browser authorization flow after structural conversion.
+5. Validate with the new build without starting the Host. For an isolated rehearsal, supply a copied Root in place of the real Root:
+
+```sh
+uv run --project /path/to/0.3.0-checkout --locked python - "$instance_root" <<'PY'
+import sys
+from pathlib import Path
+from investorch.config import load_config
+config = load_config(root=Path(sys.argv[1]))
+print("Missing setup fields:", config.readiness())
+PY
+uv run --project /path/to/0.3.0-checkout --locked investorch doctor --root "$instance_root"
+uv run --project /path/to/0.3.0-checkout --locked investorch upgrade check --root "$instance_root" --json
+```
+
+6. Start one interface with the new build, complete any ChatGPT authorization, and test each configured role. Compare the inventory from step 1. Check Web/TUI Session models, resume, Fork and a new Run; verify persisted selections survive restart while an unused Draft does not. Use `--update` only when ready to replace managed built-in Skills, then restart.
+7. On failure, stop the new writers and restore the **matching complete pre-upgrade state and old environment**. Do not put only the old TOML over upgraded databases or open those databases with the old package. Retain the failed Root separately until diagnosis is complete.
+
+After stopping all writers, restore the retained full copy with the old environment:
+
+```sh
+# Reuse the exact backup_dir selected above; do not choose a new timestamp here.
+failed_root="${instance_root}.failed-$(date +%Y%m%d-%H%M%S)"
+mv "$instance_root" "$failed_root"
+cp -a "$backup_dir/root" "$instance_root"
+uv run --project /path/to/old-0.2.0-checkout --locked investorch doctor --root "$instance_root"
+uv run --project /path/to/old-0.2.0-checkout --locked investorch upgrade check --root "$instance_root" --json
+```
+
+Session model metadata uses the normal additive SQLite initialization: old rows may have no model binding and receive one on their first actual Run. Empty Sessions also need no persisted model until a Run starts. This database upgrade preserves Session identity, Portfolio and Journal; it is separate from the manual TOML conversion. Portfolio migration requirements below still apply independently.
+
+Offline checks establish configuration structure and credential presence, not live ChatGPT entitlement or token validity. Connection definitions and Agent defaults apply after restart; OAuth login/logout/refresh apply immediately. No local migration is implied by installing the package or reading this guide: perform it only after reviewing the code and the private migration changes.
+
+## Earlier 0.2.0 upgrade procedure
 
 Use Python 3.12–3.14 (`>=3.12,<3.15`). The commands below select Python 3.12 explicitly.
 
