@@ -3,6 +3,7 @@ import { useIsMutating, useMutation, useQuery, useQueryClient } from '@tanstack/
 import { ChevronDown, LoaderCircle, ShieldCheck, SlidersHorizontal } from 'lucide-react'
 
 import { updateDefaults } from '../../api/client'
+import { sessionModelQueryOptions, updateSessionModel } from '../../api/sessionModel'
 import { defaultsQueryOptions, queryKeys } from '../../api/queries'
 import type { BootstrapResponse, ReasoningEffort, UpdateDefaultsBody } from '../../api/types'
 import { errorMessage } from '../../lib/errors'
@@ -19,7 +20,6 @@ import {
 
 export const RUN_DEFAULTS_MUTATION_KEY = ['run-defaults'] as const
 
-type ControlField = 'permission_mode' | 'reasoning_effort'
 interface ControlOption {
   value: string
   label: string
@@ -37,17 +37,15 @@ function titleCase(value: string): string {
   return value === 'xhigh' ? 'Extra high' : `${value.slice(0, 1).toUpperCase()}${value.slice(1)}`
 }
 
-export function RunControlMenu({ field }: { field: ControlField }) {
+function PermissionControlMenu() {
   const queryClient = useQueryClient()
   const [open, setOpen] = useState(false)
   const defaultsQuery = useQuery(defaultsQueryOptions())
   const saving = useIsMutating({ mutationKey: RUN_DEFAULTS_MUTATION_KEY }) > 0
-  const permission = field === 'permission_mode'
+  const permission = true
   const label = permission ? 'Permission mode' : 'Reasoning effort'
-  const current = defaultsQuery.data?.[field]
-  const options: ControlOption[] = permission ? PERMISSION_OPTIONS : REASONING_OPTIONS.map((value) => ({
-    value, label: titleCase(value), change: { reasoning_effort: value },
-  }))
+  const current = defaultsQuery.data?.permission_mode
+  const options = PERMISSION_OPTIONS
   const mutation = useMutation({
     mutationKey: RUN_DEFAULTS_MUTATION_KEY,
     scope: { id: 'run-defaults' },
@@ -133,4 +131,25 @@ export function RunControlMenu({ field }: { field: ControlField }) {
       </DropdownMenuContent>
     </DropdownMenu>
   )
+}
+
+function EffortControlMenu({ sessionId }: { sessionId: string }) {
+  const client = useQueryClient()
+  const [open, setOpen] = useState(false)
+  const model = useQuery(sessionModelQueryOptions(sessionId))
+  const current = model.data?.effective.reasoning_effort
+  const mutation = useMutation({
+    mutationKey: RUN_DEFAULTS_MUTATION_KEY,
+    mutationFn: (reasoning_effort: ReasoningEffort) => updateSessionModel(sessionId, { reasoning_effort }),
+    onSuccess: (view) => { client.setQueryData(queryKeys.sessionModel(sessionId), view); setOpen(false) },
+    onError: () => { void client.invalidateQueries({ queryKey: queryKeys.sessionModel(sessionId) }) },
+  })
+  return <DropdownMenu open={open} onOpenChange={(next) => { setOpen(next); mutation.reset() }}>
+    <DropdownMenuTrigger asChild><Button aria-label={`Reasoning effort: ${current ?? 'Loading'}`} className="h-8 gap-1.5 rounded-full px-2 text-xs font-normal text-muted-foreground" disabled={mutation.isPending} size="sm" type="button" variant="ghost"><SlidersHorizontal className="size-3.5" /><span>{current ? titleCase(current) : 'Reasoning'}</span><ChevronDown className="size-3" /></Button></DropdownMenuTrigger>
+    <DropdownMenuContent align="end" side="top"><DropdownMenuLabel>Reasoning effort</DropdownMenuLabel><p className="max-w-56 px-2 pb-2 text-xs text-muted-foreground">Session draft for the next Run. The current Run keeps its effort.</p><DropdownMenuRadioGroup value={current}>{REASONING_OPTIONS.map((effort) => <DropdownMenuRadioItem disabled={mutation.isPending} key={effort} onSelect={(event) => { event.preventDefault(); mutation.mutate(effort) }} value={effort}>{titleCase(effort)}</DropdownMenuRadioItem>)}</DropdownMenuRadioGroup>{mutation.error || model.error ? <p className="max-w-56 px-2 text-xs text-destructive" role="alert">{errorMessage(mutation.error ?? model.error, 'Could not update Session effort.')}</p> : null}</DropdownMenuContent>
+  </DropdownMenu>
+}
+
+export function RunControlMenu({ field, sessionId }: { field: 'permission_mode' | 'reasoning_effort'; sessionId: string }) {
+  return field === 'permission_mode' ? <PermissionControlMenu /> : <EffortControlMenu sessionId={sessionId} />
 }

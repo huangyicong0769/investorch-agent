@@ -99,7 +99,6 @@ export interface ApprovalRequest {
 }
 
 export interface Defaults {
-  reasoning_effort: ReasoningEffort
   permission_mode: PermissionMode
   follow_up_behavior: FollowUpBehavior
 }
@@ -625,7 +624,20 @@ export interface ResolveApprovalBody {
 }
 
 export interface UpdateDefaultsBody {
-  reasoning_effort?: ReasoningEffort
   permission_mode?: PermissionMode
   follow_up_behavior?: FollowUpBehavior
+}
+
+export interface AgentModelConfig {
+  model: string
+  name: string
+  reasoning_effort: ReasoningEffort
+  context_window_tokens: number
+}
+export interface SessionModelView {
+  session_id: string
+  persisted: AgentModelConfig | null
+  draft: AgentModelConfig | null
+  effective: AgentModelConfig
+  active: AgentModelConfig | null
 }

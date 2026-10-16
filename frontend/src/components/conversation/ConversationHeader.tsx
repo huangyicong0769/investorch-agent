@@ -2,6 +2,7 @@ import type { SessionRecord } from '../../api/types'
 import type { ReactNode } from 'react'
 import { sessionTitle, shortSessionId } from '../../lib/session'
 import { useWebSocketStatus } from '../../websocket/LiveWebSocketProvider'
+import { SessionModelEditor } from './SessionModelEditor'
 import { SessionMenu } from './SessionMenu'
 
 interface ConversationHeaderProps {
@@ -30,6 +31,7 @@ export function ConversationHeader({ session, context }: ConversationHeaderProps
         </div>
       </div>
       <div className="flex shrink-0 items-center gap-1">
+        <SessionModelEditor key={`model-${session.session_id}`} sessionId={session.session_id} />
         <SessionMenu key={session.session_id} session={session} />
         {context}
       </div>

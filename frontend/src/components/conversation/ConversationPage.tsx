@@ -2,9 +2,9 @@ import { useQuery } from '@tanstack/react-query'
 import { Link, useOutletContext, useParams } from 'react-router-dom'
 
 import {
-  bootstrapQueryOptions,
   sessionStateQueryOptions,
 } from '../../api/queries'
+import { sessionModelQueryOptions } from '../../api/sessionModel'
 import { errorMessage } from '../../lib/errors'
 import { ApprovalCard } from '../approval/ApprovalCard'
 import { Composer } from '../composer/Composer'
@@ -24,7 +24,7 @@ export function ConversationPage() {
     ...sessionStateQueryOptions(sessionId),
     enabled: Boolean(sessionId),
   })
-  const bootstrapQuery = useQuery(bootstrapQueryOptions())
+  const modelQuery = useQuery({ ...sessionModelQueryOptions(sessionId), enabled: Boolean(sessionId) })
   const draft = drafts.get(sessionId) ?? EMPTY_DRAFT
   const pendingMessage = pendingMessages.get(sessionId) ?? null
 
@@ -72,7 +72,7 @@ export function ConversationPage() {
         <Composer
           key={sessionId}
           archived={stateQuery.data.session.archived_at !== null}
-          contextWindowTokens={bootstrapQuery.data?.context_window_tokens ?? null}
+          contextWindowTokens={(modelQuery.data?.active ?? modelQuery.data?.effective)?.context_window_tokens ?? null}
           draft={draft}
           onDraftChange={updateDraft}
           onDraftSubmitted={clearSubmittedDraft}

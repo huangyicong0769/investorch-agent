@@ -289,9 +289,9 @@ export function Composer({
     <form onSubmit={handleSubmit}>
       <ImageAttachments toolbar={
         <div className="flex min-w-0 flex-1 flex-wrap items-center justify-between gap-x-2 gap-y-1">
-          <RunControlMenu field="permission_mode" />
+          <RunControlMenu field="permission_mode" sessionId={sessionId} />
           <div className="ml-auto flex items-center gap-1">
-            <RunControlMenu field="reasoning_effort" />
+            <RunControlMenu field="reasoning_effort" sessionId={sessionId} />
             <UsagePopover contextWindowTokens={contextWindowTokens} presentation={presentation} />
             <ComposerActionButton
               action={action}

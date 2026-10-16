@@ -739,7 +739,10 @@ export function LiveWebSocketProvider({ children }: PropsWithChildren) {
         setStreamingState((current) => current?.runId === event.run_id ? null : current)
       }
     }
-    if (event.kind === 'runtime_state' || event.kind === 'run_ended') recordContextEventDuringFetch(queryClient, event)
+    if (event.kind === 'runtime_state' || event.kind === 'run_ended') {
+      recordContextEventDuringFetch(queryClient, event)
+      void queryClient.invalidateQueries({ queryKey: queryKeys.sessionModel(event.session_id) })
+    }
     if (event.kind === 'runtime_state' || event.kind === 'run_ended' || event.kind === 'user_input_committed') {
       const record = queryClient.getQueryData<SessionResponse>(queryKeys.session(event.session_id))?.session
         ?? queryClient.getQueryData<SessionListResponse>(queryKeys.sessions())?.sessions.find((entry) => entry.session_id === event.session_id)

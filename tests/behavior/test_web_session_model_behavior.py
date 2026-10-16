@@ -28,3 +28,27 @@ async def test_session_model_edits_are_isolated_drafts_and_invalid_updates_prese
             assert (await web.client.get(path)).json()["effective"] == changed.json()["effective"]
         assert (await web.client.patch("/api/defaults", json={"reasoning_effort": "high"})).status_code == 422
         assert (await web.client.get("/api/sessions/nonexistent/model")).status_code == 404
+
+
+async def test_web_model_view_keeps_active_run_separate_from_next_draft(tmp_path: Path) -> None:
+    async with open_test_web(tmp_path) as web:
+        session_id = (await web.client.post("/api/sessions", json={})).json()["session"]["session_id"]
+        path = f"/api/sessions/{session_id}/model"
+        started = await web.client.post(f"/api/sessions/{session_id}/messages", json={"text": "first"})
+        assert started.status_code == 200
+        await web.runtime.agent_loop.wait_until_started(session_id)
+        before = (await web.client.get(path)).json()
+        assert before["active"] == before["persisted"]
+        changed = (await web.client.patch(path, json={"reasoning_effort": "low"})).json()
+        assert changed["active"] == before["active"]
+        assert changed["persisted"] == before["persisted"]
+        assert changed["draft"]["reasoning_effort"] == "low"
+        web.runtime.agent_loop.complete(session_id)
+        await web.runtime.wait_for_run_ended(session_id)
+        assert (await web.client.get(path)).json()["active"] is None
+        await web.client.post(f"/api/sessions/{session_id}/messages", json={"text": "second"})
+        await web.runtime.agent_loop.wait_until_started(session_id, occurrence=2)
+        admitted = (await web.client.get(path)).json()
+        assert admitted["draft"] is None
+        assert admitted["active"]["reasoning_effort"] == "low"
+        assert admitted["persisted"] == admitted["active"]

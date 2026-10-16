@@ -29,6 +29,7 @@ export const queryKeys = {
   portfolioLedger: (portfolioId: string) => [...queryKeys.portfolioRecords(), portfolioId, 'ledger'] as const,
   portfolios: () => [...queryKeys.all, 'portfolios'] as const,
   session: (sessionId: string) => [...queryKeys.all, 'session', sessionId] as const,
+  sessionModel: (sessionId: string) => [...queryKeys.session(sessionId), 'model'] as const,
   sessionContexts: () => [...queryKeys.all, 'session-context'] as const,
   sessionContext: (sessionId: string) => [...queryKeys.sessionContexts(), sessionId] as const,
   sessionDeletionPreview: (sessionId: string) => [...queryKeys.all, 'session', sessionId, 'deletion-preview'] as const,
