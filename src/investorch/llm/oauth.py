@@ -8,11 +8,14 @@ import secrets
 import time
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 from urllib.parse import urlencode, urlsplit
 
 import httpx
 import jwt
+
+if TYPE_CHECKING:
+    from investorch.web.auth_server import AuthCallbackServer
 
 ISSUER = "https://auth.openai.com"
 RESOURCE = "https://api.openai.com/v1"
@@ -34,6 +37,7 @@ TERMINAL_REFRESH_ERRORS = frozenset(
 
 
 class CredentialConfig(Protocol):
+    def public(self, *, saved: bool = False) -> dict[str, Any]: ...
     def oauth_credential(self, name: str, *, saved: bool = False) -> dict[str, Any] | None: ...
     def save_oauth_credential(self, name: str, value: dict[str, Any]) -> None: ...
     def ensure_chatgpt_host_id(self) -> str: ...
@@ -57,6 +61,7 @@ class _Attempt:
     client_id: str | None
     subject: str | None
     expires: float
+    generation: int
 
 
 def _timestamp(value: object) -> float | None:
@@ -94,10 +99,15 @@ class ChatGPTAuth:
         self._http = http_client or httpx.AsyncClient(timeout=20, follow_redirects=False)
         self._owns_http = http_client is None
         self._attempts: dict[str, _Attempt] = {}
+        self._completing: dict[str, _Attempt] = {}
+        self._generations: dict[str, int] = {}
         self._locks: dict[str, asyncio.Lock] = {}
         self._pending: dict[str, dict[str, Any]] = {}
         self._errors: dict[str, dict[str, str]] = {}
         self._closed = False
+        self._callback_lock = asyncio.Lock()
+        self._callback_server: AuthCallbackServer | None = None
+        self.callback_base_url: str | None = None
 
     def _lock(self, credential: str) -> asyncio.Lock:
         return self._locks.setdefault(credential, asyncio.Lock())
@@ -122,11 +132,20 @@ class ChatGPTAuth:
             raise ChatGPTAuthError("invalid_credential", "Choose a valid ChatGPT credential name.")
         record = self.config.oauth_credential(credential) or {}
         self._errors.pop(credential, None)
+        generation = self._generations.get(credential, 0) + 1
+        self._generations[credential] = generation
         now = time.time()
         self._attempts = {s: a for s, a in self._attempts.items() if a.expires > now and a.credential != credential}
         state, nonce, verifier = (secrets.token_urlsafe(32) for _ in range(3))
         self._attempts[state] = _Attempt(
-            credential, redirect_uri, verifier, nonce, record.get("client_id"), record.get("subject"), now + 600
+            credential,
+            redirect_uri,
+            verifier,
+            nonce,
+            record.get("client_id"),
+            record.get("subject"),
+            now + 600,
+            generation,
         )
         query = {
             "client_id": record.get("client_id") or "dynamic_agent_client",
@@ -148,7 +167,30 @@ class ChatGPTAuth:
         return {"authorization_url": f"{AUTHORIZE_URL}?{urlencode(query)}", "state": state}
 
     def cancel(self, state: str) -> None:
-        self._attempts.pop(state, None)
+        attempt = self._attempts.pop(state, None) or self._completing.get(state)
+        if attempt and self._generations.get(attempt.credential) == attempt.generation:
+            self._generations[attempt.credential] += 1
+
+    async def start_browser_login(self, connection_id: str, *, reconsent: bool = False) -> dict[str, str]:
+        """Start TUI/Plain authorization without creating another Application Host."""
+        from investorch.web.auth_server import AuthCallbackServer
+
+        self._ensure_open()
+        connection = self.config.public(saved=True)["models"].get(connection_id)
+        if not connection or connection.get("type") != "chatgpt" or not connection.get("credentials"):
+            raise ChatGPTAuthError("invalid_chatgpt_connection", "Select a saved ChatGPT connection before signing in.")
+        async with self._callback_lock:
+            self._ensure_open()
+            if self.callback_base_url is None:
+                server = AuthCallbackServer(self)
+                try:
+                    self.callback_base_url = await server.start()
+                except (OSError, RuntimeError, TimeoutError):
+                    raise ChatGPTAuthError(
+                        "callback_unavailable", "The local ChatGPT callback listener could not start.", status=503
+                    ) from None
+                self._callback_server = server
+            return self.begin(connection["credentials"], f"{self.callback_base_url}/auth/callback", reconsent=reconsent)
 
     def status(self, credential: str) -> dict[str, Any]:
         record = self.config.oauth_credential(credential) or {}
@@ -309,12 +351,16 @@ class ChatGPTAuth:
         self, *, state: str, code: str | None = None, client_id: str | None = None, error: str | None = None
     ) -> dict[str, Any]:
         attempt = self._attempts.get(state)
+        if attempt:
+            self._completing[state] = attempt
         try:
             return await self._complete(state=state, code=code, client_id=client_id, error=error)
         except ChatGPTAuthError as exc:
-            if attempt:
+            if attempt and self._generations.get(attempt.credential) == attempt.generation:
                 self._errors[attempt.credential] = {"code": exc.code, "message": str(exc)}
             raise
+        finally:
+            self._completing.pop(state, None)
 
     async def _complete(
         self, *, state: str, code: str | None, client_id: str | None, error: str | None
@@ -337,6 +383,8 @@ class ChatGPTAuth:
             )
         async with self._lock(attempt.credential):
             self._ensure_open()
+            if self._generations.get(attempt.credential) != attempt.generation:
+                raise ChatGPTAuthError("auth_cancelled", "This sign-in was cancelled or replaced. Start again.")
             old = self.config.oauth_credential(attempt.credential) or {}
             if old.get("subject") != attempt.subject or old.get("client_id") != attempt.client_id:
                 raise ChatGPTAuthError("connection_changed", "This ChatGPT connection changed. Start sign-in again.")
@@ -355,6 +403,9 @@ class ChatGPTAuth:
                 }
             )
             claims = await self._identity(data.get("id_token", ""), issued, attempt.nonce)
+            self._ensure_open()
+            if self._generations.get(attempt.credential) != attempt.generation:
+                raise ChatGPTAuthError("auth_cancelled", "This sign-in was cancelled or replaced. Start again.")
             if attempt.subject and claims["sub"] != attempt.subject:
                 raise ChatGPTAuthError(
                     "account_mismatch", "Choose the original ChatGPT account or add another connection."
@@ -472,6 +523,7 @@ class ChatGPTAuth:
 
     async def logout(self, credential: str) -> dict[str, Any]:
         self._ensure_open()
+        self._generations[credential] = self._generations.get(credential, 0) + 1
         self._attempts = {s: a for s, a in self._attempts.items() if a.credential != credential}
         async with self._lock(credential):
             self._ensure_open()
@@ -521,5 +573,9 @@ class ChatGPTAuth:
         for lock in tuple(self._locks.values()):
             async with lock:
                 pass
+        async with self._callback_lock:
+            if self._callback_server is not None:
+                await self._callback_server.close()
+                self._callback_server = None
         if self._owns_http:
             await self._http.aclose()

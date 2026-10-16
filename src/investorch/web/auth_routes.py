@@ -68,7 +68,9 @@ async def start_login(connection_id: str, body: LoginRequest, request: Request) 
     # Callback hostname is fixed by the provider; localhost UI still uses this listener.
     port = target.port or 80
     try:
-        result = _manager(request).begin(
+        manager = _manager(request)
+        manager.callback_base_url = f"http://127.0.0.1:{port}"
+        result = manager.begin(
             _credential(request, connection_id), f"http://127.0.0.1:{port}/auth/callback", reconsent=body.reconsent
         )
     except ChatGPTAuthError as exc:

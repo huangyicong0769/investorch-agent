@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 from datetime import datetime, timedelta
 from urllib.parse import parse_qs, urlsplit
@@ -35,7 +36,7 @@ def oauth_service(tmp_path):
         "jwks_error": False,
     }
 
-    def handle(request):
+    async def handle(request):
         state["requests"].append(request)
         if request.url.path.endswith("openid-configuration"):
             return httpx.Response(
@@ -63,6 +64,10 @@ def oauth_service(tmp_path):
                 },
             )
         form = parse_qs(request.content.decode())
+        if state.get("pause_token"):
+            started, release = state["pause_token"]
+            started.set()
+            await release.wait()
         refresh = form["grant_type"] == ["refresh_token"]
         if refresh:
             state["refreshes"] += 1
@@ -208,6 +213,24 @@ async def test_cancelled_sign_in_does_not_exchange_the_authorization_code(oauth_
     assert error.value.code == "invalid_state"
     assert state["requests"] == []
     assert store.oauth_credential("personal") is None
+
+
+async def test_cancelling_an_inflight_exchange_does_not_install_its_credentials(oauth_service):
+    store, state, client = oauth_service
+    auth = ChatGPTAuth(store, http_client=client)
+    started, release = asyncio.Event(), asyncio.Event()
+    state["pause_token"] = (started, release)
+    attempt = auth.begin("personal", "http://127.0.0.1:8765/auth/callback")
+    state["nonce"] = parse_qs(urlsplit(attempt["authorization_url"]).query)["nonce"][0]
+    completing = asyncio.create_task(auth.complete(state=attempt["state"], code="code", client_id="oaiapp_test"))
+    await started.wait()
+    auth.cancel(attempt["state"])
+    release.set()
+    with pytest.raises(ChatGPTAuthError) as error:
+        await completing
+    assert error.value.code == "auth_cancelled"
+    assert auth.status("personal")["status"] == "disconnected"
+    assert load_config(root=store.root).oauth_credential("personal").get("access_token") is None
 
 
 async def test_rotation_survives_a_jwks_outage_and_process_restart(oauth_service):
@@ -383,3 +406,38 @@ async def test_setup_host_can_sign_in_list_models_and_logout_without_an_agent_ho
         assert (await client.get("/api/auth/chatgpt/chatgpt")).json()["plan_use"] is True
         logged_out = await client.post("/api/auth/chatgpt/chatgpt/logout", json={})
         assert logged_out.json()["status"] == "disconnected"
+
+
+async def test_terminal_browser_login_uses_one_local_listener_without_creating_a_runtime(
+    oauth_service, monkeypatch, caplog
+):
+    store, state, provider = oauth_service
+    caplog.set_level(logging.INFO, logger="uvicorn.access")
+
+    def unexpected_host(*args, **kwargs):
+        raise AssertionError("OAuth must not create an Application Host")
+
+    monkeypatch.setattr("investorch.application.open_application_host", unexpected_host)
+    auth = ChatGPTAuth(store, http_client=provider)
+    before = set(store.root.rglob("*.db"))
+    try:
+        first, second = await asyncio.gather(auth.start_browser_login("chatgpt"), auth.start_browser_login("chatgpt"))
+        first_query = parse_qs(urlsplit(first["authorization_url"]).query)
+        query = parse_qs(urlsplit(second["authorization_url"]).query)
+        assert first_query["redirect_uri"] == query["redirect_uri"]
+        callback = query["redirect_uri"][0]
+        assert urlsplit(callback).hostname == "127.0.0.1"
+        state["nonce"] = query["nonce"][0]
+        async with httpx.AsyncClient(trust_env=False, timeout=3) as browser:
+            result = await browser.get(
+                callback, params={"state": second["state"], "code": "secret-browser-code", "client_id": "oaiapp_test"}
+            )
+            assert result.status_code == 200
+        assert auth.status("personal")["plan_use"] is True
+        assert set(store.root.rglob("*.db")) == before
+        assert "secret-browser-code" not in caplog.text
+    finally:
+        await auth.close()
+    with pytest.raises(ChatGPTAuthError) as error:
+        await auth.start_browser_login("chatgpt")
+    assert error.value.code == "auth_closed"
