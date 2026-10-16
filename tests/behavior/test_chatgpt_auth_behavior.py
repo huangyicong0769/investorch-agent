@@ -110,6 +110,81 @@ async def sign_in(auth, state):
     return await auth.complete(state=attempt["state"], code="one-use-code", client_id="oaiapp_test")
 
 
+async def test_chatgpt_only_setup_authorizes_and_starts_the_real_host_without_api_keys(
+    tmp_path, oauth_service, monkeypatch
+):
+    from investorch.application import ApplicationHost
+    from investorch.config import REQUIRED_AGENT_ROLES
+    from investorch.web.server import create_web_app
+
+    _, oauth_state, oauth_http = oauth_service
+    root = tmp_path / "chatgpt-only"
+    config = load_config(root=root)
+    assert not root.exists()
+    assert config.public()["models"] == {}
+    assert config.public()["secrets"] == {}
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setattr(
+        "investorch.web.server.ChatGPTAuth", lambda configured: ChatGPTAuth(configured, http_client=oauth_http)
+    )
+    monkeypatch.setattr("investorch.web.server.configure_logging", lambda _: None)
+    app = create_web_app(config)
+    try:
+        async with (
+            app.router.lifespan_context(app),
+            httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://127.0.0.1") as client,
+        ):
+            assert (await client.get("/api/setup/state")).json()["status"] == "setup_required"
+            assert app.state.host is None
+            setup_auth = app.state.chatgpt_auth
+            assert setup_auth.config is config
+            changes = {"models.chatgpt": {"type": "chatgpt", "credentials": "personal"}}
+            for role in REQUIRED_AGENT_ROLES:
+                changes[f"agents.{role}"] = {
+                    "model": "chatgpt",
+                    "name": "account-model",
+                    "reasoning_effort": "high",
+                    "context_window_tokens": 200000,
+                }
+            saved = await client.patch("/api/setup/config", json={"changes": changes})
+            assert saved.status_code == 200, saved.text
+            incomplete = await client.post("/api/setup/complete", json={})
+            assert incomplete.status_code == 422
+            assert app.state.host is None
+            login = await client.post("/api/auth/chatgpt/chatgpt/login", json={})
+            assert login.status_code == 200, login.text
+            query = parse_qs(urlsplit(login.json()["authorization_url"]).query)
+            oauth_state["nonce"] = query["nonce"][0]
+            callback = await client.get(
+                "/auth/callback",
+                params={"state": login.json()["state"], "code": "one-use-code", "client_id": "oaiapp_test"},
+            )
+            assert callback.status_code == 200, callback.text
+            assert (await client.get("/api/auth/chatgpt/chatgpt")).json()["plan_use"] is True
+            assert (await client.get("/api/setup/state")).json()["missing"] == []
+            completed = await client.post("/api/setup/complete", json={})
+            assert completed.status_code == 200, completed.text
+            assert completed.json()["status"] == "ready"
+            host = app.state.host
+            assert isinstance(host, ApplicationHost)
+            assert host.config is app.state.config is config
+            assert host.state.chatgpt_auth is app.state.chatgpt_auth is setup_auth
+            assert setup_auth.config is host.config
+            assert all(host.config.agent_model(role).model == "chatgpt" for role in REQUIRED_AGENT_ROLES)
+            persisted = load_config(root=root)
+            assert set(persisted.public()["models"]) == {"chatgpt"}
+            assert set(persisted.public()["secrets"]) == {"personal"}
+            assert persisted.secrets == {}
+            session = await client.post("/api/sessions", json={})
+            assert session.status_code == 200, session.text
+            session_id = session.json()["session"]["session_id"]
+            assert host.session_models.view(session_id).effective.model == "chatgpt"
+            assert (await client.get(f"/api/sessions/{session_id}/history")).status_code == 200
+            assert (await client.get("/api/bootstrap")).status_code == 200
+    finally:
+        await oauth_http.aclose()
+
+
 async def test_user_can_register_and_sign_out_without_losing_account_registration(oauth_service):
     store, state, client = oauth_service
     auth = ChatGPTAuth(store, http_client=client)
