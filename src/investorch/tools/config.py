@@ -53,7 +53,7 @@ def update_config(
             If true, persist the override to root/investorch.toml.
             If false, only modify the current process config.
     """
-    if key.split(".", 1)[0] in {"models", "agents", "secrets", "permission"}:
+    if key.split(".", 1)[0] in {"models", "agents", "secrets", "permission", "auth"}:
         raise ValueError("Model, credential and permission settings cannot be modified through the Agent config tool.")
 
     return context.context.config.update(

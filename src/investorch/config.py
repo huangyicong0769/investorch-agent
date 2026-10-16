@@ -8,6 +8,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 import tomlkit
 from pydantic import ValidationError
@@ -22,10 +23,11 @@ from investorch.config_schema import (
     REASONING_EFFORTS as REASONING_EFFORTS,
 )
 from investorch.config_schema import (
-    REQUIRED_MODEL_AGENTS as REQUIRED_MODEL_AGENTS,
+    REQUIRED_AGENT_ROLES as REQUIRED_AGENT_ROLES,
 )
 from investorch.config_schema import (
     AppConfigSchema,
+    OAuthCredentialSchema,
     config_field_metadata,
     resolve_under_root,
 )
@@ -35,12 +37,25 @@ LOCAL_CONFIG_TEMPLATE = "# Local InvestOrch configuration: overrides Python Sche
 
 
 @dataclass(frozen=True, slots=True)
-class ModelConfig:
+class ModelConnectionConfig:
+    type: str
+    base_url: str | None = None
+    api_key_secret: str | None = None
+    credentials: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class AgentModelConfig:
+    model: str
     name: str
-    base_url: str
-    api_key_secret: str
     reasoning_effort: str
-    context_window_tokens: int | None = None
+    context_window_tokens: int
+
+    def __post_init__(self) -> None:
+        if not self.model or not self.name or self.reasoning_effort not in REASONING_EFFORTS:
+            raise ConfigError("Execution requires a connection, model name and supported reasoning effort")
+        if type(self.context_window_tokens) is not int or self.context_window_tokens <= 0:
+            raise ConfigError("context_window_tokens must be a positive integer")
 
 
 class ConfigError(ValueError):
@@ -126,7 +141,19 @@ class AppConfig:
 
     @property
     def secrets(self) -> dict[str, str]:
-        return dict(self._data.get("secrets", {}))
+        """String secrets available for API keys and MCP environment expansion."""
+        return {key: value for key, value in self._data.get("secrets", {}).items() if isinstance(value, str)}
+
+    def secret_values(self) -> list[str]:
+        """Credential values that must be removed from diagnostics."""
+        values = list(self.secrets.values())
+        for secret in self._data["secrets"].values():
+            if isinstance(secret, dict):
+                for credential in (secret, secret.get("pending_rotation") or {}):
+                    values.extend(
+                        credential[key] for key in ("access_token", "refresh_token", "id_token") if credential.get(key)
+                    )
+        return values
 
     def __getitem__(self, key: str) -> Any:
         return self.get(key, redact=False)
@@ -136,26 +163,94 @@ class AppConfig:
         value = _config_value(self._data, parts, key)
         return REDACTED if redact and parts[0] == "secrets" else deepcopy(value)
 
-    def model(self, agent: str) -> ModelConfig:
-        raw = self[f"models.{agent}"]
-        if any(raw[field] is None for field in ("name", "base_url", "api_key_secret")):
-            raise ConfigError(f"models.{agent} is not configured; run investorch web to complete Setup")
-        return ModelConfig(**raw)
+    def model_connection(self, connection_id: str) -> ModelConnectionConfig:
+        raw = self[f"models.{connection_id}"]
+        required = ("base_url", "api_key_secret") if raw["type"] == "openai_compatible" else ("credentials",)
+        if any(not raw[field] for field in required):
+            raise ConfigError(f"models.{connection_id} is incomplete; run investorch web to complete Setup")
+        return ModelConnectionConfig(**raw)
+
+    def agent_model(self, role: str) -> AgentModelConfig:
+        return self._agent_model(self._data, role)
+
+    @staticmethod
+    def _agent_model(data: dict[str, Any], role: str) -> AgentModelConfig:
+        if role not in REQUIRED_AGENT_ROLES:
+            raise ConfigError(f"Unknown Agent role: {role}")
+        raw = dict(data["agents"][role])
+        if not raw["model"] or not raw["name"]:
+            raise ConfigError(f"agents.{role} requires model and name; complete Setup")
+        if raw["context_window_tokens"] is None and role != "main":
+            main = data["agents"]["main"]
+            if (raw["model"], raw["name"]) == (main["model"], main["name"]):
+                raw["context_window_tokens"] = main["context_window_tokens"]
+        if raw["context_window_tokens"] is None:
+            raise ConfigError(f"agents.{role}.context_window_tokens requires a positive integer")
+        return AgentModelConfig(**raw)
+
+    def resolve_model(
+        self,
+        base: AgentModelConfig,
+        *,
+        model: str | None = None,
+        name: str | None = None,
+        reasoning_effort: str | None = None,
+        context_window_tokens: int | None = None,
+    ) -> AgentModelConfig:
+        connection_id = base.model if model is None else model
+        self.model_connection(connection_id)
+        if connection_id != base.model and any(
+            value is None for value in (name, reasoning_effort, context_window_tokens)
+        ):
+            raise ConfigError("Changing model connection requires name, reasoning_effort and context_window_tokens")
+        if name is not None and name != base.name and context_window_tokens is None:
+            raise ConfigError("Changing model name requires context_window_tokens")
+        return AgentModelConfig(
+            model=connection_id,
+            name=base.name if name is None else name,
+            reasoning_effort=base.reasoning_effort if reasoning_effort is None else reasoning_effort,
+            context_window_tokens=base.context_window_tokens
+            if context_window_tokens is None
+            else context_window_tokens,
+        )
 
     def secret(self, name: str) -> str:
-        return self[f"secrets.{name}"]
+        value = self[f"secrets.{name}"]
+        if not isinstance(value, str):
+            raise ConfigError("OAuth credentials cannot be used as an API key or MCP secret")
+        return value
 
     def readiness(self, *, saved: bool = False) -> list[str]:
         data = self._saved_data if saved else self._data
         missing = []
-        for role in REQUIRED_MODEL_AGENTS:
-            model = data["models"][role]
-            for field in ("name", "base_url", "api_key_secret"):
-                if not model[field]:
-                    missing.append(f"models.{role}.{field}")
-            name = model["api_key_secret"]
-            if name and not data["secrets"].get(name, "").strip():
-                missing.append(f"secrets.{name}")
+        for role in REQUIRED_AGENT_ROLES:
+            agent = data["agents"][role]
+            for field in ("model", "name"):
+                if not agent[field]:
+                    missing.append(f"agents.{role}.{field}")
+            try:
+                self._agent_model(data, role)
+            except ConfigError:
+                if agent["model"] and agent["name"]:
+                    missing.append(f"agents.{role}.context_window_tokens")
+            connection = data["models"].get(agent["model"])
+            if connection is None:
+                continue
+            fields = ("base_url", "api_key_secret") if connection["type"] == "openai_compatible" else ("credentials",)
+            missing.extend(f"models.{agent['model']}.{field}" for field in fields if not connection[field])
+            if connection["type"] == "openai_compatible":
+                name = connection["api_key_secret"]
+                if name and not data["secrets"].get(name, "").strip():
+                    missing.append(f"secrets.{name}")
+            else:
+                name = connection["credentials"]
+                credential = data["secrets"].get(name)
+                if name and (
+                    not isinstance(credential, dict)
+                    or not credential.get("access_token")
+                    or "chatgpt.tokens.use.direct" not in credential.get("scopes", [])
+                ):
+                    missing.append(f"secrets.{name}.chatgpt_plan_use")
         return list(dict.fromkeys(missing))
 
     def public(self, *, saved: bool = False) -> dict[str, Any]:
@@ -164,7 +259,53 @@ class AppConfig:
         return data
 
     def secret_status(self) -> dict[str, bool]:
-        return {key: bool(value.strip()) for key, value in self._saved_data["secrets"].items()}
+        return {
+            key: bool(value.strip()) if isinstance(value, str) else bool(value.get("access_token"))
+            for key, value in self._saved_data["secrets"].items()
+        }
+
+    def oauth_credential(self, name: str, *, saved: bool = False) -> dict[str, Any] | None:
+        with self._lock:
+            data = self._saved_data if saved else self._data
+            value = data["secrets"].get(name)
+            if value is not None and not isinstance(value, dict):
+                raise ConfigError("Credential name is already used by an API key")
+            return deepcopy(value)
+
+    def save_oauth_credential(self, name: str, value: dict[str, Any]) -> None:
+        with self._lock:
+            if not name or "." in name:
+                raise ConfigError("Invalid credential name")
+            self.oauth_credential(name)
+            try:
+                credential = OAuthCredentialSchema.model_validate(value).model_dump(exclude_none=True)
+            except ValidationError:
+                raise ConfigError("Invalid OAuth credential fields") from None
+            self._save_auth_value(f"secrets.{name}", credential)
+
+    def ensure_chatgpt_host_id(self) -> str:
+        with self._lock:
+            host_id = self._data["auth"]["chatgpt_host_id"]
+            if host_id is None:
+                host_id = f"urn:uuid:{uuid4()}"
+                self._save_auth_value("auth.chatgpt_host_id", host_id)
+            return host_id
+
+    def _save_auth_value(self, key: str, value: Any) -> None:
+        """Share Settings' lock and disk compare-and-swap, but apply authorization live."""
+        current = self.root_config_path.read_bytes() if self.root_config_path.exists() else None
+        if current != self._source_bytes:
+            raise ConfigError("Configuration changed outside this instance; restart before saving authorization")
+        document = tomlkit.parse(current.decode()) if current is not None else tomlkit.document()
+        _set_config_value(document, _split_key(key), value)
+        encoded = tomlkit.dumps(document).encode()
+        overrides = _local_data(encoded, self.root_config_path)
+        saved = _effective(self.root, overrides)
+        active = deepcopy(self._data)
+        _set_config_value(active, _split_key(key), value)
+        active = _validated(active)
+        _atomic_write(self.root_config_path, encoded)
+        self._source_bytes, self._overrides, self._saved_data, self._data = encoded, overrides, saved, active
 
     def describe(self) -> dict[str, Any]:
         return AppConfigSchema.model_json_schema()
@@ -309,6 +450,14 @@ def _read_toml_bytes(source: bytes, path: Path) -> dict[str, Any]:
 
 def _local_data(source: bytes, path: Path) -> dict[str, Any]:
     data = _read_toml_bytes(source, path)
+    if isinstance(data.get("models"), dict) and any(
+        isinstance(value, dict) and set(value) & {"name", "reasoning_effort", "context_window_tokens"}
+        for value in data["models"].values()
+    ):
+        raise ConfigError(
+            "Breaking change: models now define connections; move role model names and parameters to agents. "
+            "Back up the instance and follow the configuration upgrade guide. TOML is not migrated automatically."
+        )
     if isinstance(data.get("paths"), dict) and "root" in data["paths"]:
         raise ConfigError("paths.root cannot be redirected by Local TOML")
     return data

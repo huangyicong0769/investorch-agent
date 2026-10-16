@@ -48,7 +48,7 @@ def format_tool_error(context: RunContextWrapper[AgentContext], error: Exception
         message = str(error)
     else:
         return "Error: The tool failed unexpectedly. Check System Status before retrying."
-    for secret in sorted(context.context.config.secrets.values(), key=len, reverse=True):
+    for secret in sorted(context.context.config.secret_values(), key=len, reverse=True):
         if secret:
             message = message.replace(secret, "<redacted>")
     return f"Error: {message}"
