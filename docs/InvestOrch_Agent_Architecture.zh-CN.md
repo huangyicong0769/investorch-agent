@@ -72,7 +72,7 @@ Application 分离三个 identity：
 - **Run**：一次瞬时顶层 Agent turn。
 - **Selection**：客户端当前显示的 Session。
 
-`AgentRuntime` 拥有 active Runs 和 follow-up queues。每个 Session 最多一个顶层 Run，不同 Session 可以并发。每个 Run 捕获不可变的 reasoning effort、permission mode 和 follow-up 设置。
+`AgentRuntime` 拥有 active Runs 和 follow-up queues。每个 Session 最多一个顶层 Run，不同 Session 可以并发。每个 Run 捕获不可变 `AgentModelConfig`（连接、真实模型、effort、窗口）、permission mode 与 follow-up 设置。Session Draft 由 Host 统一持有；Queue 仅在晋升时解析最新 Draft，提交时捕获的 permission/follow-up 默认值保持不变。
 
 Steer 在安全的 turn boundary 继续当前顶层 Run。Queue 保存未来意图，并在成功完成后提升为新 Run。Stop 取消选中 Session 的 active Run，并暂停保留的 Queue 意图。
 
@@ -89,7 +89,9 @@ Main Agent 会为每个 Run 使用已捕获 model settings 进行 clone。辅助
 - Permission Agent 在 review 模式下可以返回 approve、reject 或 ask。
 - Compact Agent 用带标记的 summary 替换 SDK continuation history。
 
-Runtime 使用 OpenAI Responses model adapter。Schema 定义五个独立可配置的模型角色，不预设 Provider。Model name、base URL、secret reference 和 reasoning effort 来自 `AppConfig`，构造 Agent 前检查 readiness。独立 Skill Review Agent 复用 Permission 模型配置。
+Runtime 保留 OpenAI Agents SDK 与 Responses adapter。`models.<id>` 定义可复用连接，`agents.<role>` 为五个内置角色选择连接、真实模型、effort 与正整数窗口；分别由 `AppConfig.model_connection()`、`agent_model()` 解析。Skill Review 共用 `agents.permission`。Host 的 `ModelConnectionClients` 按连接复用 Client，停机统一关闭；每个 Run 克隆自己的模型及设置，不修改共享 Agent 模板。
+
+ChatGPT 连接使用验证后的本地 OAuth 授权与官方 direct Responses Endpoint。薄适配层发送流式、不存储请求，限制不支持的字段，并通过流式结果收集服务 SDK 的非流式调用者。Host 持有 `ChatGPTAuth`，Web Setup 在 Agent Host 未启动时也能授权。凭据按需刷新，同 credential 串行化，并与 Settings 共用私有 TOML 原子写回；公开配置不返回 Token。详见[Configuration](Configuration.zh-CN.md)。
 
 ## 当前 Tool Surface
 
@@ -217,11 +219,11 @@ SQLite continuation 是 model state，可以被压缩；JSONL Journal 是 replay
 
 `config_schema.AppConfigSchema` 是字段类型、默认值、约束、敏感属性和生命周期（`hot`、`restart_required`、`immutable`）的唯一权威。`AppConfig` 合并 Schema defaults、Local TOML overrides 与允许的临时配置变化；运行时不再读取随包默认 TOML。`paths.root` 默认 `~/.investorch`，可通过程序化 bootstrap 注入，Local TOML 不能重定向自身 Root。
 
-`AppConfig` 提供有效/已保存公开视图、readiness、JSON Schema、原子批量修改、通过移除覆盖实现的 reset，以及独立 snapshot。完整候选通过验证后才写盘，保留注释与相邻设置；原子替换与小范围写锁保护落盘，检测到外部修改时拒绝旧视图覆盖。需要重启的修改保存为下次启动值。AppConfig 不识别调用者或执行授权策略：Agent Tool 在边界拒绝 `secrets.*`、`permission.*` 和 `models.permission.*`，用户直接操作则由 HTTP 边界保护。
+`AppConfig` 提供有效/已保存公开视图、readiness、JSON Schema、原子批量修改、通过移除覆盖实现的 reset，以及独立 snapshot。完整候选通过验证后才写盘，保留注释与相邻设置；原子替换与小范围写锁保护落盘，检测到外部修改时拒绝旧视图覆盖。需要重启的修改保存为下次启动值。AppConfig 不识别调用者或执行授权策略：Agent Tool 在边界拒绝修改 `models.*`、`agents.*`、`secrets.*`、`auth.*` 和 `permission.*`，用户直接操作则由 HTTP 边界保护。
 
 所有 Local TOML 均按当前 Schema 校验。模型 Provider 字段须显式配置；缺少模型设置或凭据时进入 Setup。TOML 格式错误、未知字段和无效值保持报错。字段描述与公开视图不包含 Secret 明文。
 
-`AppState` 保存可选的进程级 reasoning effort、Permission 和 follow-up 覆盖；无覆盖时读取有效 AppConfig，显式覆盖不被后续配置修改抹掉。`/defaults`、`/effort`、`/permission` 不持久化配置，已启动 Run 保持捕获的 `RunOptions`。
+`AppState` 保留进程级 Permission/follow-up 覆盖，并引用共享 Session 模型存储。`/model`、`/effort` 修改选中 Session 的 Draft，下一次实际 Run 才把纯模型值提交到 Session 元数据，当前 Run 保持冻结。连接与 Agent 默认值重启生效，OAuth 状态即时生效。SQLite 模型元数据不含凭据，普通与 Spawn Session 使用同一契约。
 
 已配置 model 与 MCP endpoints 是外部信任边界。本地优先表示状态和 Workspace 默认由本地拥有，不表示 model 或 MCP traffic 留在本机。
 

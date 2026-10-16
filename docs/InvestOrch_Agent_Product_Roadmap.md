@@ -65,7 +65,7 @@ There is no automatic reply, wait/completion mechanism, or persistent mailbox.
 
 ## 0.3.0 Session spawning
 
-The development implementation adds approval-required `spawn_agent(task, title?)` with ordinary, recursively capable Sessions; independent history and approvals; trusted user-role origin; and one-time Portfolio association snapshots. All top-level Runs share a hot global limit, default 3. Explicit Delete/Clear safely cascade only Spawn descendants and refuse active/pending nodes or independent Fork references. Web replaces the Portfolio banner with a compact context card; TUI shows parent provenance. 0.3.0 remains unreleased. Agent as MCP and PyPI distribution remain future work.
+The development implementation adds approval-required `spawn_agent(task, title?)` with ordinary, recursively capable Sessions; independent history and approvals; trusted user-role origin; and one-time Portfolio association snapshots. All top-level Runs share a hot global limit, default 3. Explicit Delete/Clear safely cascade only Spawn descendants and refuse active/pending nodes or independent Fork references. Web replaces the Portfolio banner with a compact context card; TUI shows parent provenance. 0.3.0 remains unreleased. Agent as MCP is cancelled for 0.3.0; PyPI distribution is scheduled separately.
 
 ## Configuration, management, and recovery
 
@@ -83,9 +83,11 @@ CNEquity remains an optional backend. Broader reliance on it is deferred until u
 
 Multi-Agent is a long-term direction, with Stage A providing read-only Session access. Specialist roles, routing model, handoff topology, and the schedule for later stages remain open. Agent boundaries will be designed only after real responsibilities prove that separation reduces complexity.
 
-## Confirmed direction: Agent as MCP
+## 0.3.0 model connections and ChatGPT
 
-InvestOrch Agent will expose selected Agent capabilities through an MCP server so other MCP clients can invoke them. The exposed capability set, session model, authentication, transport, and approval behavior remain open.
+The development line adds separate connection/Agent configuration, per-Session model Drafts, frozen Runs, latest-model resolution at Queue promotion, connection-owned clients, preflight compaction, and official local ChatGPT authorization with on-demand refresh. Web/TUI/plain share the model contract. Old TOML needs offline manual conversion; Session SQLite metadata upgrades normally. See [Configuration](Configuration.md) and [Upgrade](Upgrade.md).
+
+Agent as MCP is cancelled and is neither 0.3.0 scope nor a release prerequisite. Existing MCP client integrations remain supported. Agent as MCP is no longer a confirmed future direction.
 
 ## Open decisions
 
@@ -95,7 +97,6 @@ The following questions will be resolved with the corresponding product work:
 - how the QMT gateway communicates, authenticates, deploys, and recovers;
 - what the unified data layer owns and how it models provenance and time;
 - which responsibilities, if any, become separate agents;
-- which capabilities Agent as MCP exposes and how it handles sessions, authentication, and approval;
 - how confirmed directions map to later versions or milestones.
 
 ## Candidate themes

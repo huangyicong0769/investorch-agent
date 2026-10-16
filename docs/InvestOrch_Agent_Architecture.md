@@ -72,7 +72,7 @@ The application separates three identities:
 - **Run**: one transient top-level Agent turn.
 - **Selection**: the Session currently displayed by a client.
 
-`AgentRuntime` owns active Runs and follow-up queues. It permits at most one top-level Run per Session and permits Runs in different Sessions to execute concurrently. Each Run captures immutable reasoning-effort, permission-mode, and follow-up settings.
+`AgentRuntime` owns active Runs and follow-up queues. It permits at most one top-level Run per Session and permits Runs in different Sessions to execute concurrently. Each Run captures an immutable `AgentModelConfig` (connection, actual model, effort and window), permission mode and follow-up behavior. Session Drafts are Host-owned; Queue resolves the latest Draft only when promoted, while its submitted permission/follow-up defaults remain frozen.
 
 Steer continues the current top-level Run at a safe turn boundary. Queue records future intent and promotes it to a new Run after successful completion. Stop cancels the selected Session's active Run and pauses retained Queue intent.
 
@@ -89,7 +89,9 @@ The Main Agent is cloned with captured model settings for each Run. Support agen
 - Permission Agent may return approve, reject, or ask in review mode.
 - Compact Agent replaces SDK continuation history with a marked summary.
 
-The runtime uses the OpenAI Responses model adapter. The Schema defines five independently configurable model roles without a default provider. Model name, base URL, secret reference and reasoning effort come from `AppConfig`; readiness is checked before constructing an Agent. The independent Skill Review Agent reuses the Permission model configuration.
+The runtime retains OpenAI Agents SDK and its Responses adapter. `models.<id>` defines reusable connections; `agents.<role>` selects a connection, actual model, effort and positive window for the five built-in roles. `AppConfig.model_connection()` and `agent_model()` resolve these separate values. Skill Review shares `agents.permission`. The Host owns `ModelConnectionClients`, reusing clients by connection and closing them on shutdown; each Run clones its model/settings without mutating the shared Agent template.
+
+ChatGPT connections use verified local OAuth authorization and the official direct Responses endpoint. A thin adapter sends streaming, non-stored requests, restricts unsupported fields and collects non-streaming SDK callers through the stream. The Host owns `ChatGPTAuth`; the Web Setup server can authorize before the Agent Host exists. Credentials refresh on demand under a credential-specific lock and rotate atomically in the same private TOML as Settings. Public configuration contains no tokens. See [Configuration](Configuration.md).
 
 ## Current Tool surface
 
@@ -217,11 +219,11 @@ The SQLite continuation is model state and may be compacted. The JSONL journal i
 
 `config_schema.AppConfigSchema` is the single authority for field types, defaults, constraints, secret sensitivity and lifecycle (`hot`, `restart_required`, `immutable`). `AppConfig` combines Schema defaults, Local TOML overrides and permitted temporary configuration changes. No packaged default TOML participates at runtime. `paths.root` defaults to `~/.investorch`, accepts explicit programmatic bootstrap injection, and cannot be redirected by Local TOML.
 
-`AppConfig` exposes effective/saved public views, readiness, JSON Schema, atomic batch updates, reset-by-removing-override and independent snapshots. Complete candidate validation precedes writes; comments and neighboring settings are retained. Atomic file replacement and a small write lock protect persistence, and detected external edits reject stale writes. Restart-required changes remain next-start values. AppConfig contains no caller identity or authorization policy: the Agent Tool separately rejects `secrets.*`, `permission.*` and `models.permission.*`, while direct operator writes use the HTTP boundary.
+`AppConfig` exposes effective/saved public views, readiness, JSON Schema, atomic batch updates, reset-by-removing-override and independent snapshots. Complete candidate validation precedes writes; comments and neighboring settings are retained. Atomic file replacement and a small write lock protect persistence, and detected external edits reject stale writes. Restart-required changes remain next-start values. AppConfig contains no caller identity or authorization policy: the Agent Tool separately rejects edits to `models.*`, `agents.*`, `secrets.*`, `auth.*` and `permission.*`, while direct operator writes use the HTTP boundary.
 
 All Local TOML is validated against the current Schema. Model provider fields must be configured explicitly; missing model settings or credentials enter Setup. Malformed TOML, unknown fields, and invalid values remain errors. Field descriptions and public views never include secret values.
 
-`AppState` owns optional process-local reasoning-effort, Permission and follow-up overrides. Unset options fall back to effective AppConfig; explicit overrides survive later configuration edits. `/defaults`, `/effort` and `/permission` do not persist configuration, and active Runs keep their captured `RunOptions`.
+`AppState` retains process-local Permission/follow-up overrides and references the shared Session model store. `/model` and `/effort` edit the selected Session Draft; the next actual Run commits its pure model values to Session metadata. The current Run remains frozen. Connections and Agent defaults require restart, while OAuth state applies immediately. SQLite model metadata contains no credentials; ordinary and spawned Sessions use the same contract.
 
 The configured model and MCP endpoints are external trust boundaries. Local-first means state and workspace ownership are local by default; it does not mean model or MCP traffic stays on the machine.
 

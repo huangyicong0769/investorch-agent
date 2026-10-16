@@ -48,7 +48,7 @@ Agent 的 `list_sessions`、`read_session` 委托 `application.session_queries` 
 
 1. 拒绝同一 Session 的第二个顶层 Run；
 2. 创建唯一 Run ID；
-3. 捕获不可变 `RunOptions`；
+3. 解析最新 Session 模型 Draft 并捕获不可变 `RunOptions`；
 4. 注册并启动 `asyncio.Task`。
 
 Task 随后打开 SDK Session、按需记录输入、调用可重入 `AgentLoop`，并在 `finally` 中关闭 SDK Session 和 Runtime registry entries。
@@ -57,9 +57,11 @@ Task 随后打开 SDK Session、按需记录输入、调用可重入 `AgentLoop`
 
 ## Future defaults 与 Run snapshot
 
-Reasoning effort、permission mode 和 follow-up behavior 是未来 Run 的 defaults。运行中的 `ActiveRun` 拥有不可变 snapshot。改变 default 不会修改 in-flight behavior。
+Host 统一持有 `SessionModelStore`，提供 Persisted、Draft、Effective、Active 视图。解析顺序为 Draft → 最近持久模型 → 新建或旧版未绑定 Session 的 `agents.main`。有效窗口始终为正整数。Session 编辑先存于进程内，实际新 Run 才提交；退出可丢失未使用 Draft。活动 Run 保持已冻结的连接、模型、effort 和窗口。
 
-Queue 或 Steer follow-up 在提交时捕获将来适用的 defaults，后续变化不会改写已捕获 options。
+Permission mode 与 follow-up behavior 保留提交时捕获语义。Queue **不在入队时冻结模型**，晋升时读取 Session 最新 Draft。Steer 保持 Active 模型；terminal Steer fallback 是新 Run，因此届时重新解析当前 Session 模型。凭据按请求获取，不进入 RunOptions。
+
+接纳顺序是先按既有 barrier 记录输入，再持久化冻结模型，之后才允许 AgentLoop 推理；Journal 与 SQLite 模型元数据不是跨存储事务。模型写入失败阻止推理，但可能已有输入记录。提交只清理被接纳版本的 Draft，不覆盖更新的编辑。
 
 ## Follow-up
 
@@ -108,13 +110,13 @@ Todo 是投影到客户端的瞬时 Run state，不写入 SDK continuation、JSO
 
 - Create 创建新的持久化 identity。
 - Rename 更新 Session metadata。
-- Archive 保留 continuation、Journal、title 和 lineage，同时使 Session 在恢复前只读。
+- Archive 保留 continuation、Journal、title、lineage 与模型选择；仍可编辑模型 Draft，但恢复前不能执行。
 - Unarchive 恢复普通操作。
 - Delete 删除显式 Session 及其全部递归 Spawn 后代；Clear 使用同一删除契约，再创建不继承来源关系的普通新 Session。
 - Compact 用带标记的 assistant summary 替换 SDK continuation；Journal 保持完整。
 - Fork 把来源 Session 最后稳定提交头部 clone 为新的独立 Session。
 
-Fork 复制 SDK continuation、存在时的 Journal、带后缀 title 和直接 parent lineage。它不复制 active Run、defaults、Steer/Queue、Todo、approval、archive state、job、usage、cache 或 UI state。它是 stable-head cloning，不是 historical-turn branching。
+Fork 复制 SDK continuation、存在时的 Journal、带后缀 title、直接 parent lineage 与持久模型元数据。来源 Draft 作为目标 Draft 复制，仍只存在于进程内。它不复制 active Run、permission/follow-up 覆盖、Steer/Queue、Todo、approval、archive state、job、usage、cache 或 UI state。它是 stable-head cloning，不是 historical-turn branching。
 
 从未获得 SDK message、Journal record、metadata、queued intent 或 lineage 的空 Session 会被丢弃。Web 启动时不创建 Session，直到用户明确创建；TUI/plain 会创建初始 Session。
 
@@ -152,7 +154,11 @@ Web 与 TUI 是同一 Application state 的一级 projection。
 
 Main 与 auxiliary model usage 在当前进程中按 Session 累积。Auxiliary usage 包含 Title、Activity、Permission 和 Compact Agents。显示的 Main context occupancy 使用最后一次 physical Main request，而不是累计 Session totals。
 
-Manual 或 automatic compaction 只修改 SDK continuation。已完成答案不会因后续压缩失败而丢失；replacement 出错时会尝试恢复原 continuation snapshot。
+前置检查按本 Run 的窗口估算 continuation、指示、Tool schema 和新输入，并保守预留协议及输出预算。需要压缩时复用当前 Run 排他权，不再次申请同 Session maintenance lock。失败、空摘要或仍超预算均阻止 Main；替换失败尝试恢复原历史。即使关闭回答后的 `compaction.auto_enabled`，这项前置保护仍生效。
+
+后置自动压缩使用 Active Run 窗口与最后一次 Main 请求用量，失败不丢弃已经完成的答案。手动与自动压缩只改变 SDK continuation，保留完整 Journal，Compact 用量记入 Aux；成功后清空旧 Main 占用。
+
+每次新 Run 发送的旧历史副本会剔除不透明 reasoning 和 Provider response-item ID，保留消息及函数 `call_id`。SQLite/Journal 原件不变，本 Run 新生成的 reasoning 保留用于后续请求。同连接跨 Run 也如此：不能复用旧 opaque reasoning，可能影响连续性或缓存效率。
 
 ## 后台 Job
 
@@ -164,7 +170,7 @@ Manual 或 automatic compaction 只修改 SDK continuation。已完成答案不�
 
 ## 当前限制
 
-0.1.0 不跨进程重启持久化 active Run、pending Steer、Queue、Todo、pending approval、usage display 或 UI state。所有 Session 共享同一个 Workspace 和 managed-job registry。当前没有 historical-turn branching、per-Session Workspace、distributed scheduler 或 cross-process Runtime recovery。
+应用不跨进程重启持久化 active Run、Session 模型 Draft、pending Steer、Queue、Todo、pending approval、usage display 或 UI state。所有 Session 共享同一个 Workspace 和 managed-job registry。当前没有 historical-turn branching、per-Session Workspace、distributed scheduler 或 cross-process Runtime recovery。
 
 ## 图片输入与回放
 
@@ -173,6 +179,8 @@ Run、Steer、Queue 使用同一 `UserInput`；Portfolio Ask 的 developer 上�
 Journal 在用户消息、Steer、Assistant、Tool 输出增加可选 `images`；旧历史缺失该字段即无图片，无需迁移。Fork 复制内联 SDK/Journal 内容，归档保留内容。Delete/Clear 删除旧范围的历史；Clear 再创建空的替代 Session。Web 图片草稿按 Session 保存，乐观消息在持久事件到达前仍保留图片。
 
 ## Session 派生与全局并发
+
+Spawn 默认继承 parent Active Run 模型，不读取 parent 新的 Session Draft。同连接改模型名称须显式提供窗口；跨连接还须显式提供名称、effort 与窗口。覆盖仅影响新 child。普通和 Spawn Session 共用模型持久化、Draft 编辑与删除清理契约。
 
 `spawn_agent(task, title?)` 使用已有 Permission/HITL 审批和普通 `submit_user_input`。子 Session 使用相同 Main 模型、Tools、Skills 和独立审批规则，拥有各自 continuation 与 Journal。初始输入保持 `user` role，来源由 SDK Session/Run/call 上下文提供。创建事务保存独立 Spawn lineage，并一次复制关联 Portfolio IDs；不复制父历史、Portfolio/Ledger 事实或授权。Fork 不继承 Spawn lineage；父完成、Stop 或 Archive 不级联子 Session。
 
