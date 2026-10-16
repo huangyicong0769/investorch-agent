@@ -254,6 +254,7 @@ async def open_application_host(
     activity: ActivityCoordinator | None = None
     owns_auth = chatgpt_auth is None
     chatgpt_auth = chatgpt_auth or ChatGPTAuth(config)
+    state.chatgpt_auth = chatgpt_auth
     model_clients = ModelConnectionClients(config, chatgpt_auth)
 
     try:
