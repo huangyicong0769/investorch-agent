@@ -216,6 +216,7 @@ class SessionOperations:
             logger.exception("Failed to discard unused session %s", session_id)
             return False
         if deleted:
+            self._runtime.session_models.discard(session_id)
             logger.info("Discarded unused session %s", session_id)
         return deleted
 
@@ -244,12 +245,15 @@ class SessionOperations:
             self._runtime.reserve_session(source_session_id),
             self._runtime.reserve_session(target_session_id),
         ):
+            source_draft = self._runtime.session_models.draft(source_session_id)
             await fork_session(
                 source_session_id=source_session_id,
                 target_session_id=target_session_id,
                 sessions_db=self._config.sessions_db,
                 journal=self._journal,
             )
+            if source_draft is not None:
+                self._runtime.session_models.set_draft(target_session_id, source_draft)
         return target_session_id
 
     async def set_title(self, session_id: str, title: str) -> SessionRecord:
@@ -385,6 +389,7 @@ class SessionOperations:
     async def _cleanup_deleted_sessions(self, session_ids: tuple[str, ...]) -> None:
         failed = False
         for member in session_ids:
+            self._runtime.session_models.discard(member)
             try:
                 await self._journal.delete_session(member)
             except BaseException:

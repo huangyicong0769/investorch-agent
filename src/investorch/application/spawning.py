@@ -58,6 +58,10 @@ async def spawn_agent(
     tool_call_id: str,
     task: str,
     title: str | None = None,
+    model: str | None = None,
+    name: str | None = None,
+    reasoning_effort: str | None = None,
+    context_window_tokens: int | None = None,
 ) -> SpawnReceipt:
     """Submit an approved delegation through the ordinary Session input path."""
     if (
@@ -79,10 +83,35 @@ async def spawn_agent(
     identity = json.dumps((source_session_id, source_run_id, tool_call_id), ensure_ascii=False)
     child_id = uuid.uuid5(uuid.NAMESPACE_URL, f"urn:investorch:spawn:{identity}").hex
 
+    if runtime.closed:
+        raise SpawnError("runtime_closed: This Host is shutting down.")
+
     async with sessions.lifecycle_lock:
         parent = await asyncio.to_thread(get_session, state.config.sessions_db, source_session_id)
         if parent is None or parent.archived_at is not None:
             raise SpawnError("spawn_parent_unavailable: The parent Session is missing or archived.")
+        existing = await asyncio.to_thread(get_session, state.config.sessions_db, child_id)
+        if existing is not None:
+            active_child = runtime.get_active_run(child_id)
+            if (
+                active_child is not None
+                or await sessions.is_application_workflow_started(child_id)
+                or await sessions.has_agent_activity(child_id)
+            ):
+                return SpawnReceipt(child_id, active_child.run_id if active_child else None, False, "already_submitted")
+            raise SpawnError(
+                f"spawn_consistency_uncertain: Session {child_id} exists but initial acceptance cannot be proven. Check System Status before retrying."
+            )
+        parent_run = runtime.get_active_run(source_session_id)
+        if parent_run is None or parent_run.run_id != source_run_id:
+            raise SpawnError("spawn_parent_unavailable: The parent Run is no longer active.")
+        child_model = state.config.resolve_model(
+            parent_run.options.model,
+            model=model,
+            name=name,
+            reasoning_effort=reasoning_effort,
+            context_window_tokens=context_window_tokens,
+        )
         try:
             created = await _await_mutation(
                 asyncio.to_thread(
@@ -113,6 +142,7 @@ async def spawn_agent(
             raise SpawnError(
                 f"spawn_consistency_uncertain: Session {child_id} exists but initial acceptance cannot be proven. Check System Status before retrying."
             )
+        runtime.session_models.set_draft(child_id, child_model)
         try:
             submitted = await submit_user_input(
                 state=state,
@@ -136,6 +166,7 @@ async def spawn_agent(
                         )
                         if not removed:
                             raise RuntimeError("Child rollback was refused")
+                        runtime.session_models.discard(child_id)
                 except Exception as cleanup_error:
                     logger.exception("Spawn rollback uncertain child=%s", child_id)
                     raise SpawnError(

@@ -15,12 +15,14 @@ async def test_spawn_submits_a_normal_origin_input_once_and_keeps_selection(tmp_
     harness = make_session_harness(tmp_path)
     parent = await harness.operations.create()
     state = AppState(config=harness.runtime.config, execution=harness.runtime.execution, selected_session_id=parent)
+    parent_run = harness.runtime.runtime.start_run(parent, "parent", run_options())
+    await harness.runtime.agent_loop.wait_until_started(parent)
     arguments = dict(
         state=state,
         runtime=harness.runtime.runtime,
         sessions=harness.operations,
         source_session_id=parent,
-        source_run_id="parent-run",
+        source_run_id=parent_run.run_id,
         tool_call_id="spawn-call",
         task="Research",
     )
@@ -30,7 +32,7 @@ async def test_spawn_submits_a_normal_origin_input_once_and_keeps_selection(tmp_
         retry = await spawn_agent(**arguments)
         assert retry.session_id == receipt.session_id and retry.started is False
         delivered = harness.runtime.agent_loop.input_for(receipt.session_id)
-        assert delivered.structured_input.origin == InputOrigin("agent", parent, "parent-run")
+        assert delivered.structured_input.origin == InputOrigin("agent", parent, parent_run.run_id)
         assert delivered.application_instruction is None
         assert state.selected_session_id == parent
         assert len(list_sessions(harness.runtime.config.sessions_db)) == 2
@@ -61,11 +63,11 @@ async def test_capacity_refusal_removes_only_the_unstarted_child_and_allows_retr
         harness.runtime.config.update("runtime.max_concurrent_runs", 1, persist=False)
         active = harness.runtime.runtime.start_run(parent, "parent", run_options())
         await harness.runtime.agent_loop.wait_until_started(parent)
+        arguments["source_run_id"] = active.run_id
         with pytest.raises(RunCapacityExceededError):
             await spawn_agent(**arguments)
         assert [item.session_id for item in list_sessions(harness.runtime.config.sessions_db)] == [parent]
-        harness.runtime.agent_loop.complete(parent)
-        await active.task
+        harness.runtime.config.update("runtime.max_concurrent_runs", 2, persist=False)
         receipt = await spawn_agent(**arguments)
         await harness.runtime.agent_loop.wait_until_started(receipt.session_id)
         assert receipt.started
@@ -137,3 +139,38 @@ async def test_closed_runtime_refusal_does_not_leave_a_ghost_child(tmp_path):
             task="Research",
         )
     assert len(list_sessions(harness.runtime.config.sessions_db)) == 1
+
+
+async def test_spawn_inherits_parent_active_model_and_rejects_incomplete_connection_override(tmp_path):
+    from investorch.config import ConfigError
+
+    harness = make_session_harness(tmp_path)
+    parent = await harness.operations.create()
+    state = AppState(config=harness.runtime.config, execution=harness.runtime.execution, selected_session_id=parent)
+    runtime = harness.runtime.runtime
+    runtime.session_models.update(parent, reasoning_effort="low")
+    active = runtime.start_run(parent, "parent", run_options())
+    await harness.runtime.agent_loop.wait_until_started(parent)
+    runtime.session_models.update(parent, reasoning_effort="high")
+    arguments = dict(
+        state=state,
+        runtime=runtime,
+        sessions=harness.operations,
+        source_session_id=parent,
+        source_run_id=active.run_id,
+        task="Research",
+    )
+    try:
+        with pytest.raises(ConfigError):
+            await spawn_agent(**arguments, tool_call_id="invalid", model="unknown")
+        assert len(list_sessions(harness.runtime.config.sessions_db)) == 1
+        with pytest.raises(ConfigError):
+            await spawn_agent(**arguments, tool_call_id="missing-window", name="another-model")
+        assert len(list_sessions(harness.runtime.config.sessions_db)) == 1
+        child = await spawn_agent(**arguments, tool_call_id="valid")
+        await harness.runtime.agent_loop.wait_until_started(child.session_id)
+        assert runtime.get_active_run(child.session_id).options.model == active.options.model
+        assert runtime.session_models.view(child.session_id).persisted.reasoning_effort == "low"
+        assert runtime.session_models.view(parent).draft.reasoning_effort == "high"
+    finally:
+        await runtime.aclose()

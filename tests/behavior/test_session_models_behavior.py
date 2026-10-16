@@ -20,3 +20,25 @@ async def test_session_model_edits_are_drafts_until_committed_and_survive_only_a
     assert models.view("session").draft.reasoning_effort == "high"
     assert models.view("session").persisted == changed
     assert SessionModelStore(config).view("session").effective == changed
+
+
+async def test_fork_copies_saved_and_draft_models_and_delete_cleans_draft(tmp_path: Path) -> None:
+    from tests.support.sessions import make_session_harness
+
+    harness = make_session_harness(tmp_path)
+    models = harness.runtime.runtime.session_models
+    parent = await harness.operations.create()
+    models.update(parent, reasoning_effort="low")
+    await models.commit(parent, models.snapshot(parent))
+    models.update(parent, reasoning_effort="high")
+    child = await harness.operations.fork(parent)
+    assert models.view(child).persisted.reasoning_effort == "low"
+    assert models.view(child).draft.reasoning_effort == "high"
+    assert SessionModelStore(harness.runtime.config).view(child).effective.reasoning_effort == "low"
+    await harness.operations.archive(child)
+    assert models.view(child).draft.reasoning_effort == "high"
+    await harness.operations.unarchive(child)
+    await harness.operations.delete(child)
+    assert models.draft(child) is None
+    assert models.view(child).persisted is None
+    await harness.runtime.runtime.aclose()
