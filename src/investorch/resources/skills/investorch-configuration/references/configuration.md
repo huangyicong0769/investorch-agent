@@ -25,7 +25,7 @@ A persistent runtime update is written to `<root>/investorch.toml` and therefore
 | restart-required | `paths.workspace`, `paths.state`, `models.*`, `agents.*`, `secrets.*`, `permission.*`, `tui.*`, most `web.*`, `images.*`, `logging.*`, `mcp.*`, `cnequity.*`, `backtest.use_cnequity`, `backtest.rqalpha_bundle_dir`, `observability.sdk_tracing_enabled` | `persist=false` is rejected. `persist=true` writes the next-start value but does not change the current runtime; restart InvestOrch Agent to apply it. |
 | hot | `runtime.*`, `activity.*`, `compaction.*`, `web.theme_mode`, execution/explore/calculate limits, `backtest.artifact_dir`, and backtest execution policy | Validated and applied to the current `AppConfig`; persistence is optional. The next applicable operation uses the new value. |
 
-ChatGPT OAuth authorization records under `auth.*` are managed by the Host auth service. Login, logout and refresh take effect without restart; Agents cannot edit those records.
+ChatGPT OAuth authorization records under `secrets.<credential>` are managed by the Host auth service; `auth.chatgpt_host_id` identifies this installation. Login, logout and refresh take effect without restart; Agents cannot edit those records.
 
 `get_config` reports the value currently used by this process. A persisted restart-required update therefore continues to report the old value until the application is restarted.
 
