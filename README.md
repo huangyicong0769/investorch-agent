@@ -6,6 +6,8 @@ InvestOrch Agent is a local-first, human-in-the-loop investment orchestration ag
 
 InvestOrch Agent **0.2.0** provides Web, TUI and plain-console clients, Portfolio accounting, managed Skills, image conversations, and configuration/recovery tools.
 
+The **unreleased 0.3.0 development line** adds Session access, messaging and spawning, reusable model connections, per-Session model selection and ChatGPT authorization. See [0.3.0 notes](docs/releases/0.3.0.md), [model configuration](docs/Configuration.md) and the [manual upgrade procedure](docs/Upgrade.md). The installation commands below still target released 0.2.0.
+
 ## What 0.2.0 includes
 
 - First-class Web and [Textual](https://github.com/Textualize/textual) TUI clients backed by the same application and runtime.
@@ -33,7 +35,8 @@ The core supports macOS and Linux. Agent shell-command execution through `exec_c
 
 - Python 3.12–3.14 (`>=3.12,<3.15`)
 - [uv](https://docs.astral.sh/uv/)
-- A Responses-compatible model endpoint, model name, and API credential for Agent operation
+- For released 0.2.0: a Responses-compatible model endpoint, model name, and API credential
+- For the 0.3.0 development line: an API-key connection or an eligible ChatGPT account authorizing plan usage
 
 The runtime uses the [OpenAI Agents SDK](https://github.com/openai/openai-agents-python) Responses model adapter. Fresh source installations have no preselected provider. Web Setup accepts the initial model connection and credential; Settings allows the Main, Title, Activity, Permission and Compact roles to use independent configurations.
 
@@ -74,6 +77,8 @@ uv tool install --python 3.12 ./investorch-0.2.0-py3-none-any.whl
 The installed command is `investorch`. For an existing tool installation, complete the backup and preflight steps in [Upgrade](docs/Upgrade.md) before replacing it. The published [0.1.0 release](https://github.com/huangyicong0769/investorch-agent/releases/tag/v0.1.0) retains its own [historical instructions](docs/releases/0.1.0.md).
 
 ## First run
+
+The steps below describe released 0.2.0. On the 0.3.0 development line, Setup separates **Model Connections** from **Agent Defaults**: choose an API connection or **Continue with ChatGPT**, then select the model, effort and context window for each role. ChatGPT-only setups do not need an API key. Follow [Configuration](docs/Configuration.md) for complete examples and login guidance.
 
 ### 1. Open Web Setup
 
@@ -142,7 +147,7 @@ For the unreleased 0.3.0 work, Agents can discover exact Session IDs with `list_
 
 ## Settings and System Status
 
-- **Settings** edits persistent configuration using the Python Schema for types, defaults, constraints and lifecycle. Reset removes a local override. Hot changes apply to future applicable operations; restart-required changes are saved for the next start. Temporary Run defaults remain process-local.
+- **Settings** edits persistent configuration using the Python Schema for types, defaults, constraints and lifecycle. Reset removes a local override. Hot changes apply to future applicable operations; restart-required changes are saved for the next start. Temporary Permission/follow-up defaults remain process-local. In 0.3.0, the conversation header and `/model` or `/effort` edit the selected Session model Draft; its next Run persists that choice, while an active Run keeps its frozen model.
 - **Integrations** manages the separate `mcp.toml` registry. Only `streamable_http` is supported. Hidden URL/header credentials are preserved when left unchanged, and edits require restart. An untested connection is shown as unknown.
 - **Skills** lists and inspects installed content. Create/Install and per-Skill Edit/Fork open Agent Sessions with normal review and approval. Operators can directly enable, disable, or confirm removal of custom Skills.
 - **System Status** presents the same local checks as the offline CLI:

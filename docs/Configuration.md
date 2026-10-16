@@ -133,6 +133,8 @@ The Web conversation header opens **Session model**. It separates the current Ru
 /model openai_api replace-with-provider-model-id high 128000
 /effort
 /effort low
+/model login chatgpt_personal
+/model logout chatgpt_personal
 ```
 
 Draft precedence is Draft → last persisted selection → Main default for an unused/legacy Session. A Draft affects the next Run, including a queued message when promoted. Steer keeps the current Run's model. Drafts are process-local and disappear if the application exits before a Run commits them. Editing an archived Session's Draft does not unarchive it.

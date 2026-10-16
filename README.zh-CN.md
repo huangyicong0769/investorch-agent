@@ -6,6 +6,8 @@ InvestOrch Agent 是面向个人投资者的本地优先、human-in-the-loop 投
 
 InvestOrch Agent **0.2.0** 提供 Web、TUI 和 plain console，支持 Portfolio 会计、受管 Skills、图片对话与配置/恢复工具。
 
+**尚未发布的 0.3.0 开发版本**增加 Session 访问、消息和派生、可复用模型连接、按 Session 选模及 ChatGPT 授权。详见 [0.3.0 说明](docs/releases/0.3.0.zh-CN.md)、[模型配置](docs/Configuration.zh-CN.md)和[手动升级步骤](docs/Upgrade.zh-CN.md)。下方安装命令仍指向已发布的 0.2.0。
+
 ## 0.2.0 包含
 
 - 基于同一 Application 与 Runtime 的 Web 和 [Textual](https://github.com/Textualize/textual) TUI 两个一级界面。
@@ -33,7 +35,8 @@ CLI、配置、存储格式和 Tool 接口可能在后续 0.x 版本中调整。
 
 - Python 3.12–3.14（`>=3.12,<3.15`）
 - [uv](https://docs.astral.sh/uv/)
-- 用于 Agent 运行的 Responses 兼容模型 Endpoint、模型名称和 API 凭据
+- 已发布 0.2.0：Responses 兼容模型 Endpoint、模型名称和 API 凭据
+- 0.3.0 开发版本：API Key 连接，或具备资格并授权计划用量的 ChatGPT 账号
 
 Runtime 使用 [OpenAI Agents SDK](https://github.com/openai/openai-agents-python) 的 Responses 模型适配器。源码新安装不预选 Provider；Web Setup 接收初始模型连接和凭据，随后可在 Settings 为 Main、Title、Activity、Permission、Compact 各角色独立设置。
 
@@ -74,6 +77,8 @@ uv tool install --python 3.12 ./investorch-0.2.0-py3-none-any.whl
 安装后的命令是 `investorch`。替换已有工具安装前，先完成[升级说明](docs/Upgrade.zh-CN.md)中的备份和预检。已发布的 [0.1.0 Release](https://github.com/huangyicong0769/investorch-agent/releases/tag/v0.1.0)保留独立的[历史安装说明](docs/releases/0.1.0.zh-CN.md)。
 
 ## 首次运行
+
+下述步骤适用于已发布的 0.2.0。0.3.0 开发版本将 Setup 分为 **Model Connections** 和 **Agent Defaults**：选择 API 连接或 **Continue with ChatGPT**，再为各角色指定模型、effort 和上下文窗口。纯 ChatGPT 配置无需 API Key。完整示例与登录方式见[配置指南](docs/Configuration.zh-CN.md)。
 
 ### 1. 打开 Web Setup
 
@@ -142,7 +147,7 @@ Web 对话支持选择、粘贴或拖放 JPEG、PNG、GIF、WebP，也支持纯�
 
 ## Settings 与 System Status
 
-- **Settings** 使用 Python Schema 提供的类型、默认值、约束和生命周期编辑持久配置。Reset 删除本地覆盖；热更新影响后续适用操作，需要重启的修改保存为下次启动值。临时 Run 默认值仅属于当前进程。
+- **Settings** 使用 Python Schema 提供的类型、默认值、约束和生命周期编辑持久配置。Reset 删除本地覆盖；热更新影响后续适用操作，需要重启的修改保存为下次启动值。临时 Permission/follow-up 默认值仅属于当前进程。0.3.0 中，对话顶部及 `/model`、`/effort` 修改选中 Session 的模型 Draft；下一次 Run 才持久化，活动 Run 保持冻结模型。
 - **Integrations** 管理独立的 `mcp.toml`，仅支持 `streamable_http`。未修改的 URL/Header 隐藏凭据会保留，修改需要重启。未实际探测的连接显示为 Unknown。
 - **Skills** 展示与检查已安装内容。Create/Install 及具体 Skill 的 Edit/Fork 打开正常 Agent Session，沿用现有审查与审批。用户可直接启停，或确认删除自定义 Skill。
 - **System Status** 展示与离线 CLI 相同的本地检查：

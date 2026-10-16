@@ -133,6 +133,8 @@ Web 对话头部的 **Session model** 区分当前 Run、最近持久设置和�
 /model openai_api replace-with-provider-model-id high 128000
 /effort
 /effort low
+/model login chatgpt_personal
+/model logout chatgpt_personal
 ```
 
 解析优先级为 Draft → 最近持久配置 → 新建或旧版未绑定 Session 的 Main 默认值。Draft 影响下一次 Run，包括 Queue 晋升时；Steer 保持当前 Run 模型。未启动 Run 的 Draft 只在进程内保存，退出会丢失。编辑已归档 Session 的 Draft 不会解除归档。
