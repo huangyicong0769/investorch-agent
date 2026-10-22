@@ -89,7 +89,9 @@ async def exec_command(
     """
     Execute a shell command in the persistent user workspace.
 
-    The command runs with the configured workspace as its current directory and filesystem root. Foreground commands wait for completion. Background commands return a process ID and workspace-relative log paths. When background=true, pass the foreground form of the command. Do not append &, nohup, or setsid; the runtime manages backgrounding. This operation always requires user approval.
+    The configured workspace is the command's current directory and HOME. Commands run on the host with restricted filesystem access, not in a filesystem rooted at the workspace. Application configuration, credentials and professional data sources are accessed by their dedicated tools; shell access is not equivalent to those tools' access. On a restricted-directory error, use the relevant dedicated tool or report the concrete blocker instead of expanding the host-directory search.
+
+    Foreground commands wait for completion. Background commands return a process ID and workspace-relative log paths. When background=true, pass the foreground form of the command. Do not append &, nohup, or setsid; the runtime manages backgrounding. This operation always requires user approval.
 
     Args:
         command: Shell command to execute.
