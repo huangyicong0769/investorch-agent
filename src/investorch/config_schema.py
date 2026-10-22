@@ -33,6 +33,9 @@ def validate_number(value: Any) -> int | float:
 
 PositiveNumber = Annotated[float, Field(gt=0), BeforeValidator(validate_number)]
 NonNegativeNumber = Annotated[float, Field(ge=0), BeforeValidator(validate_number)]
+SlippageRatio = Annotated[NonNegativeNumber, Field(lt=1)]
+BacktestMatchingType = Literal["current_bar"]
+BacktestSlippageModel = Literal["PriceRatioSlippage"]
 
 
 def hot(default: Any, **kwargs: Any) -> Any:
@@ -252,27 +255,34 @@ class RuntimeConfig(ConfigSection):
         return value
 
 
-class BacktestConfig(ConfigSection):
-    use_cnequity: bool = restart(False)
-    rqalpha_bundle_dir: NonEmptyString = restart(".rqalpha/bundle")
-    artifact_dir: NonEmptyString = hot("backtests")
-    default_initial_cash: PositiveNumber = hot(1000000.0)
-    inspect_max_symbols: PositiveInt = hot(50)
+class BacktestRuntimeConfig(ConfigSection):
+    """Simulation defaults, also used as an immutable effective run snapshot."""
+
+    model_config = ConfigDict(frozen=True)
+
     stock_t1: bool = hot(True)
     dividend_reinvestment: bool = hot(False)
     dividend_tax_enabled: bool = hot(True)
     capital_gain_tax_rate: NonNegativeNumber = hot(0.0)
     validate_price: bool = hot(True)
-    matching_type: Literal["current_bar"] = hot("current_bar")
+    matching_type: BacktestMatchingType = hot("current_bar")
     price_limit: bool = hot(True)
     volume_limit: bool = hot(True)
     inactive_limit: bool = hot(True)
-    slippage_model: Literal["PriceRatioSlippage"] = hot("PriceRatioSlippage")
-    slippage: NonNegativeNumber = hot(0.0)
+    slippage_model: BacktestSlippageModel = hot("PriceRatioSlippage")
+    slippage: SlippageRatio = hot(0.0)
     stock_min_commission: NonNegativeNumber = hot(5.0)
     stock_commission_multiplier: NonNegativeNumber = hot(1.0)
     tax_multiplier: NonNegativeNumber = hot(1.0)
     pit_tax: bool = hot(True)
+
+
+class BacktestConfig(BacktestRuntimeConfig):
+    use_cnequity: bool = restart(False)
+    rqalpha_bundle_dir: NonEmptyString = restart(".rqalpha/bundle")
+    artifact_dir: NonEmptyString = hot("backtests")
+    default_initial_cash: PositiveNumber = hot(1000000.0)
+    inspect_max_symbols: PositiveInt = hot(50)
 
 
 class ExecutionConfig(ConfigSection):

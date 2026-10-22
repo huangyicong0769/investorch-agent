@@ -132,7 +132,9 @@ async def test_preflight_compact_usage_stays_with_its_session_when_the_run_does_
         history = SQLiteSession(session_id, config.sessions_db)
         await history.add_items([{"role": "user", "content": "X" * 300000}])
         history.close()
-        host.session_models.update(session_id, context_window_tokens=100000)
+        # Leave room for the actual tool catalog; the seeded history still
+        # exceeds this window and the oversized compact result still cannot fit.
+        host.session_models.update(session_id, context_window_tokens=200000)
         run = host.runtime.start_run(session_id, "Continue", run_options())
         if outcome == "cancelled":
             await asyncio.wait_for(entered_main.wait(), 3)

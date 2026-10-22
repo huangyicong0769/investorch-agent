@@ -20,6 +20,7 @@ from investorch.backtest import (
     run_backtest as run_rqalpha_backtest,
 )
 from investorch.backtest.errors import BacktestDataError
+from investorch.backtest.parameters import BacktestOverrides, resolve_backtest_parameters
 from investorch.config import AppConfig
 from investorch.context import AgentContext
 from investorch.filesystem import resolve_workspace_path
@@ -71,6 +72,7 @@ def run_backtest(
     end_date: str,
     initial_cash: float | None = None,
     benchmark: str | None = None,
+    parameters: BacktestOverrides | None = None,
 ) -> dict[str, Any]:
     """
     Run a Workspace RQAlpha Python strategy after user approval.
@@ -88,8 +90,10 @@ def run_backtest(
 
         benchmark: Optional canonical RQAlpha benchmark order-book ID.
 
+        parameters: Single-run simulation and cost overrides. Omitted or null fields inherit application defaults; false and 0 override them. Use these for experiments, and update configuration only when the user asks to change defaults.
+
     Returns:
-        A compact dictionary containing engine metadata, scalar summary, and Workspace-relative artifact paths.
+        Engine metadata, effective runtime parameters, scalar summary, and Workspace-relative artifact paths.
     """
     return _run_backtest(
         config=context.context.config,
@@ -98,6 +102,7 @@ def run_backtest(
         end_date=end_date,
         initial_cash=initial_cash,
         benchmark=benchmark,
+        parameters=parameters,
     )
 
 
@@ -108,8 +113,10 @@ def _run_backtest(
     end_date: str,
     initial_cash: float | None = None,
     benchmark: str | None = None,
+    parameters: BacktestOverrides | None = None,
 ) -> dict[str, Any]:
     config = config.snapshot()
+    runtime = resolve_backtest_parameters(config, parameters)
     workspace = config.workspace_dir
     strategy_file, relative_strategy = _resolve_strategy_path(workspace, strategy_path)
     start = _parse_date(start_date, "start_date")
@@ -127,6 +134,7 @@ def _run_backtest(
         end_date=end,
         initial_cash=cash,
         benchmark=benchmark,
+        runtime=runtime,
     )
 
     analyser = raw_result.get("sys_analyser")
@@ -158,7 +166,7 @@ def _run_backtest(
         "end_date": end.isoformat(),
         "initial_cash": cash,
         "benchmark": benchmark,
-        "runtime": _backtest_runtime_snapshot(config),
+        "runtime": runtime.model_dump(),
     }
     artifacts = _write_backtest_artifacts(
         workspace=workspace,
@@ -174,28 +182,9 @@ def _run_backtest(
         "run_id": run_id,
         "engine": "rqalpha",
         "engine_version": engine_version,
+        "runtime": runtime.model_dump(),
         "summary": summary,
         "artifacts": artifacts,
-    }
-
-
-def _backtest_runtime_snapshot(config: AppConfig) -> dict[str, Any]:
-    return {
-        "stock_t1": config["backtest.stock_t1"],
-        "dividend_reinvestment": config["backtest.dividend_reinvestment"],
-        "dividend_tax_enabled": config["backtest.dividend_tax_enabled"],
-        "capital_gain_tax_rate": config["backtest.capital_gain_tax_rate"],
-        "validate_price": config["backtest.validate_price"],
-        "matching_type": config["backtest.matching_type"],
-        "price_limit": config["backtest.price_limit"],
-        "volume_limit": config["backtest.volume_limit"],
-        "inactive_limit": config["backtest.inactive_limit"],
-        "slippage_model": config["backtest.slippage_model"],
-        "slippage": config["backtest.slippage"],
-        "stock_min_commission": config["backtest.stock_min_commission"],
-        "stock_commission_multiplier": config["backtest.stock_commission_multiplier"],
-        "tax_multiplier": config["backtest.tax_multiplier"],
-        "pit_tax": config["backtest.pit_tax"],
     }
 
 
