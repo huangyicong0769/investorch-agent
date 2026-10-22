@@ -2,26 +2,26 @@
 
 ## Purpose and source of truth
 
-- The current engine is RQAlpha 6.3.0. This guide defines the subset approved by the current InvestOrch Agent backtest runtime; it is not the complete upstream API manual.
+- The packaged engine is RQAlpha 6.4.1. This guide defines the subset supported by the current InvestOrch Agent backtest runtime; it is not the complete upstream API manual. The actual tool result reports `engine_version`.
 - Project restrictions win when broader RQAlpha features differ from this guide. Do not guess unsupported behavior.
 - Strategies are ordinary RQAlpha Python files. InvestOrch Agent supplies the runtime configuration externally; strategy code must not configure or mutate it.
-- API names and signatures below were verified against the project's pinned `rqalpha==6.3.0` installation.
+- API names and signatures below correspond to the project's pinned `rqalpha==6.4.1` installation.
 
 ## Runtime contract
 
 | Setting | Value |
 | --- | --- |
-| Engine / run type | RQAlpha 6.3.0 / backtest |
+| Engine / run type | RQAlpha 6.4.1 / backtest |
 | Frequency / account | `1d` / stock |
 | Execution policy | Effective `backtest.*` values in the current `AppConfig` |
 
-Daily frequency and the stock account are capability contracts. T+1, matching, price/volume/inactive limits, slippage, commission, dividend handling, and tax are application policy. Use `get_config` when the effective backtest execution policy matters. These settings belong to the runner; a strategy should contain trading logic, not runtime configuration.
+Daily frequency and the stock account are capability contracts. T+1, matching, price/volume/inactive limits, slippage, commission, dividend handling, and tax are application policy. Read the relevant effective leaf keys with `get_config`: `backtest.stock_t1`, `backtest.matching_type`, `backtest.validate_price`, `backtest.price_limit`, `backtest.volume_limit`, `backtest.inactive_limit`, `backtest.slippage_model`, `backtest.slippage`, `backtest.stock_min_commission`, `backtest.stock_commission_multiplier`, `backtest.tax_multiplier`, `backtest.pit_tax`, `backtest.dividend_reinvestment`, `backtest.dividend_tax_enabled`, and `backtest.capital_gain_tax_rate`. `run_backtest(initial_cash=null)` uses `backtest.default_initial_cash`; supply the user's capital explicitly when given. These settings belong to the runner; a strategy should contain trading logic, not runtime configuration.
 
 ## Market-data ownership
 
 The process configuration snapshot selects one of two backtest data paths.
 
-With `backtest.use_cnequity=false`, strategy API calls flow through `RQAlpha DataProxy -> BaseDataSource -> RQAlpha bundle`, and the built-in CNEquity MCP server is not started. When `inspect_rqalpha_data` is available, use it as the authority for native bundle instrument metadata and observed daily-bar ranges. Do not infer RQAlpha coverage from independently configured CNEquity sources.
+With `backtest.use_cnequity=false`, strategy API calls flow through `RQAlpha DataProxy -> BaseDataSource -> RQAlpha bundle`, and the built-in CNEquity MCP server is not started. Other configured MCP research servers can still be available. Use `inspect_rqalpha_data` as the authority for native bundle instrument metadata and observed daily-bar ranges. Do not infer RQAlpha coverage from independently configured research sources.
 
 With `backtest.use_cnequity=true`, strategy API calls flow through `RQAlpha DataProxy -> CNEquityOverlayDataSource`. For Shanghai and Shenzhen stocks, CNEquity supplies daily OHLCV, turnover, and adjustment factors, while native RQAlpha data retains instruments, calendars, limits, corporate actions, suspension evidence, and fallback market semantics. The RQAlpha inspection Tool is not exposed in this mode.
 
@@ -53,11 +53,11 @@ Pinned signature:
 
 Use `frequency="1d"`. Common stock fields are `datetime`, `open`, `high`, `low`, `close`, `volume`, and `total_turnover`. Prefer `adjust_type="pre"` unless the research question explicitly requires raw (`"none"`) or post-adjusted (`"post"`) prices. `skip_suspended=True` omits suspended days from the returned series.
 
-Build signals from completed historical bars by default:
+Build signals in `before_trading` from completed historical bars by default:
 
 `history_bars(stock, 20, "1d", "close", include_now=False, adjust_type="pre")`
 
-In daily `handle_bar`, setting `include_now=True` includes the current daily bar. Do not combine that information casually with an assumption of frictionless action at the same close. RQAlpha does not prevent every logical look-ahead error.
+In the pinned daily runtime, `history_bars` called during `handle_bar` includes the current daily bar even with `include_now=False`; the flag alone does not establish prior-bar timing. Compute prior-day signals in `before_trading` and use them in `handle_bar`. If intentionally using the current close, state that information/execution assumption explicitly. RQAlpha does not prevent every logical look-ahead error. Also choose a suspension convention: the default `skip_suspended=True` counts non-suspended observations; use `skip_suspended=False` when the horizon should follow exchange trading days.
 
 Use `bar_dict[stock]` for the current daily `open`, `high`, `low`, `close`, `volume`, and `total_turnover`. A missing normal bar from the configured backtest source is an error; it is not a zero-volume observation. Do not infer minute paths, auction detail, or tick behavior from a daily bar.
 
@@ -116,10 +116,11 @@ from rqalpha.api import get_position, history_bars, order_target_percent, update
 
 def init(context):
     context.stock = "002808.XSHE"
+    context.bullish = False
     update_universe([context.stock])
 
 
-def handle_bar(context, bar_dict):
+def before_trading(context):
     closes = history_bars(
         context.stock,
         60,
@@ -128,13 +129,14 @@ def handle_bar(context, bar_dict):
         include_now=False,
         adjust_type="pre",
     )
-    if len(closes) < 60:
-        return
+    context.bullish = len(closes) == 60 and closes[-20:].mean() > closes.mean()
+
+
+def handle_bar(context, bar_dict):
     position = get_position(context.stock)
-    bullish = closes[-20:].mean() > closes.mean()
-    if bullish and position.quantity == 0:
+    if context.bullish and position.quantity == 0:
         order_target_percent(context.stock, 1.0)
-    elif not bullish and position.quantity > 0:
+    elif not context.bullish and position.quantity > 0:
         order_target_percent(context.stock, 0.0)
 ```
 
@@ -185,7 +187,7 @@ def handle_bar(context, bar_dict):
 | Mistake | Preferred correction |
 | --- | --- |
 | CNEquity symbol such as `600519.SH` in strategy code | Use `600519.XSHG`. |
-| History accidentally includes the current bar | Use `include_now=False` for completed-bar signals. |
+| Daily `handle_bar` history accidentally includes the current bar | Compute prior-day signals in `before_trading`; `include_now=False` alone does not exclude it. |
 | Signal/execution timing is implicit | State the timing model and use prior completed bars by default. |
 | `open_auction` or auction-volume API | Explain that truthful auction data is unsupported; do not run it. |
 | Minute API in the daily runtime | Redesign the strategy around daily observations. |
