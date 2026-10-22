@@ -20,7 +20,7 @@ def format_tool_error(context: RunContextWrapper[AgentContext], error: Exception
     from investorch.application.portfolios import PortfolioOperationError
     from investorch.application.session_queries import SessionReadError
     from investorch.application.spawning import SpawnError
-    from investorch.backtest.errors import BacktestDataError
+    from investorch.backtest.errors import BacktestDataError, BacktestStrategyError
     from investorch.runtime import RunCapacityExceededError
 
     validation = error.__cause__ if isinstance(error, ModelBehaviorError) else error
@@ -39,6 +39,7 @@ def format_tool_error(context: RunContextWrapper[AgentContext], error: Exception
             PortfolioStorageError,
             PortfolioOperationError,
             BacktestDataError,
+            BacktestStrategyError,
             SessionReadError,
             MessageSendError,
             RunCapacityExceededError,

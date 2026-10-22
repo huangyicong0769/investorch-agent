@@ -1,16 +1,48 @@
 import math
+import re
 from datetime import date
 from pathlib import Path
+from threading import Lock
 
 from rqalpha import run_file
-from rqalpha.utils.exception import CustomException
+from rqalpha.utils.exception import CustomException, is_user_exc
 
 from investorch.config import AppConfig
 
 from .bundle import validate_rqalpha_bundle
-from .errors import BacktestDataError
+from .errors import BacktestDataError, BacktestStrategyError
 
 _COVERED_DATASETS = ("daily_bars", "adj_factors")
+# RQAlpha owns process-global Environment and function caches. run_file includes
+# config loading, analyser teardown/result construction, and final cleanup.
+_RQALPHA_LOCK = Lock()
+
+
+def _strategy_failure(error: CustomException, config: AppConfig) -> BacktestStrategyError | None:
+    cause = error.error.exc_val
+    if not is_user_exc(cause):
+        return None
+    root = config.workspace_dir.expanduser().resolve()
+    location = None
+    # Read only filenames and line numbers, never RQAlpha's stack representation:
+    # its repr includes source code and every local variable in strategy frames.
+    for filename, lineno, *_ in error.error.stacks:
+        try:
+            relative = Path(filename).resolve().relative_to(root)
+        except ValueError:
+            continue
+        location = f"{relative.as_posix()}:{lineno}"
+    if location is None:
+        return None
+    message = error.error.msg or ""
+    for secret in sorted(config.secret_values(), key=len, reverse=True):
+        if secret:
+            message = message.replace(secret, "<redacted>")
+    message = re.sub(r"([\"'])(?:[A-Za-z]:[\\/]|/|\\\\|~/).*?\1", "<path>", message)
+    message = re.sub(r"(?:[A-Za-z]:[\\/]|(?<!\w)/|\\\\|~/)[^\"'<>|,;)}\]\r\n]+", "<path>", message)
+    message = "".join(char for char in message if char in "\n\t" or ord(char) >= 32)
+    message = " ".join(message.split())[:1000]
+    return BacktestStrategyError(f"Strategy error at {location}: {type(cause).__name__}: {message}")
 
 
 def _validate_input(strategy_file: Path, start_date: date, end_date: date, initial_cash: float) -> Path:
@@ -132,22 +164,26 @@ def run_backtest(
     validate_rqalpha_bundle(rqalpha_bundle_path, start_date, end_date)
     if use_cnequity:
         _validate_cnequity_data(cnequity_config_path, start_date, end_date)
-    try:
-        return run_file(
-            str(strategy_file),
-            config=_build_rqalpha_config(
-                config,
-                cnequity_config_path,
-                rqalpha_bundle_path,
-                start_date,
-                end_date,
-                initial_cash,
-                benchmark,
-                use_cnequity,
-            ),
-        )
-    except CustomException as error:
-        # RQAlpha wraps data-source failures raised during strategy execution.
-        if isinstance(error.error.exc_val, BacktestDataError):
-            raise error.error.exc_val from error
-        raise
+    with _RQALPHA_LOCK:
+        try:
+            return run_file(
+                str(strategy_file),
+                config=_build_rqalpha_config(
+                    config,
+                    cnequity_config_path,
+                    rqalpha_bundle_path,
+                    start_date,
+                    end_date,
+                    initial_cash,
+                    benchmark,
+                    use_cnequity,
+                ),
+            )
+        except CustomException as error:
+            # RQAlpha wraps data-source failures raised during strategy execution.
+            if isinstance(error.error.exc_val, BacktestDataError):
+                raise error.error.exc_val from error
+            strategy_failure = _strategy_failure(error, config)
+            if strategy_failure is not None:
+                raise strategy_failure from error
+            raise
