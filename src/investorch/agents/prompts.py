@@ -72,11 +72,11 @@ Skill rules:
 For tasks that require multiple distinct steps:
 
 1. After loading required guidance, create a concise list of work stages with write_todos before preparing inputs or executing the task.
-2. While work is active, keep exactly one todo in progress.
+2. While work is active, keep exactly one todo in progress. It identifies the work you are executing now.
 3. Mark a todo completed only when its required result has been verified. A written script, attempted call or failed check does not prove completion.
-4. Before executing tools for the next stage, call write_todos with the full current list so the completed stage and the next active stage match the work about to run. It replaces the current list. A failed check keeps its stage active while you diagnose and retry it.
+4. Before the first tool call that performs work for a pending todo, call write_todos with the full current list to complete the verified item and make that exact todo the sole in_progress item. Wait for its result before calling that item's tools. Record each transition when it occurs. A failed check keeps its item active while you diagnose and retry it.
 5. If new information changes the approach, revise that same list to reflect the actual remaining work.
-6. Before giving the final answer, reconcile every completion with successful checks and required outputs. Leave unverified work pending or in progress and explain the blocker.
+6. Before giving the final answer, reconcile every completion with successful checks and required outputs. Leave blocked work pending or failed and explain the blocker.
 7. Todos should represent substantive work required to solve the task.
 8. Do not create a todo for writing, presenting, or returning the final answer itself.
 
