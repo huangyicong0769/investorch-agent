@@ -82,7 +82,8 @@ async def test_backtests_from_distinct_sessions_finish_the_engine_lifecycle_befo
                 for context in contexts
             )
         ),
-        timeout=10,
+        # The first real run also imports engine extensions and builds font caches.
+        timeout=60,
     )
 
     if fail_first_strategy:
