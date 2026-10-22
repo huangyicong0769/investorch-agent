@@ -16,7 +16,7 @@ Call `load_skill`:
 {"name":"rqalpha-strategy"}
 ```
 
-Representative return: `{"name":"rqalpha-strategy","version":"1.0.3","content":"<the actual SKILL.md body>","resources":["assets/momentum20.py","assets/momentum60.py","references/examples.md","references/runtime.md"]}`. Here the content placeholder only abbreviates the teaching return; it is not a missing executable input. Derive the installed prefix `skills/rqalpha-strategy/` from the returned name and use resources present in its inventory.
+Representative return: `{"name":"rqalpha-strategy","version":"1.0.4","content":"<the actual SKILL.md body>","resources":["assets/momentum20.py","assets/momentum60.py","references/examples.md","references/runtime.md"]}`. Here the content placeholder only abbreviates the teaching return; it is not a missing executable input. Derive the installed prefix `skills/rqalpha-strategy/` from the returned name and use resources present in its inventory.
 
 Call `explore` to read the required runtime reference, this example, and both complete source inputs, separately:
 
@@ -75,7 +75,7 @@ Call `get_config` for the mode and relevant policy leaf keys (each block is a se
 {"key":"backtest.pit_tax"}
 ```
 
-Representative corresponding returns are `{"key":"backtest.use_cnequity","value":false}`, then values `0.0005`, `"PriceRatioSlippage"`, `"current_bar"`, `true`, `5.0`, `1.0`, `1.0`, `true`, each in the same `{"key":...,"value":...}` shape. Use actual values; never turn these teaching defaults into configuration changes. The complete effective policy is also available with `get_config({"key":null})`; remaining price/volume/dividend/tax controls are recorded in each saved request for comparison.
+Representative corresponding returns are `{"key":"backtest.use_cnequity","value":false}`, then values `0.0005`, `"PriceRatioSlippage"`, `"current_bar"`, `true`, `5.0`, `1.0`, `1.0`, `true`, each in the same `{"key":...,"value":...}` shape. Use actual values; never turn these teaching defaults into configuration changes. The complete defaults are also available with `get_config({"key":null})`. Both calls below use `parameters:null` to inherit them; verify the returned effective `runtime` and the same values in each saved request before comparing. Null inherits each invocation's snapshot, so confirm policy equality across the pair.
 
 Because the returned mode is native, call `inspect_rqalpha_data` for both traded stocks and the benchmark:
 
@@ -110,13 +110,13 @@ Call `write_todos` with the full updated list:
 The returned formatted list confirms stage transition. Call `run_backtest` through normal approval:
 
 ```json
-{"strategy_path":"research/momentum-example/momentum20.py","start_date":"2025-01-01","end_date":"2025-12-31","initial_cash":100000.0,"benchmark":"000300.XSHG"}
+{"strategy_path":"research/momentum-example/momentum20.py","start_date":"2025-01-01","end_date":"2025-12-31","initial_cash":100000.0,"benchmark":"000300.XSHG","parameters":null}
 ```
 
 Representative return (selected summary fields and complete artifact map for this stock run):
 
 ```json
-{"run_id":"11111111111111111111111111111111","engine":"rqalpha","engine_version":"6.4.1","summary":{"strategy_file":"research/momentum-example/momentum20.py","total_returns":0.08,"annualized_returns":0.08,"max_drawdown":0.12},"artifacts":{"result_dir":"backtests/11111111111111111111111111111111","request":"backtests/11111111111111111111111111111111/request.json","strategy":"backtests/11111111111111111111111111111111/strategy.py","summary":"backtests/11111111111111111111111111111111/summary.json","portfolio":"backtests/11111111111111111111111111111111/portfolio.csv","trades":"backtests/11111111111111111111111111111111/trades.csv","stock_account":"backtests/11111111111111111111111111111111/stock_account.csv","stock_positions":"backtests/11111111111111111111111111111111/stock_positions.csv","benchmark_portfolio":"backtests/11111111111111111111111111111111/benchmark_portfolio.csv"}}
+{"run_id":"11111111111111111111111111111111","engine":"rqalpha","engine_version":"6.4.1","summary":{"strategy_file":"research/momentum-example/momentum20.py","total_returns":0.08,"annualized_returns":0.08,"max_drawdown":0.12},"artifacts":{"result_dir":"backtests/11111111111111111111111111111111","request":"backtests/11111111111111111111111111111111/request.json","strategy":"backtests/11111111111111111111111111111111/strategy.py","summary":"backtests/11111111111111111111111111111111/summary.json","portfolio":"backtests/11111111111111111111111111111111/portfolio.csv","trades":"backtests/11111111111111111111111111111111/trades.csv","stock_account":"backtests/11111111111111111111111111111111/stock_account.csv","stock_positions":"backtests/11111111111111111111111111111111/stock_positions.csv","benchmark_portfolio":"backtests/11111111111111111111111111111111/benchmark_portfolio.csv"},"runtime":{"stock_t1":true,"dividend_reinvestment":false,"dividend_tax_enabled":true,"capital_gain_tax_rate":0.0,"validate_price":true,"matching_type":"current_bar","price_limit":true,"volume_limit":true,"inactive_limit":true,"slippage_model":"PriceRatioSlippage","slippage":0.0005,"stock_min_commission":5.0,"stock_commission_multiplier":1.0,"tax_multiplier":1.0,"pit_tax":true}}
 ```
 
 Call `explore` on the returned request and saved summary:
@@ -128,7 +128,7 @@ Call `explore` on the returned request and saved summary:
 {"operation":"read","path":"backtests/11111111111111111111111111111111/summary.json","query":"","start_line":0,"end_line":0}
 ```
 
-The request content must identify the actual strategy path, `strategy_sha256`, interval, capital, benchmark, data source and runtime costs; the saved summary must agree with the result. These are provenance checks. Before executing the second case, inspect the saved strategy and actual behavior as well:
+The request content must identify the actual strategy path, `strategy_sha256`, interval, capital, benchmark and data source. Its `runtime` must equal the returned effective `runtime`; the saved summary must agree with the result. These are provenance checks. Before executing the second case, inspect the saved strategy and actual behavior as well:
 
 ```json
 {"operation":"read","path":"backtests/11111111111111111111111111111111/strategy.py","query":"","start_line":0,"end_line":0}
@@ -158,10 +158,10 @@ Call `write_todos`:
 Call `run_backtest`, carrying the same interval, capital and benchmark:
 
 ```json
-{"strategy_path":"research/momentum-example/momentum60.py","start_date":"2025-01-01","end_date":"2025-12-31","initial_cash":100000.0,"benchmark":"000300.XSHG"}
+{"strategy_path":"research/momentum-example/momentum60.py","start_date":"2025-01-01","end_date":"2025-12-31","initial_cash":100000.0,"benchmark":"000300.XSHG","parameters":null}
 ```
 
-Representative return has `run_id="22222222222222222222222222222222"`, `engine="rqalpha"`, `engine_version="6.4.1"`, `summary.strategy_file="research/momentum-example/momentum60.py"`, illustrative `total_returns=0.06`, `annualized_returns=0.06`, `max_drawdown=0.09`, and the same artifact keys under the newly returned result directory. Read the second request and summary:
+Representative return has the same effective `runtime` as the first call, `run_id="22222222222222222222222222222222"`, `engine="rqalpha"`, `engine_version="6.4.1"`, `summary.strategy_file="research/momentum-example/momentum60.py"`, illustrative `total_returns=0.06`, `annualized_returns=0.06`, `max_drawdown=0.09`, and the same artifact keys under the newly returned result directory. Read the second request and summary:
 
 ```json
 {"operation":"read","path":"backtests/22222222222222222222222222222222/request.json","query":"","start_line":0,"end_line":0}
@@ -191,3 +191,13 @@ Call `write_todos` only after those checks succeed:
 “Both 2025 comparisons ran through RQAlpha with CNY 100,000, the same observed execution policy and the supplied two-stock universe. In these illustrative results, 20-day momentum returned 8% with 12% maximum drawdown; 60-day returned 6% with 9% drawdown. The CAGR difference was 2 percentage points and the geometric annual relative return was 1.89%. The higher return came with a larger drawdown. Strategy snapshots, source hashes and saved policies matched. Actual holdings and trades were checked against the monthly target and blocked-exit retry definition. Results: `backtests/11111111111111111111111111111111/` and `backtests/22222222222222222222222222222222/`. These results cover this fixed universe, interval and pair of parameters.”
 
 In a real answer replace every teaching value/path with the observed result, link the useful Workspace artifacts and include observed execution deviations, unavailable rejection evidence, any unexecuted combination and data limitations. A failed or unfinished behavior check remains pending.
+
+## Pass execution assumptions for one invocation
+
+For a study that requests different execution assumptions, keep the same tool-call structure and supply a complete `parameters` object. For example:
+
+```json
+{"stock_t1":null,"dividend_reinvestment":null,"dividend_tax_enabled":null,"capital_gain_tax_rate":null,"validate_price":null,"matching_type":null,"price_limit":null,"volume_limit":null,"inactive_limit":null,"slippage_model":null,"slippage":0,"stock_min_commission":0,"stock_commission_multiplier":0.375,"tax_multiplier":null,"pit_tax":false}
+```
+
+This sets zero slippage and minimum commission, a stock commission rate of `0.0008 * 0.375 = 0.0003`, and a fixed rather than historical stamp-tax rate. `pit_tax=false` does not remove tax. Other fields inherit AppConfig defaults. Pass this object as the `parameters` argument; it changes only that invocation and needs no `update_config`. Check the returned `runtime` against the request artifact. A cost-sensitivity comparison varies the intended fields and holds the other effective parameters constant.

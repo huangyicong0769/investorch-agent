@@ -195,6 +195,8 @@ Delete 与 Clear 共用受保护的递归 Spawn 删除、全节点 Runtime reser
 
 `run_backtest` 验证 Workspace 相对 RQAlpha 策略，捕获一份不可变配置快照，执行日频股票回测，并在配置的 Workspace 目录中写入可复现元数据和 analyser artifacts。
 
+AppConfig 提供执行默认值。类型化 `parameters` 参数可为单次调用覆盖 T+1、分红与税费、价格校验、撮合、交易限制、滑点和交易成本。null 或省略字段继承默认值，明确的 false 和零按覆盖值生效。Tool 解析出一份不可变的有效参数，不修改 AppConfig；返回的 `runtime` 与 `request.json.runtime` 记录同一组值。初始资金与基准仍是独立参数。数据源选择、路径和检查数量限制保留在应用配置中，其中数据源选择也决定启动时的能力组合。单次研究假设通过 Tool 参数表达，修改后续默认值才进入配置流程。
+
 默认数据路径是原生 RQAlpha bundle。当 `backtest.use_cnequity=true` 且已安装可选依赖时，RQAlpha 通过配置字符串加载 `investorch.backtest.rqalpha_mod`，以 CNEquity 日线和复权因子覆盖数据，同时保留 RQAlpha market semantics。
 
 CNEquity 是可选且由用户运维的后端。`investorch data` 把参数传给其 CLI，Application 也可以组合其只读 stdio MCP server。Ingestion、repair、retry、locking 与 recovery 由 CNEquity 自身负责。

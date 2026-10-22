@@ -195,6 +195,8 @@ All Sessions share the same workspace. Concurrent Runs can therefore target the 
 
 `run_backtest` validates a Workspace-relative RQAlpha strategy, captures one immutable configuration snapshot, executes a daily stock backtest, and writes reproducibility metadata plus analyser artifacts under the configured Workspace directory.
 
+AppConfig supplies execution defaults. The typed `parameters` argument overrides T+1, dividend and tax handling, price validation, matching, trading limits, slippage and transaction costs for one invocation. Null or omitted fields inherit defaults; explicit false and zero override them. The tool resolves one immutable effective parameter set without updating AppConfig, returns it as `runtime`, and records the same values in `request.json.runtime`. Initial cash and benchmark remain separate arguments. Source selection, paths and inspection limits remain application configuration; source selection also governs startup capabilities. Single-run assumptions use tool parameters; changing future application defaults uses the configuration workflow.
+
 The default data path is a native RQAlpha bundle. When `backtest.use_cnequity=true` and the optional dependency is installed, RQAlpha loads `investorch.backtest.rqalpha_mod` by configuration string and overlays CNEquity daily bars and adjustment factors while retaining RQAlpha market semantics.
 
 CNEquity is optional and user-operated. `investorch data` passes arguments to its CLI, and the application may compose its read-only stdio MCP server. CNEquity itself owns ingestion, repair, retry, locking, and recovery.

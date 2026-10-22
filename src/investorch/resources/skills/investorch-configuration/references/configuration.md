@@ -31,6 +31,8 @@ ChatGPT OAuth authorization records under `secrets.<credential>` are managed by 
 
 `backtest.use_cnequity` controls the RQAlpha backtest overlay, the Agent's RQAlpha bundle inspection Tool surface, and whether the built-in CNEquity MCP server is started. Restarting applies all three changes together.
 
+Backtest execution policy in AppConfig supplies defaults. For a single run or comparison, pass execution assumptions through `run_backtest.parameters`; null/omitted fields inherit defaults, and explicit false or zero overrides them for that invocation. This leaves AppConfig and Local TOML unchanged. `initial_cash` and `benchmark` remain separate tool arguments. Use `update_config` only when the user asks to change application defaults; `persist=false` still changes the shared AppConfig and is not a substitute for per-run parameters. The `rqalpha-strategy` runtime reference defines all supported controls and their cost semantics. Data-source selection, paths and inspection limits remain application settings.
+
 ## Root Directory
 
 Python defaults select `~/.investorch`; tests and embedded callers may inject an explicit root through `load_config(root=...)`.
@@ -71,7 +73,7 @@ The effective configuration includes the following policy sections; Local TOML o
 - `[permission]` tool approval mode and complete-input limits
 - `[tui]` sidebar, composer, Activity, approval, Todo, and Queue dimensions
 - `[web]` server, transport, pagination, reconnect, and WebUI presentation settings
-- `[backtest]` data paths, artifact path, execution policy, default cash, and inspection limit
+- `[backtest]` data paths, artifact path, execution-policy defaults, default cash, and inspection limit
 - `[cnequity].config_path` and `mcp_cache_tools_list`
 - `[execution].default_timeout_seconds`, `max_timeout_seconds`, and `background_job_dir`
 - `[explore].max_full_read_bytes`, `max_read_chars`, `max_search_results`, and `max_search_snippet_chars`

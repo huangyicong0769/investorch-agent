@@ -4,6 +4,8 @@ User request: “Persist the Agent turn limit as 120 and image detail as high. T
 
 Inputs: the user has selected the intended running InvestOrch instance and authorized these two normal settings. No model, credential, or permission changes are requested. The tool calls below are InvestOrch Agent calls, not shell commands or Codex tool calls. Every return is **illustrative example JSON**, not evidence that a real instance was changed. The normal mutation approval applies when these tools execute.
 
+For a backtest request such as “use a different commission for this comparison,” follow `rqalpha-strategy` and pass `run_backtest.parameters`. Its null fields inherit application defaults; false and zero explicitly override them. The configuration mutation sequence below applies when the user requests application settings or defaults.
+
 ## Load the domain instructions
 
 ```json
@@ -19,7 +21,7 @@ Selected fields of the illustrative return (the actual return also includes full
 ```json
 {
   "name": "investorch-configuration",
-  "version": "1.3.0",
+  "version": "1.3.1",
   "resources": [
     "references/configuration.md",
     "references/examples.md"

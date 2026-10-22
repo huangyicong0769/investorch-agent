@@ -13,9 +13,25 @@
 | --- | --- |
 | Engine / run type | RQAlpha 6.4.1 / backtest |
 | Frequency / account | `1d` / stock |
-| Execution policy | Effective `backtest.*` values in the current `AppConfig` |
+| Execution policy | AppConfig defaults overlaid by `run_backtest.parameters` for this invocation |
 
-Daily frequency and the stock account are capability contracts. T+1, matching, price/volume/inactive limits, slippage, commission, dividend handling, and tax are application policy. Read the relevant effective leaf keys with `get_config`: `backtest.stock_t1`, `backtest.matching_type`, `backtest.validate_price`, `backtest.price_limit`, `backtest.volume_limit`, `backtest.inactive_limit`, `backtest.slippage_model`, `backtest.slippage`, `backtest.stock_min_commission`, `backtest.stock_commission_multiplier`, `backtest.tax_multiplier`, `backtest.pit_tax`, `backtest.dividend_reinvestment`, `backtest.dividend_tax_enabled`, and `backtest.capital_gain_tax_rate`. `run_backtest(initial_cash=null)` uses `backtest.default_initial_cash`; supply the user's capital explicitly when given. These settings belong to the runner; a strategy should contain trading logic, not runtime configuration.
+Daily frequency and the stock account are capability contracts. `initial_cash` and `benchmark` remain separate tool arguments; `initial_cash=null` uses `backtest.default_initial_cash`. Supply the user's capital explicitly when given. The strategy owns trading logic; the runner resolves these execution controls:
+
+| `parameters` fields | Accepted values |
+| --- | --- |
+| `stock_t1`, `dividend_reinvestment`, `dividend_tax_enabled` | Boolean |
+| `validate_price`, `price_limit`, `volume_limit`, `inactive_limit` | Boolean |
+| `pit_tax` | Boolean |
+| `capital_gain_tax_rate`, `stock_min_commission`, `stock_commission_multiplier`, `tax_multiplier` | Finite numbers greater than or equal to zero |
+| `slippage` | Finite number in `[0, 1)` |
+| `matching_type` | `"current_bar"` |
+| `slippage_model` | `"PriceRatioSlippage"` |
+
+`parameters=null`, an omitted object, or a null/omitted field inherits the corresponding `backtest.<field>` AppConfig default. Explicit `false` and `0` are overrides. Read defaults with `get_config` when needed, then pass study-specific assumptions in `parameters`. Strict tool schemas require every declared property in model-generated calls: use null for inherited fields. Values have strict types; strings and booleans are not numeric inputs. Resolve each invocation independently without changing AppConfig. A request to vary costs or execution assumptions for a study does not call `update_config`; a request to change future application defaults belongs to the configuration workflow.
+
+For stocks, `stock_commission_multiplier` multiplies RQAlpha's base commission rate `0.0008`; it is not the commission rate itself. `stock_min_commission` sets the minimum separately. `pit_tax=true` selects the historical stock stamp-tax rate by trading date; `false` uses the engine's fixed rate and does not disable tax. A zero `tax_multiplier` removes that stock transaction tax; dividend and capital-gain tax controls remain separate.
+
+The tool returns all 15 effective fields in `runtime` and saves the same values in `request.json.runtime`. Use these resolved values to verify comparisons. `backtest.use_cnequity`, bundle/configuration paths, artifact paths and inspection limits remain application settings rather than per-run parameters.
 
 ## Market-data ownership
 
@@ -213,7 +229,7 @@ def handle_bar(context, bar_dict):
 
 Before expanding a representative run, verify both:
 
-1. **Provenance:** saved request, strategy snapshot/hash, parameters, interval, capital, benchmark, data source and runtime policy match the intended inputs.
+1. **Provenance:** saved request, strategy snapshot/hash, parameters, interval, capital, benchmark and data source match the intended inputs; returned `runtime` equals `request.json.runtime` and the intended effective execution policy.
 2. **Strategy behavior:** read the snapshot and inspect actual `stock_positions`, `trades` and portfolio/account tables. Compare observed holdings counts, weights, cash, turnover and exit attempts with the strategy's selection, rebalance and blocked-exit rules. For changing universes, check residual holdings against membership effective on each observed date, including after removals. Investigate excess counts, persistent unwanted positions and rejected/unfilled orders before scaling. Inspect available order diagnostics; exported trades record fills, not every failed order. If rejection evidence is unavailable, state that limit and use a bounded diagnostic run when necessary. A passing hash/table-existence check establishes provenance, not strategy correctness.
 
 Accept a run only when deviations have an evidenced explanation consistent with the agreed strategy definition. A failed exit that is retried under that definition differs from a forgotten holding. Repair a logic error and rerun affected results before using them in a comparison. Apply relevant checks to the full matrix as well as the representative case.
