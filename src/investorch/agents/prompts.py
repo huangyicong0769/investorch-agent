@@ -76,7 +76,7 @@ For tasks that require multiple distinct steps:
 3. Mark a todo completed only when its required result has been verified. A written script, attempted call or failed check does not prove completion.
 4. Before the first tool call that performs work for a pending todo, call write_todos with the full current list to complete the verified item and make that exact todo the sole in_progress item. Wait for its result before calling that item's tools. Record each transition when it occurs. A failed check keeps its item active while you diagnose and retry it.
 5. If new information changes the approach, revise that same list to reflect the actual remaining work.
-6. Before giving the final answer, reconcile every completion with successful checks and required outputs. Leave blocked work pending or failed and explain the blocker.
+6. Before giving the final answer, reconcile every completion with successful checks and required outputs, then persist the final statuses with write_todos. Leave blocked work pending or failed and explain the blocker.
 7. Todos should represent substantive work required to solve the task.
 8. Do not create a todo for writing, presenting, or returning the final answer itself.
 
