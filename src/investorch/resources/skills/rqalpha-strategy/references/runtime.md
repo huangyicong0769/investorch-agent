@@ -218,9 +218,19 @@ Before expanding a representative run, verify both:
 
 Accept a run only when deviations have an evidenced explanation consistent with the agreed strategy definition. A failed exit that is retried under that definition differs from a forgotten holding. Repair a logic error and rerun affected results before using them in a comparison. Apply relevant checks to the full matrix as well as the representative case.
 
+Identical portfolio series can result from different strategies selecting the same holdings in the observed window. Check snapshots, signals and fills before interpreting equality; matching outputs alone do not prove duplicated execution or corrupted artifacts. Missing supporting artifacts leave that check unverified, rather than establishing an integrity failure.
+
 Use the same initial cash, period, execution constraints and cost policy for paired controls unless the research question explicitly varies them. If capital differs, board-lot rounding, minimum fees and volume constraints can affect the comparison; report the difference and test it before attributing the return gap to stock selection. State actual currency amounts and units from saved requests.
 
-Define comparison metrics once and use them for every baseline. For strategy CAGR g_s and baseline CAGR g_b over the same interval:
+Define each reported metric from its actual observations, timestamps and denominator. Distinguish entry allocation, daily closing equity exposure and mean exposure. Mean daily equity exposure is the arithmetic mean of each observed day's stock market value divided by that day's total portfolio value; state the observation window. Compute this series from saved account/position tables rather than relabeling the entry allocation as its average.
+
+For a window with N trading observations and an annualization convention of D trading days, compound annualized return is `(final_NAV / initial_NAV) ** (D / N) - 1`. State D and N; a short-window annualized return is a mechanical compound projection, not linear scaling or evidence about a future year.
+
+When deriving daily returns from N saved end-of-day NAV observations, prepend the request's initial NAV: the first return is `NAV[0] / initial_NAV - 1`, followed by each day's change from the preceding close. This gives N returns, including first-day fees or market moves. Apply the same boundary to the benchmark; do not silently discard its first day with `pct_change().dropna()`. For volatility and Sharpe, state the annualization factor, standard-deviation convention and risk-free rate, and reconcile any difference from engine metrics before presenting them as equivalent.
+
+A discrepancy from an engine ratio establishes a difference in results; its cause requires evidence about the engine's formula and inputs. If those are unavailable, report the unresolved definition rather than infer an engine defect or a particular risk-free rate from numerical guesses.
+
+Use consistent comparison metrics for every baseline. For strategy CAGR g_s and baseline CAGR g_b over the same interval:
 
 - CAGR difference is `g_s - g_b`, reported in percentage points.
 - Geometric annual relative return is `(1 + g_s) / (1 + g_b) - 1`, reported as a percent. RQAlpha's `excess_annual_returns` uses this geometric convention.

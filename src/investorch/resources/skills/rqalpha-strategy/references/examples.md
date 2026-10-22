@@ -16,7 +16,7 @@ Call `load_skill`:
 {"name":"rqalpha-strategy"}
 ```
 
-Representative return: `{"name":"rqalpha-strategy","version":"1.0.2","content":"<the actual SKILL.md body>","resources":["assets/momentum20.py","assets/momentum60.py","references/examples.md","references/runtime.md"]}`. Here the content placeholder only abbreviates the teaching return; it is not a missing executable input. Derive the installed prefix `skills/rqalpha-strategy/` from the returned name and use resources present in its inventory.
+Representative return: `{"name":"rqalpha-strategy","version":"1.0.3","content":"<the actual SKILL.md body>","resources":["assets/momentum20.py","assets/momentum60.py","references/examples.md","references/runtime.md"]}`. Here the content placeholder only abbreviates the teaching return; it is not a missing executable input. Derive the installed prefix `skills/rqalpha-strategy/` from the returned name and use resources present in its inventory.
 
 Call `explore` to read the required runtime reference, this example, and both complete source inputs, separately:
 
