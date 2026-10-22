@@ -17,19 +17,27 @@
 
 Daily frequency and the stock account are capability contracts. `initial_cash` and `benchmark` remain separate tool arguments; `initial_cash=null` uses `backtest.default_initial_cash`. Supply the user's capital explicitly when given. The strategy owns trading logic; the runner resolves these execution controls:
 
-| `parameters` fields | Accepted values |
-| --- | --- |
-| `stock_t1`, `dividend_reinvestment`, `dividend_tax_enabled` | Boolean |
-| `validate_price`, `price_limit`, `volume_limit`, `inactive_limit` | Boolean |
-| `pit_tax` | Boolean |
-| `capital_gain_tax_rate`, `stock_min_commission`, `stock_commission_multiplier`, `tax_multiplier` | Finite numbers greater than or equal to zero |
-| `slippage` | Finite number in `[0, 1)` |
-| `matching_type` | `"current_bar"` |
-| `slippage_model` | `"PriceRatioSlippage"` |
+| Parameter | Meaning and unit | Valid override |
+| --- | --- | --- |
+| `stock_t1` | Enforce the instrument's T+1 stock-selling restriction on shares bought that day. False removes this restriction. | `true` or `false` |
+| `dividend_reinvestment` | Reinvest payable cash dividends in the same instrument; false leaves the payment as cash. | `true` or `false` |
+| `dividend_tax_enabled` | Deduct the engine's holding-period dividend tax when shares are sold; false disables this dividend tax. | `true` or `false` |
+| `capital_gain_tax_rate` | Decimal rate applied at month-end to the engine's positive monthly realized-gain tax basis after within-year loss offsets. Zero disables this tax. | Finite number `>= 0` |
+| `validate_price` | Check submitted LIMIT-order prices against the upper and lower price limits before accepting the order. | `true` or `false` |
+| `matching_type` | Use the current daily bar's closing price as the matching reference, before slippage. | `"current_bar"` |
+| `price_limit` | Enforce matching restrictions on buys at the upper price limit and sells at the lower price limit, using the engine's tick-size tolerance. Separate from submission-time `validate_price`. | `true` or `false` |
+| `volume_limit` | Cap cumulative matched shares per instrument and daily bar using the engine's `volume_percent` participation ratio, rounded to tradable quantities. False removes this cap. | `true` or `false` |
+| `inactive_limit` | Cancel orders when the daily bar's volume is zero. False disables this check. | `true` or `false` |
+| `slippage_model` | Adjust the matching reference by a proportional price change using `slippage`. | `"PriceRatioSlippage"` |
+| `slippage` | Decimal price ratio `r`: buy reference times `(1+r)`, sell reference times `(1-r)`, then clamp to available upper/lower price limits. Zero removes the ratio adjustment. | Finite number `0 <= r < 1` |
+| `stock_min_commission` | Minimum stock commission per order, in account currency. Independent of the commission multiplier. | Finite number `>= 0` |
+| `stock_commission_multiplier` | Unitless multiplier of RQAlpha's base stock commission rate `0.0008`. Zero removes the proportional commission, but the minimum still applies. | Finite number `>= 0` |
+| `tax_multiplier` | Unitless multiplier of the engine's sell-side stock stamp tax. Zero removes this transaction tax; dividend and capital-gain taxes are separate. | Finite number `>= 0` |
+| `pit_tax` | True selects historical stock stamp-tax rates by trading date; false selects the engine's fixed rate and does not disable tax. | `true` or `false` |
 
 `parameters=null`, an omitted object, or a null/omitted field inherits the corresponding `backtest.<field>` AppConfig default. Explicit `false` and `0` are overrides. Read defaults with `get_config` when needed, then pass study-specific assumptions in `parameters`. Strict tool schemas require every declared property in model-generated calls: use null for inherited fields. Values have strict types; strings and booleans are not numeric inputs. Resolve each invocation independently without changing AppConfig. A request to vary costs or execution assumptions for a study does not call `update_config`; a request to change future application defaults belongs to the configuration workflow.
 
-For stocks, `stock_commission_multiplier` multiplies RQAlpha's base commission rate `0.0008`; it is not the commission rate itself. `stock_min_commission` sets the minimum separately. `pit_tax=true` selects the historical stock stamp-tax rate by trading date; `false` uses the engine's fixed rate and does not disable tax. A zero `tax_multiplier` removes that stock transaction tax; dividend and capital-gain tax controls remain separate.
+Default values come from AppConfig: read `backtest.<field>` with `get_config` and verify the resolved `runtime`. The volume participation ratio itself is not exposed by `parameters`. Capital-gain loss offsets reset at the start of each year under the engine's calculation.
 
 The tool returns all 15 effective fields in `runtime` and saves the same values in `request.json.runtime`. Use these resolved values to verify comparisons. `backtest.use_cnequity`, bundle/configuration paths, artifact paths and inspection limits remain application settings rather than per-run parameters.
 
