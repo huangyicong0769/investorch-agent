@@ -33,7 +33,7 @@ def validate_number(value: Any) -> int | float:
 
 PositiveNumber = Annotated[float, Field(gt=0), BeforeValidator(validate_number)]
 NonNegativeNumber = Annotated[float, Field(ge=0), BeforeValidator(validate_number)]
-SlippageRatio = Annotated[NonNegativeNumber, Field(lt=1)]
+SlippageRatio = Annotated[float, Field(ge=0, lt=1), BeforeValidator(validate_number)]
 BacktestMatchingType = Literal["current_bar"]
 BacktestSlippageModel = Literal["PriceRatioSlippage"]
 
