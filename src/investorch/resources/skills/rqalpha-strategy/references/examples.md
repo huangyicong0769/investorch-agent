@@ -6,7 +6,7 @@ This is a teaching transcript, not a record of a completed backtest. Every retur
 
 User: “Compare the supplied 20- and 60-trading-day momentum strategies during 2025, with CNY 100,000 initial cash and the current trading costs. Keep the fixed two-stock universe and monthly rebalancing. Give me traceable results; do not download or repair data.”
 
-The two complete input files are distributed with this Skill as `assets/momentum20.py` and `assets/momentum60.py`. They rank `600000.XSHG` and `000001.XSHE` using completed bars, buy a positive-momentum winner at a 95% target weight, otherwise hold cash, and rebalance once per month. They need 21 and 61 previous bars respectively and explicitly use `skip_suspended=False` so horizons follow exchange trading days. This fixed-universe teaching comparison is not a point-in-time index-constituent study. Costs, order rounding, T+1 and matching remain runner policy.
+The two complete input files are distributed with this Skill as `assets/momentum20.py` and `assets/momentum60.py`. They rank `600000.XSHG` and `000001.XSHE` using completed bars, target a positive-momentum winner at 95% or target cash otherwise, and rebalance once per month. They need 21 and 61 previous bars respectively and explicitly use `skip_suspended=False` so horizons follow exchange trading days. At every monthly rebalance they query each stock's actual quantity and retry unwanted holdings; blocked exits can leave both stocks held until a later rebalance. This is a monthly one-winner target, not a guaranteed single holding. This fixed-universe teaching comparison is not a point-in-time index-constituent study. Costs, order rounding, T+1 and matching remain runner policy.
 
 ## Load guidance and inspect the exact inputs
 
@@ -16,7 +16,7 @@ Call `load_skill`:
 {"name":"rqalpha-strategy"}
 ```
 
-Representative return: `{"name":"rqalpha-strategy","version":"1.0.1","content":"<the actual SKILL.md body>","resources":["assets/momentum20.py","assets/momentum60.py","references/examples.md","references/runtime.md"]}`. Here the content placeholder only abbreviates the teaching return; it is not a missing executable input. Derive the installed prefix `skills/rqalpha-strategy/` from the returned name and use resources present in its inventory.
+Representative return: `{"name":"rqalpha-strategy","version":"1.0.2","content":"<the actual SKILL.md body>","resources":["assets/momentum20.py","assets/momentum60.py","references/examples.md","references/runtime.md"]}`. Here the content placeholder only abbreviates the teaching return; it is not a missing executable input. Derive the installed prefix `skills/rqalpha-strategy/` from the returned name and use resources present in its inventory.
 
 Call `explore` to read the required runtime reference, this example, and both complete source inputs, separately:
 
@@ -128,7 +128,24 @@ Call `explore` on the returned request and saved summary:
 {"operation":"read","path":"backtests/11111111111111111111111111111111/summary.json","query":"","start_line":0,"end_line":0}
 ```
 
-The request content must identify the actual strategy path, `strategy_sha256`, interval, capital, benchmark, data source and runtime costs; the saved summary must agree with the result. Use these observed fields to decide whether the representative run is valid before executing the second case. On a tool error, preserve the call and exact error and leave execution uncompleted; do not replace the runner.
+The request content must identify the actual strategy path, `strategy_sha256`, interval, capital, benchmark, data source and runtime costs; the saved summary must agree with the result. These are provenance checks. Before executing the second case, inspect the saved strategy and actual behavior as well:
+
+```json
+{"operation":"read","path":"backtests/11111111111111111111111111111111/strategy.py","query":"","start_line":0,"end_line":0}
+```
+```json
+{"operation":"read","path":"backtests/11111111111111111111111111111111/stock_positions.csv","query":"","start_line":0,"end_line":0}
+```
+```json
+{"operation":"read","path":"backtests/11111111111111111111111111111111/trades.csv","query":"","start_line":0,"end_line":0}
+```
+```json
+{"operation":"read","path":"backtests/11111111111111111111111111111111/stock_account.csv","query":"","start_line":0,"end_line":0}
+```
+
+Use `exec_command` for statistics over the complete returned CSVs when an excerpt is insufficient. Count positive-quantity holdings by date and inspect their weights, cash and transitions around monthly rebalances. Compare actual entries and exits with the snapshot's targets and 21-bar signal definition. When a losing stock remains held, check whether it receives another exit attempt at the next scheduled rebalance; use available order diagnostics to distinguish a blocked exit from missing strategy logic. Trades show fills, so their absence alone proves neither that an order was attempted nor why it failed. Record unavailable rejection evidence and investigate a material unexplained residual before scaling. The observed behavior must match this monthly target/retry definition, including disclosed execution deviations; source hashes and readable tables alone do not pass that check.
+
+On a tool error, preserve the call and returned safe diagnostic. For example, an exception pointing to `bar_dict[stock].is_suspended` calls for checking that expression against the runtime API and using `is_suspended(stock)` if needed. Preserve the valid position queries. Rerun the corrected representative case before expanding. Leave execution uncompleted when a diagnostic or capability gap prevents verification.
 
 ## Run the second parameter and verify the pair
 
@@ -159,7 +176,9 @@ For this transcript's returned paths, call `exec_command` to verify source snaps
 {"command":"python3 - <<'PY'\nimport hashlib, json\nfrom pathlib import Path\nroots = [Path('backtests/11111111111111111111111111111111'), Path('backtests/22222222222222222222222222222222')]\nrequests = []\nfor root in roots:\n    request = json.loads((root / 'request.json').read_text())\n    summary = json.loads((root / 'summary.json').read_text())\n    source = (root / 'strategy.py').read_bytes()\n    assert hashlib.sha256(source).hexdigest() == request['strategy_sha256']\n    assert source == Path(request['strategy_path']).read_bytes()\n    assert summary['strategy_file'] == request['strategy_path']\n    for name in ['portfolio', 'trades', 'stock_account', 'stock_positions', 'benchmark_portfolio']:\n        assert (root / (name + '.csv')).is_file(), name\n    requests.append(request)\n    print(json.dumps({'run_id': request['run_id'], 'strategy': request['strategy_path'], 'return': summary['total_returns'], 'drawdown': summary['max_drawdown']}))\nfor key in ['engine', 'engine_version', 'data_source', 'start_date', 'end_date', 'initial_cash', 'benchmark', 'runtime']:\n    assert requests[0][key] == requests[1][key], key\nprint('source snapshots, artifacts and shared execution policy verified')\nPY","background":false,"timeout_seconds":30}
 ```
 
-Return must have `exit_code=0`, the two actual metric rows, and the final verification message. A failed assertion is a failed verification, not permission to claim completion. This check verifies provenance and comparability; it does not independently validate trading logic or future profitability. Shell statistics may analyze returned tables, but RQAlpha remains the source of matching, holdings and costs.
+Return must have `exit_code=0`, the two actual metric rows, and the final verification message. A failed assertion is a failed verification, not permission to claim completion. This check verifies provenance and shared execution policy. Complete the actual-holdings and trading checks above for the second run too; table existence does not validate behavior. Shell statistics may analyze returned tables, but RQAlpha remains the source of matching, holdings and costs.
+
+For a paired comparison, retain both observed CAGRs and label derived metrics consistently. With the illustrative 8% and 6% CAGRs, the 20-day minus 60-day CAGR difference is 2 percentage points; the geometric annual relative return is `1.08 / 1.06 - 1`, approximately 1.89%. Apply the same definition to every benchmark or control, keeping these two metrics in separate columns. Shared capital and policy support comparability; this pair alone does not isolate momentum, timing or cost contributions. Check the resulting prose against both actual rows before marking verification complete.
 
 Call `write_todos` only after those checks succeed:
 
@@ -169,6 +188,6 @@ Call `write_todos` only after those checks succeed:
 
 ## Example final response
 
-“Both 2025 comparisons ran through RQAlpha with CNY 100,000, the same observed execution policy and the supplied two-stock universe. In these illustrative results, 20-day momentum returned 8% with 12% maximum drawdown; 60-day returned 6% with 9% drawdown. The higher return came with a larger drawdown. Strategy snapshots, source hashes and saved policies matched. Results: `backtests/11111111111111111111111111111111/` and `backtests/22222222222222222222222222222222/`. This is one historical fixed-universe comparison, not evidence that either period is generally optimal or a verified CSI300 constituent strategy.”
+“Both 2025 comparisons ran through RQAlpha with CNY 100,000, the same observed execution policy and the supplied two-stock universe. In these illustrative results, 20-day momentum returned 8% with 12% maximum drawdown; 60-day returned 6% with 9% drawdown. The CAGR difference was 2 percentage points and the geometric annual relative return was 1.89%. The higher return came with a larger drawdown. Strategy snapshots, source hashes and saved policies matched. Actual holdings and trades were checked against the monthly target and blocked-exit retry definition. Results: `backtests/11111111111111111111111111111111/` and `backtests/22222222222222222222222222222222/`. These results cover this fixed universe, interval and pair of parameters.”
 
-In a real answer replace every teaching value/path with the observed result, link the useful Workspace artifacts and state any unexecuted combination or data limitation.
+In a real answer replace every teaching value/path with the observed result, link the useful Workspace artifacts and include observed execution deviations, unavailable rejection evidence, any unexecuted combination and data limitations. A failed or unfinished behavior check remains pending.

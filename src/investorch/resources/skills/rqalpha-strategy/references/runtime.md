@@ -55,11 +55,15 @@ Use `frequency="1d"`. Common stock fields are `datetime`, `open`, `high`, `low`,
 
 Build signals in `before_trading` from completed historical bars by default:
 
-`history_bars(stock, 20, "1d", "close", include_now=False, adjust_type="pre")`
+`history_bars(stock, 21, "1d", "close", skip_suspended=False, include_now=False, adjust_type="pre")`
 
-In the pinned daily runtime, `history_bars` called during `handle_bar` includes the current daily bar even with `include_now=False`; the flag alone does not establish prior-bar timing. Compute prior-day signals in `before_trading` and use them in `handle_bar`. If intentionally using the current close, state that information/execution assumption explicitly. RQAlpha does not prevent every logical look-ahead error. Also choose a suspension convention: the default `skip_suspended=True` counts non-suspended observations; use `skip_suspended=False` when the horizon should follow exchange trading days.
+These 21 completed closes support a 20-exchange-trading-day return, `closes[-1] / closes[0] - 1`, ending at the previous session. For momentum over L exchange trading days, request L+1 bars with `skip_suspended=False` and check the returned length. The default `skip_suspended=True` instead counts non-suspended observations; label that different horizon explicitly when intended.
+
+In the pinned daily runtime, `history_bars` called during `handle_bar` includes the current daily bar even with `include_now=False`; the flag alone does not establish prior-bar timing. Compute prior-day signals in `before_trading` and use them in `handle_bar`. If intentionally using the current close, state that information/execution assumption explicitly. RQAlpha does not prevent every logical look-ahead error.
 
 Use `bar_dict[stock]` for the current daily `open`, `high`, `low`, `close`, `volume`, and `total_turnover`. A missing normal bar from the configured backtest source is an error; it is not a zero-volume observation. Do not infer minute paths, auction detail, or tick behavior from a daily bar.
+
+Suspension status is a separate API: `is_suspended(stock)`, imported from `rqalpha.api`. A daily bar has no `is_suspended` field. Let the runner enforce trading restrictions even when the strategy also checks suspension status.
 
 ## Trading and portfolio APIs
 
@@ -72,6 +76,14 @@ Approved stock order subset:
 - `order_target_percent(id, percent)`: move one position toward a target portfolio weight.
 
 Target-position APIs are usually clearer for rebalancing because they express the desired final allocation. For state, use `context.portfolio.cash`, `context.portfolio.total_value`, `get_position(order_book_id)`, and `get_positions()`. Avoid the deprecated `context.portfolio.positions` access path.
+
+### Actual positions and rebalance targets
+
+Keep desired targets separate from actual holdings. Each `get_positions()` entry exposes `order_book_id`, `quantity` and `market_value`; use positive quantities to discover held stocks, including stocks that left a changing universe. `get_position(stock).quantity` is suitable when checking every member of a fixed, complete universe, as in the supplied momentum assets.
+
+On each scheduled rebalance, derive sell candidates from actual positions and submit exits for holdings absent from the desired target. Keep remaining positions eligible for later exit attempts until observed quantity reaches zero. For a changing universe, include actual holdings with current candidates in `update_universe` so dropped constituents remain visible. Assigning a selected-stock list records the signal, not the outcome of orders.
+
+An order request can be rejected, partially filled or remain open; a returned order, when present, exposes `status`, `filled_quantity` and `message`. Reconcile with actual positions after matching, using `after_trading` for end-of-day observation. Set the retry schedule and the handling of blocked exits in the strategy definition. If a strict holdings limit is required, reserve capacity for retained positions or defer replacement buys; a target of K stocks alone does not guarantee K actual holdings. Board lots, T+1, suspension and price/volume limits can all cause deviations.
 
 The daily runtime calls `handle_bar` every trading day, so no scheduler is needed for daily work. For weekly or monthly rebalancing, use a small date/state guard unless a separately tested requirement justifies scheduler helpers; do not import minute-time scheduling semantics.
 
@@ -126,6 +138,7 @@ def before_trading(context):
         60,
         "1d",
         "close",
+        skip_suspended=False,
         include_now=False,
         adjust_type="pre",
     )
@@ -196,16 +209,20 @@ def handle_bar(context, bar_dict):
 | Filesystem, network, or subprocess side effects | Keep the file focused on deterministic trading logic. |
 | Missing bar treated as zero volume | Let the configured data source and runner validation fail closed. |
 
-## InvestOrch Agent workflow
+## Acceptance and comparison
 
-1. Read relevant user/project Memory when the task depends on prior context.
-2. Load `rqalpha-strategy` and this runtime reference.
-3. Use `get_config` to determine the active data and backtest execution policy when it matters.
-4. When `inspect_rqalpha_data` is available and a new instrument, period, or uncertain coverage matters, inspect the intended canonical IDs before choosing the backtest window.
-5. Design the strategy.
-6. Write and review a Workspace `.py` strategy.
-7. Check timing/look-ahead and unsupported APIs.
-8. Call `run_backtest` after user approval.
-9. Use the compact summary first.
-10. Inspect saved CSV/JSON artifacts only when deeper analysis is needed.
-11. Revise and rerun when appropriate.
+Before expanding a representative run, verify both:
+
+1. **Provenance:** saved request, strategy snapshot/hash, parameters, interval, capital, benchmark, data source and runtime policy match the intended inputs.
+2. **Strategy behavior:** read the snapshot and inspect actual `stock_positions`, `trades` and portfolio/account tables. Compare observed holdings counts, weights, cash, turnover and exit attempts with the strategy's selection, rebalance and blocked-exit rules. For changing universes, check residual holdings against membership effective on each observed date, including after removals. Investigate excess counts, persistent unwanted positions and rejected/unfilled orders before scaling. Inspect available order diagnostics; exported trades record fills, not every failed order. If rejection evidence is unavailable, state that limit and use a bounded diagnostic run when necessary. A passing hash/table-existence check establishes provenance, not strategy correctness.
+
+Accept a run only when deviations have an evidenced explanation consistent with the agreed strategy definition. A failed exit that is retried under that definition differs from a forgotten holding. Repair a logic error and rerun affected results before using them in a comparison. Apply relevant checks to the full matrix as well as the representative case.
+
+Use the same initial cash, period, execution constraints and cost policy for paired controls unless the research question explicitly varies them. If capital differs, board-lot rounding, minimum fees and volume constraints can affect the comparison; report the difference and test it before attributing the return gap to stock selection. State actual currency amounts and units from saved requests.
+
+Define comparison metrics once and use them for every baseline. For strategy CAGR g_s and baseline CAGR g_b over the same interval:
+
+- CAGR difference is `g_s - g_b`, reported in percentage points.
+- Geometric annual relative return is `(1 + g_s) / (1 + g_b) - 1`, reported as a percent. RQAlpha's `excess_annual_returns` uses this geometric convention.
+
+Keep these columns separate. Differences between geometric relative returns are not additive contribution components; paired return gaps alone do not identify causal momentum, cost or signal effects. Attribution requires controls that isolate the claimed factor. Check each narrative claim against all relevant table rows, and limit trend/optimality claims to tested parameters and samples. Fixed snapshot membership supports a fixed-universe study; historical index membership requires dated point-in-time inputs.
