@@ -2,16 +2,16 @@
 
 ## Purpose and source of truth
 
-- The packaged engine is RQAlpha 6.4.1. This guide defines the subset supported by the current InvestOrch Agent backtest runtime; it is not the complete upstream API manual. The actual tool result reports `engine_version`.
+- The packaged engine is RQAlpha 6.4.2. This guide defines the subset supported by the current InvestOrch Agent backtest runtime; it is not the complete upstream API manual. The actual tool result reports `engine_version`.
 - Project restrictions win when broader RQAlpha features differ from this guide. Do not guess unsupported behavior.
 - Strategies are ordinary RQAlpha Python files. InvestOrch Agent supplies the runtime configuration externally; strategy code must not configure or mutate it.
-- API names and signatures below correspond to the project's pinned `rqalpha==6.4.1` installation.
+- API names and signatures below correspond to the project's pinned `rqalpha==6.4.2` installation.
 
 ## Runtime contract
 
 | Setting | Value |
 | --- | --- |
-| Engine / run type | RQAlpha 6.4.1 / backtest |
+| Engine / run type | RQAlpha 6.4.2 / backtest |
 | Frequency / account | `1d` / stock |
 | Execution policy | AppConfig defaults overlaid by `run_backtest.parameters` for this invocation |
 

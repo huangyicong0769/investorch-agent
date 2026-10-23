@@ -1,7 +1,7 @@
 ---
 name: rqalpha-strategy
 description: Research and compare trading strategy performance, momentum periods, parameter grids or trading-cost sensitivity; write, review, debug and run daily stock backtests using the available RQAlpha toolchain and interpret its artifacts.
-version: 1.0.8
+version: 1.0.9
 ---
 
 # RQAlpha strategy workflow
