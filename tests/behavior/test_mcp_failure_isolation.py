@@ -45,6 +45,8 @@ async def mcp_peer():
         if "id" not in data:
             return Response(status_code=202)
         if method == "initialize":
+            if name == "broken" and state.get("hold_initialize"):
+                await state["release"].wait()
             if name == "broken" and state.get("fail_initialize"):
                 if state["fail_initialize"] == "rpc":
                     return JSONResponse(
@@ -107,7 +109,7 @@ async def mcp_peer():
 
 
 @asynccontextmanager
-async def agent_with_mcp(tmp_path: Path, url: str, model: ScriptedModel):
+async def agent_with_mcp(tmp_path: Path, url: str, model: ScriptedModel, **manager_options):
     config = make_test_config(tmp_path)
     for name in ("broken", "healthy"):
         configure_mcp_server_config(
@@ -152,7 +154,10 @@ async def agent_with_mcp(tmp_path: Path, url: str, model: ScriptedModel):
         )
 
     try:
-        async with MCPServerManager(servers):
+        async with MCPServerManager(servers, **manager_options) as manager:
+            errors = manager.errors
+            for server in servers:
+                server.record_connection_result(errors.get(server))
             yield run, model, session, servers
     finally:
         session.close()
@@ -183,7 +188,10 @@ async def test_failed_discovery_keeps_local_and_other_mcp_tools_and_recovers_nex
     model.assert_complete()
 
 
-async def test_failed_mcp_call_reports_the_uncertain_outcome_and_keeps_the_run_alive(tmp_path: Path):
+@pytest.mark.parametrize("failure", ["rpc", "read"])
+async def test_failed_mcp_call_reports_the_uncertain_outcome_and_keeps_the_run_alive(
+    tmp_path: Path, monkeypatch, failure: str
+):
     model = ScriptedModel(
         (
             (function_call("mcp_broken__lookup", {}, call_id="remote"),),
@@ -191,8 +199,15 @@ async def test_failed_mcp_call_reports_the_uncertain_outcome_and_keeps_the_run_a
             (assistant_message("Remaining work completed"),),
         )
     )
-    async with mcp_peer() as (url, peer), agent_with_mcp(tmp_path, url, model) as (run, _, session, _):
-        peer.update(fail_listing=False, fail_call=True)
+    async with mcp_peer() as (url, peer), agent_with_mcp(tmp_path, url, model) as (run, _, session, servers):
+        peer.update(fail_listing=False, fail_call=failure)
+        if failure == "read":
+
+            async def read_failure(*_, **__):
+                peer["calls"] += 1
+                raise httpx2.ReadError("peer closed during read")
+
+            monkeypatch.setattr(servers[0].session, "call_tool", read_failure)
         assert (await run("first")).output == "Remaining work completed"
         assert peer["calls"] == 1
         outputs = [
@@ -201,8 +216,11 @@ async def test_failed_mcp_call_reports_the_uncertain_outcome_and_keeps_the_run_a
             if item.get("type") == "function_call_output" and item["call_id"] == "remote"
         ]
         text = str(outputs)
-        assert "broken" in text and "MCPError: Connection closed" in text
+        detail = {"rpc": "MCPError: Connection closed", "read": "ReadError: peer closed during read"}
+        assert "broken" in text and detail[failure] in text
         assert "unknown" in text.lower()
+        assert servers[0].runtime_status == "unavailable"
+        assert servers[0].runtime_error["operation"] == "call_tool"
     model.assert_complete()
 
 
@@ -216,6 +234,23 @@ async def test_failed_initial_connection_leaves_the_other_tools_available(tmp_pa
             assert servers[0].runtime_error["operation"] == "connect"
             assert ("503" if failure == "http" else "initialization failed") in servers[0].runtime_error["message"]
             assert "mcp_healthy__lookup" in {tool.name for tool in model.calls[0].tools}
+    model.assert_complete()
+
+
+async def test_sdk_manager_connect_timeout_is_reported_and_other_tools_remain_available(tmp_path: Path):
+    model = ScriptedModel(((assistant_message("Available work completed"),),))
+    async with mcp_peer() as (url, peer):
+        release = asyncio.Event()
+        peer.update(hold_initialize=True, release=release)
+        try:
+            async with agent_with_mcp(tmp_path, url, model, connect_timeout_seconds=0.1) as (run, _, _, servers):
+                assert servers[0].runtime_status == "unavailable"
+                assert servers[0].runtime_error == {"operation": "connect", "message": "TimeoutError: "}
+                assert (await run("first")).output == "Available work completed"
+                assert "mcp_healthy__lookup" in {tool.name for tool in model.calls[0].tools}
+                assert "TimeoutError" in json.dumps(model.calls[0].input)
+        finally:
+            release.set()
     model.assert_complete()
 
 

@@ -270,6 +270,9 @@ async def open_application_host(
         logger.info("Starting MCP server manager with %d configured servers", len(mcp_servers))
         async with MCPServerManager(mcp_servers, drop_failed_servers=config["mcp.drop_failed_servers"]) as mcp_manager:
             try:
+                errors = mcp_manager.errors
+                for server in mcp_servers:
+                    server.record_connection_result(errors.get(server))
                 logger.info("MCP server manager started with %d active servers", len(mcp_manager.active_servers))
                 main_model, main_model_settings = model_clients.for_agent("main")
                 title_model, title_model_settings = model_clients.for_agent("title")

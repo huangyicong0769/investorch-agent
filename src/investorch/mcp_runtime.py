@@ -9,10 +9,12 @@ from typing import Any
 import httpx
 import httpx2
 from agents import RunContextWrapper, UserError
+from agents.exceptions import AgentsException
 from agents.mcp import MCPServerStdio, MCPServerStreamableHttp
+from agents.tool import default_tool_error_function
 from anyio import BrokenResourceError, ClosedResourceError, EndOfStream
 from mcp.shared.exceptions import MCPError
-from mcp.types import CONNECTION_CLOSED, REQUEST_TIMEOUT, CallToolResult, TextContent
+from mcp.types import CONNECTION_CLOSED, REQUEST_TIMEOUT
 
 from investorch.context import AgentContext
 
@@ -66,12 +68,13 @@ def _connection_failure(error: Exception) -> bool:
 
 class _FailureIsolation:
     def __init__(self, *args: Any, diagnostic_secrets: tuple[str, ...] = (), **kwargs: Any):
+        kwargs.setdefault("failure_error_function", self._tool_error)
         super().__init__(*args, **kwargs)
         self.runtime_status = "unknown"
         self.runtime_error: dict[str, str] | None = None
         self._diagnostic_secrets = diagnostic_secrets
 
-    def _failed(self, operation: str, error: Exception) -> str:
+    def _failed(self, operation: str, error: BaseException) -> str:
         from investorch.mcp import _redact_url
 
         detail = "; ".join(f"{type(nested).__name__}: {nested}" for nested in _error_leaves(error))
@@ -90,14 +93,13 @@ class _FailureIsolation:
         self.runtime_status = "available"
         self.runtime_error = None
 
-    async def connect(self):
-        try:
-            await super().connect()
-        except Exception as error:
+    def record_connection_result(self, error: BaseException | None) -> None:
+        """Observe the SDK manager's result, including its outer connect timeout."""
+        if error is not None:
             self._failed("connect", error)
-            raise
-        self.runtime_status = "connected"
-        self.runtime_error = None
+        else:
+            self.runtime_status = "connected"
+            self.runtime_error = None
 
     async def list_tools(self, run_context: RunContextWrapper[Any] | None = None, agent=None):
         context = run_context.context if run_context is not None else None
@@ -120,28 +122,18 @@ class _FailureIsolation:
         self._available()
         return tools
 
-    async def call_tool(self, tool_name, arguments, meta=None):
-        try:
-            result = await super().call_tool(tool_name, arguments, meta=meta)
-        except Exception as error:
-            if not _connection_failure(error):
-                raise
-            detail = self._failed("call_tool", error)
-            return CallToolResult(
-                isError=True,
-                content=[
-                    TextContent(
-                        type="text",
-                        text=(
-                            f"MCP server {self.name!r}, tool {tool_name!r}: {detail}\n"
-                            "The remote operation's outcome is unknown. Verify its status before another attempt. "
-                            "Work using available tools can continue."
-                        ),
-                    )
-                ],
-            )
-        self._available()
-        return result
+    def _tool_error(self, context: RunContextWrapper[Any], error: Exception) -> str:
+        cause = error.__cause__ if isinstance(error, AgentsException) and error.__cause__ is not None else error
+        if not _connection_failure(cause):
+            return default_tool_error_function(context, error)
+        detail = self._failed("call_tool", cause)
+        if isinstance(context.context, AgentContext):
+            context.context.turn.mcp_errors[self.name] = dict(self.runtime_error)
+        return (
+            f"MCP server {self.name!r}: {detail}\n"
+            "The remote operation's outcome is unknown. Verify its status before another attempt. "
+            "Work using available tools can continue."
+        )
 
 
 class IsolatedMCPServerStreamableHttp(_FailureIsolation, MCPServerStreamableHttp):
