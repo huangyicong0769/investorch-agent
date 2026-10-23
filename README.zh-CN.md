@@ -4,7 +4,7 @@
 
 InvestOrch Agent 是面向个人投资者的本地优先、human-in-the-loop 投资编排 Agent。长期目标是支持从研究、策略开发和回测，到组合决策、交易、持仓监控与复盘的完整流程。
 
-**0.3.0 正在准备发布。** 此版本增加 Session 协作、可复用模型连接与 ChatGPT 授权、按 Session 选模、持续上下文管理和更清晰的运行诊断。发布和发行验收尚未完成。详见 [0.3.0 说明](docs/releases/0.3.0.zh-CN.md)、[模型配置](docs/Configuration.zh-CN.md)和[手动升级步骤](docs/Upgrade.zh-CN.md)。
+**0.3.0** 增加 Session 协作、可复用模型连接与 ChatGPT 授权、按 Session 选模、持续上下文管理和更清晰的运行诊断。详见 [0.3.0 说明](docs/releases/0.3.0.zh-CN.md)、[模型配置](docs/Configuration.zh-CN.md)和[手动升级步骤](docs/Upgrade.zh-CN.md)。
 
 ## 0.3.0 包含
 
@@ -44,39 +44,41 @@ Runtime 使用 [OpenAI Agents SDK](https://github.com/openai/openai-agents-pytho
 
 ## 安装
 
-### 源码安装
+### PyPI
 
-使用已审查的本地 0.3.0 候选源码。发布准备分支为 `release/0.3.0`；以下步骤不假定该分支或 `v0.3.0` tag 已推送。
-
-```bash
-cd /path/to/investorch-agent
-uv sync --locked --python 3.12
-```
-
-下文使用 `uv run --locked investorch`。发行检查应使用独立 Root，例如 `uv run --locked investorch web --root /path/to/isolated-root`。使用已有 0.2.0 Root 前，先按[升级说明](docs/Upgrade.zh-CN.md)手动转换模型 TOML。
-
-### 本地构建 wheel
-
-构建已审查的候选源码，再把 wheel 安装到独立 uv 工具目录进行测试：
-
-```bash
-uv build --no-sources
-UV_TOOL_DIR=/path/to/test-tools UV_TOOL_BIN_DIR=/path/to/test-bin \
-  uv tool install --python 3.12 ./dist/investorch-0.3.0-py3-none-any.whl
-/path/to/test-bin/investorch web --root /path/to/isolated-root
-```
-
-wheel 安装后的示例省略 `uv run --locked`。wheel 包含仓库已提交的 Web 生产 bundle；修改前端时，先执行下文的前端构建步骤。
-
-### 发布后从 PyPI 安装
-
-0.3.0 发布计划包含向 PyPI 分发 wheel 与源码包。**以下命令将在 0.3.0 发布后可用：**
+将 InvestOrch Agent 安装为 uv 管理的工具：
 
 ```bash
 uv tool install --python 3.12 investorch==0.3.0
+investorch web
 ```
 
-0.3.0 PyPI 软件包、GitHub 发行包与 checksum 尚未发布。目前已发布 GitHub 软件包的校验与安装步骤仍见 [0.2.0 发行说明](docs/releases/0.2.0.zh-CN.md)。
+安装后的命令是 `investorch`。替换已有安装前，先完成[升级说明](docs/Upgrade.zh-CN.md)中的备份和预检；0.2.0 模型 TOML 须手动转换。
+
+### 源码安装
+
+```bash
+git clone --branch v0.3.0 https://github.com/huangyicong0769/investorch-agent.git
+cd investorch-agent
+uv sync --locked --python 3.12
+```
+
+下文使用 `uv run --locked investorch`。如果通过工具安装，请省略 `uv run --locked`，直接以 `investorch` 开始每条命令。
+
+### 发行 wheel
+
+从 [0.3.0 GitHub Release](https://github.com/huangyicong0769/investorch-agent/releases/tag/v0.3.0) 下载 `investorch-0.3.0-py3-none-any.whl`、`investorch-0.3.0.tar.gz` 和 `SHA256SUMS`。安装前校验 wheel：
+
+```bash
+# macOS
+grep 'investorch-0.3.0-py3-none-any.whl$' SHA256SUMS | shasum -a 256 -c -
+# Linux
+grep 'investorch-0.3.0-py3-none-any.whl$' SHA256SUMS | sha256sum -c -
+
+uv tool install --python 3.12 ./investorch-0.3.0-py3-none-any.whl
+```
+
+wheel 包含 Web 生产 bundle，运行时不需要 Node.js。源码构建 wheel 使用 `uv build --no-sources`；修改前端后，须先重建 Web bundle。
 
 ## 首次运行
 
@@ -173,7 +175,7 @@ uv sync --locked --python 3.12 --extra cnequity
 使用 wheel 安装时启用 extra：
 
 ```bash
-uv tool install --python 3.12 './dist/investorch-0.3.0-py3-none-any.whl[cnequity]'
+uv tool install --python 3.12 './investorch-0.3.0-py3-none-any.whl[cnequity]'
 ```
 
 CNEquity 是可选数据后端。更广泛的集成要等待上游行为足够稳定后再评估。
@@ -284,7 +286,7 @@ InvestOrch Agent 是由人主导、AI 辅助开发的个人研究项目。个人
 
 ## 文档
 
-- [0.3.0 发布准备说明](docs/releases/0.3.0.zh-CN.md)与[变更记录](CHANGELOG.zh-CN.md)。
+- [0.3.0 发行说明](docs/releases/0.3.0.zh-CN.md)与[变更记录](CHANGELOG.zh-CN.md)。
 - [升级说明](docs/Upgrade.zh-CN.md)与[备份和恢复](docs/Backup_and_Recovery.zh-CN.md)。
 - [架构](docs/InvestOrch_Agent_Architecture.zh-CN.md)：已实现系统与当前边界。
 - [Runtime / Session 执行模型](docs/Runtime_Session_Execution_Model.zh-CN.md)：生命周期与并发规则。

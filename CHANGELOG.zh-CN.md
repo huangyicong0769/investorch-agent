@@ -2,7 +2,7 @@
 
 [English](CHANGELOG.md)
 
-## 0.3.0 — 尚未发布
+## 0.3.0
 
 ### Session 协作与模型选择
 
@@ -21,10 +21,10 @@
 ### 兼容性与分发
 
 - 更新 Python/Web 依赖及 lockfile，包括 OpenAI Agents SDK 0.24.0、FastAPI 0.161.1、RQAlpha 6.4.2、可选 CNEquity 0.18.0 和 uv_build 0.13.5。
-- 准备 PyPI wheel/源码包分发，并保留 GitHub 发行包；实际发布仍待最终 review 和批准。
+- 通过 PyPI 分发 wheel 与源码包，并提供 GitHub 发行包和 SHA-256 checksum。
 - **不兼容变更：** 旧 `models.<role>` TOML 须人工转换为 `models.<connection>` 和 `agents.<role>`。Session 模型元数据正常增量初始化；已有 Root 启动前须备份与预检。
 
-详见 [0.3.0 发布准备说明](docs/releases/0.3.0.zh-CN.md)与[升级说明](docs/Upgrade.zh-CN.md)。本条目不表示发行包已发布或发行验收已完成。
+详见 [0.3.0 发行说明](docs/releases/0.3.0.zh-CN.md)与[升级说明](docs/Upgrade.zh-CN.md)。
 
 ## 0.2.0
 

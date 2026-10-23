@@ -2,9 +2,9 @@
 
 [简体中文](Upgrade.zh-CN.md)
 
-This guide covers the 0.3.0 release candidate's model transition and retains the earlier 0.2.0 upgrade procedure. 0.3.0 publication is pending; use a reviewed local checkout or built wheel as described in the [README](../README.md#installation). See [0.3.0 release notes](releases/0.3.0.md).
+This guide covers the 0.3.0 model configuration transition and retains the earlier 0.2.0 upgrade procedure. Installation methods are in the [README](../README.md#installation); changes are in the [0.3.0 release notes](releases/0.3.0.md).
 
-## 0.2.0 → 0.3.0 model configuration (unreleased)
+## 0.2.0 → 0.3.0 model configuration
 
 0.3.0 makes a **breaking TOML change**. There is no `config_version` and no automatic TOML conversion. The five old `[models.<role>]` tables split into named connections and fixed Agent defaults:
 
@@ -57,7 +57,7 @@ PY
 
 ### Convert and validate offline
 
-4. After reviewing the intended changes, install the chosen 0.3.0 development build in its own environment. Edit the private `investorch.toml` while writers remain stopped: replace old role tables with the two layers, preserve non-model settings and existing API-key values, and set every required effective window. Never copy this TOML into the repository or a report. ChatGPT credential records come from the browser authorization flow after structural conversion.
+4. After reviewing the intended changes, install 0.3.0 in its own environment. Edit the private `investorch.toml` while writers remain stopped: replace old role tables with the two layers, preserve non-model settings and existing API-key values, and set every required effective window. Never copy this TOML into the repository or a report. ChatGPT credential records come from the browser authorization flow after structural conversion.
 5. Validate with the new build without starting the Host. For an isolated rehearsal, supply a copied Root in place of the real Root:
 
 ```sh

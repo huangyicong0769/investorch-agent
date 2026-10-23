@@ -53,7 +53,7 @@ The current QMT route is Agent-generated strategy artifact → human review → 
 
 ## 0.3.0 Session access
 
-0.3.0 remains unreleased. The read-only `list_sessions` Tool discovers current-Root Sessions through title filtering, archived inclusion and bounded pagination, with concise current status including `pending`. `read_session` reads an exact ID's history as flat Conversation or raw Events, with frozen-snapshot pagination, explicit oversized-field omissions and image metadata in Conversation.
+The read-only `list_sessions` Tool discovers current-Root Sessions through title filtering, archived inclusion and bounded pagination, with concise current status including `pending`. `read_session` reads an exact ID's history as flat Conversation or raw Events, with frozen-snapshot pagination, explicit oversized-field omissions and image metadata in Conversation.
 
 Tools delegate to stateless Application queries, bound and registered once by the Host before its first Run. Listing uses existing Storage metadata and the Host's Runtime snapshots; history uses Storage existence and the Host's existing Journal without Runtime. The implementation reuses shared Steer facts while preserving Review's strict policy. Tool contracts and examples are in [Architecture](InvestOrch_Agent_Architecture.md#session-access-030-stage-a).
 
@@ -65,11 +65,11 @@ There is no automatic reply, wait/completion mechanism, or persistent mailbox.
 
 ## 0.3.0 Session spawning
 
-The development implementation adds approval-required `spawn_agent(task, title?)` with ordinary, recursively capable Sessions; independent history and approvals; trusted user-role origin; and one-time Portfolio association snapshots. All top-level Runs share a hot global limit, default 3. Explicit Delete/Clear safely cascade only Spawn descendants and refuse active/pending nodes or independent Fork references. Web replaces the Portfolio banner with a compact context card; TUI shows parent provenance. 0.3.0 remains unreleased. Agent as MCP is cancelled for 0.3.0.
+0.3.0 adds approval-required `spawn_agent(task, title?)` with ordinary, recursively capable Sessions; independent history and approvals; trusted user-role origin; and one-time Portfolio association snapshots. All top-level Runs share a hot global limit, default 3. Explicit Delete/Clear safely cascade only Spawn descendants and refuse active/pending nodes or independent Fork references. Web replaces the Portfolio banner with a compact context card; TUI shows parent provenance. Agent as MCP is cancelled for 0.3.0.
 
-## 0.3.0 release preparation and package distribution
+## Completed in 0.3.0: dependencies and package distribution
 
-0.3.0 release preparation includes refreshed Python/Web dependencies, real application and package checks, and fixes found through those checks. Wheel and source distribution to PyPI is part of the 0.3.0 plan, alongside GitHub artifacts and checksums. PyPI publication, Git tags and GitHub release publication require final review and approval; local preparation does not imply publication or completed acceptance. See the [release preparation notes](releases/0.3.0.md).
+0.3.0 refreshes Python/Web dependencies and provides wheel and source distributions through PyPI, alongside GitHub artifacts and SHA-256 checksums. See the [release notes](releases/0.3.0.md) for the feature set and installation instructions.
 
 ## Configuration, management, and recovery
 
@@ -89,7 +89,7 @@ Multi-Agent is a long-term direction. Session access, approved messaging and chi
 
 ## 0.3.0 model connections and ChatGPT
 
-The development line adds separate connection/Agent configuration, per-Session model Drafts, frozen Runs, latest-model resolution at Queue promotion, connection-owned clients, preflight compaction, and official local ChatGPT authorization with on-demand refresh. Web/TUI/plain share the model contract. Old TOML needs offline manual conversion; Session SQLite metadata upgrades normally. See [Configuration](Configuration.md) and [Upgrade](Upgrade.md).
+0.3.0 adds separate connection/Agent configuration, per-Session model Drafts, frozen Runs, latest-model resolution at Queue promotion, connection-owned clients, preflight compaction, and official local ChatGPT authorization with on-demand refresh. Web/TUI/plain share the model contract. Old TOML needs offline manual conversion; Session SQLite metadata upgrades normally. See [Configuration](Configuration.md) and [Upgrade](Upgrade.md).
 
 Agent as MCP is cancelled and is neither 0.3.0 scope nor a release prerequisite. Existing MCP client integrations remain supported. Agent as MCP is no longer a confirmed future direction.
 

@@ -53,7 +53,7 @@ InvestOrch Agent 的目标是成为面向个人投资者的本地优先、human-
 
 ## 0.3.0 Session 访问
 
-0.3.0 尚未发布。只读 `list_sessions` Tool 通过标题筛选、归档开关及有界分页发现当前 Root 的 Session，返回包含 `pending` 的简短当前状态。`read_session` 用精确 ID 读取扁平 Conversation 或 raw Events，支持冻结快照分页、超大字段显式省略及 Conversation 图片元数据。
+只读 `list_sessions` Tool 通过标题筛选、归档开关及有界分页发现当前 Root 的 Session，返回包含 `pending` 的简短当前状态。`read_session` 用精确 ID 读取扁平 Conversation 或 raw Events，支持冻结快照分页、超大字段显式省略及 Conversation 图片元数据。
 
 Tool 委托无状态 Application 查询，由 Host 在首个 Run 前绑定并一次注册。列表使用已有 Storage 元数据与该 Host 的 Runtime snapshot；历史使用 Storage 存在性检查与该 Host 的已有 Journal，不需要 Runtime。实现复用共享 Steer 事实并保留 Review 严格策略。Tool 契约和示例见[架构](InvestOrch_Agent_Architecture.zh-CN.md#session-访问030-stage-a)。
 
@@ -65,11 +65,11 @@ Tool 委托无状态 Application 查询，由 Host 在首个 Run 前绑定并一
 
 ## 0.3.0 Session 派生
 
-开发实现增加需要审批的 `spawn_agent(task, title?)`：普通 Session 可递归派生，拥有独立历史与审批、可信 user-role 来源，以及一次性的 Portfolio 关联快照。全部顶层 Run 共享 Hot 全局上限，默认 3。显式 Delete/Clear 仅安全级联 Spawn 后代，活动/pending 节点或独立 Fork 引用阻断删除。Web 用右上紧凑卡片替换 Portfolio 横幅，TUI 显示 parent 来源。0.3.0 仍未发布；Agent as MCP 已从 0.3.0 取消。
+0.3.0 增加需要审批的 `spawn_agent(task, title?)`：普通 Session 可递归派生，拥有独立历史与审批、可信 user-role 来源，以及一次性的 Portfolio 关联快照。全部顶层 Run 共享 Hot 全局上限，默认 3。显式 Delete/Clear 仅安全级联 Spawn 后代，活动/pending 节点或独立 Fork 引用阻断删除。Web 用右上紧凑卡片替换 Portfolio 横幅，TUI 显示 parent 来源。Agent as MCP 已从 0.3.0 取消。
 
-## 0.3.0 发布准备与软件包分发
+## 0.3.0 已完成：依赖与软件包分发
 
-0.3.0 发布准备包含更新 Python/Web 依赖、实机应用与软件包检查，以及修复检查中发现的问题。向 PyPI 分发 wheel 和源码包属于 0.3.0 计划，并保留 GitHub 发行包与 checksum。PyPI 发布、Git tag 和 GitHub Release 发布须经最终 review 和批准；本地准备不表示已发布或验收完成。详见[发布准备说明](releases/0.3.0.zh-CN.md)。
+0.3.0 更新 Python/Web 依赖，通过 PyPI 提供 wheel 与源码包，并提供 GitHub 发行包和 SHA-256 checksum。功能与安装方式见[发行说明](releases/0.3.0.zh-CN.md)。
 
 ## 配置、管理与恢复
 
@@ -89,7 +89,7 @@ Multi-Agent 是长期方向；Session 访问、经审批的消息与子 Session 
 
 ## 0.3.0 模型连接与 ChatGPT
 
-开发线增加两层连接/Agent 默认值、每个 Session 的模型 Draft、Run 冻结、Queue 晋升时解析最新模型、按连接复用 Client、前置压缩，以及官方 ChatGPT 本地授权与按需刷新。Web/TUI/plain 共用模型契约。旧 TOML 需离线人工转换，Session SQLite 元数据正常增量升级。参见[配置](Configuration.zh-CN.md)与[升级](Upgrade.zh-CN.md)。
+0.3.0 增加两层连接/Agent 默认值、每个 Session 的模型 Draft、Run 冻结、Queue 晋升时解析最新模型、按连接复用 Client、前置压缩，以及官方 ChatGPT 本地授权与按需刷新。Web/TUI/plain 共用模型契约。旧 TOML 需离线人工转换，Session SQLite 元数据正常增量升级。参见[配置](Configuration.zh-CN.md)与[升级](Upgrade.zh-CN.md)。
 
 Agent as MCP 已取消，不是 0.3.0 范围或发布前置条件；已有 MCP client 集成保留。它也不再列为已确认的未来方向。
 

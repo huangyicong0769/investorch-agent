@@ -2,7 +2,7 @@
 
 [简体中文](CHANGELOG.zh-CN.md)
 
-## 0.3.0 — unreleased
+## 0.3.0
 
 ### Session collaboration and model selection
 
@@ -21,10 +21,10 @@
 ### Compatibility and distribution
 
 - Refresh Python/Web dependencies and lockfiles, including OpenAI Agents SDK 0.24.0, FastAPI 0.161.1, RQAlpha 6.4.2, optional CNEquity 0.18.0 and uv_build 0.13.5.
-- Prepare PyPI wheel/source distribution alongside GitHub artifacts. Publication remains pending final review and approval.
+- Distribute wheel and source packages through PyPI, alongside GitHub artifacts and SHA-256 checksums.
 - **Breaking:** old `models.<role>` TOML requires manual conversion to `models.<connection>` plus `agents.<role>`. Session model metadata upgrades through normal initialization; existing Roots require backup and preflight before startup.
 
-See the [0.3.0 release preparation notes](docs/releases/0.3.0.md) and [Upgrade](docs/Upgrade.md). This entry does not announce published artifacts or completed release acceptance.
+See the [0.3.0 release notes](docs/releases/0.3.0.md) and [Upgrade](docs/Upgrade.md).
 
 ## 0.2.0
 
