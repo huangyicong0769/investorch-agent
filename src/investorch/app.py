@@ -9,6 +9,7 @@ from investorch.application import (
     ApplicationCallbacks,
     ApprovalResolvedEvent,
     SessionOperations,
+    SessionPresentationState,
     open_application_host,
 )
 from investorch.commands import dispatch_command, parse_command
@@ -149,6 +150,10 @@ async def _run_configured_app(ui: ConsoleUI, config: AppConfig, initialized: boo
         if tui is not None:
             tui.handle_runtime_state(snapshot)
 
+    def handle_presentation_state(session_id: str, presentation: SessionPresentationState) -> None:
+        if tui is not None:
+            tui.handle_presentation_state(session_id, presentation)
+
     async def request_user_approval(request: ApprovalRequest, review_reason: str | None = None) -> bool:
         if tui is None:
             return await ui.request_tool_approval(request.tool_name, request.arguments, review_reason)
@@ -180,6 +185,7 @@ async def _run_configured_app(ui: ConsoleUI, config: AppConfig, initialized: boo
         handle_user_input_committed=handle_user_input_committed,
         handle_run_ended=handle_run_ended,
         handle_runtime_state=handle_runtime_state,
+        handle_presentation_state=handle_presentation_state,
         handle_approval_resolved=handle_approval_resolved,
         handle_activity_label=handle_activity_label,
     )
@@ -193,4 +199,8 @@ async def _run_configured_app(ui: ConsoleUI, config: AppConfig, initialized: boo
 
         tui = InvestOrchAgentTUI(host.state, config.session_journal_dir, host.journal)
         tui.bind_runtime(host.runtime, host.sessions)
+        if host.state.selected_session_id is not None:
+            tui.handle_presentation_state(
+                host.state.selected_session_id, host.presentation_state.get(host.state.selected_session_id)
+            )
         await tui.run_async()

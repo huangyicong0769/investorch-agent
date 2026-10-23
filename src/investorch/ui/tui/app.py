@@ -24,6 +24,7 @@ from investorch.application import (
     FollowUpSubmissionError,
     QueuedFollowUpsPendingError,
     SessionOperations,
+    SessionPresentationState,
     SteerPromotionPendingError,
     submit_user_input,
 )
@@ -371,8 +372,7 @@ class InvestOrchAgentTUI(App[None]):
         self._session_titles: dict[str, str | None] = {}
         self._session_records: list[SessionRecord] = []
         self._runtime_snapshots: dict[str, RuntimeSessionSnapshot] = {}
-        self._session_usage: dict[str, TokenUsage] = {}
-        self._main_context_tokens: dict[str, int | None] = {}
+        self._presentations: dict[str, SessionPresentationState] = {}
         self._main_agent_name: str | None = None
         self._loading_session_id: str | None = None
         self._buffered_live_events: list[
@@ -648,39 +648,51 @@ class InvestOrchAgentTUI(App[None]):
 
     def _format_usage_status(self) -> str:
         session_id = self.state.selected_session_id
-        usage = self._session_usage.get(session_id, TokenUsage())
-        context_tokens = self._main_context_tokens.get(session_id)
+        presentation = self._presentations.get(session_id, SessionPresentationState())
+        context_tokens = presentation.main_context_tokens
         context_used = "—" if context_tokens is None else self._format_token_count(context_tokens)
-        active = self.runtime.get_active_run(session_id) if self.runtime is not None and session_id else None
-        model = (
-            active.options.model
-            if active
-            else (
-                self.state.session_models.view(session_id).effective
-                if session_id
-                else self.state.config.agent_model("main")
+        capacity_tokens = presentation.context_window_tokens
+        if capacity_tokens is None and context_tokens is None:
+            active = self.runtime.get_active_run(session_id) if self.runtime is not None and session_id else None
+            model = (
+                active.options.model
+                if active
+                else (
+                    self.state.session_models.view(session_id).effective
+                    if session_id
+                    else self.state.config.agent_model("main")
+                )
+            )
+            capacity_tokens = model.context_window_tokens
+        capacity = "—" if capacity_tokens is None else self._format_token_count(capacity_tokens)
+
+        def usage_line(label: str, usage: TokenUsage) -> str:
+            return (
+                f"{label} · req {usage.requests} · in {self._format_token_count(usage.input_tokens)} "
+                f"· cached {self._format_token_count(usage.cached_input_tokens)} "
+                f"· write {self._format_token_count(usage.cache_write_input_tokens)} "
+                f"· out {self._format_token_count(usage.output_tokens)} "
+                f"· reasoning {self._format_token_count(usage.reasoning_output_tokens)} "
+                f"· total {self._format_token_count(usage.total_tokens)}"
+            )
+
+        estimate = " (estimated)" if presentation.context_kind == "estimated" else ""
+        model_label = f" · {presentation.context_model}" if presentation.context_model else ""
+        compacting = " · Compacting…" if presentation.compacting else ""
+        return "\n".join(
+            (
+                usage_line("Main", presentation.main_usage),
+                usage_line("Auxiliary", presentation.auxiliary_usage),
+                f"Main context{estimate} · {context_used} / {capacity}{model_label}{compacting}",
             )
         )
-        capacity_tokens = model.context_window_tokens
-        capacity = self._format_token_count(capacity_tokens)
-        return (
-            f"Tokens · req {usage.requests} · in {self._format_token_count(usage.input_tokens)} "
-            f"· cached {self._format_token_count(usage.cached_input_tokens)} "
-            f"· write {self._format_token_count(usage.cache_write_input_tokens)} "
-            f"· out {self._format_token_count(usage.output_tokens)} "
-            f"· reasoning {self._format_token_count(usage.reasoning_output_tokens)} "
-            f"· total {self._format_token_count(usage.total_tokens)} "
-            f"| Main context · {context_used} / {capacity}"
-        )
 
-    def _add_usage(self, session_id: str, usage: TokenUsage) -> None:
-        self._session_usage[session_id] = self._session_usage.get(session_id, TokenUsage()) + usage
+    def handle_presentation_state(self, session_id: str, presentation: SessionPresentationState) -> None:
+        current = self._presentations.get(session_id)
+        if current is not None and current.epoch == presentation.epoch and current.revision >= presentation.revision:
+            return
+        self._presentations[session_id] = presentation
         if self.is_running and session_id == self.state.selected_session_id:
-            self.query_one("#usage-status", Static).update(self._format_usage_status())
-
-    def _set_main_context_tokens(self, session_id: str, context_tokens: int | None) -> None:
-        self._main_context_tokens[session_id] = context_tokens
-        if session_id == self.state.selected_session_id:
             self.query_one("#usage-status", Static).update(self._format_usage_status())
 
     def bind_runtime(self, runtime: AgentRuntime, sessions: SessionOperations) -> None:
@@ -765,7 +777,6 @@ class InvestOrchAgentTUI(App[None]):
                 step.set_activity_label(label)
 
     async def handle_activity_label(self, event: ActivityLabelEvent) -> None:
-        self._add_usage(event.session_id, event.usage)
         async with self._timeline_lock:
             if event.session_id != self.state.selected_session_id:
                 return
@@ -906,7 +917,6 @@ class InvestOrchAgentTUI(App[None]):
             return
 
         try:
-            self._add_usage(event.session_id, event.auxiliary_usage)
             if event.status == "completed":
                 if event.result is None:
                     logger.error(
@@ -918,11 +928,7 @@ class InvestOrchAgentTUI(App[None]):
                         )
                 else:
                     result = event.result
-                    self._add_usage(event.session_id, result.main_usage)
                     compacted = result.auto_compaction is not None and result.auto_compaction.changed
-                    self._set_main_context_tokens(
-                        event.session_id, None if compacted else result.main_usage.last_request_total_tokens
-                    )
                     if compacted:
                         if event.session_id == self.state.selected_session_id:
                             await self.query_one(ChatTimeline).add_notice(
@@ -1146,9 +1152,6 @@ class InvestOrchAgentTUI(App[None]):
                 exit_on_error=False,
             )
         else:
-            if result.compaction is not None:
-                self._add_usage(new_session_id, result.compaction.usage)
-                self._set_main_context_tokens(new_session_id, None)
             if result.output:
                 await timeline.add_notice(result.output)
             if command.name in {"effort", "followup", "stop"}:

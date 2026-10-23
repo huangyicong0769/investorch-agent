@@ -18,6 +18,8 @@ import {
   getSessionState,
   getSessions,
 } from '../api/client'
+import { cachedPresentation, reconcilePresentation } from '../api/presentation'
+import { sessionModelQueryOptions } from '../api/sessionModel'
 import { removeDeletedSessionCaches } from '../api/sessionLifecycle'
 import {
   queryKeys,
@@ -37,6 +39,8 @@ import type {
   OutputEventAssistantMessageUpdate,
   RuntimeStateLiveEvent,
   SessionStateResponse,
+  SessionPresentationState,
+  TokenUsage,
   SessionContextResponse,
   SessionContextStatus,
   SessionListResponse,
@@ -283,12 +287,48 @@ function runtimeSnapshot(value: Record<string, unknown>): RuntimeStateLiveEvent 
   }
 }
 
+function tokenUsage(value: unknown): value is TokenUsage {
+  if (!isRecord(value)) return false
+  const counts = ['requests', 'input_tokens', 'cached_input_tokens', 'cache_write_input_tokens',
+    'output_tokens', 'reasoning_output_tokens', 'total_tokens']
+  return counts.every((key) => typeof value[key] === 'number' && Number.isInteger(value[key]) && value[key] >= 0)
+    && (value.last_request_total_tokens === null || (typeof value.last_request_total_tokens === 'number'
+      && Number.isInteger(value.last_request_total_tokens) && value.last_request_total_tokens >= 0))
+}
+
+function presentationSnapshot(value: unknown): SessionPresentationState | null {
+  if (!isRecord(value) || !tokenUsage(value.usage) || !tokenUsage(value.main_usage) || !tokenUsage(value.auxiliary_usage)) return null
+  if (typeof value.epoch !== 'string' || !value.epoch || typeof value.revision !== 'number'
+    || !Number.isInteger(value.revision) || value.revision < 0 || typeof value.compacting !== 'boolean'
+    || !['unknown', 'measured', 'estimated'].includes(String(value.context_kind))) return null
+  const contextTokens = value.main_context_tokens
+  const capacity = value.context_window_tokens
+  if (contextTokens !== null && (typeof contextTokens !== 'number' || !Number.isInteger(contextTokens) || contextTokens < 0)) return null
+  if (capacity !== null && (typeof capacity !== 'number' || !Number.isInteger(capacity) || capacity <= 0)) return null
+  const contextModel = nullableStringField(value, 'context_model')
+  const lastTodoRunId = nullableStringField(value, 'last_todo_run_id')
+  const todos = todoItems(value.last_todos)
+  if (contextModel === undefined || lastTodoRunId === undefined || todos === null) return null
+  return {
+    usage: value.usage, main_usage: value.main_usage, auxiliary_usage: value.auxiliary_usage,
+    main_context_tokens: contextTokens, context_window_tokens: capacity, context_model: contextModel,
+    context_kind: value.context_kind as SessionPresentationState['context_kind'], compacting: value.compacting,
+    revision: value.revision, epoch: value.epoch, last_todo_run_id: lastTodoRunId, last_todos: todos,
+  }
+}
+
 function parseLiveEvent(value: unknown): ParsedLiveEvent | null {
   if (!isRecord(value) || typeof value.kind !== 'string') {
     return null
   }
 
   switch (value.kind) {
+    case 'presentation_state': {
+      const sessionId = stringField(value, 'session_id')
+      const presentation = presentationSnapshot(value.presentation)
+      return sessionId === null || presentation === null ? null
+        : { kind: 'presentation_state', session_id: sessionId, presentation }
+    }
     case 'output': {
       const sessionId = stringField(value, 'session_id')
       const runId = stringField(value, 'run_id')
@@ -731,6 +771,16 @@ export function LiveWebSocketProvider({ children }: PropsWithChildren) {
   }
 
   const processEvent = (event: ParsedLiveEvent) => {
+    if (event.kind === 'presentation_state') {
+      const presentation = reconcilePresentation(queryClient, event.session_id, event.presentation)
+      queryClient.setQueryData<SessionStateResponse>(queryKeys.sessionState(event.session_id), (current) =>
+        current ? { ...current, presentation } : current,
+      )
+      queryClient.setQueryData<BootstrapResponse>(queryKeys.bootstrap(), (current) =>
+        current?.initial_session_id === event.session_id ? { ...current, presentation } : current,
+      )
+      return
+    }
     if (event.session_id === selectedSessionRef.current) {
       if (event.kind === 'output' && event.event.type === 'assistant_message_update') {
         const message = event.event
@@ -894,11 +944,13 @@ export function LiveWebSocketProvider({ children }: PropsWithChildren) {
       return
     }
 
+    const previousPresentation = cachedPresentation(queryClient, sessionId)
     const requests = await Promise.allSettled([
       getBootstrap({ signal: controller.signal }),
       getSessions({ signal: controller.signal }),
       getSessionState(sessionId, { signal: controller.signal }),
       getSessionHistory(sessionId, { limit: webConfig.history_page_size, signal: controller.signal }),
+      queryClient.fetchQuery({ ...sessionModelQueryOptions(sessionId), staleTime: 0 }),
     ])
 
     if (!mountedRef.current || token !== resyncTokenRef.current || selectedSessionRef.current !== sessionId) {
@@ -930,7 +982,9 @@ export function LiveWebSocketProvider({ children }: PropsWithChildren) {
       return
     }
     if (state) {
-      queryClient.setQueryData(queryKeys.sessionState(sessionId), state)
+      queryClient.setQueryData(queryKeys.sessionState(sessionId), { ...state,
+        presentation: reconcilePresentation(queryClient, sessionId, state.presentation, previousPresentation),
+      })
       queryClient.setQueryData(queryKeys.session(sessionId), { session: state.session })
     }
     if (latest) {

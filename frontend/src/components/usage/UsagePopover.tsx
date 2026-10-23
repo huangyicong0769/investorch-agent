@@ -1,4 +1,4 @@
-import type { SessionPresentationState } from '../../api/types'
+import type { SessionPresentationState, TokenUsage } from '../../api/types'
 import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 
@@ -22,28 +22,24 @@ function exactTokens(value: number): string {
 }
 
 export function UsagePopover({ contextWindowTokens, presentation }: UsagePopoverProps) {
-  const capacity = compactTokens(contextWindowTokens)
+  // A measured numerator belongs to its model snapshot, even after selecting another model.
+  const contextCapacity = presentation.context_window_tokens
+    ?? (presentation.main_context_tokens === null ? contextWindowTokens : null)
+  const capacity = compactTokens(contextCapacity)
   const mainContext = compactTokens(presentation.main_context_tokens)
-  const summary = `${mainContext} / ${capacity}`
-  const usage = presentation.usage
-  const contextRatio = contextWindowTokens && presentation.main_context_tokens !== null
-    ? Math.min(1, Math.max(0, presentation.main_context_tokens / contextWindowTokens))
+  const estimated = presentation.context_kind === 'estimated'
+  const summary = `${estimated ? 'Estimated ' : ''}${mainContext} / ${capacity}${presentation.compacting ? ' · Compacting…' : ''}`
+  const contextRatio = contextCapacity && presentation.main_context_tokens !== null
+    ? Math.min(1, Math.max(0, presentation.main_context_tokens / contextCapacity))
     : null
-
-  const rows = [
-    ['Requests', exactTokens(usage.requests)],
-    ['Input', exactTokens(usage.input_tokens)],
-    ['Cached', exactTokens(usage.cached_input_tokens)],
-    ['Cache write', exactTokens(usage.cache_write_input_tokens)],
-    ['Output', exactTokens(usage.output_tokens)],
-    ['Reasoning', exactTokens(usage.reasoning_output_tokens)],
-    ['Total', exactTokens(usage.total_tokens)],
-    [
-      'Main context',
-      `${presentation.main_context_tokens === null ? '—' : exactTokens(presentation.main_context_tokens)} / ${
-        contextWindowTokens === null ? '—' : exactTokens(contextWindowTokens)
-      }`,
-    ],
+  const rows: [string, keyof Omit<TokenUsage, 'last_request_total_tokens'>][] = [
+    ['Requests', 'requests'],
+    ['Input', 'input_tokens'],
+    ['Cached', 'cached_input_tokens'],
+    ['Cache write', 'cache_write_input_tokens'],
+    ['Output', 'output_tokens'],
+    ['Reasoning', 'reasoning_output_tokens'],
+    ['Total', 'total_tokens'],
   ]
 
   return (
@@ -70,17 +66,33 @@ export function UsagePopover({ contextWindowTokens, presentation }: UsagePopover
           collisionPadding={12}
           side="top"
           sideOffset={8}
-          className="z-30 w-64 max-w-[calc(100vw-1.5rem)] rounded-xl border border-border bg-card p-4 shadow-xl"
+          className="z-30 w-80 max-w-[calc(100vw-1.5rem)] rounded-xl border border-border bg-card p-4 shadow-xl"
         >
           <h2 className="text-sm font-semibold">Context &amp; usage</h2>
-          <dl className="mt-3 space-y-2 text-xs">
-            {rows.map(([label, value]) => (
-              <div className="flex items-center justify-between gap-4" key={label}>
-                <dt className="text-muted-foreground">{label}</dt>
-                <dd className="text-right tabular-nums">{value}</dd>
-              </div>
-            ))}
-          </dl>
+          <div className="mt-3 space-y-1 text-xs">
+            <div className="flex items-center justify-between gap-4">
+              <span>{estimated ? 'Main context (estimated)' : 'Main context'}</span>
+              <span className="tabular-nums">{presentation.main_context_tokens === null ? '—' : exactTokens(presentation.main_context_tokens)} / {contextCapacity === null ? '—' : exactTokens(contextCapacity)}</span>
+            </div>
+            {presentation.context_model ? <p className="break-words text-muted-foreground">{presentation.context_model}</p> : null}
+            {presentation.compacting ? <p role="status" className="text-muted-foreground">Compacting context…</p>
+              : presentation.context_kind === 'unknown' ? <p className="text-muted-foreground">Context has not been measured yet.</p> : null}
+          </div>
+          <table className="mt-4 w-full text-xs">
+            <caption className="sr-only">Token usage by main agent and auxiliary requests</caption>
+            <thead><tr className="text-muted-foreground">
+              <th scope="col" className="pb-2 text-left font-normal">Usage</th>
+              <th scope="col" className="pb-2 text-right font-normal">Main</th>
+              <th scope="col" className="pb-2 text-right font-normal">Auxiliary</th>
+            </tr></thead>
+            <tbody>{rows.map(([label, key]) => (
+              <tr key={key}>
+                <th scope="row" className="py-1 text-left font-normal text-muted-foreground">{label}</th>
+                <td className="py-1 text-right tabular-nums">{exactTokens(presentation.main_usage[key])}</td>
+                <td className="py-1 text-right tabular-nums">{exactTokens(presentation.auxiliary_usage[key])}</td>
+              </tr>
+            ))}</tbody>
+          </table>
         </PopoverContent>
       </Popover>
     </div>

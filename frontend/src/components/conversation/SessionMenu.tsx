@@ -26,7 +26,6 @@ import type {
   SessionRecord,
   SessionResponse,
   SessionStateResponse,
-  TokenUsage,
 } from '../../api/types'
 import { errorMessage } from '../../lib/errors'
 import { sessionPath, shortSessionId } from '../../lib/session'
@@ -56,19 +55,6 @@ function withoutSession(records: SessionRecord[], sessionId: string): SessionRec
 
 function upsertSession(records: SessionRecord[], replacement: SessionRecord): SessionRecord[] {
   return [replacement, ...withoutSession(records, replacement.session_id)]
-}
-
-function addUsage(current: TokenUsage, added: TokenUsage): TokenUsage {
-  return {
-    requests: current.requests + added.requests,
-    input_tokens: current.input_tokens + added.input_tokens,
-    cached_input_tokens: current.cached_input_tokens + added.cached_input_tokens,
-    cache_write_input_tokens: current.cache_write_input_tokens + added.cache_write_input_tokens,
-    output_tokens: current.output_tokens + added.output_tokens,
-    reasoning_output_tokens: current.reasoning_output_tokens + added.reasoning_output_tokens,
-    total_tokens: current.total_tokens + added.total_tokens,
-    last_request_total_tokens: added.last_request_total_tokens ?? current.last_request_total_tokens,
-  }
 }
 
 function lifecycleError(error: unknown): string {
@@ -147,20 +133,6 @@ export function SessionMenu({ session }: SessionMenuProps) {
       setMenuOpen(false)
 
       if (result.action === 'compact') {
-        queryClient.setQueryData<SessionStateResponse>(queryKeys.sessionState(session.session_id), (current) =>
-          current
-            ? {
-                ...current,
-                presentation: {
-                  ...current.presentation,
-                  usage: addUsage(current.presentation.usage, result.response.usage),
-                  main_context_tokens: result.response.changed
-                    ? null
-                    : current.presentation.main_context_tokens,
-                },
-              }
-            : current,
-        )
         if (result.response.changed) {
           toast.success('Session context compacted.')
         } else {

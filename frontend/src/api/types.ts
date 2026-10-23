@@ -56,7 +56,7 @@ export interface TokenUsage {
   output_tokens: number
   reasoning_output_tokens: number
   total_tokens: number
-  last_request_total_tokens: number
+  last_request_total_tokens: number | null
 }
 
 export interface RuntimeSnapshot {
@@ -74,7 +74,15 @@ export interface RuntimeSnapshot {
 
 export interface SessionPresentationState {
   usage: TokenUsage
+  main_usage: TokenUsage
+  auxiliary_usage: TokenUsage
   main_context_tokens: number | null
+  context_window_tokens: number | null
+  context_model: string | null
+  context_kind: 'unknown' | 'measured' | 'estimated'
+  compacting: boolean
+  revision: number
+  epoch: string
   last_todo_run_id: string | null
   last_todos: TodoItem[]
 }
@@ -421,7 +429,14 @@ export interface ApprovalCancelledLiveEvent {
   run_id: string
 }
 
+export interface PresentationStateLiveEvent {
+  kind: 'presentation_state'
+  session_id: string
+  presentation: SessionPresentationState
+}
+
 export type LiveEvent =
+  | PresentationStateLiveEvent
   | OutputLiveEvent
   | RuntimeStateLiveEvent
   | FollowUpLiveEvent
