@@ -19,6 +19,7 @@ from investorch.application.sessions import SessionOperations
 from investorch.application.skill_sessions import SkillSessionWorkflows
 from investorch.application.skills import SkillOperations
 from investorch.context import AppState
+from investorch.llm.oauth import ChatGPTAuth
 from investorch.web.approvals import WebApprovalBroker
 from investorch.web.connections import WebConnectionHub
 from investorch.web.events import WebEventBridge
@@ -62,7 +63,7 @@ async def open_test_web(
         config=runtime.config,
         execution=runtime.execution,
         selected_session_id="web-sessionless",
-        main_reasoning_effort="none",
+        session_models=runtime.runtime.session_models,
         permission_mode="manual",
     )
     portfolios = PortfolioOperations(config=runtime.config)
@@ -91,6 +92,7 @@ async def open_test_web(
     connections = WebConnectionHub(queue_capacity=runtime.config["web.connection_queue_capacity"])
     broker = WebApprovalBroker(WebEventBridge(connections))
     app = create_web_app(runtime.config)
+    app.state.chatgpt_auth = ChatGPTAuth(runtime.config)
     app.state.host = host
     app.state.approval_broker = broker
     app.state.connections = connections
@@ -102,6 +104,7 @@ async def open_test_web(
         yield WebHarness(runtime=runtime, host=host, client=client)
     finally:
         await client.aclose()
+        await app.state.chatgpt_auth.close()
         broker.close()
         await connections.aclose()
         await runtime.runtime.aclose()

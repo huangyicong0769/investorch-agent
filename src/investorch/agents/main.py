@@ -1,7 +1,7 @@
 import json
 from collections.abc import Sequence
 
-from agents import Agent, ModelSettings, OpenAIResponsesModel
+from agents import Agent, Model, ModelSettings
 from agents.mcp import MCPServer
 
 from investorch import tools
@@ -12,7 +12,7 @@ from .prompts import MAIN_AGENT_INSTRUCTIONS
 
 
 def create_agent(
-    model: OpenAIResponsesModel,
+    model: Model,
     model_settings: ModelSettings,
     config: AppConfig,
     mcp_servers: list[MCPServer] | None = None,

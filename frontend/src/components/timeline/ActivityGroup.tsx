@@ -8,7 +8,7 @@ import type {
   TimelineToolViewModel,
   TimelineUnmatchedToolOutputViewModel,
 } from '../../lib/timeline/project'
-import { formatJsonValue } from '../../lib/timeline/project'
+import { formatJsonValue, reasoningTitle } from '../../lib/timeline/project'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { MessageImages } from '../images/MessageImages'
 import { CopyButton } from '../ui/CopyButton'
@@ -78,7 +78,7 @@ function ApprovalActivity({ item }: { item: TimelineApprovalViewModel }) {
 }
 
 function activityTitle(item: TimelineActivityViewModel): string {
-  if (item.type === 'reasoning') return 'Reasoning'
+  if (item.type === 'reasoning') return reasoningTitle(item)
   if (item.type === 'tool') return item.label ?? item.name
   if (item.type === 'unmatched_tool_output') return 'Unmatched tool output'
   const automatic = item.source === 'permission'
@@ -131,7 +131,7 @@ export function ActivityGroup({ group }: ActivityGroupProps) {
     <Collapsible className="my-1 max-w-full" data-seq={group.seq} onOpenChange={setOpen} open={single || open}>
       {!single ? <CollapsibleTrigger className={triggerClass}>
         <ListTree aria-hidden="true" className="size-3.5 shrink-0" />
-        <span>Activity</span>
+        <span className="min-w-0 truncate" title={group.title}>{group.title}</span>
         <span className="text-muted-foreground/65">{group.items.length} steps</span>
         <ChevronRight aria-hidden="true" className="size-3.5 shrink-0 transition-transform group-data-[state=open]:rotate-90 motion-reduce:transition-none" />
       </CollapsibleTrigger> : null}

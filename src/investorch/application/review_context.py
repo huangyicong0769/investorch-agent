@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from agents import Agent
 
 from investorch.agents import TokenUsage, compact_review_instructions
+from investorch.agents.usage import UsageHandler
 from investorch.config import AppConfig
 from investorch.inputs import input_origin_from_record
 from investorch.journal import read_session_journal
@@ -34,7 +35,9 @@ class ReviewContext:
         self._journal_dir = config.session_journal_dir
         self._compaction_agent = compaction_agent
 
-    async def prepare(self, session_id: str, instruction_head_seq: int | None) -> PreparedReviewContext:
+    async def prepare(
+        self, session_id: str, instruction_head_seq: int | None, *, usage_handler: UsageHandler | None = None
+    ) -> PreparedReviewContext:
         if instruction_head_seq is None:
             return PreparedReviewContext(
                 text="",
@@ -62,7 +65,9 @@ class ReviewContext:
         if self._compaction_agent is None:
             raise ReviewContextError("Review instruction history requires compaction, but no compactor is available")
         try:
-            compacted = await compact_review_instructions(self._compaction_agent, self._config, prepared.text)
+            compacted = await compact_review_instructions(
+                self._compaction_agent, self._config, prepared.text, usage_handler=usage_handler
+            )
         except Exception as exc:
             raise ReviewContextError("Review instruction history could not be compacted safely") from exc
         return PreparedReviewContext(

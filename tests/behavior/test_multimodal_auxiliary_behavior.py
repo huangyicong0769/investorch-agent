@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from pathlib import Path
 
 import pytest
@@ -38,7 +39,7 @@ async def test_title_vision_failure_does_not_fail_main_image_run(tmp_path: Path)
 
     main = Agent(name="Main", model=ScriptedModel(((assistant_message("Main completed"),),)))
     title = Agent(name="Title", model=ScriptedModel((ModelStep.respond(reject_vision),)))
-    loop = AgentLoop(main, title, title, config, PortfolioOperations(config=config))
+    loop = AgentLoop(main, title, title, config, PortfolioOperations(config=config), model_factory=lambda _: main.model)
 
     async def approve(*_args):
         return ApprovalOutcome(approved=True, usage=TokenUsage())
@@ -53,7 +54,7 @@ async def test_title_vision_failure_does_not_fail_main_image_run(tmp_path: Path)
             ExecutionState(workspace_root=config.workspace_dir),
             run_id="run",
             session_id="session",
-            reasoning_effort="none",
+            model_config=config.agent_model("main"),
             approval_handler=approve,
             output_handler=output,
             run_control=RunControl("session", "run", lambda: None),
@@ -81,12 +82,27 @@ async def test_failed_compaction_preserves_original_multimodal_history(tmp_path:
             return await super().add_items(items)
 
     session = FailingReplacementSession("session", config.sessions_db)
-    history = [user_input_to_response_item(IMAGE_INPUT), {"role": "assistant", "content": "An image"}]
+    image_input = UserInput(
+        "Keep the marked pixel values.", (ImageContent(IMAGE_INPUT.images[0].image_url, detail="high"),)
+    )
+    history = [user_input_to_response_item(image_input), {"role": "assistant", "content": "An image"}]
+    original_bytes = json.dumps(history, ensure_ascii=False).encode("utf-8")
     await session.add_items(history)
     session.fail_next_write = failure == "replacement"
 
     def summarize(call):
-        assert call.input == history
+        assert len(call.input) == 2 and all(item["role"] == "user" for item in call.input)
+        metadata, image = call.input[0]["content"]
+        assert image == history[0]["content"][1]
+        assert image["image_url"] == image_input.images[0].image_url and image["detail"] == "high"
+        assert metadata["type"] == "input_text" and "not a live request" in metadata["text"]
+        assert "data:image" not in metadata["text"]
+        assert json.loads(metadata["text"].split("\n", 1)[1]) == {
+            "role": "user",
+            "content": [history[0]["content"][0], {"attached_image": 1}],
+        }
+        assert "not a live request" in call.input[1]["content"]
+        assert json.loads(call.input[1]["content"].split("\n", 1)[1]) == history[1]
         if failure == "provider":
             raise RuntimeError("Provider does not accept images")
         return (assistant_message("Summary"),)
@@ -95,7 +111,9 @@ async def test_failed_compaction_preserves_original_multimodal_history(tmp_path:
     try:
         with pytest.raises((RuntimeError, OSError)):
             await compact_session(agent, session, config)
-        assert await session.get_items() == history
+        restored = await session.get_items()
+        assert restored == history
+        assert json.dumps(restored, ensure_ascii=False).encode("utf-8") == original_bytes
     finally:
         session.close()
 

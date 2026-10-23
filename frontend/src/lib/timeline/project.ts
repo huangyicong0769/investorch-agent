@@ -40,6 +40,7 @@ export interface TimelineAssistantMessageViewModel {
 }
 
 export interface TimelineReasoningViewModel {
+  summary?: string
   type: 'reasoning'
   id: string
   seq: number
@@ -119,6 +120,7 @@ export interface TimelineRunTimingViewModel {
   timestamp: string
   runId: string
   status: 'completed' | 'cancelled' | 'failed'
+  error: string | null
   startedAt: string
   endedAt: string
   durationMs: number
@@ -178,6 +180,14 @@ function canonicalRecords(records: readonly JournalRecord[]): JournalRecord[] {
   return [...bySequence.values()].sort((left, right) => left.seq - right.seq)
 }
 
+export function reasoningTitle(item: TimelineReasoningViewModel): string {
+  const heading = item.summary?.split(/\r?\n/).find((line) => line.trim())?.trim()
+  return heading
+    ?.replace(/^#{1,6}\s+/, '')
+    .replace(/^\*\*(.*)\*\*$/, '$1')
+    .replace(/^__(.*)__$/, '$1') || 'Reasoning'
+}
+
 function activityTitle(group: TimelineActivityGroupViewModel): string {
   const latestTool = [...group.items].reverse().find((item): item is TimelineToolViewModel => item.type === 'tool')
   if (latestTool?.label) {
@@ -207,7 +217,8 @@ function activityTitle(group: TimelineActivityGroupViewModel): string {
     return `${outcome} · ${latestApproval.toolName}`
   }
 
-  return 'Reasoning'
+  const latestReasoning = [...group.items].reverse().find((item): item is TimelineReasoningViewModel => item.type === 'reasoning')
+  return latestReasoning ? reasoningTitle(latestReasoning) : 'Reasoning'
 }
 
 function refreshActivityTitle(group: TimelineActivityGroupViewModel): void {
@@ -260,6 +271,7 @@ function appendReasoning(activeTurn: MutableAssistantTurn, record: Extract<Journ
   group.items.push({
     type: 'reasoning',
     id: `reasoning-${record.seq}`,
+    summary: record.summary,
     seq: record.seq,
     timestamp: record.timestamp,
     text: record.text,
@@ -335,10 +347,14 @@ function appendApproval(activeTurn: MutableAssistantTurn, record: Extract<Journa
 export function projectTimeline(records: readonly JournalRecord[]): TimelineViewModel[] {
   const orderedRecords = canonicalRecords(records)
   const labels = new Map<number, string>()
+  const runErrors = new Map<string, string>()
 
   for (const record of orderedRecords) {
     if (record.type === 'activity_label' && record.text.trim()) {
       labels.set(record.target_seq, record.text.trim())
+    }
+    if (record.type === 'run_error') {
+      runErrors.set(record.run_id, record.error)
     }
   }
 
@@ -355,7 +371,7 @@ export function projectTimeline(records: readonly JournalRecord[]): TimelineView
   }
 
   for (const record of orderedRecords) {
-    if (record.type === 'activity_label') {
+    if (record.type === 'activity_label' || record.type === 'run_error') {
       continue
     }
 
@@ -408,6 +424,7 @@ export function projectTimeline(records: readonly JournalRecord[]): TimelineView
         timestamp: record.timestamp,
         runId: record.run_id,
         status: record.status,
+        error: runErrors.get(record.run_id) ?? record.error ?? null,
         startedAt: record.started_at,
         endedAt: record.ended_at,
         durationMs: record.duration_ms,

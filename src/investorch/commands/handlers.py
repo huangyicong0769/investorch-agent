@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import webbrowser
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
@@ -18,8 +19,9 @@ from investorch.application.sessions import (
     SessionDeletionCleanupError,
     SessionDeletionUnsafeError,
 )
-from investorch.config import FOLLOW_UP_BEHAVIORS, PERMISSION_MODES, REASONING_EFFORTS
+from investorch.config import FOLLOW_UP_BEHAVIORS, PERMISSION_MODES, REASONING_EFFORTS, ConfigError
 from investorch.context import AppState
+from investorch.llm.oauth import ChatGPTAuthError
 from investorch.runtime import AgentRuntime, SessionBusyError
 from investorch.storage import (
     SessionDeletionScopeChangedError,
@@ -48,7 +50,9 @@ HELP = (
     "  /unarchive [prefix] List or restore an archived session.\n"
     "  /fork              Fork the current session.\n"
     "  /title [title]     Show or set the session title.\n"
-    "  /effort [level]    Show or set Main reasoning effort.\n"
+    "  /model [connection name effort window] Show or set the Session model.\n"
+    "  /model login|logout [connection] Manage ChatGPT authorization.\n"
+    "  /effort [level]    Show or set the next Run reasoning effort.\n"
     "  /permission [mode] Show or set tool permission mode.\n"
     "  /followup [mode]   Show or set follow-up behavior.\n"
     "  /stop              Stop the current Agent run.\n"
@@ -74,15 +78,22 @@ async def dispatch_command(
     sessions: SessionOperations,
     confirm_clear_scope: Callable[[dict[str, object]], Awaitable[bool]] | None = None,
 ) -> CommandResult:
-    if state.selected_session_id is None and command.name in {
-        "session",
-        "archive",
-        "fork",
-        "title",
-        "stop",
-        "clear",
-        "compact",
-    }:
+    if (
+        state.selected_session_id is None
+        and command.name
+        in {
+            "session",
+            "archive",
+            "fork",
+            "title",
+            "stop",
+            "clear",
+            "compact",
+            "model",
+            "effort",
+        }
+        and not (command.name == "model" and len(command.args) == 2 and command.args[0] in {"login", "logout"})
+    ):
         return CommandResult("No Session selected. Use /new or /resume to continue.")
     match command.name:
         case "session":
@@ -232,9 +243,71 @@ async def dispatch_command(
                 return CommandResult("Cannot update this session while it has an active operation.")
             return CommandResult(f"Set session title to: {title}")
 
+        case "model":
+            session_id = state.selected_session_id
+            if command.args and command.args[0] in {"login", "logout"}:
+                if len(command.args) > 2:
+                    return CommandResult("Usage: /model login|logout [connection]")
+                if state.chatgpt_auth is None:
+                    return CommandResult(
+                        "ChatGPT authorization is unavailable in this Host. Open Setup or Settings to sign in."
+                    )
+                connection_id = (
+                    command.args[1]
+                    if len(command.args) == 2
+                    else runtime.session_models.view(session_id).effective.model
+                )
+                try:
+                    connection = state.config.model_connection(connection_id)
+                    if connection.type != "chatgpt":
+                        return CommandResult("This connection uses an API key. Select a ChatGPT connection to sign in.")
+                    if command.args[0] == "logout":
+                        result = await state.chatgpt_auth.logout(connection.credentials)
+                        return CommandResult(result["message"])
+                    pending = await state.chatgpt_auth.start_browser_login(connection_id)
+                    opened = await asyncio.to_thread(webbrowser.open, pending["authorization_url"])
+                    if not opened:
+                        return CommandResult("The browser could not be opened. Use Setup or Settings to sign in.")
+                    return CommandResult(
+                        f"Browser authorization started for {connection_id}. Complete sign-in and grant ChatGPT plan usage in the browser."
+                    )
+                except (ConfigError, ChatGPTAuthError) as error:
+                    return CommandResult(str(error))
+            if not command.args:
+                active = runtime.get_active_run(session_id)
+                view = runtime.session_models.view(session_id, active=active.options.model if active else None)
+
+                def describe(model):
+                    return (
+                        f"{model.model} / {model.name} · effort {model.reasoning_effort} · window {model.context_window_tokens}"
+                        if model
+                        else "none"
+                    )
+
+                return CommandResult(
+                    f"Active: {describe(view.active)}\nSaved: {describe(view.persisted)}\nNext Run: {describe(view.effective)}"
+                )
+            if len(command.args) != 4:
+                return CommandResult("Usage: /model [connection name effort context_window_tokens]")
+            try:
+                selected = runtime.session_models.update(
+                    session_id,
+                    model=command.args[0],
+                    name=command.args[1],
+                    reasoning_effort=command.args[2],
+                    context_window_tokens=int(command.args[3]),
+                )
+            except (ConfigError, ValueError, KeyError) as error:
+                return CommandResult(str(error))
+            return CommandResult(
+                f"Next Run model: {selected.model} / {selected.name}. Draft is saved when a Run starts; otherwise lost on exit."
+            )
+
         case "effort":
             if not command.args:
-                return CommandResult(f"Main reasoning effort: {state.main_reasoning_effort}")
+                return CommandResult(
+                    f"Next Run reasoning effort: {runtime.session_models.view(state.selected_session_id).effective.reasoning_effort}"
+                )
             if len(command.args) != 1:
                 return CommandResult("Usage: /effort [none|minimal|low|medium|high|xhigh|max]")
 
@@ -242,8 +315,11 @@ async def dispatch_command(
             if effort not in REASONING_EFFORTS:
                 return CommandResult(f"Unsupported reasoning effort: {command.args[0]}")
 
-            state.main_reasoning_effort = effort
-            return CommandResult(f"Main reasoning effort set to: {effort}")
+            try:
+                runtime.session_models.update(state.selected_session_id, reasoning_effort=effort)
+            except (ConfigError, KeyError) as error:
+                return CommandResult(str(error))
+            return CommandResult(f"Next Run reasoning effort set to: {effort}. Draft is saved when a Run starts.")
 
         case "permission":
             if not command.args:

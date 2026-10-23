@@ -56,7 +56,7 @@ export interface TokenUsage {
   output_tokens: number
   reasoning_output_tokens: number
   total_tokens: number
-  last_request_total_tokens: number
+  last_request_total_tokens: number | null
 }
 
 export interface RuntimeSnapshot {
@@ -74,7 +74,15 @@ export interface RuntimeSnapshot {
 
 export interface SessionPresentationState {
   usage: TokenUsage
+  main_usage: TokenUsage
+  auxiliary_usage: TokenUsage
   main_context_tokens: number | null
+  context_window_tokens: number | null
+  context_model: string | null
+  context_kind: 'unknown' | 'measured' | 'estimated'
+  compacting: boolean
+  revision: number
+  epoch: string
   last_todo_run_id: string | null
   last_todos: TodoItem[]
 }
@@ -99,7 +107,6 @@ export interface ApprovalRequest {
 }
 
 export interface Defaults {
-  reasoning_effort: ReasoningEffort
   permission_mode: PermissionMode
   follow_up_behavior: FollowUpBehavior
 }
@@ -120,7 +127,6 @@ export interface BootstrapResponse {
   version: string
   initial_session_id: string | null
   agent_name: string
-  context_window_tokens: number
   defaults: Defaults
   image_config: ImageConfig
   web_config: WebConfig
@@ -296,6 +302,7 @@ export interface OutputEventAgentChanged {
 export interface OutputEventReasoning {
   type: 'reasoning'
   text: string
+  summary?: string
 }
 
 export interface OutputEventToolCalled {
@@ -369,6 +376,7 @@ export interface RunEndedLiveEvent {
   session_id: string
   run_id: string
   status: 'completed' | 'cancelled' | 'failed'
+  error?: string | null
   started_at?: string
   ended_at?: string
   duration_ms?: number
@@ -421,7 +429,14 @@ export interface ApprovalCancelledLiveEvent {
   run_id: string
 }
 
+export interface PresentationStateLiveEvent {
+  kind: 'presentation_state'
+  session_id: string
+  presentation: SessionPresentationState
+}
+
 export type LiveEvent =
+  | PresentationStateLiveEvent
   | OutputLiveEvent
   | RuntimeStateLiveEvent
   | FollowUpLiveEvent
@@ -481,10 +496,17 @@ export interface RunEndedRecord extends JournalRecordBase {
   type: 'run_ended'
   run_id: string
   status: 'completed' | 'cancelled' | 'failed'
+  error?: string | null
   started_at?: string
   ended_at?: string
   duration_ms?: number
   discarded_user_steer_seqs?: number[]
+}
+
+export interface RunErrorRecord extends JournalRecordBase {
+  type: 'run_error'
+  run_id: string
+  error: string
 }
 
 export type JournalOutputRecord = JournalRecordBase & Exclude<OutputEvent, OutputEventAssistantMessageUpdate>
@@ -496,6 +518,7 @@ export type JournalRecord =
   | ActivityLabelRecord
   | ApprovalRecord
   | RunEndedRecord
+  | RunErrorRecord
   | JournalOutputRecord
 
 export interface HistoryResponse {
@@ -625,7 +648,20 @@ export interface ResolveApprovalBody {
 }
 
 export interface UpdateDefaultsBody {
-  reasoning_effort?: ReasoningEffort
   permission_mode?: PermissionMode
   follow_up_behavior?: FollowUpBehavior
+}
+
+export interface AgentModelConfig {
+  model: string
+  name: string
+  reasoning_effort: ReasoningEffort
+  context_window_tokens: number
+}
+export interface SessionModelView {
+  session_id: string
+  persisted: AgentModelConfig | null
+  draft: AgentModelConfig | null
+  effective: AgentModelConfig
+  active: AgentModelConfig | null
 }

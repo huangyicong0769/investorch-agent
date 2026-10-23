@@ -28,7 +28,6 @@ async def workflow_harness(tmp_path):
         config=runtime.config,
         execution=runtime.execution,
         selected_session_id="unrelated-session",
-        main_reasoning_effort="none",
         permission_mode="manual",
     )
     workflows = SkillSessionWorkflows(state=state, runtime=runtime.runtime, sessions=sessions, skills=skills)

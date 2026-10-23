@@ -5,7 +5,8 @@ from decimal import Decimal
 from pathlib import Path
 
 import pytest
-from agents import Agent, ModelSettings
+from agents import Agent, ModelSettings, SQLiteSession
+from agents.testing import ScriptedModel
 from agents.tool import FunctionTool
 from agents.tool_context import ToolContext
 
@@ -130,7 +131,7 @@ async def test_get_portfolio_returns_exact_deterministic_logical_state(tmp_path:
 async def test_get_portfolio_ledger_returns_newest_entries_with_explicit_truncation(tmp_path: Path) -> None:
     context = make_tool_context(tmp_path)
     portfolio = await context.context.portfolios.create(name="Core", base_currency="CNY")
-    for amount in ("0.1", "0.03", "1523.45"):
+    for amount in ("0.1", "0.03", "1523.45") * 20:
         await context.context.portfolios.record_cash_flow(portfolio.id, amount=Decimal(amount), source="import")
 
     result = await invoke(get_portfolio_ledger, context, portfolio_id=portfolio.id, limit=2)
@@ -138,18 +139,47 @@ async def test_get_portfolio_ledger_returns_newest_entries_with_explicit_truncat
 
     assert isinstance(result, dict)
     assert result["portfolio_id"] == portfolio.id
-    assert result["total"] == 3
+    assert result["total"] == 60
     assert result["returned"] == 2
     assert result["has_older"] is True
-    assert [entry["sequence"] for entry in result["entries"]] == [2, 3]
+    assert [entry["sequence"] for entry in result["entries"]] == [59, 60]
     assert [entry["payload"]["amount"] for entry in result["entries"]] == ["0.03", "1523.45"]
     assert isinstance(default_result, dict)
-    assert default_result["returned"] == 3
+    assert default_result["returned"] == 60
     assert default_result["has_older"] is False
 
-    invalid = await invoke(get_portfolio_ledger, context, portfolio_id=portfolio.id, limit=201)
+    invalid = await invoke(get_portfolio_ledger, context, portfolio_id=portfolio.id, limit=1001)
     assert isinstance(invalid, str)
-    assert "limit must be between 1 and 200" in invalid
+    assert "limit must be between 1 and 1000" in invalid
+
+
+async def test_ledger_reading_limits_hot_apply_and_persist_through_configuration(tmp_path: Path) -> None:
+    from investorch.config import load_config
+
+    context = make_tool_context(tmp_path)
+    context.context.config.update_many(
+        {"portfolio_tools.default_ledger_limit": 2, "portfolio_tools.max_ledger_limit": 3}, persist=False
+    )
+    portfolio = await context.context.portfolios.create(name="Core", base_currency="CNY")
+    for amount in ("1", "2", "3"):
+        await context.context.portfolios.record_cash_flow(portfolio.id, amount=Decimal(amount), source="import")
+
+    inherited = await invoke(get_portfolio_ledger, context, portfolio_id=portfolio.id, limit=None)
+    assert isinstance(inherited, dict) and [entry["sequence"] for entry in inherited["entries"]] == [2, 3]
+
+    config = context.context.config
+    config.update("portfolio_tools.default_ledger_limit", 3, persist=False)
+    hot = await invoke(get_portfolio_ledger, context, portfolio_id=portfolio.id)
+    explicit = await invoke(get_portfolio_ledger, context, portfolio_id=portfolio.id, limit=1)
+    assert isinstance(hot, dict) and hot["returned"] == 3
+    assert isinstance(explicit, dict) and [entry["sequence"] for entry in explicit["entries"]] == [3]
+
+    config.update_many({"portfolio_tools.default_ledger_limit": 1, "portfolio_tools.max_ledger_limit": 1})
+    context.context.config = load_config(root=config.root)
+    reloaded = await invoke(get_portfolio_ledger, context, portfolio_id=portfolio.id)
+    rejected = await invoke(get_portfolio_ledger, context, portfolio_id=portfolio.id, limit=2)
+    assert isinstance(reloaded, dict) and [entry["sequence"] for entry in reloaded["entries"]] == [3]
+    assert isinstance(rejected, str) and "limit must be between 1 and 1" in rejected
 
 
 async def test_approved_lifecycle_tools_preserve_update_and_clear_semantics(tmp_path: Path) -> None:
@@ -713,6 +743,7 @@ async def test_run_created_agent_context_uses_host_portfolio_state(
             Agent(name="Compaction", instructions="test"),
             harness.host.config,
             harness.host.portfolios,
+            model_factory=lambda _: ScriptedModel(),
         )
         captured: dict[str, AgentContext] = {}
 
@@ -725,18 +756,20 @@ async def test_run_created_agent_context_uses_host_portfolio_state(
         async def unused_handler(*_args: object) -> None:
             raise AssertionError("handler should not be reached")
 
+        session = SQLiteSession("session-a", harness.host.config.sessions_db)
         with pytest.raises(RuntimeError, match="controlled SDK boundary"):
             await agent_loop.run(
                 "read the portfolio",
-                None,  # type: ignore[arg-type]
+                session,
                 harness.host.execution,
                 run_id="run-a",
                 session_id="session-a",
-                reasoning_effort="none",
+                model_config=harness.host.config.agent_model("main"),
                 approval_handler=unused_handler,  # type: ignore[arg-type]
                 output_handler=unused_handler,
                 run_control=None,  # type: ignore[arg-type]
             )
+        session.close()
 
         context = ToolContext(
             context=captured["context"],

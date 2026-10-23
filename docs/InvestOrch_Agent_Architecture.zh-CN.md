@@ -72,7 +72,7 @@ Application 分离三个 identity：
 - **Run**：一次瞬时顶层 Agent turn。
 - **Selection**：客户端当前显示的 Session。
 
-`AgentRuntime` 拥有 active Runs 和 follow-up queues。每个 Session 最多一个顶层 Run，不同 Session 可以并发。每个 Run 捕获不可变的 reasoning effort、permission mode 和 follow-up 设置。
+`AgentRuntime` 拥有 active Runs 和 follow-up queues。每个 Session 最多一个顶层 Run，不同 Session 可以并发。每个 Run 捕获不可变 `AgentModelConfig`（连接、真实模型、effort、窗口）、permission mode 与 follow-up 设置。Session Draft 由 Host 统一持有；Queue 仅在晋升时解析最新 Draft，提交时捕获的 permission/follow-up 默认值保持不变。
 
 Steer 在安全的 turn boundary 继续当前顶层 Run。Queue 保存未来意图，并在成功完成后提升为新 Run。Stop 取消选中 Session 的 active Run，并暂停保留的 Queue 意图。
 
@@ -89,7 +89,9 @@ Main Agent 会为每个 Run 使用已捕获 model settings 进行 clone。辅助
 - Permission Agent 在 review 模式下可以返回 approve、reject 或 ask。
 - Compact Agent 用带标记的 summary 替换 SDK continuation history。
 
-Runtime 使用 OpenAI Responses model adapter。Schema 定义五个独立可配置的模型角色，不预设 Provider。Model name、base URL、secret reference 和 reasoning effort 来自 `AppConfig`，构造 Agent 前检查 readiness。独立 Skill Review Agent 复用 Permission 模型配置。
+Runtime 保留 OpenAI Agents SDK 与 Responses adapter。`models.<id>` 定义可复用连接，`agents.<role>` 为五个内置角色选择连接、真实模型、effort 与正整数窗口；分别由 `AppConfig.model_connection()`、`agent_model()` 解析。Skill Review 共用 `agents.permission`。Host 的 `ModelConnectionClients` 按连接复用 Client，停机统一关闭；每个 Run 克隆自己的模型及设置，不修改共享 Agent 模板。
+
+ChatGPT 连接使用验证后的本地 OAuth 授权与官方 direct Responses Endpoint。薄适配层发送流式、不存储请求，限制不支持的字段，并通过流式结果收集服务 SDK 的非流式调用者。Host 持有 `ChatGPTAuth`，Web Setup 在 Agent Host 未启动时也能授权。凭据按需刷新，同 credential 串行化，并与 Settings 共用私有 TOML 原子写回；公开配置不返回 Token。详见[Configuration](Configuration.zh-CN.md)。
 
 ## 当前 Tool Surface
 
@@ -117,13 +119,13 @@ Agent Session Tools（Host 已绑定的查询）
 └── Application read_session  -> Storage 存在性检查 + 已有 SessionJournal + 共享 Steer 事实
 ```
 
-`application.session_queries.list_sessions` 和 `read_session` 是显式接收依赖、不保存隐式读取位置的普通 async 函数。Host 按 `Agent -> AgentLoop -> AgentRuntime` 顺序构造后，通过 `functools.partial` 绑定查询，并在 yield Host 前向已有 Agent 一次追加 `make_session_tools(...)`。每个 Run 的 Agent clone 都能看到完整 Tool 列表，Run 期间无需重新注册。每个 Host 分别绑定自己的数据库、Runtime 和已有 Journal，历史查询不需要 Runtime。Tool 仅向已绑定的查询转发经过验证的公开参数。共享 Journal 事实为历史读取和 Review 解析 Steer 激活/丢弃证据，Review 保留严格的指令边界策略。不增加历史数据库或 Runtime 状态机。
+`application.session_queries.list_sessions` 和 `read_session` 是显式接收依赖、不保存隐式读取位置的普通 async 函数。Host 按 `Agent -> AgentLoop -> AgentRuntime` 顺序构造后，通过 `functools.partial` 绑定查询，并在 yield Host 前向已有 Agent 一次追加 `make_session_tools(...)`。每个 Run 的 Agent clone 都能看到完整 Tool 列表，Run 期间无需重新注册。每个 Host 绑定同一个实时 AppConfig，以及自己的数据库、Runtime 和已有 Journal；历史查询不需要 Runtime。每次查询在调用开始时取得 AppConfig 快照，使该次调用的默认值、校验和输出预算保持一致。Tool 仅向已绑定的查询转发经过验证的公开参数。共享 Journal 事实为历史读取和 Review 解析 Steer 激活/丢弃证据，Review 保留严格的指令边界策略。不增加历史数据库或 Runtime 状态机。
 
-`list_sessions(query=None, include_archived=False, limit=50, offset=0)` 枚举当前 Root 的元数据。空 query 不过滤标题；非空 query 仅在 title 上进行 Unicode `casefold()` 子串匹配，不支持 Session ID 或消息正文筛选。默认排除归档 Session；`include_archived=True` 同时包含归档与未归档 Session。每行返回 `session_id`、`title`、`archived`、`branch_from_session_id`、`created_at`、`updated_at` 和 `status`，按 `updated_at` 降序排列，时间相同时按 `session_id` 排序。`has_more` 为真时用 `next_offset` 继续。Offset 分页反映当前列表，并发变化时为尽力枚举，不冻结列表快照。
+`list_sessions(query=None, include_archived=False, limit=None, offset=0)` 枚举当前 Root 的元数据。空 query 不过滤标题；非空 query 仅在 title 上进行 Unicode `casefold()` 子串匹配，不支持 Session ID 或消息正文筛选。默认排除归档 Session；`include_archived=True` 同时包含归档与未归档 Session。每行返回 `session_id`、`title`、`archived`、`branch_from_session_id`、`created_at`、`updated_at` 和 `status`，按 `updated_at` 降序排列，时间相同时按 `session_id` 排序。`has_more` 为真时用 `next_offset` 继续。Offset 分页反映当前列表，并发变化时为尽力枚举，不冻结列表快照。
 
 有 active Run 时，列表状态为 `running`、`waiting_approval` 或 `stopping`；没有 active Run、但仍有已接受的 Queue 或 Steer 工作时为 `pending`，否则为 `idle`。不返回队列数量、暂停标记或待处理 Steer 详情。归档是独立元数据，历史失败或上一进程的 active Run 不决定当前状态。列表仅读取元数据和当前 Runtime snapshot，不扫描各 Session Journal。
 
-`read_session(session_id, view="conversation", before_seq=None, snapshot_seq=None, limit=50)` 要求当前 Root 中存在的精确 Session ID，可以读取自身、其他正在运行的 Session 或归档 Session。结果只含历史与分页字段，不含 Session metadata、当前状态或上一次 Run 结果。读取不改变 Selection、不启动 Run、不修改 Session。
+`read_session(session_id, view="conversation", before_seq=None, snapshot_seq=None, limit=None)` 要求当前 Root 中存在的精确 Session ID，可以读取自身、其他正在运行的 Session 或归档 Session。结果只含历史与分页字段，不含 Session metadata、当前状态或上一次 Run 结果。读取不改变 Selection、不启动 Run、不修改 Session。
 
 默认 `conversation` 返回扁平 `user`、`assistant`、`tool_call` 和 `tool_result` 记录，保留原 Journal `seq` 和 `timestamp`。仅已激活 Steer 以普通 `user` 记录显示，序号仍为原始输入序号。Pending/discarded Steer、reasoning、approval 和维护事件不进入此视图。Tool result 独立存在，即使其 call 位于另一页，也不伪造 Tool-call ID。图片仅含经过清理的 `filename`、`media_type`、`detail` 和 `image_count` 元数据，不含 URL 或图片字节。可选 `events` 在响应预算内保留经过验证的原始 Journal 字段和值，包括 reasoning、approval 和图片 payload。
 
@@ -148,7 +150,7 @@ Agent Session Tools（Host 已绑定的查询）
 
 随后调用 `read_session(session_id="session-b", before_seq=70, snapshot_seq=73, limit=2)`。该页可以返回 `seq=67,69`，追加的 `seq>73` 仍被排除。存在的 Session 若 Journal 缺失或为空，返回 `snapshot_seq=0`、空 records、`has_older=false` 和 `next_before_seq=null`。
 
-两个 Tool 默认每页 50 条、最多 100 条，JSON 编码后的整个结果最多 32,000 字符，包含转义开销。Conversation 可以缩短页面以保留完整记录，保留最新连续合格后缀，使旧页 cursor 可以找回其余记录。单个 `text`、`arguments` 或 `output` 超过 16,000 字符，或该记录编码后超出响应预算时，会显式省略字段而不裁剪。记录保留 identity/metadata，并增加 `omitted_fields` 项，例如 `{"field":"output","reason":"size_limit","original_chars":280000}`；响应级 `omitted_fields` 计数这些项。省略占位记录仍推进分页。连元数据也无法容纳时返回 `response_too_large`。
+两个 Tool 省略 limit 或传 null 时继承可热更新的 AppConfig `session_tools.default_page_size`，显式 limit 的范围为 1 到 `session_tools.max_page_size`，两项默认值分别为 200 和 500 条。`session_tools.max_response_chars` 限制编码后的整个响应，包含转义开销，默认 262,144 字符。当前值通过 `get_config()` 读取。Conversation 可以缩短页面以保留完整记录，保留最新连续合格后缀，使旧页 cursor 可以找回其余记录。单个 `text`、`arguments` 或 `output` 超过可热更新的 `session_tools.max_field_chars`（默认 131,072 个原文字符），或该记录编码后超出响应预算时，会显式省略字段而不裁剪。记录保留 identity/metadata，并增加 `omitted_fields` 项，例如 `{"field":"output","reason":"size_limit","original_chars":280000}`；响应级 `omitted_fields` 计数这些项。省略占位记录仍推进分页。连元数据也无法容纳时返回 `response_too_large`。
 
 Raw Events 不会为了预算改写：请求页超限时返回 `response_too_large`，提示减小 `limit` 或使用 Conversation。单个超大 raw event 在该预算下无法通过 Events 获取。无效参数/cursor、缺失 ID、已提交历史损坏、矛盾 Steer 证据或 Journal 不可用均返回明确且安全的错误；有效 Session 缺少 Journal 则为空历史。Snapshot 捕获仅短暂持有 Journal 锁，随后扫描已提交前缀，不申请 Runtime maintenance reservation，也不在历史扫描期间持有写锁。Stage A 不增加跨 Session 发消息或 spawn 能力。
 
@@ -193,6 +195,8 @@ Delete 与 Clear 共用受保护的递归 Spawn 删除、全节点 Runtime reser
 
 `run_backtest` 验证 Workspace 相对 RQAlpha 策略，捕获一份不可变配置快照，执行日频股票回测，并在配置的 Workspace 目录中写入可复现元数据和 analyser artifacts。
 
+AppConfig 提供执行默认值。类型化 `parameters` 参数可为单次调用覆盖 T+1、分红与税费、价格校验、撮合、交易限制、滑点和交易成本。null 或省略字段继承默认值，明确的 false 和零按覆盖值生效。Tool 解析出一份不可变的有效参数，不修改 AppConfig；返回的 `runtime` 与 `request.json.runtime` 记录同一组值。初始资金与基准仍是独立参数。数据源选择、路径和检查数量限制保留在应用配置中，其中数据源选择也决定启动时的能力组合。单次研究假设通过 Tool 参数表达，修改后续默认值才进入配置流程。
+
 默认数据路径是原生 RQAlpha bundle。当 `backtest.use_cnequity=true` 且已安装可选依赖时，RQAlpha 通过配置字符串加载 `investorch.backtest.rqalpha_mod`，以 CNEquity 日线和复权因子覆盖数据，同时保留 RQAlpha market semantics。
 
 CNEquity 是可选且由用户运维的后端。`investorch data` 把参数传给其 CLI，Application 也可以组合其只读 stdio MCP server。Ingestion、repair、retry、locking 与 recovery 由 CNEquity 自身负责。
@@ -217,11 +221,11 @@ SQLite continuation 是 model state，可以被压缩；JSONL Journal 是 replay
 
 `config_schema.AppConfigSchema` 是字段类型、默认值、约束、敏感属性和生命周期（`hot`、`restart_required`、`immutable`）的唯一权威。`AppConfig` 合并 Schema defaults、Local TOML overrides 与允许的临时配置变化；运行时不再读取随包默认 TOML。`paths.root` 默认 `~/.investorch`，可通过程序化 bootstrap 注入，Local TOML 不能重定向自身 Root。
 
-`AppConfig` 提供有效/已保存公开视图、readiness、JSON Schema、原子批量修改、通过移除覆盖实现的 reset，以及独立 snapshot。完整候选通过验证后才写盘，保留注释与相邻设置；原子替换与小范围写锁保护落盘，检测到外部修改时拒绝旧视图覆盖。需要重启的修改保存为下次启动值。AppConfig 不识别调用者或执行授权策略：Agent Tool 在边界拒绝 `secrets.*`、`permission.*` 和 `models.permission.*`，用户直接操作则由 HTTP 边界保护。
+`AppConfig` 提供有效/已保存公开视图、readiness、JSON Schema、原子批量修改、通过移除覆盖实现的 reset，以及独立 snapshot。完整候选通过验证后才写盘，保留注释与相邻设置；原子替换与小范围写锁保护落盘，检测到外部修改时拒绝旧视图覆盖。需要重启的修改保存为下次启动值。AppConfig 不识别调用者或执行授权策略：Agent Tool 在边界拒绝修改 `models.*`、`agents.*`、`secrets.*`、`auth.*` 和 `permission.*`，用户直接操作则由 HTTP 边界保护。
 
 所有 Local TOML 均按当前 Schema 校验。模型 Provider 字段须显式配置；缺少模型设置或凭据时进入 Setup。TOML 格式错误、未知字段和无效值保持报错。字段描述与公开视图不包含 Secret 明文。
 
-`AppState` 保存可选的进程级 reasoning effort、Permission 和 follow-up 覆盖；无覆盖时读取有效 AppConfig，显式覆盖不被后续配置修改抹掉。`/defaults`、`/effort`、`/permission` 不持久化配置，已启动 Run 保持捕获的 `RunOptions`。
+`AppState` 保留进程级 Permission/follow-up 覆盖，并引用共享 Session 模型存储。`/model`、`/effort` 修改选中 Session 的 Draft，下一次实际 Run 才把纯模型值提交到 Session 元数据，当前 Run 保持冻结。连接与 Agent 默认值重启生效，OAuth 状态即时生效。SQLite 模型元数据不含凭据，普通与 Spawn Session 使用同一契约。
 
 已配置 model 与 MCP endpoints 是外部信任边界。本地优先表示状态和 Workspace 默认由本地拥有，不表示 model 或 MCP traffic 留在本机。
 

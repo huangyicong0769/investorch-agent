@@ -7,11 +7,11 @@ from investorch.config import ConfigError, load_config
 
 def test_loading_incomplete_model_configuration_preserves_file_and_requires_setup(tmp_path: Path) -> None:
     local = tmp_path / "investorch.toml"
-    original = b'[secrets]\nPROVIDER_KEY = "existing-test-key"\n[models.main]\nname = "explicit-model" # user choice\n'
+    original = b'[secrets]\nPROVIDER_KEY = "existing-test-key"\n[agents.main]\nname = "explicit-model" # user choice\n'
     local.write_bytes(original)
     config = load_config(root=tmp_path)
-    assert "models.main.base_url" in config.readiness()
-    assert config["models.main.name"] == "explicit-model"
+    assert "agents.main.model" in config.readiness()
+    assert config["agents.main.name"] == "explicit-model"
     assert config.secret("PROVIDER_KEY") == "existing-test-key"
     assert local.read_bytes() == original
     assert list(tmp_path.iterdir()) == [local]
@@ -66,6 +66,29 @@ def test_batch_update_is_atomic_and_restart_values_wait_until_reload(tmp_path: P
     reloaded = load_config(root=tmp_path)
     assert reloaded["runtime.max_turns"] == 80
     assert reloaded["web.default_port"] == 8123
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"session_tools.default_page_size": 30, "session_tools.max_page_size": 20},
+        {"session_tools.max_field_chars": 2000, "session_tools.max_response_chars": 1000},
+        {"portfolio_tools.default_ledger_limit": 30, "portfolio_tools.max_ledger_limit": 20},
+    ],
+)
+def test_invalid_tool_reading_budgets_preserve_effective_values_and_local_file(
+    tmp_path: Path, changes: dict[str, int]
+) -> None:
+    config = load_config(root=tmp_path)
+    config.ensure_local_file()
+    before = config.public()
+    original = config.root_config_path.read_bytes()
+
+    with pytest.raises(ConfigError):
+        config.update_many(changes)
+
+    assert config.public() == before
+    assert config.root_config_path.read_bytes() == original
 
 
 def test_reset_removes_override_and_preserves_comments_secrets_and_snapshot(tmp_path: Path) -> None:

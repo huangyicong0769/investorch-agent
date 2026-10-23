@@ -22,12 +22,16 @@ A persistent runtime update is written to `<root>/investorch.toml` and therefore
 | lifecycle | keys | behavior |
 | --- | --- | --- |
 | immutable | `paths.root` | Cannot be changed through runtime configuration. |
-| restart-required | `paths.workspace`, `paths.state`, `models.*`, `secrets.*`, `permission.*`, `tui.*`, `web.*`, `images.*`, `logging.*`, `mcp.*`, `cnequity.*`, `backtest.use_cnequity`, `backtest.rqalpha_bundle_dir`, `observability.sdk_tracing_enabled` | `persist=false` is rejected. `persist=true` writes the next-start value but does not change the current runtime; restart InvestOrch Agent to apply it. |
-| hot | `runtime.*`, `activity.*`, `compaction.*`, execution/explore/calculate limits, `backtest.artifact_dir`, and backtest execution policy | Validated and applied to the current `AppConfig`; persistence is optional. The next applicable operation uses the new value. |
+| restart-required | `paths.workspace`, `paths.state`, `models.*`, `agents.*`, `secrets.*`, `permission.*`, `tui.*`, most `web.*`, `images.*`, `logging.*`, `mcp.*`, `cnequity.*`, `backtest.use_cnequity`, `backtest.rqalpha_bundle_dir`, `observability.sdk_tracing_enabled` | `persist=false` is rejected. `persist=true` writes the next-start value but does not change the current runtime; restart InvestOrch Agent to apply it. |
+| hot | `runtime.*`, `activity.*`, `compaction.*`, `web.theme_mode`, execution/explore/calculate limits, `backtest.artifact_dir`, and backtest execution policy | Validated and applied to the current `AppConfig`; persistence is optional. The next applicable operation uses the new value. |
+
+ChatGPT OAuth authorization records under `secrets.<credential>` are managed by the Host auth service; `auth.chatgpt_host_id` identifies this installation. Login, logout and refresh take effect without restart; Agents cannot edit those records.
 
 `get_config` reports the value currently used by this process. A persisted restart-required update therefore continues to report the old value until the application is restarted.
 
 `backtest.use_cnequity` controls the RQAlpha backtest overlay, the Agent's RQAlpha bundle inspection Tool surface, and whether the built-in CNEquity MCP server is started. Restarting applies all three changes together.
+
+Backtest execution policy in AppConfig supplies defaults. For a single run or comparison, pass execution assumptions through `run_backtest.parameters`; null/omitted fields inherit defaults, and explicit false or zero overrides them for that invocation. This leaves AppConfig and Local TOML unchanged. `initial_cash` and `benchmark` remain separate tool arguments. Use `update_config` only when the user asks to change application defaults; `persist=false` still changes the shared AppConfig and is not a substitute for per-run parameters. The `rqalpha-strategy` runtime reference defines all supported controls and their cost semantics. Data-source selection, paths and inspection limits remain application settings.
 
 ## Root Directory
 
@@ -61,16 +65,20 @@ Long-term memory is maintained as Markdown in the workspace, with `MEMORY.md` as
 The effective configuration includes the following policy sections; Local TOML only needs to contain explicit overrides:
 
 - `[runtime].default_timezone`
-- `[models.<agent>]` model connection settings
+- `[models.<id>]` reusable connection settings
+- `[agents.<role>]` connection ID, actual model, effort and window for each built-in Agent
+- `[auth]` operator-owned OAuth credential records
 - `[activity]` prompt input and label length limits
 - `[compaction]` automatic context-compaction policy and summary output budget
 - `[permission]` tool approval mode and complete-input limits
 - `[tui]` sidebar, composer, Activity, approval, Todo, and Queue dimensions
 - `[web]` server, transport, pagination, reconnect, and WebUI presentation settings
-- `[backtest]` data paths, artifact path, execution policy, default cash, and inspection limit
+- `[backtest]` data paths, artifact path, execution-policy defaults, default cash, and inspection limit
 - `[cnequity].config_path` and `mcp_cache_tools_list`
 - `[execution].default_timeout_seconds`, `max_timeout_seconds`, and `background_job_dir`
 - `[explore].max_full_read_bytes`, `max_read_chars`, `max_search_results`, and `max_search_snippet_chars`
+- `[session_tools].default_page_size`, `max_page_size`, `max_response_chars`, and `max_field_chars`
+- `[portfolio_tools].default_ledger_limit` and `max_ledger_limit`
 - `[calculate].max_expression_chars`, `max_nodes`, `max_integer_bits`, and `max_abs_exponent`
 - `[observability].sdk_tracing_enabled`
 - `[logging].level`, `max_bytes`, and `backup_count`
@@ -78,13 +86,21 @@ The effective configuration includes the following policy sections; Local TOML o
 
 They are validated at startup and again before an update is persisted. `background_job_dir` and `backtest.artifact_dir` must remain relative to the configured workspace.
 
-Each Agent owns an independent `[models.<agent>]` table represented by `ModelConfig`. The five required roles are `main`, `title`, `activity`, `permission`, and `compact`; additional named roles are allowed. A configured model defines `name`, `base_url`, `api_key_secret`, and `reasoning_effort`; the secret field names a key in the local `[secrets]` table rather than containing a credential. Supported reasoning effort values are `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, and `max`; `none` is the instant/non-thinking setting. A model may also define `context_window_tokens`, and `models.main.context_window_tokens` is required for the Main Agent capacity shown by the TUI. Adding another required Agent means registering its name once, adding its model table, and calling `AppConfig.model(agent)`; validation and restart handling apply to every model table without another list of model fields. Normal startup constructs Main, Title, Permission, and Compact models; Textual mode additionally constructs Activity. The independent Skill Review Agent reuses the Permission model configuration. All model settings are restart-required.
+Session and Portfolio tool reading limits hot-apply through AppConfig. Null or omitted tool limits inherit the current default; explicit limits are validated against the current maximum. Session response budgets count serialized characters including escaping, while the field budget counts original text characters. Set default page/ledger sizes at or below their maximum, and the Session field budget at or below its response budget. Existing explicit overrides remain effective.
+
+`models.<id>` registers an arbitrary named connection. `openai_compatible` connections define `base_url` and `api_key_secret`, naming a key in `[secrets]`; `chatgpt` connections define a credential reference and use the official endpoint. `agents.<role>` selects a connection through `model`, an actual model ID through `name`, `reasoning_effort`, and `context_window_tokens`. Exactly five roles exist: `main`, `title`, `activity`, `permission`, and `compact`. Skill Review reuses `agents.permission`; Spawn inherits the parent Active Run model.
+
+Reasoning effort accepts `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, and `max`; provider/model support must be checked. Every effective model has a positive context window. Main requires an explicit window; an auxiliary role may inherit it only when both connection and actual model match Main. Changing a Session/Spawn model name requires an explicit window; changing connection also requires explicit name and effort. Do not infer a window from the model name.
+
+Connections and Agent defaults require restart. The Host owns connection clients, while each Run owns a frozen model selection. API keys and OAuth credentials are resolved separately and never persisted in Session model metadata. There is no `providers` layer or `agents.spawned` role.
 
 ## Model readiness and Setup
 
-A fresh configuration is structurally valid with unset provider fields. `AppConfig.readiness()` identifies the missing model fields and secret references before any Agent is constructed. `investorch web` keeps serving `/setup` so an operator can supply the endpoint, model and credential, optionally request a small real model test, save, and start the ApplicationHost. Each role remains independently editable after setup. TUI/plain users receive Web Setup guidance until models are ready.
+A fresh configuration is structurally valid before all role selections are supplied. `AppConfig.readiness()` identifies missing settings and credential presence before Agent construction. `investorch web` serves Setup without starting the Agent Host. Operators add API-key or ChatGPT connections, authorize ChatGPT plan usage when applicable, then choose each role's model, effort and window. Saving alone does not prove connectivity; the optional test makes a small real request. TUI/plain can use `/model login [connection]` and `/model logout [connection]` for ChatGPT authorization after configuration.
 
-Every Local TOML is validated against the current Schema. Model endpoints, names, and secret references are explicit configuration; complete missing settings through Setup. Bad TOML, unknown fields, escaping paths or incompatible state require repair; they are not treated as an empty installation.
+ChatGPT model choices come from the account catalog. A catalog failure is an error to retry, not an empty catalog. OAuth refresh is on demand; temporary failures retain recoverable credentials, and revoked authorization requires login. Usage or access errors never silently switch accounts or fall back to a paid API connection. Identity-only login is insufficient for inference. Credentials remain redacted; do not copy tokens from another application's files.
+
+Every Local TOML is validated against the current Schema. Old `models.main`-style role configuration requires manual offline conversion after a complete backup; there is no automatic TOML migration or `config_version`. Bad TOML, unknown fields, escaping paths or incompatible state require repair and are not treated as a new installation. Session SQLite model metadata upgrades through the normal storage path.
 
 ## Tool Permission Review
 
@@ -92,21 +108,23 @@ Every Local TOML is validated against the current Schema. Model endpoints, names
 
 The Permission Agent receives the complete active user-authored instruction history and complete tool arguments. Raw instruction history up to `permission.max_user_instruction_chars` is reviewed directly; larger history is sent to a specialized instruction compactor and its output must fit `permission.max_compacted_instruction_chars`, which cannot exceed the raw limit. History is never silently truncated. Missing or corrupt history, compaction failure, invalid or oversized compacted output, excessive tool arguments, and invalid review output all fall back to `ASK`. Review reasons are limited by `permission.max_reason_chars`.
 
-Changing `models.permission` to another provider sends both review and instruction-compaction materials to that provider. The Agent-facing configuration tool may read Permission settings but cannot modify `permission.*` or `models.permission.*`; only the operator can change the subsystem configuration.
+Changing `agents.permission` or its connection to another provider sends both review and instruction-compaction materials to that provider. The Agent-facing configuration tool may read Permission settings but cannot modify `models.*`, `agents.*`, `auth.*`, `secrets.*` or `permission.*`; only the operator can change the subsystem configuration.
 
 ## Context Compaction
 
 `/compact` replaces the current OpenAI Agents SDK session history with one high-fidelity assistant continuation summary. It preserves the session ID and title. The append-only JSONL journal is never compacted, so TUI history replay and resumed visual history retain the complete conversation.
 
-The Compact Agent is independent of the Main Agent and has no tools or application context. It receives the complete SDK session history as untrusted data and neither continues the user's task nor writes memory or configuration. The summary is stored as a marked assistant message, not a system, developer, or user instruction. Changing `models.compact` to another provider sends the complete SDK session history to that provider.
+The Compact Agent is independent of the Main Agent and has no tools or application context. It receives the complete SDK session history as untrusted data and neither continues the user's task nor writes memory or configuration. The summary is stored as a marked assistant message, not a system, developer, or user instruction. Changing `agents.compact` or its connection to another provider sends the complete SDK session history to that provider.
 
 The hot `[compaction]` section defines:
 
-- `auto_enabled`: whether a completed Main turn may trigger automatic compaction; it does not disable explicit `/compact`.
-- `trigger_ratio`: a finite number strictly between zero and one, applied to `models.main.context_window_tokens`.
-- `max_output_tokens`: a positive integer passed as the Compact Agent summary output budget.
+- `auto_enabled`: whether a completed Main turn may trigger automatic compaction; it does not disable preflight protection or explicit `/compact`.
+- `trigger_ratio`: a finite number strictly between zero and one, applied to the active Run context window.
+- `max_output_tokens`: a positive integer used as the Compact Agent summary output budget when supported by its provider adapter.
 
-Automatic compaction runs synchronously after the Main answer and initial title generation, before the next user input is accepted. Its only occupancy signal is the Main Agent's last physical request total; cumulative session usage and Title, Activity, Permission, or Compact Agent usage do not participate. A compaction failure does not discard a completed Main answer. Session replacement retains an in-memory snapshot and attempts to restore it after any replacement exception or cancellation.
+Preflight compaction checks continuation, instructions, tool schemas and incoming input against the selected Run window before Main inference. It uses the existing Run reservation; failure, empty output or a still-oversized request blocks Main. It preserves the complete Journal.
+
+Post-answer automatic compaction runs synchronously after the Main answer and initial title generation, before the next user input is accepted. Its only occupancy signal is the Main Agent's last physical request total; cumulative session usage and Title, Activity, Permission, or Compact Agent usage do not participate. A compaction failure does not discard a completed Main answer. Session replacement retains an in-memory snapshot and attempts to restore it after any replacement exception or cancellation.
 
 Compact Agent usage contributes to per-session auxiliary token totals. After successful manual or automatic compaction, `Main context` is unknown until the next physical Main request supplies real usage; Compact Agent usage and summary character length are not used as estimates.
 
@@ -162,15 +180,15 @@ The built-in CNEquity MCP server is composed only when `backtest.use_cnequity=tr
 
 `investorch` starts the Textual chat workspace by default. The session list occupies the full workspace height below the header. The conversation pane to its right contains the timeline and composer, so the input region never extends underneath the session list. User and assistant messages remain the primary timeline, with raw reasoning, tool arguments, approval state, and tool output inside collapsible activity steps. Approval requests replace the normal composer controls in the current input region; they do not open a modal screen.
 
-`models.main.context_window_tokens` supplies the configured Main Agent capacity shown by the interface. The `[activity]` section owns Activity Agent prompt truncation and label length limits. The `[tui]` section owns user-adjustable sidebar and composer dimensions, message-author spacing, run-timer refresh frequency, interaction-panel height, Queue height and preview count, Todo heights, and maximum heights for the Activity title list, Activity detail, and inline approval arguments. `message_author_margin_top` must be greater than `message_author_margin_bottom`, so each `You` or `InvestOrch Agent` heading has stronger separation from the preceding timeline content than from its own message body. While an Agent run is active, the header shows elapsed wall-clock time; approval waiting remains part of the same run and does not reset the timer. The timer disappears when the run returns to Ready. TUI settings are restart-required because the widget tree and timers apply them when the application mounts; Activity limits are hot and apply to the next generated label.
+The Session Active/Effective model supplies the Main Agent capacity shown by the interface. The `[activity]` section owns Activity Agent prompt truncation and label length limits. The `[tui]` section owns user-adjustable sidebar and composer dimensions, message-author spacing, run-timer refresh frequency, interaction-panel height, Queue height and preview count, Todo heights, and maximum heights for the Activity title list, Activity detail, and inline approval arguments. `message_author_margin_top` must be greater than `message_author_margin_bottom`, so each `You` or `InvestOrch Agent` heading has stronger separation from the preceding timeline content than from its own message body. While an Agent run is active, the header shows elapsed wall-clock time; approval waiting remains part of the same run and does not reset the timer. The timer disappears when the run returns to Ready. TUI settings are restart-required because the widget tree and timers apply them when the application mounts; Activity limits are hot and apply to the next generated label.
 
-The `[web]` section owns the default loopback port, per-connection event queue capacity, history page size, WebSocket reconnect delays, retained notice count, composer height, unused-session discard delay, and active-run timer interval. The Web bootstrap response exposes only the validated WebUI subset; the frontend has no independent fallback defaults. `investorch web --port` overrides `web.default_port` for one process without changing AppConfig. The server remains loopback-only as a security invariant. All Web settings are restart-required because the server and frontend read one snapshot during startup.
+The `[web]` section owns the default loopback port, per-connection event queue capacity, history page size, WebSocket reconnect delays, retained notice count, composer height, unused-session discard delay, and active-run timer interval. The Web bootstrap response exposes only the validated WebUI subset; the frontend has no independent fallback defaults. `investorch web --port` overrides `web.default_port` for one process without changing AppConfig. The server remains loopback-only as a security invariant. Most Web settings require restart; `web.theme_mode` applies live. Use Schema lifecycle metadata for the field being changed.
 
 `investorch --plain` starts the verbose Console fallback. Plain mode renders raw reasoning and tool output directly; it does not create the Activity Agent, generate activity labels, or backfill labels for historical sessions.
 
 Activity labels are presentation-only descriptions of what the Main Agent is doing. They do not enter the Main Agent context and do not replace raw execution content.
 
-The TUI shows per-session token usage observed during the current application process: requests, input, cached input, cache-write input, output, reasoning output, and total tokens. These totals include Main Agent runs plus Title, Activity, Permission, and Compact Agent calls made for that session. Cached and cache-write counts are input-token breakdowns, and reasoning is an output-token breakdown; they are not added to total a second time. `Main context` compares the Main Agent's last physical request total with `models.main.context_window_tokens`; cumulative multi-request totals are deliberately not used as context occupancy. Usage display state is not persisted across application restarts.
+The TUI shows per-session token usage observed during the current application process: requests, input, cached input, cache-write input, output, reasoning output, and total tokens. These totals include Main Agent runs plus Title, Activity, Permission, and Compact Agent calls made for that session. Cached and cache-write counts are input-token breakdowns, and reasoning is an output-token breakdown; they are not added to total a second time. `Main context` compares the Main Agent's last physical request total with the active Run model window; cumulative multi-request totals are deliberately not used as context occupancy. Usage display state is not persisted across application restarts.
 
 ## Log and Session State Ownership
 
@@ -212,7 +230,7 @@ Rules:
 - `persist=true` validates the whole candidate before atomically replacing `<root>/investorch.toml`; failed validation or writes preserve prior state. Changes made outside the process require reload/restart, and conflicting writes are rejected.
 - `persist=false` only changes the current `AppConfig`.
 
-The Agent-facing config tool does not modify secrets.
+The Agent-facing config tool cannot modify `models.*`, `agents.*`, `secrets.*`, `auth.*`, `permission.*`, or existing Session model selections. These belong to the operator.
 Operators replace secrets through Setup or Settings, or edit Local TOML while the application is stopped. Reads expose only masks or configured status. AppConfig itself permits valid secret and Permission updates; the Agent Tool enforces the caller-specific prohibition.
 
 `update_many` validates a batch as one candidate. Settings reset removes Local Overrides so the current Schema default applies. Restart-required changes remain saved next-start values; `requires_restart` describes the current operation, not a global restart tracker.
@@ -269,3 +287,12 @@ Fresh initialization creates MEMORY.md only when absent and installs the six bun
 ## Images
 
 Use `get_config` for effective `images.max_images_per_input`, `images.max_image_bytes`, `images.max_total_image_bytes` and `images.default_detail`. Byte limits count decoded image bytes. Detail accepts `auto`, `low`, `high`, `original`. All `images.*` settings require persistence and restart; Web bootstrap and backend validation share the running snapshot. Workspace `explore` image reads use the same per-image limit and detail, while text reads retain `explore.*` limits.
+
+
+## Session model selection
+
+The Host shares one `SessionModelStore` across interfaces. Its views distinguish Persisted, Draft, Effective and Active. Resolve Draft first, then persisted Session values, then `agents.main` for new or legacy unbound Sessions. `/model` and `/effort` edit only the selected Session Draft. Drafts are process-local until a new Run journals input and persists the frozen model before inference. A metadata failure can leave already-recorded input; it does not allow inference. An active Run remains unchanged, and only the admitted Draft revision is cleared.
+
+Queue resolves the latest Session model on promotion; Steer keeps the current Run model. Permission/follow-up defaults retain their submission-time behavior. Fork copies persisted model state and preserves an uncommitted source selection as a target Draft. Spawn inherits its parent's Active model, with overrides affecting only the child. Archived Sessions permit Draft edits but cannot execute before restoration. Deletion cleans shared Draft state and rejects unsafe referenced-connection deletion.
+
+Each new Run strips opaque reasoning and provider response-item IDs from the request copy of prior continuation, preserving messages and function `call_id` links. Stored continuation and Journal originals remain intact. This also applies to unchanged connections, so prior reasoning reuse and caching may differ across Runs.

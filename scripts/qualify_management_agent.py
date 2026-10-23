@@ -24,7 +24,7 @@ from typing import Any
 import httpx
 from agents import set_tracing_disabled
 
-from investorch.config import REQUIRED_MODEL_AGENTS, load_config
+from investorch.config import REQUIRED_AGENT_ROLES, load_config
 from investorch.web.server import create_web_app
 
 SKILL_NAME = "qualification-greeting"
@@ -189,15 +189,20 @@ async def qualify(report: dict[str, Any], root: Path) -> None:
     source = load_config()
     if source.readiness():
         raise QualificationFailure("Existing model configuration is not ready for real-provider qualification")
-    models = {role: source.get(f"models.{role}") for role in REQUIRED_MODEL_AGENTS}
+    agents = {role: source.get(f"agents.{role}") for role in REQUIRED_AGENT_ROLES}
+    models = source.public()["models"]
     source_secrets = source.secrets
     credentials = {}
     for model in models.values():
+        if model["type"] != "openai_compatible":
+            raise QualificationFailure(
+                "This API-key probe cannot copy rotating OAuth credentials; sign in separately in an isolated Root"
+            )
         secret = source_secrets.get(model["api_key_secret"])
         if not isinstance(secret, str) or not secret.strip():
             raise QualificationFailure("A configured model role has no usable credential")
         credentials[model["api_key_secret"]] = secret
-    report["model_roles"] = {role: models[role]["name"] for role in REQUIRED_MODEL_AGENTS}
+    report["model_roles"] = {role: agents[role]["name"] for role in REQUIRED_AGENT_ROLES}
     report["source_configuration_sha256_before"] = before
     try:
         app = create_web_app(root=root)
@@ -213,24 +218,28 @@ async def qualify(report: dict[str, Any], root: Path) -> None:
             state = await request(client, "GET", "/api/setup/state")
             if state["status"] != "setup_required":
                 raise QualificationFailure("Fresh isolated instance did not enter Setup")
-            changes = {}
-            for role in REQUIRED_MODEL_AGENTS:
-                model = models[role]
+            changes = {
+                f"models.{name}": {key: value for key, value in model.items() if value is not None}
+                for name, model in models.items()
+            }
+            for role in REQUIRED_AGENT_ROLES:
+                model = agents[role]
                 for field, value in model.items():
                     if value is not None:
-                        changes[f"models.{role}.{field}"] = value
+                        changes[f"agents.{role}.{field}"] = value
             for name, value in credentials.items():
                 changes[f"secrets.{name}"] = value
             await request(client, "PATCH", "/api/setup/config", json={"changes": changes})
-            main = models["main"]
+            main = agents["main"]
+            connection = models[main["model"]]
             report["setup_model_test"] = await request(
                 client,
                 "POST",
                 "/api/setup/test-model",
                 json={
                     "name": main["name"],
-                    "base_url": main["base_url"],
-                    "api_key": credentials[main["api_key_secret"]],
+                    "base_url": connection["base_url"],
+                    "api_key": credentials[connection["api_key_secret"]],
                     "reasoning_effort": "none",
                 },
             )

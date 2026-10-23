@@ -4,6 +4,9 @@ This file indexes durable user and project facts, preferences, decisions, and re
 
 - Keep this file concise; index focused topic files when needed.
 - Read only memory relevant to the current task.
+- Verify relevant claims against current evidence and resolve conflicting decisions with the user.
+- Update the existing topic with its current fact, scope and supporting artifact; replace superseded guidance.
 - Never store secrets or credentials.
 - Runtime state, raw tool output, todos, and full transcripts are not long-term memory.
 - Reusable professional workflows belong in Skills, not Memory.
+- Keep detailed research results in their verified reports and link them from the relevant topic.

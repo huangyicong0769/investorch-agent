@@ -77,17 +77,23 @@ def doctor_checks(root: Path | None = None, upgrade: bool = False) -> list[dict[
             "Run investorch web to complete Setup." if missing else "",
         )
         roles = ("main", "title", "activity", "permission", "compact")
-        configured = {
-            role: bool(config.secrets.get(config[f"models.{role}.api_key_secret"], "").strip())
-            if config[f"models.{role}.api_key_secret"]
-            else False
-            for role in roles
-        }
+        configured = {}
+        for role in roles:
+            connection_id = config[f"agents.{role}.model"]
+            connection = config.public()["models"].get(connection_id)
+            reference = (
+                connection["credentials"]
+                if connection and connection["type"] == "chatgpt"
+                else connection["api_key_secret"]
+                if connection
+                else None
+            )
+            configured[role] = bool(reference and config.secret_status().get(reference))
         add(
             "credentials",
             "ok" if all(configured.values()) else "warning",
             "Model credential presence",
-            "Presence only; provider connectivity has not been tested.",
+            "Offline credential presence only; token validity, account eligibility and provider connectivity are untested.",
             configured=configured,
         )
     except (ConfigError, OSError, ValueError, TypeError) as exc:

@@ -113,7 +113,7 @@ export function SessionContextCard({ session, runtime, presentation }: { session
             </Link>
           ) : null}
         </div>
-        <PlanCard key={session.session_id} presentation={presentation} runtime={runtime} />
+        <PlanCard key={`plan:${session.session_id}`} presentation={presentation} runtime={runtime} />
         {portfolios.data?.portfolios.length ? (
           <section className="border-t border-border/50 py-4">
             <h2 className="mb-2 text-xs text-muted-foreground">Related Portfolios</h2>
@@ -157,7 +157,7 @@ export function SessionContextCard({ session, runtime, presentation }: { session
             </Collapsible>
           </section>
         ) : null}
-        <SessionProcesses key={session.session_id} processes={ownedProcesses} loading={processes.isPending} error={processes.error} onRetry={() => void processes.refetch()} />
+        <SessionProcesses key={`processes:${session.session_id}`} processes={ownedProcesses} loading={processes.isPending} error={processes.error} onRetry={() => void processes.refetch()} />
         {context.isPending ? <p className="pt-3 text-xs text-muted-foreground" role="status">Loading summary…</p> : null}
         {context.error || context.data?.errors.length ? (
           <div className="border-t border-border/50 pt-4 text-xs" role="alert">

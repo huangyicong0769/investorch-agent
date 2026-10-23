@@ -23,6 +23,7 @@ from investorch.storage import create_session, set_session_title
 from investorch.web.connections import WebConnectionHub
 from investorch.web.events import WebEventBridge
 from tests.support.config import make_test_config
+from tests.support.model_connections import install_host_models
 from tests.support.runtime import run_options
 
 
@@ -293,8 +294,8 @@ async def test_first_snapshot_is_live_before_completion_and_only_complete_text_i
         yield ResponseCompletedEvent(type="response.completed", response=response, sequence_number=3)
 
     model = ScriptedModel((ModelStep.stream(stream),))
-    monkeypatch.setattr(
-        "investorch.application.host.create_model",
+    install_host_models(
+        monkeypatch,
         lambda _config, role: (model if role == "main" else ScriptedModel(), ModelSettings()),
     )
 
@@ -356,8 +357,8 @@ async def test_middle_message_precedes_tool_approval_and_resume_does_not_repeat_
             (assistant_message("Created it."),),
         )
     )
-    monkeypatch.setattr(
-        "investorch.application.host.create_model",
+    install_host_models(
+        monkeypatch,
         lambda _config, role: (model if role == "main" else ScriptedModel(), ModelSettings()),
     )
 
@@ -414,8 +415,8 @@ async def test_interrupted_stream_keeps_only_received_text_once_with_run_outcome
         raise RuntimeError("controlled provider failure")
 
     model = ScriptedModel((ModelStep.stream(stream),))
-    monkeypatch.setattr(
-        "investorch.application.host.create_model",
+    install_host_models(
+        monkeypatch,
         lambda _config, role: (model if role == "main" else ScriptedModel(), ModelSettings()),
     )
 
@@ -504,8 +505,8 @@ async def test_complete_response_is_visible_while_title_generation_is_still_wait
 
     main = ScriptedModel(((assistant_message("Visible answer"),),))
     title_model = ScriptedModel((ModelStep.respond(title),))
-    monkeypatch.setattr(
-        "investorch.application.host.create_model",
+    install_host_models(
+        monkeypatch,
         lambda _config, role: (
             main if role == "main" else title_model if role == "title" else ScriptedModel(),
             ModelSettings(),
@@ -557,8 +558,8 @@ async def test_generated_image_is_preserved_without_repeating_streamed_caption(t
             ),
         )
     )
-    monkeypatch.setattr(
-        "investorch.application.host.create_model",
+    install_host_models(
+        monkeypatch,
         lambda _config, role: (model if role == "main" else ScriptedModel(), ModelSettings()),
     )
 

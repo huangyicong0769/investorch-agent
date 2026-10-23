@@ -1,17 +1,19 @@
 ---
 name: skill-creator
 description: Create, revise, or fork reusable InvestOrch Skills. Use when the user wants a repeatable task workflow or customization of an installed Skill.
-version: 1.0.1
+version: 1.0.2
 ---
 
 # Create a Skill
 
+Before creating, revising, or forking a candidate, read [the complete worked example](references/examples.md). It shows legal tool arguments, result-driven branches, installation verification, and the separate restart boundary.
+
 1. Establish one reusable task and its completion criteria. Put user/project facts and preferences in Memory, task output in artifacts, and executable primitives in Tools. A Skill supplies stateless methods and resources; it grants no permissions and stores no session or execution state.
-2. Inspect `list_skills` for collisions. Choose a lowercase hyphenated name matching its directory. For a fork, inspect the original and copy into `.skill-staging/<new-name>/`; give it a new identity. Built-in customization always uses this fork path.
+2. Call `list_skills` for collisions; use `inspect_skill(name)` to inspect relevant registered metadata and resources. Inspection does not load instructions: use `load_skill` for an enabled startup Skill body and `explore` for its listed resources. Choose a lowercase hyphenated name matching its directory. For a fork, inspect the original and copy into `.skill-staging/<new-name>/`; give it a new identity. Built-in customization always uses this fork path.
 3. Use ordinary `edit`/`exec_command` tools to create the candidate outside installed `skills/`. Write UTF-8 `SKILL.md` with YAML `name`, `description`, and a SemVer `version` (start at `1.0.0`). Description states both the task and when to use it. Keep the body focused on ordered work, branch decisions, and verifiable completion. Do not add another manifest or trigger metadata.
 4. Put long conditional knowledge in `references/`, helpers in `scripts/`, and templates in `assets/`; explicitly point to each needed resource and when to read it. Keep all resources inside the candidate root. Test supplied scripts with harmless fixtures through `exec_command` and its normal approval path. Installation never preauthorizes later script execution.
 5. Call `review_skill_candidate` as the first structural check on the candidate directory. It validates UTF-8, YAML, identity/version, and resource boundaries before independent safety review. Repair the specific validation error and retry; investigate encoding separately only when validation reports a decoding failure. A command/environment failure is not evidence of invalid encoding. Explain material WARN behavior to the user; WARN requires manual approval. BLOCK cannot be installed, and PASS is not installation authorization.
 6. Use `install_skill` with source `created`. A replacement of an existing non-built-in needs explicit replacement intent; use a new name for a fork. Installation repeats independent review of the candidate then uses normal approval. Never edit the registry or installed built-in directly.
-7. Report installed identity/version and restart requirement. The running host keeps its startup catalog and loadable names until restart; a new session does not refresh them. After restart, verify catalog discovery and `load_skill`. Clean up only the candidate if appropriate.
+7. Read back the name returned by installation with `inspect_skill`, and use `explore` to compare the installed `skills/<returned-name>/SKILL.md` and resources with the reviewed candidate. Verify identity, version, provenance, enabled state, and `status` before reporting installation. Report installed identity/version and restart requirement. The running host keeps its startup catalog and loadable names until restart; a new session does not refresh them. After restart, verify catalog discovery and `load_skill`. Clean up only the candidate if appropriate.
 
 For revisions, use a candidate and bump SemVer according to changed compatibility: patch for compatible corrections, minor for compatible additions, major for incompatible workflow contracts. Built-ins can be enabled/disabled but not removed or replaced by Agent tools. `investorch --update` replaces managed built-ins from the package, preserving enabled state; keep customizations in a separately named fork.

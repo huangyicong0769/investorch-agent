@@ -6,7 +6,7 @@ from typing import Any
 
 import tomlkit
 
-from investorch.config import REQUIRED_MODEL_AGENTS, AppConfig, load_config
+from investorch.config import REQUIRED_AGENT_ROLES, AppConfig, load_config
 from investorch.initializer import initialize
 
 
@@ -20,12 +20,19 @@ def make_test_config(
     data = load_config(root=root).public()
     local: dict[str, Any] = {
         "models": {
-            role: {
-                "name": "test-model",
+            "test": {
+                "type": "openai_compatible",
                 "base_url": "https://provider.example.test/v1",
                 "api_key_secret": "TEST_API_KEY",
+            },
+        },
+        "agents": {
+            role: {
+                "model": "test",
+                "name": "test-model",
+                "context_window_tokens": 1000000,
             }
-            for role in REQUIRED_MODEL_AGENTS
+            for role in REQUIRED_AGENT_ROLES
         },
         "secrets": {"TEST_API_KEY": "fixture-key-never-used-for-network"},
     }

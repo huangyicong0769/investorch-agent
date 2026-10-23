@@ -1,5 +1,6 @@
 import { useInfiniteQuery } from '@tanstack/react-query'
-import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { CircleAlert } from 'lucide-react'
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 
 import { sessionHistoryInfiniteQueryOptions } from '../../api/queries'
 import { ApiError } from '../../api/client'
@@ -67,7 +68,7 @@ function TimelineItem({ item }: { item: TimelineViewModel }) {
       <article className="flex justify-end py-3" data-seq={item.seq}>
         <div className="max-w-[85%]">
           <div className="mb-1 text-right text-xs font-medium text-muted-foreground">
-            <InputAuthor origin={item.origin} />{item.type === 'steer' ? ' · Steer' : ''} ·{' '}
+            <InputAuthor origin={item.origin} /> ·{' '}
             <time dateTime={item.timestamp}>{formatTimelineTime(item.timestamp)}</time>
           </div>
           {item.text ? <p className="whitespace-pre-wrap break-words rounded-2xl bg-accent/60 px-4 py-3 text-sm leading-6">{item.text}</p> : null}
@@ -92,15 +93,33 @@ function TimelineItem({ item }: { item: TimelineViewModel }) {
   )
 }
 
+function RunFailure({ error, children }: { error?: string | null; children?: ReactNode }) {
+  return <div className="my-3 flex gap-3 rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3.5" role="alert">
+    <CircleAlert aria-hidden="true" className="mt-0.5 size-5 shrink-0 text-destructive" />
+    <div className="min-w-0">
+      <p className="text-sm font-semibold text-destructive">Run failed</p>
+      {error ? <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-6">{error}</p> : null}
+      {children ? <div className="mt-2 text-xs text-muted-foreground">{children}</div> : null}
+    </div>
+  </div>
+}
+
 function RunTiming({ timing }: { timing: TimelineRunTimingViewModel }) {
   const lead = timing.status === 'completed' ? 'Worked' : timing.status === 'cancelled' ? 'Stopped after' : 'Failed after'
+  const description = <>
+    {lead} {formatDuration(timing.durationMs)} ·{' '}
+    <time dateTime={timing.startedAt}>{formatTimelineTime(timing.startedAt)}</time>
+    {'–'}
+    <time dateTime={timing.endedAt}>{formatTimelineTime(timing.endedAt)}</time>
+  </>
+
+  if (timing.status === 'failed') {
+    return <div data-seq={timing.seq}><RunFailure error={timing.error}>{description}</RunFailure></div>
+  }
 
   return (
     <div className="py-2 text-left text-[11px] text-muted-foreground" data-seq={timing.seq}>
-      {lead} {formatDuration(timing.durationMs)} ·{' '}
-      <time dateTime={timing.startedAt}>{formatTimelineTime(timing.startedAt)}</time>
-      {'–'}
-      <time dateTime={timing.endedAt}>{formatTimelineTime(timing.endedAt)}</time>
+      {description}
     </div>
   )
 }
@@ -524,7 +543,9 @@ export function ConversationTimeline({
           {!isPending && !isError ? <ActiveRunTiming runtime={runtime} /> : null}
 
           {!isPending && !isError
-            ? liveSession.notices.map((notice) => (
+            ? liveSession.notices.filter((notice) => !notice.endedRunId || !visibleTimeline.some((item) => item.type === 'run_timing' && item.runId === notice.endedRunId)).map((notice) => notice.severity === 'error' ? (
+                <RunFailure error={notice.error} key={notice.id} />
+              ) : (
                 <div className="py-2 text-center text-[11px] text-muted-foreground" key={notice.id} role="status">
                   {notice.text}
                 </div>

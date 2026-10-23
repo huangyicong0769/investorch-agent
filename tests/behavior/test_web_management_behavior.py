@@ -3,7 +3,7 @@ from pathlib import Path
 import httpx
 import pytest
 
-from investorch.config import REQUIRED_MODEL_AGENTS, load_config
+from investorch.config import REQUIRED_AGENT_ROLES, load_config
 from investorch.web.server import create_web_app
 from tests.support.web import open_test_web
 
@@ -72,13 +72,20 @@ async def test_empty_root_setup_unlocks_sessions_and_repeated_completion_preserv
         assert (await client.get("/api/setup/state")).json()["status"] == "setup_required"
         assert (await client.get("/api/bootstrap")).status_code == 503
         assert (await client.get("/setup")).status_code == 200
-        changes = {"secrets.TEST_KEY": "offline-test-no-network"}
-        for role in REQUIRED_MODEL_AGENTS:
+        changes = {
+            "secrets.TEST_KEY": "offline-test-no-network",
+            "models.primary": {
+                "type": "openai_compatible",
+                "base_url": "https://models.example.test/v1",
+                "api_key_secret": "TEST_KEY",
+            },
+        }
+        for role in REQUIRED_AGENT_ROLES:
             changes.update(
                 {
-                    f"models.{role}.name": "test-model",
-                    f"models.{role}.base_url": "https://models.example.test/v1",
-                    f"models.{role}.api_key_secret": "TEST_KEY",
+                    f"agents.{role}.model": "primary",
+                    f"agents.{role}.name": "test-model",
+                    f"agents.{role}.context_window_tokens": 1000000,
                 }
             )
         saved = await client.patch("/api/setup/config", json={"changes": changes})

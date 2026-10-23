@@ -9,11 +9,14 @@ from typing import TYPE_CHECKING, Any, Literal
 from typing_extensions import TypedDict
 
 from investorch.config import AppConfig, ConfigError
-from investorch.config_schema import FOLLOW_UP_BEHAVIORS, PERMISSION_MODES, REASONING_EFFORTS
+from investorch.config_schema import FOLLOW_UP_BEHAVIORS, PERMISSION_MODES
 
 if TYPE_CHECKING:
+    from investorch.agents.usage import TokenUsage
     from investorch.application.portfolios import PortfolioOperations
+    from investorch.application.session_models import SessionModelStore
     from investorch.application.skills import SkillOperations
+    from investorch.llm.oauth import ChatGPTAuth
     from investorch.runtime.models import FollowUpBehavior
 
 TodoStatus = Literal["pending", "in_progress", "completed", "failed"]
@@ -57,6 +60,8 @@ class TurnState:
     """Scratch state owned by one user task and recreated for every Agent turn."""
 
     todos: list[TodoItem] = field(default_factory=list)
+    mcp_errors: dict[str, dict[str, str]] = field(default_factory=dict)
+    review_feedback: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -69,6 +74,7 @@ class AgentContext:
     skills: SkillOperations | None = None
     turn: TurnState = field(default_factory=TurnState)
     todo_update_handler: TodoUpdateHandler | None = None
+    auxiliary_usage_handler: Callable[[TokenUsage], None] | None = None
 
 
 class AppState:
@@ -79,28 +85,19 @@ class AppState:
         config: AppConfig,
         execution: ExecutionState,
         selected_session_id: str | None,
-        main_reasoning_effort: str | None = None,
+        session_models: SessionModelStore | None = None,
         permission_mode: str | None = None,
         follow_up_behavior: FollowUpBehavior | None = None,
     ) -> None:
         self.config = config
+        self.chatgpt_auth: ChatGPTAuth | None = None
         self.execution = execution
         self.selected_session_id = selected_session_id
-        self.main_reasoning_effort = main_reasoning_effort
+        from investorch.application.session_models import SessionModelStore
+
+        self.session_models = session_models if session_models is not None else SessionModelStore(config)
         self.permission_mode = permission_mode
         self.follow_up_behavior = follow_up_behavior
-
-    @property
-    def main_reasoning_effort(self) -> str:
-        if self._main_reasoning_effort is not None:
-            return self._main_reasoning_effort
-        return self.config["models.main.reasoning_effort"]
-
-    @main_reasoning_effort.setter
-    def main_reasoning_effort(self, value: str | None) -> None:
-        if value is not None and value not in REASONING_EFFORTS:
-            raise ConfigError(f"reasoning_effort must be one of {', '.join(REASONING_EFFORTS)}")
-        self._main_reasoning_effort = value
 
     @property
     def permission_mode(self) -> str:

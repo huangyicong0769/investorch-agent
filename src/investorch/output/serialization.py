@@ -15,7 +15,7 @@ def serialize_output_event(event: OutputEvent) -> dict[str, object]:
     if isinstance(event, AgentChanged):
         return {"type": "agent_changed", "name": event.name}
     if isinstance(event, Reasoning):
-        return {"type": "reasoning", "text": event.text}
+        return {"type": "reasoning", "text": event.text, **({"summary": event.summary} if event.summary else {})}
     if isinstance(event, ToolCalled):
         return {"type": "tool_called", "name": event.name, "arguments": event.arguments}
     if isinstance(event, ToolOutput):

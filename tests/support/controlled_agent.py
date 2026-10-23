@@ -53,7 +53,7 @@ class ControlledAgentLoop:
             output=f"completed: {run.user_input}", main_usage=TokenUsage(), auxiliary_usage=TokenUsage()
         )
 
-    async def compact(self, _session: object) -> CompactionResult:
+    async def compact(self, _session: object, **_kwargs: object) -> CompactionResult:
         return CompactionResult(changed=False, usage=TokenUsage(), source_items=0, summary_chars=0)
 
     def fail_input(self, user_input: str) -> None:

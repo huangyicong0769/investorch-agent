@@ -1,10 +1,10 @@
 import { useState } from 'react'
 import { useIsMutating, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ChevronDown, LoaderCircle, ShieldCheck, SlidersHorizontal } from 'lucide-react'
+import { ChevronDown, LoaderCircle, ShieldCheck } from 'lucide-react'
 
 import { updateDefaults } from '../../api/client'
 import { defaultsQueryOptions, queryKeys } from '../../api/queries'
-import type { BootstrapResponse, ReasoningEffort, UpdateDefaultsBody } from '../../api/types'
+import type { BootstrapResponse, UpdateDefaultsBody } from '../../api/types'
 import { errorMessage } from '../../lib/errors'
 import { Button } from '@/components/ui/button'
 import {
@@ -19,7 +19,6 @@ import {
 
 export const RUN_DEFAULTS_MUTATION_KEY = ['run-defaults'] as const
 
-type ControlField = 'permission_mode' | 'reasoning_effort'
 interface ControlOption {
   value: string
   label: string
@@ -27,7 +26,6 @@ interface ControlOption {
   change: UpdateDefaultsBody
 }
 
-const REASONING_OPTIONS: ReasoningEffort[] = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']
 const PERMISSION_OPTIONS: ControlOption[] = [
   { value: 'manual', label: 'Manual', description: 'Ask you to approve actions.', change: { permission_mode: 'manual' } },
   { value: 'review', label: 'Review', description: 'A reviewer checks actions and asks when needed.', change: { permission_mode: 'review' } },
@@ -37,17 +35,14 @@ function titleCase(value: string): string {
   return value === 'xhigh' ? 'Extra high' : `${value.slice(0, 1).toUpperCase()}${value.slice(1)}`
 }
 
-export function RunControlMenu({ field }: { field: ControlField }) {
+export function PermissionControlMenu() {
   const queryClient = useQueryClient()
   const [open, setOpen] = useState(false)
   const defaultsQuery = useQuery(defaultsQueryOptions())
   const saving = useIsMutating({ mutationKey: RUN_DEFAULTS_MUTATION_KEY }) > 0
-  const permission = field === 'permission_mode'
-  const label = permission ? 'Permission mode' : 'Reasoning effort'
-  const current = defaultsQuery.data?.[field]
-  const options: ControlOption[] = permission ? PERMISSION_OPTIONS : REASONING_OPTIONS.map((value) => ({
-    value, label: titleCase(value), change: { reasoning_effort: value },
-  }))
+  const label = 'Permission mode'
+  const current = defaultsQuery.data?.permission_mode
+  const options = PERMISSION_OPTIONS
   const mutation = useMutation({
     mutationKey: RUN_DEFAULTS_MUTATION_KEY,
     scope: { id: 'run-defaults' },
@@ -86,15 +81,15 @@ export function RunControlMenu({ field }: { field: ControlField }) {
           type="button"
           variant="ghost"
         >
-          {mutation.isPending ? <LoaderCircle aria-hidden="true" className="size-3.5 animate-spin" /> : permission ? <ShieldCheck aria-hidden="true" className="size-3.5" /> : <SlidersHorizontal aria-hidden="true" className="size-3.5" />}
-          <span className="truncate">{current ? titleCase(current) : permission ? 'Permissions' : 'Reasoning'}</span>
+          {mutation.isPending ? <LoaderCircle aria-hidden="true" className="size-3.5 animate-spin" /> : <ShieldCheck aria-hidden="true" className="size-3.5" />}
+          <span className="truncate">{current ? titleCase(current) : 'Permissions'}</span>
           <ChevronDown aria-hidden="true" className="size-3 opacity-60" />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent
-        align={permission ? 'start' : 'end'}
+        align="start"
         aria-label={label}
-        className={`${permission ? 'w-64' : 'w-48'} max-w-[calc(100vw-1.5rem)] rounded-xl p-1.5 shadow-lg`}
+        className="w-64 max-w-[calc(100vw-1.5rem)] rounded-xl p-1.5 shadow-lg"
         collisionPadding={12}
         side="top"
         sideOffset={10}

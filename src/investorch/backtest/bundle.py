@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import date, datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -76,11 +77,35 @@ def _instrument_date(value: datetime) -> str | None:
     return value.date().isoformat()
 
 
+def _share_transformations(
+    data_source: BaseDataSource, bundle_path: Path, symbols: list[str] | None
+) -> list[dict[str, Any]]:
+    records = json.loads((bundle_path / "share_transformation.json").read_text(encoding="utf-8"))
+    selected = [
+        (predecessor, record)
+        for predecessor, record in records.items()
+        if symbols is None or predecessor in symbols or record["successor"] in symbols
+    ]
+    if not selected:
+        return []
+    known_ids = {instrument.order_book_id for instrument in data_source.get_instruments()}
+    return [
+        {
+            **record,
+            "predecessor": predecessor,
+            "predecessor_exists": predecessor in known_ids,
+            "successor_exists": record["successor"] in known_ids,
+        }
+        for predecessor, record in selected
+    ]
+
+
 def inspect_rqalpha_bundle(
     bundle_path: Path,
     symbols: list[str] | None = None,
 ) -> dict[str, Any]:
     data_source = _open_rqalpha_bundle(bundle_path)
+    transformations = _share_transformations(data_source, bundle_path, symbols)
 
     if symbols is None:
         stocks = _native_stocks(data_source, bundle_path)
@@ -88,6 +113,7 @@ def inspect_rqalpha_bundle(
         return {
             "source": "rqalpha_bundle",
             "available": True,
+            "share_transformations": transformations,
             "stock_data": {
                 "earliest_observed_bar": min(value[0] for value in ranges).isoformat(),
                 "latest_observed_bar": max(value[1] for value in ranges).isoformat(),
@@ -126,5 +152,6 @@ def inspect_rqalpha_bundle(
     return {
         "source": "rqalpha_bundle",
         "available": True,
+        "share_transformations": transformations,
         "symbols": results,
     }

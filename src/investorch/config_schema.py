@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 from typing import Annotated, Any, Literal, Self, get_args
+from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, field_validator, model_validator
@@ -12,13 +13,14 @@ from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, field_valida
 ReasoningEffort = Literal["none", "minimal", "low", "medium", "high", "xhigh", "max"]
 PermissionMode = Literal["manual", "review"]
 FollowUpBehavior = Literal["steer", "queue"]
-REQUIRED_MODEL_AGENTS = ("main", "title", "activity", "permission", "compact")
+REQUIRED_AGENT_ROLES = ("main", "title", "activity", "permission", "compact")
 REASONING_EFFORTS = get_args(ReasoningEffort)
 PERMISSION_MODES = get_args(PermissionMode)
 FOLLOW_UP_BEHAVIORS = get_args(FollowUpBehavior)
 
 NonEmptyString = Annotated[str, Field(min_length=1, pattern=r"\S")]
 EntryName = Annotated[str, Field(min_length=1, pattern=r"^[^.]+$")]
+ConnectionName = Annotated[str, Field(min_length=1, pattern=r"^[A-Za-z0-9_-]+$")]
 PositiveInt = Annotated[int, Field(gt=0)]
 NonNegativeInt = Annotated[int, Field(ge=0)]
 
@@ -31,6 +33,9 @@ def validate_number(value: Any) -> int | float:
 
 PositiveNumber = Annotated[float, Field(gt=0), BeforeValidator(validate_number)]
 NonNegativeNumber = Annotated[float, Field(ge=0), BeforeValidator(validate_number)]
+SlippageRatio = Annotated[float, Field(ge=0, lt=1), BeforeValidator(validate_number)]
+BacktestMatchingType = Literal["current_bar"]
+BacktestSlippageModel = Literal["PriceRatioSlippage"]
 
 
 def hot(default: Any, **kwargs: Any) -> Any:
@@ -66,12 +71,69 @@ class PathsConfig(ConfigSection):
         return str(root)
 
 
-class ModelSchema(ConfigSection):
-    name: NonEmptyString | None = restart(None)
+class ModelConnectionSchema(ConfigSection):
+    type: Literal["openai_compatible", "chatgpt"] = restart("openai_compatible")
     base_url: NonEmptyString | None = restart(None)
     api_key_secret: NonEmptyString | None = restart(None)
+    credentials: ConnectionName | None = restart(None)
+
+    @field_validator("base_url")
+    @classmethod
+    def validate_url(cls, value: str | None) -> str | None:
+        if value is not None:
+            try:
+                url = urlsplit(value)
+                valid = url.scheme in {"http", "https"} and url.hostname and not url.username and not url.password
+                if not valid or url.query or url.fragment:
+                    raise ValueError
+                _ = url.port
+            except ValueError:
+                raise ValueError(
+                    "base_url must be an HTTP(S) endpoint without credentials, query or fragment"
+                ) from None
+        return value
+
+    @model_validator(mode="after")
+    def validate_authentication(self) -> Self:
+        if self.type == "chatgpt" and (self.base_url is not None or self.api_key_secret is not None):
+            raise ValueError("ChatGPT connections use the official endpoint and OAuth credentials only")
+        if self.type == "openai_compatible" and self.credentials is not None:
+            raise ValueError("OpenAI-compatible connections use an API key reference")
+        return self
+
+
+class AgentModelSchema(ConfigSection):
+    model: ConnectionName | None = restart(None)
+    name: NonEmptyString | None = restart(None)
     reasoning_effort: ReasoningEffort = restart("high")
     context_window_tokens: PositiveInt | None = restart(None)
+
+
+class OAuthRotationSchema(ConfigSection):
+    access_token: NonEmptyString
+    refresh_token: NonEmptyString
+    id_token: NonEmptyString | None = None
+    expires_at: NonNegativeNumber
+    earliest_refresh_at: NonNegativeNumber | None = None
+    scopes: list[NonEmptyString] = Field(default_factory=list)
+    received_at: NonNegativeNumber
+
+
+class OAuthCredentialSchema(ConfigSection):
+    client_id: NonEmptyString
+    subject: NonEmptyString | None = None
+    access_token: NonEmptyString | None = None
+    refresh_token: NonEmptyString | None = None
+    id_token: NonEmptyString | None = None
+    expires_at: NonNegativeNumber = 0
+    earliest_refresh_at: NonNegativeNumber | None = None
+    scopes: list[NonEmptyString] = Field(default_factory=list)
+    display_name: str | None = None
+    pending_rotation: OAuthRotationSchema | None = None
+
+
+class AuthConfig(ConfigSection):
+    chatgpt_host_id: NonEmptyString | None = Field(default=None, json_schema_extra={"apply_mode": "immutable"})
 
 
 class CompactionConfig(ConfigSection):
@@ -193,27 +255,35 @@ class RuntimeConfig(ConfigSection):
         return value
 
 
-class BacktestConfig(ConfigSection):
-    use_cnequity: bool = restart(False)
-    rqalpha_bundle_dir: NonEmptyString = restart(".rqalpha/bundle")
-    artifact_dir: NonEmptyString = hot("backtests")
-    default_initial_cash: PositiveNumber = hot(1000000.0)
-    inspect_max_symbols: PositiveInt = hot(50)
+class BacktestRuntimeConfig(ConfigSection):
+    """Simulation defaults, also used as an immutable effective run snapshot."""
+
+    model_config = ConfigDict(frozen=True)
+
     stock_t1: bool = hot(True)
     dividend_reinvestment: bool = hot(False)
     dividend_tax_enabled: bool = hot(True)
     capital_gain_tax_rate: NonNegativeNumber = hot(0.0)
     validate_price: bool = hot(True)
-    matching_type: Literal["current_bar"] = hot("current_bar")
+    matching_type: BacktestMatchingType = hot("current_bar")
     price_limit: bool = hot(True)
     volume_limit: bool = hot(True)
     inactive_limit: bool = hot(True)
-    slippage_model: Literal["PriceRatioSlippage"] = hot("PriceRatioSlippage")
-    slippage: NonNegativeNumber = hot(0.0)
+    slippage_model: BacktestSlippageModel = hot("PriceRatioSlippage")
+    slippage: SlippageRatio = hot(0.0)
     stock_min_commission: NonNegativeNumber = hot(5.0)
     stock_commission_multiplier: NonNegativeNumber = hot(1.0)
     tax_multiplier: NonNegativeNumber = hot(1.0)
     pit_tax: bool = hot(True)
+
+
+class BacktestConfig(BacktestRuntimeConfig):
+    use_cnequity: bool = restart(False)
+    rqalpha_bundle_dir: NonEmptyString = restart(".rqalpha/bundle")
+    artifact_dir: NonEmptyString = hot("backtests")
+    default_initial_cash: PositiveNumber = hot(1000000.0)
+    inspect_max_symbols: PositiveInt = hot(1000)
+    max_log_preview_chars: PositiveInt = hot(32768)
 
 
 class ExecutionConfig(ConfigSection):
@@ -229,10 +299,36 @@ class ExecutionConfig(ConfigSection):
 
 
 class ExploreConfig(ConfigSection):
-    max_full_read_bytes: PositiveInt = hot(65536)
-    max_read_chars: PositiveInt = hot(65536)
-    max_search_results: PositiveInt = hot(50)
-    max_search_snippet_chars: PositiveInt = hot(300)
+    max_full_read_bytes: PositiveInt = hot(262144)
+    max_read_chars: PositiveInt = hot(262144)
+    max_search_results: PositiveInt = hot(200)
+    max_search_snippet_chars: PositiveInt = hot(1000)
+
+
+class SessionToolsConfig(ConfigSection):
+    default_page_size: PositiveInt = hot(200)
+    max_page_size: PositiveInt = hot(500)
+    max_response_chars: PositiveInt = hot(262144)
+    max_field_chars: PositiveInt = hot(131072)
+
+    @model_validator(mode="after")
+    def validate_read_budgets(self) -> Self:
+        if self.default_page_size > self.max_page_size:
+            raise ValueError("session_tools.default_page_size must be <= session_tools.max_page_size")
+        if self.max_field_chars > self.max_response_chars:
+            raise ValueError("session_tools.max_field_chars must be <= session_tools.max_response_chars")
+        return self
+
+
+class PortfolioToolsConfig(ConfigSection):
+    default_ledger_limit: PositiveInt = hot(200)
+    max_ledger_limit: PositiveInt = hot(1000)
+
+    @model_validator(mode="after")
+    def validate_ledger_limits(self) -> Self:
+        if self.default_ledger_limit > self.max_ledger_limit:
+            raise ValueError("portfolio_tools.default_ledger_limit must be <= portfolio_tools.max_ledger_limit")
+        return self
 
 
 class CalculateConfig(ConfigSection):
@@ -262,13 +358,17 @@ class ImagesConfig(ConfigSection):
 
 class AppConfigSchema(ConfigSection):
     paths: PathsConfig = Field(default_factory=PathsConfig)
-    models: dict[EntryName, ModelSchema] = Field(
+    models: dict[ConnectionName, ModelConnectionSchema] = Field(
+        default_factory=dict,
+        json_schema_extra={"apply_mode": "restart_required"},
+    )
+    agents: dict[Literal["main", "title", "activity", "permission", "compact"], AgentModelSchema] = Field(
         default={
-            "main": ModelSchema(reasoning_effort="max", context_window_tokens=1000000),
-            "title": ModelSchema(reasoning_effort="none"),
-            "activity": ModelSchema(reasoning_effort="none"),
-            "permission": ModelSchema(reasoning_effort="high"),
-            "compact": ModelSchema(reasoning_effort="high", context_window_tokens=1000000),
+            "main": AgentModelSchema(reasoning_effort="max"),
+            "title": AgentModelSchema(reasoning_effort="none"),
+            "activity": AgentModelSchema(reasoning_effort="none"),
+            "permission": AgentModelSchema(reasoning_effort="high"),
+            "compact": AgentModelSchema(reasoning_effort="high"),
         },
         json_schema_extra={"apply_mode": "restart_required"},
     )
@@ -284,23 +384,40 @@ class AppConfigSchema(ConfigSection):
     backtest: BacktestConfig = Field(default_factory=BacktestConfig)
     execution: ExecutionConfig = Field(default_factory=ExecutionConfig)
     explore: ExploreConfig = Field(default_factory=ExploreConfig)
+    session_tools: SessionToolsConfig = Field(default_factory=SessionToolsConfig)
+    portfolio_tools: PortfolioToolsConfig = Field(default_factory=PortfolioToolsConfig)
     calculate: CalculateConfig = Field(default_factory=CalculateConfig)
     mcp: MCPConfig = Field(default_factory=MCPConfig)
     cnequity: CNEquityConfig = Field(default_factory=CNEquityConfig)
     images: ImagesConfig = Field(default_factory=ImagesConfig)
-    secrets: dict[EntryName, str] = Field(
+    auth: AuthConfig = Field(default_factory=AuthConfig)
+    secrets: dict[EntryName, str | OAuthCredentialSchema] = Field(
         default_factory=dict, json_schema_extra={"apply_mode": "restart_required", "sensitive": True}
     )
 
-    @field_validator("models")
+    @field_validator("agents")
     @classmethod
-    def validate_models(cls, value: dict[str, ModelSchema]) -> dict[str, ModelSchema]:
-        for role in REQUIRED_MODEL_AGENTS:
+    def validate_agents(cls, value: dict[str, AgentModelSchema]) -> dict[str, AgentModelSchema]:
+        for role in REQUIRED_AGENT_ROLES:
             if role not in value:
-                raise ValueError(f"Missing required model: {role}")
-        if value["main"].context_window_tokens is None:
-            raise ValueError("models.main.context_window_tokens must be an integer >= 1")
+                raise ValueError(f"Missing required Agent role: {role}")
         return value
+
+    @model_validator(mode="after")
+    def validate_model_references(self) -> Self:
+        for role, agent in self.agents.items():
+            if agent.model is not None and agent.model not in self.models:
+                raise ValueError(f"agents.{role}.model references an unregistered connection")
+        for connection in self.models.values():
+            if connection.api_key_secret in self.secrets and not isinstance(
+                self.secrets[connection.api_key_secret], str
+            ):
+                raise ValueError("API key references must identify a string secret")
+            if connection.credentials in self.secrets and not isinstance(
+                self.secrets[connection.credentials], OAuthCredentialSchema
+            ):
+                raise ValueError("ChatGPT credentials must identify an OAuth credential")
+        return self
 
     @model_validator(mode="after")
     def validate_paths(self) -> Self:
@@ -357,6 +474,6 @@ def config_field_metadata(key: str) -> dict[str, Any]:
             raise ValueError(f"Unknown config key: {key}")
     if "$ref" in node:
         node = {**schema["$defs"][node["$ref"].split("/")[-1]], **node}
-    if node.get("type") == "object":
+    if node.get("type") == "object" and not (len(parts) == 2 and parts[0] in {"models", "agents"}):
         raise ValueError(f"Config key must identify a field: {key}")
     return {**inherited, **node}

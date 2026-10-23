@@ -7,7 +7,7 @@ from investorch.context import AppState
 from investorch.inputs import UserInput
 from investorch.runtime import AgentRuntime
 
-from .interaction import current_run_options
+from .interaction import current_run_defaults
 from .portfolios import PortfolioOperations
 from .sessions import SessionOperations
 
@@ -64,7 +64,7 @@ class PortfolioSessionWorkflows:
                 session_id,
                 user_input,
                 _portfolio_context_instruction(portfolio_id),
-                current_run_options(self._state),
+                current_run_defaults(self._state),
             )
             await self._sessions.mark_application_workflow_started(session_id)
             return PortfolioSessionResult(session_id=session_id, run_id=active_run.run_id, started=True)
@@ -84,7 +84,7 @@ class PortfolioSessionWorkflows:
             active_run = self._runtime.start_application_run(
                 session_id,
                 NEW_PORTFOLIO_STARTER_INSTRUCTION,
-                current_run_options(self._state),
+                current_run_defaults(self._state),
             )
             await self._sessions.mark_application_workflow_started(session_id)
             return PortfolioSessionResult(session_id=session_id, run_id=active_run.run_id, started=True)

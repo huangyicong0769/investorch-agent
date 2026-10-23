@@ -10,6 +10,7 @@ from investorch.application.session_queries import read_session
 from investorch.runtime import RunCapacityExceededError
 from investorch.storage import create_session, list_sessions, set_session_title
 from tests.support.config import make_test_config
+from tests.support.model_connections import install_host_models
 from tests.support.runtime import run_options
 
 
@@ -34,8 +35,8 @@ async def test_sdk_spawn_requires_permission_and_uses_the_normal_child_agent(tmp
         return (assistant_message("child complete"),)
 
     model = ScriptedModel(tuple(ModelStep.respond(respond) for _ in range(3 if approved else 2)))
-    monkeypatch.setattr(
-        "investorch.application.host.create_model",
+    install_host_models(
+        monkeypatch,
         lambda _config, role: (model if role == "main" else ScriptedModel(), ModelSettings()),
     )
 
@@ -67,9 +68,11 @@ async def test_sdk_spawn_requires_permission_and_uses_the_normal_child_agent(tmp
                 child = children[0]
                 assert host.runtime.is_session_active(child.session_id)
                 assert child.title == "Child" and child.spawned_by_run_id == parent.run_id
-                record = (await read_session(child.session_id, sessions_db=config.sessions_db, journal=host.journal))[
-                    "records"
-                ][0]
+                record = (
+                    await read_session(
+                        child.session_id, config=config, sessions_db=config.sessions_db, journal=host.journal
+                    )
+                )["records"][0]
                 assert record["text"] == "child research" and record["type"] == "user"
                 assert record["origin"] == {
                     "kind": "agent",
@@ -116,8 +119,8 @@ async def test_waiting_approval_and_stopping_runs_keep_their_capacity_slot(tmp_p
             (assistant_message("other complete"),),
         )
     )
-    monkeypatch.setattr(
-        "investorch.application.host.create_model",
+    install_host_models(
+        monkeypatch,
         lambda _config, role: (model if role == "main" else ScriptedModel(), ModelSettings()),
     )
 

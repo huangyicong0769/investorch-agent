@@ -14,10 +14,18 @@ if TYPE_CHECKING:
 
 def make_spawning_tools(*, submit: Callable[..., Awaitable["SpawnReceipt"]]) -> list[FunctionTool]:
     @tool(needs_approval=True)
-    async def spawn_agent(context: ToolContext[AgentContext], task: str, title: str | None = None) -> dict[str, object]:
+    async def spawn_agent(
+        context: ToolContext[AgentContext],
+        task: str,
+        title: str | None = None,
+        model: str | None = None,
+        name: str | None = None,
+        reasoning_effort: str | None = None,
+        context_window_tokens: int | None = None,
+    ) -> dict[str, object]:
         """Delegate an approved task to a new, ordinary Agent Session in this Root.
 
-        The child has the same model, Tools, Skills and independent Permission review, with separate
+        The child inherits this Run's model unless explicitly overridden, Tools, Skills and independent Permission review, with separate
         history and Run lifecycle. Related Portfolio IDs are copied once, without authorization.
         Recursive delegation shares the Host's global Run limit, including your own Run. A receipt
         confirms input submission only; use list_sessions/read_session to observe later facts.
@@ -26,15 +34,32 @@ def make_spawning_tools(*, submit: Callable[..., Awaitable["SpawnReceipt"]]) -> 
         Args:
             task: Non-empty initial user-role task text, within the configured instruction limit.
             title: Optional explicit Session title, trimmed and limited to 200 characters. Omit for automatic naming.
+            model: Registered connection ID. Changing connections requires name, effort and window.
+            name: Actual model ID. Changing it requires an explicit context window.
+            reasoning_effort: Override the inherited reasoning effort.
+            context_window_tokens: Positive context window, required for a changed model name or connection.
         """
-        if set(json.loads(context.tool_arguments)) - {"task", "title"}:
-            raise ValueError("spawn_agent accepts only task and title")
+        if set(json.loads(context.tool_arguments)) - {
+            "task",
+            "title",
+            "model",
+            "name",
+            "reasoning_effort",
+            "context_window_tokens",
+        }:
+            raise ValueError(
+                "spawn_agent accepts only task, title, model, name, reasoning_effort and context_window_tokens"
+            )
         receipt = await submit(
             source_session_id=context.context.session_id,
             source_run_id=context.context.run_id,
             tool_call_id=context.tool_call_id,
             task=task,
             title=title,
+            model=model,
+            name=name,
+            reasoning_effort=reasoning_effort,
+            context_window_tokens=context_window_tokens,
         )
         return {
             "session_id": receipt.session_id,

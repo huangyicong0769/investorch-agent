@@ -80,7 +80,7 @@ export function McpPanel() {
   const remove = useMutation({ mutationFn: (name: string) => removeMcp(name), onSuccess: async () => { setRemoval(null); await refresh() } })
   const busy = toggle.isPending || remove.isPending || editorSaving
   return <section className="space-y-4 rounded-xl border border-border bg-card p-5">
-    <div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="font-semibold">MCP servers</h2><p className="mt-1 text-xs text-muted-foreground">Server changes save separately and take effect after restart. Connections are not tested here.</p></div><Button disabled={!query.data || busy} onClick={() => { setNotice(''); setEditor('new') }} size="sm" type="button" variant="outline"><Plus aria-hidden="true" />Add server</Button></div>
+    <div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="font-semibold">MCP servers</h2><p className="mt-1 text-xs text-muted-foreground">Server changes save separately and take effect after restart. Connection status reflects the latest runtime observation.</p></div><Button disabled={!query.data || busy} onClick={() => { setNotice(''); setEditor('new') }} size="sm" type="button" variant="outline"><Plus aria-hidden="true" />Add server</Button></div>
     <ErrorNotice error={query.error ?? toggle.error} fallback="MCP servers could not be loaded." />
     {query.isPending ? <p className="text-sm text-muted-foreground" role="status">Loading integrations…</p> : null}
     {query.isError ? <Button onClick={() => void query.refetch()} type="button" variant="outline">Retry</Button> : null}
@@ -88,6 +88,7 @@ export function McpPanel() {
     {query.data?.servers.map((server) => <div className="rounded-lg border border-border p-4" key={server.name}>
       <div className="flex flex-wrap items-start justify-between gap-3"><div className="min-w-0"><h3 className="break-all text-sm font-semibold">{server.name}</h3><p className="mt-1 break-words text-xs text-muted-foreground">{server.transport} · {server.enabled ? 'Enabled' : 'Disabled'} · Connection {server.runtime_status}</p></div><div className="flex gap-1"><Button aria-label={`Edit ${server.name}`} disabled={busy} onClick={() => { setNotice(''); setEditor(server) }} size="icon-sm" type="button" variant="ghost"><Pencil aria-hidden="true" /></Button><Button aria-label={`Remove ${server.name}`} disabled={busy} onClick={() => { remove.reset(); setNotice(''); setRemoval(server) }} size="icon-sm" type="button" variant="ghost"><Trash2 aria-hidden="true" /></Button></div></div>
       <p className="mt-3 break-all text-xs text-muted-foreground">{server.url}</p>
+      {server.runtime_error ? <p className="mt-2 break-words text-xs text-destructive" role="status">{server.runtime_error.operation}: {server.runtime_error.message}</p> : null}
       <label className="mt-3 flex items-center gap-2 text-sm"><input className="size-4 accent-primary" checked={server.enabled} disabled={busy} onChange={() => { setNotice(''); toggle.mutate(server) }} type="checkbox" />{toggle.isPending && toggle.variables.name === server.name ? 'Saving…' : 'Enable server'}</label>
     </div>)}
     {notice ? <p className="text-sm" role="status">{notice}</p> : null}

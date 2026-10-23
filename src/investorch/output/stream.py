@@ -10,6 +10,8 @@ from openai.types.responses import (
     ResponseCreatedEvent,
     ResponseOutputItemDoneEvent,
     ResponseOutputMessage,
+    ResponseReasoningItem,
+    ResponseReasoningSummaryTextDeltaEvent,
     ResponseReasoningTextDeltaEvent,
     ResponseTextDeltaEvent,
 )
@@ -44,16 +46,19 @@ def _message_text(message: ResponseOutputMessage) -> str:
     return "".join(part.text for part in message.content if part.type == "output_text")
 
 
-async def _flush_reasoning(
-    reasoning_parts: list[str],
-    output_handler: OutputHandler,
-) -> None:
-    if not reasoning_parts:
-        return
+@dataclass
+class _PendingReasoning:
+    text: list[str] = field(default_factory=list)
+    summary: dict[int, list[str]] = field(default_factory=dict)
 
-    text = "".join(reasoning_parts)
-    reasoning_parts.clear()
-    await output_handler(Reasoning(text=text))
+    @property
+    def summary_text(self) -> str:
+        summary = "\n\n".join("".join(self.summary[index]) for index in sorted(self.summary))
+        return summary if summary.strip() else ""
+
+    @property
+    def display_text(self) -> str:
+        return "".join(self.text) or self.summary_text
 
 
 async def consume_run_events(
@@ -61,10 +66,28 @@ async def consume_run_events(
     output_handler: OutputHandler,
     current_agent_name: str,
 ) -> str:
-    reasoning_parts: list[str] = []
+    pending_reasoning: dict[str, _PendingReasoning] = {}
+    emitted_reasoning: set[str] = set()
     pending_messages: dict[int, _PendingMessage] = {}
     completed_messages: Counter[tuple[str, str]] = Counter()
     loop = asyncio.get_running_loop()
+
+    async def flush_reasoning() -> None:
+        for item_id, pending in pending_reasoning.items():
+            if pending.display_text:
+                await output_handler(Reasoning(text=pending.display_text, summary=pending.summary_text or None))
+                emitted_reasoning.add(item_id)
+        pending_reasoning.clear()
+
+    def complete_reasoning(item: ResponseReasoningItem) -> None:
+        if item.id in emitted_reasoning:
+            return
+        pending = pending_reasoning.setdefault(item.id, _PendingReasoning())
+        # Completed items also cover providers that send no summary deltas.
+        if any(part.text.strip() for part in item.summary):
+            pending.summary = {index: [part.text] for index, part in enumerate(item.summary)}
+        if item.content:
+            pending.text = [part.text for part in item.content]
 
     async def flush_updates() -> None:
         for pending in pending_messages.values():
@@ -101,7 +124,7 @@ async def consume_run_events(
             except StopAsyncIteration:
                 break
             if event.type == "agent_updated_stream_event":
-                await _flush_reasoning(reasoning_parts, output_handler)
+                await flush_reasoning()
                 new_agent_name = event.new_agent.name
                 if new_agent_name != current_agent_name:
                     current_agent_name = new_agent_name
@@ -109,14 +132,22 @@ async def consume_run_events(
                 continue
 
             if event.type == "raw_response_event":
-                if isinstance(event.data, ResponseReasoningTextDeltaEvent):
-                    reasoning_parts.append(event.data.delta)
+                if isinstance(event.data, (ResponseReasoningTextDeltaEvent, ResponseReasoningSummaryTextDeltaEvent)):
+                    delta = event.data
+                    if delta.item_id not in emitted_reasoning:
+                        pending = pending_reasoning.setdefault(delta.item_id, _PendingReasoning())
+                        if isinstance(delta, ResponseReasoningSummaryTextDeltaEvent):
+                            pending.summary.setdefault(delta.summary_index, []).append(delta.delta)
+                        else:
+                            pending.text.append(delta.delta)
                 elif isinstance(event.data, ResponseCreatedEvent):
                     # Chat Completions adapters can reuse item IDs on every model turn.
+                    await flush_reasoning()
+                    emitted_reasoning.clear()
                     await flush_messages()
                     completed_messages.clear()
                 elif isinstance(event.data, ResponseTextDeltaEvent):
-                    await _flush_reasoning(reasoning_parts, output_handler)
+                    await flush_reasoning()
                     delta = event.data
                     if delta.output_index not in pending_messages:
                         pending_messages[delta.output_index] = _PendingMessage(delta.item_id)
@@ -125,9 +156,14 @@ async def consume_run_events(
                     pending.dirty = True
                     await flush_updates()
                 elif isinstance(event.data, ResponseOutputItemDoneEvent) and isinstance(
+                    event.data.item, ResponseReasoningItem
+                ):
+                    complete_reasoning(event.data.item)
+                    await flush_reasoning()
+                elif isinstance(event.data, ResponseOutputItemDoneEvent) and isinstance(
                     event.data.item, ResponseOutputMessage
                 ):
-                    await _flush_reasoning(reasoning_parts, output_handler)
+                    await flush_reasoning()
                     item = event.data.item
                     text = _message_text(item)
                     pending = pending_messages.pop(event.data.output_index, None)
@@ -141,12 +177,13 @@ async def consume_run_events(
                 continue
 
             if event.name == "reasoning_item_created":
-                await _flush_reasoning(reasoning_parts, output_handler)
+                complete_reasoning(event.item.raw_item)
+                await flush_reasoning()
                 continue
 
             # Be defensive in case a provider does not emit
             # reasoning_item_created exactly as expected.
-            await _flush_reasoning(reasoning_parts, output_handler)
+            await flush_reasoning()
 
             item = event.item
 
@@ -183,7 +220,7 @@ async def consume_run_events(
             await asyncio.gather(next_event, return_exceptions=True)
         await flush_messages()
 
-    await _flush_reasoning(reasoning_parts, output_handler)
+    await flush_reasoning()
     return current_agent_name
 
 

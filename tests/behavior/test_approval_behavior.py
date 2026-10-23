@@ -47,6 +47,7 @@ async def test_manual_approval_persists_user_decision_and_attribution(tmp_path: 
 
     records = read_session_journal(config.session_journal_dir, "session-a")
     assert outcome.approved is approved
+    assert outcome.feedback is None
     assert records[0]["type"] == "approval"
     assert records[0]["approved"] is approved
     assert records[0]["source"] == "user"

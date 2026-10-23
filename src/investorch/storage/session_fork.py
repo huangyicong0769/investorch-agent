@@ -15,9 +15,11 @@ from .sessions import (
     create_session,
     delete_session_metadata,
     get_session_branch_from,
+    get_session_model,
     get_session_title,
     session_exists,
     set_session_branch_from,
+    set_session_model,
     set_session_title,
 )
 
@@ -87,6 +89,10 @@ async def fork_session(
                 target_session_id,
             )
         )
+
+        source_model = await asyncio.to_thread(get_session_model, sessions_db, source_session_id)
+        if source_model is not None:
+            await _await_mutation(asyncio.to_thread(set_session_model, sessions_db, target_session_id, source_model))
 
         title = _fork_title(source_title)
         if title is not None:

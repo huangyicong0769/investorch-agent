@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Literal, cast
 from urllib.parse import urlsplit
 
+from investorch.config import AppConfig
 from investorch.images import IMAGE_DETAILS, RENDERABLE_MIME_TYPES
 from investorch.inputs import input_origin_fields, input_origin_from_record
 from investorch.journal import SessionJournal
@@ -20,10 +21,6 @@ from investorch.storage import list_sessions as list_session_metadata
 
 if TYPE_CHECKING:
     from investorch.runtime import AgentRuntime
-
-MAX_PAGE_SIZE = 100
-MAX_RESPONSE_CHARS = 32000
-MAX_FIELD_CHARS = 16000
 
 
 class SessionReadError(RuntimeError):
@@ -93,15 +90,17 @@ async def read_session_context(
 
 async def list_sessions(
     *,
+    config: AppConfig,
     sessions_db: str | Path,
     runtime: AgentRuntime,
     query: str | None = None,
     include_archived: bool = False,
-    limit: int = 50,
+    limit: int | None = None,
     offset: int = 0,
 ) -> dict[str, object]:
     """Return complete metadata rows; offset pages reflect the current, unfrozen listing."""
-    _validate_limit(limit)
+    config = config.snapshot()
+    limit = _resolve_limit(limit, config)
     if type(offset) is not int or offset < 0:
         raise ValueError("offset must be a non-negative integer")
     if query is not None and not isinstance(query, str):
@@ -131,26 +130,31 @@ async def list_sessions(
             "status": status,
         }
         candidate = _list_result([*sessions, item], offset, len(records))
-        if _serialized_chars(candidate) > MAX_RESPONSE_CHARS:
+        if _serialized_chars(candidate) > config["session_tools.max_response_chars"]:
             if not sessions:
                 raise SessionReadError("response_too_large", "Session metadata exceeds the response budget.")
             break
         sessions.append(item)
-    return _list_result(sessions, offset, len(records))
+    result = _list_result(sessions, offset, len(records))
+    if _serialized_chars(result) > config["session_tools.max_response_chars"]:
+        raise SessionReadError("response_too_large", "Session metadata exceeds the response budget.")
+    return result
 
 
 async def read_session(
     session_id: str,
     *,
+    config: AppConfig,
     sessions_db: str | Path,
     journal: SessionJournal,
     view: Literal["conversation", "events"] = "conversation",
     before_seq: int | None = None,
     snapshot_seq: int | None = None,
-    limit: int = 50,
+    limit: int | None = None,
 ) -> dict[str, object]:
     """Read exact-ID history only; reuse snapshot_seq and the exclusive cursor on older pages."""
-    _validate_limit(limit)
+    config = config.snapshot()
+    limit = _resolve_limit(limit, config)
     if (
         not isinstance(session_id, str)
         or not session_id
@@ -176,6 +180,8 @@ async def read_session(
                 before_seq=before_seq,
                 snapshot_seq=snapshot_seq,
                 limit=limit,
+                max_response_chars=config["session_tools.max_response_chars"],
+                max_field_chars=config["session_tools.max_field_chars"],
             ),
         )
     except JournalInconsistentError as exc:
@@ -194,9 +200,13 @@ async def _require_session(sessions_db: str | Path, session_id: str) -> None:
         raise SessionReadError("session_not_found", "The exact Session ID does not exist in this Root.")
 
 
-def _validate_limit(limit: int) -> None:
-    if type(limit) is not int or not 1 <= limit <= MAX_PAGE_SIZE:
-        raise ValueError(f"limit must be an integer between 1 and {MAX_PAGE_SIZE}")
+def _resolve_limit(limit: int | None, config: AppConfig) -> int:
+    if limit is None:
+        return config["session_tools.default_page_size"]
+    maximum = config["session_tools.max_page_size"]
+    if type(limit) is not int or not 1 <= limit <= maximum:
+        raise ValueError(f"limit must be an integer between 1 and {maximum}")
+    return limit
 
 
 def _serialized_chars(value: object) -> int:
@@ -217,6 +227,8 @@ def _read_history_snapshot(
     before_seq: int | None,
     snapshot_seq: int | None,
     limit: int,
+    max_response_chars: int,
+    max_field_chars: int,
 ) -> dict[str, object]:
     head = 0
 
@@ -241,10 +253,18 @@ def _read_history_snapshot(
         if item is not None:
             eligible_count += 1
             if view == "events":
-                records.append(item if _serialized_chars(item) <= MAX_RESPONSE_CHARS else _raw_budget_error())
+                records.append(item if _serialized_chars(item) <= max_response_chars else _raw_budget_error())
             else:
                 try:
-                    records.append(_bound_conversation_record(item, session_id, head))
+                    records.append(
+                        _bound_conversation_record(
+                            item,
+                            session_id,
+                            head,
+                            max_response_chars=max_response_chars,
+                            max_field_chars=max_field_chars,
+                        )
+                    )
                 except SessionReadError as error:
                     records.append(error)
     selected: list[dict[str, object]] = []
@@ -254,7 +274,7 @@ def _read_history_snapshot(
                 raise item
             break
         candidate = [item, *selected]
-        if _serialized_chars(_history_result(session_id, view, head, candidate, eligible_count)) > MAX_RESPONSE_CHARS:
+        if _serialized_chars(_history_result(session_id, view, head, candidate, eligible_count)) > max_response_chars:
             if view == "events":
                 raise _raw_budget_error()
             if not selected:
@@ -262,7 +282,7 @@ def _read_history_snapshot(
             break
         selected = candidate
     result = _history_result(session_id, view, head, selected, eligible_count)
-    if _serialized_chars(result) > MAX_RESPONSE_CHARS:
+    if _serialized_chars(result) > max_response_chars:
         raise SessionReadError("response_too_large", "History metadata exceeds the response budget.")
     return result
 
@@ -291,21 +311,23 @@ def _raw_budget_error() -> SessionReadError:
     )
 
 
-def _bound_conversation_record(item: dict[str, object], session_id: str, head: int) -> dict[str, object]:
+def _bound_conversation_record(
+    item: dict[str, object], session_id: str, head: int, *, max_response_chars: int, max_field_chars: int
+) -> dict[str, object]:
     def omit(field: str, value: str) -> None:
         del item[field]
         item["omitted_fields"] = [{"field": field, "reason": "size_limit", "original_chars": len(value)}]
 
     for field in ("text", "arguments", "output"):
         value = item.get(field)
-        if isinstance(value, str) and len(value) > MAX_FIELD_CHARS:
+        if isinstance(value, str) and len(value) > max_field_chars:
             omit(field, value)
-    if _serialized_chars(_history_result(session_id, "conversation", head, [item], 1)) > MAX_RESPONSE_CHARS:
+    if _serialized_chars(_history_result(session_id, "conversation", head, [item], 1)) > max_response_chars:
         for field in ("text", "arguments", "output"):
             value = item.get(field)
             if isinstance(value, str):
                 omit(field, value)
-    if _serialized_chars(_history_result(session_id, "conversation", head, [item], 1)) > MAX_RESPONSE_CHARS:
+    if _serialized_chars(_history_result(session_id, "conversation", head, [item], 1)) > max_response_chars:
         raise SessionReadError("response_too_large", "Conversation metadata exceeds the response budget.")
     return item
 

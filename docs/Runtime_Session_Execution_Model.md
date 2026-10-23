@@ -38,7 +38,7 @@ Normal input enters `application.interaction.submit_user_input()` with an explic
 
 Session mutations enter `application.sessions.SessionOperations`. It coordinates Runtime maintenance reservations, SDK continuation state, metadata, and the journal for create, unused cleanup, title, archive, unarchive, fork, clear, and compact. Presentation clients own command parsing, selection, and user-facing notices.
 
-Agent `list_sessions` and `read_session` delegate to stateless functions in `application.session_queries`. The Host binds listing to its database and current Runtime, and history to its database and existing SessionJournal. It registers the bound Tools once after Runtime construction and before yielding; AgentContext and AgentLoop carry no Session-read capability or provider. Listing calls the public Runtime snapshot for each target Session; history needs no Runtime. Tools only forward public arguments. List status summarizes the current process: an active Run's phase, `pending` for accepted Queue/Steer work without an active Run, or `idle`. It omits queue internals and historical Run outcomes. Exact-ID reads provide history only, including self, active and archived Sessions, without selection changes, Run creation or maintenance reservations. See [Session access](InvestOrch_Agent_Architecture.md#session-access-030-stage-a) for Tool arguments, bounded results and paging examples.
+Agent `list_sessions` and `read_session` delegate to stateless functions in `application.session_queries`. The Host binds both queries to its live AppConfig, listing to its database and current Runtime, and history to its database and existing SessionJournal. Each call snapshots the hot session_tools defaults and budgets; omitted or null limits inherit the current configured default. It registers the bound Tools once after Runtime construction and before yielding; AgentContext and AgentLoop carry no Session-read capability or provider. Listing calls the public Runtime snapshot for each target Session; history needs no Runtime. Tools only forward public arguments. List status summarizes the current process: an active Run's phase, `pending` for accepted Queue/Steer work without an active Run, or `idle`. It omits queue internals and historical Run outcomes. Exact-ID reads provide history only, including self, active and archived Sessions, without selection changes, Run creation or maintenance reservations. See [Session access](InvestOrch_Agent_Architecture.md#session-access-030-stage-a) for Tool arguments, bounded results and paging examples.
 
 `presentation.py` converts application values into explicit JSON-safe projection dictionaries.
 
@@ -48,18 +48,20 @@ Agent `list_sessions` and `read_session` delegate to stateless functions in `app
 
 1. rejects a second top-level Run for the same Session;
 2. creates a unique Run ID;
-3. captures immutable `RunOptions`;
+3. resolves the latest Session model Draft and captures immutable `RunOptions`;
 4. registers and starts an `asyncio.Task`.
 
-The task then opens the SDK Session, records input when needed, invokes the reentrant `AgentLoop`, and closes the SDK Session plus Runtime registry entries in `finally`.
+The task opens the SDK Session, journals accepted input when needed, then persists the frozen model before calling `AgentLoop`. Journal and SQLite model metadata are separate commit boundaries: a metadata write failure blocks inference but may leave input already recorded. Draft cleanup removes only the admitted revision. Preflight compaction runs before Main inference; SDK Session and Runtime registry entries close in `finally`.
 
 Different Sessions may run concurrently. Manual compaction, clear, fork, archive, and a top-level Run are mutually exclusive only for the same Session through a maintenance reservation.
 
+Failed Runs carry an optional public `error` in their runtime event and durable `run_ended` record. Provider validation messages and known connection failures are bounded and stripped of credentials before either is emitted; arbitrary exception bodies stay in local logs. Compaction failures identify their stage. Web shows the same cause live and after reloading history. Older outcomes may receive an append-only `run_error` diagnostic keyed by Run ID after their cause has been verified from logs; the timeline merges the latest diagnostic into the original outcome without moving or duplicating it.
+
 ## Future defaults and Run snapshots
 
-Reasoning effort, permission mode, and follow-up behavior are defaults for future Runs. A running `ActiveRun` owns an immutable snapshot. Changing a default does not mutate in-flight behavior.
+The Host-owned `SessionModelStore` exposes Persisted, Draft, Effective and Active model views. Resolution is Draft → last persisted model → `agents.main` for a new or legacy unbound Session. All effective models have a positive window. Session edits are process-local until a new Run commits them; exit may discard unused Drafts. An active Run keeps its frozen connection, actual model, effort and window.
 
-A queued or steered follow-up captures the future defaults that apply when it is submitted. Later changes do not rewrite those captured options.
+Permission mode and follow-up behavior retain submission-time defaults. Queue does **not** freeze the model when submitted: promotion resolves the Session’s latest Draft. Steer continues the active model; terminal Steer fallback is a new Run and resolves the current Session model then. Credentials are fetched per request and never stored in RunOptions.
 
 ## Follow-ups
 
@@ -108,13 +110,13 @@ Todo is transient Run state projected to clients. It is not stored in SDK contin
 
 - Create makes a new persistent identity.
 - Rename updates Session metadata.
-- Archive preserves continuation, journal, title, and lineage while making the Session read-only until restored.
+- Archive preserves continuation, journal, title, lineage and model selection. Model Draft edits remain allowed, but execution waits for restoration.
 - Unarchive restores normal operations.
 - Delete removes the explicit Session and all recursive Spawn descendants. Clear uses that same deletion contract, then creates a fresh ordinary replacement without inherited lineage.
 - Compact replaces SDK continuation with a marked assistant summary; the journal remains complete.
 - Fork clones the source's last stable committed head into a new independent Session.
 
-Fork copies SDK continuation, the journal when present, title with a suffix, and direct parent lineage. It does not copy active Runs, defaults, Steer/Queue state, Todos, approvals, archive state, jobs, usage, caches, or UI state. It is stable-head cloning, not historical-turn branching.
+Fork copies SDK continuation, the journal when present, title with a suffix, direct parent lineage and persisted model metadata. A source Draft becomes a target Draft, retaining its process-local semantics. It does not copy active Runs, permission/follow-up overrides, Steer/Queue state, Todos, approvals, archive state, jobs, usage, caches, or UI state. It is stable-head cloning, not historical-turn branching.
 
 Empty Sessions that never acquire SDK messages, journal records, metadata, queued intent, or lineage are discarded. Web starts without creating a Session until the user does so; TUI/plain create an initial Session.
 
@@ -150,9 +152,17 @@ No client owns a second copy of execution truth.
 
 ## Usage and compaction
 
-Main and auxiliary model usage is accumulated per Session for the current process. Auxiliary usage includes Title, Activity, Permission, and Compact Agents. Displayed Main-context occupancy uses the last physical Main request rather than cumulative Session totals.
+Main and auxiliary model usage is accumulated separately per Session for the current process. Each completed model request updates the shared presentation snapshot immediately; SDK cumulative usage is reconciled at exit so later failure or cancellation does not discard earlier requests. Auxiliary usage includes Title, Activity, Permission, Skill Review and Compact Agents, including failed output validation. A request that never reports usage cannot supply a known token count. HTTP, WebSocket and TUI consume the same process epoch and monotonic snapshot revision.
 
-Manual or automatic compaction changes only SDK continuation. Failure after a completed answer does not discard that answer, and replacement attempts restore the previous continuation snapshot on error.
+Main-context occupancy is labeled measured after a physical Main response (input plus output usage) and estimated before a request or after compaction. Estimates include the portable request history, instructions, tool schemas and live Todo; auxiliary tokens never contribute. The model name and context-window denominator travel with the snapshot.
+
+Preflight checks continuation and incoming input against the selected Run window with conservative overhead/output allowance. When needed, it compacts inside the existing Run reservation. Failure, empty summary or a still-oversized budget blocks Main; replacement failures attempt restoration. This protection also applies when `compaction.auto_enabled` is off.
+
+Every model request is checked again after tool results and activated Steers arrive. With automatic compaction enabled, crossing the soft threshold summarizes a closed history prefix while preserving current Run user/developer instructions and, when it fits, the latest complete tool exchange. A Run-local input projection applies the summary on all subsequent requests and approval resumes, without changing SDK execution state or replaying tools. After the SDK has stopped writing, the matching prefix is replaced in SQLite while preserving the uncompressed suffix. A mismatched prefix is retained and logged. If soft compaction fails and the original request still fits the input budget, execution continues; an unsafe request is not sent. Estimates and output allowance are conservative guards, not provider tokenization guarantees.
+
+Post-answer automatic compaction uses the active Run window and last Main request usage; failure does not discard an already completed answer. Manual and automatic compaction change SDK continuation only, preserve the complete Journal and charge Compact requests to auxiliary totals as they complete. Successful compaction immediately publishes a new context estimate. The compact model's own input budget is checked and oversized text is summarized in bounded batches.
+
+Each new Run sends a copy of pre-existing history with opaque reasoning and provider response-item IDs removed, preserving messages and function `call_id` links. SQLite and Journal originals remain unchanged, and reasoning generated within the Run remains available to continuation. This applies to same-connection Runs too: opaque reasoning is not reused across Runs, with possible continuity/cache costs.
 
 ## Background jobs
 
@@ -164,7 +174,7 @@ Normal client exit is blocked while active Runs or queued follow-ups remain. Def
 
 ## Current limits
 
-0.1.0 does not persist active Runs, pending Steer, Queue state, Todo, pending approvals, usage display state, or UI state across process restarts. All Sessions share one workspace and managed-job registry. There is no historical-turn branching, per-Session workspace, distributed scheduler, or cross-process Runtime recovery.
+The application does not persist active Runs, Session model Drafts, pending Steer, Queue state, Todo, pending approvals, usage display state, or UI state across process restarts. All Sessions share one workspace and managed-job registry. There is no historical-turn branching, per-Session workspace, distributed scheduler, or cross-process Runtime recovery.
 
 ## Image input and replay
 
@@ -174,7 +184,9 @@ Journal `images` fields are additive on user messages, steers, assistant message
 
 ## Session spawning and global capacity
 
-`spawn_agent(task, title?)` uses existing Permission/HITL approval and ordinary `submit_user_input`. Children have the same Main model, Tools, Skills and independent approval rules, with separate continuation and Journal. Initial input remains `user` role with trusted SDK Session/Run/call provenance. The creation transaction records independent Spawn lineage and a one-time copy of related Portfolio IDs; it copies neither parent history nor Portfolio/Ledger facts or authorization. Forks do not inherit Spawn lineage, and parent completion, stop or archive never cascades to children.
+Spawn inherits the parent Active Run model, never its newer Session Draft. Same-connection name changes require an explicit window; changing the connection also requires name, effort and window. Only the new child receives overrides. Ordinary and spawned Sessions share model persistence, Draft editing and deletion cleanup.
+
+`spawn_agent(task, title?)` uses existing Permission/HITL approval and ordinary `submit_user_input`. Children inherit the parent Run model by default, with the same Tools and Skills and independent approval rules, with separate continuation and Journal. Initial input remains `user` role with trusted SDK Session/Run/call provenance. The creation transaction records independent Spawn lineage and a one-time copy of related Portfolio IDs; it copies neither parent history nor Portfolio/Ledger facts or authorization. Forks do not inherit Spawn lineage, and parent completion, stop or archive never cascades to children.
 
 The tool-call identity yields a stable child ID. Existing workflow acceptance, Runtime and Journal facts prevent duplicate initial submission. Proven capacity/shutdown refusal rolls back an unstarted child; uncertain acceptance retains its identity for diagnosis. Receipts confirm submission, not completion or restart recovery. Recursive children use the same tools; no stop/wait/status Tool, completion registry or automatic reply is added. Observe state through `list_sessions` and completion facts through `read_session(view="events")`.
 

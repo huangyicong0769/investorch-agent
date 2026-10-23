@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from agents import Agent
 
 from investorch.agents import TokenUsage, generate_activity_label
+from investorch.agents.usage import SessionUsageHandler
 from investorch.config import AppConfig
 from investorch.inputs import input_summary
 from investorch.journal import SessionJournal
@@ -43,12 +44,14 @@ class ActivityCoordinator:
         journal: SessionJournal,
         runtime: AgentRuntime,
         label_handler: ActivityLabelHandler = _ignore_activity_label,
+        usage_handler: SessionUsageHandler | None = None,
     ) -> None:
         self._config = config
         self._activity_agent = activity_agent
         self._journal = journal
         self._runtime = runtime
         self._label_handler = label_handler
+        self._usage_handler = usage_handler
         self._reasoning_by_run: dict[str, list[str]] = {}
         self._tasks: set[asyncio.Task[None]] = set()
         self._closed = False
@@ -109,6 +112,11 @@ class ActivityCoordinator:
                 reasoning,
                 event.name,
                 event.arguments,
+                usage_handler=(
+                    (lambda usage: self._usage_handler(output.session_id, usage))
+                    if self._usage_handler is not None
+                    else None
+                ),
             )
         except asyncio.CancelledError:
             raise

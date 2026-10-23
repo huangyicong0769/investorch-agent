@@ -11,6 +11,7 @@ from urllib.parse import urlsplit
 from agents import Agent
 
 from investorch.agents.skill_review import SkillReviewResult, review_skill
+from investorch.agents.usage import UsageHandler
 from investorch.config import AppConfig
 from investorch.skills.domain import SkillRegistration, SkillSource, ValidatedSkill
 from investorch.skills.registry import read_registry, write_registry
@@ -147,7 +148,9 @@ class SkillOperations:
             raise ValueError("Candidate must be inside Workspace and outside installed skills")
         return path, validate_skill(path, source_type=source_type)
 
-    async def review_candidate(self, candidate_path: str, source_type: CustomSource = "external") -> SkillReviewResult:
+    async def review_candidate(
+        self, candidate_path: str, source_type: CustomSource = "external", *, usage_handler: UsageHandler | None = None
+    ) -> SkillReviewResult:
         path, skill = self._candidate(candidate_path, source_type)
         if self.review_agent is None:
             raise ValueError("Skill Review Agent is unavailable")
@@ -160,7 +163,11 @@ class SkillOperations:
                 content = None
             files.append(dict(path=name, bytes=len(raw), text=content))
         # Bounded by deterministic bundle limits; binary assets contribute metadata only.
-        return await review_skill(self.review_agent, json.dumps({"untrusted_candidate": files}, ensure_ascii=False))
+        return await review_skill(
+            self.review_agent,
+            json.dumps({"untrusted_candidate": files}, ensure_ascii=False),
+            usage_handler=usage_handler,
+        )
 
     def validate_install(
         self, candidate_path: str, source_type: CustomSource, origin: str | None = None, replace: bool = False

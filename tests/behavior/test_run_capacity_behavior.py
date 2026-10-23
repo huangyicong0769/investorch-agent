@@ -91,7 +91,7 @@ async def test_capacity_pauses_queue_without_losing_fifo_options_or_failing_the_
         assert harness.runtime.session_snapshot("a").queue_paused
         await harness.runtime.resume_queue("a")
         await harness.agent_loop.wait_until_started("a", occurrence=2)
-        assert harness.runtime.get_active_run("a").options == run_options("queue")
+        assert harness.runtime.get_active_run("a").options.follow_up_behavior == "queue"
         assert [
             r["text"]
             for r in read_session_journal(harness.config.session_journal_dir, "a")

@@ -1,7 +1,7 @@
 ---
 name: investorch-portfolio
 description: Manage logical Portfolio and append-only Ledger workflows. Use for Portfolio lifecycle, executed trades, capital flows, income, adjustments, corrections, transfers, or account attribution questions.
-version: 1.0.0
+version: 1.1.0
 ---
 
 # InvestOrch Portfolio
@@ -23,7 +23,9 @@ version: 1.0.0
 2. Choose the semantic operation: initialization records opening state; trade records an executed fact; cash flow records external capital; income records investment-generated cash; adjustment asserts newly recognized state; correction repairs a wrong historical entry using VOID plus replacement. Transfers are paired logical movements, not one-sided cash flows.
 3. Supply exact decimal strings and `code + market` identities. Unknown cost remains null. Ground quantity, prices, fees (including zero), taxes, names, currencies, and time; Portfolio UI context establishes identity only. Use timezone-aware ISO-8601 time for historical events.
 4. Use the dedicated mutation tool and its normal approval. Restore archived Portfolios before mutation. Correcting a TRANSFER through the single-Portfolio correction tool is unsupported; do not invent a repair through raw Ledger edits.
-5. Read resulting logical state and report recorded facts, not broker settlement or order execution claims.
+5. Read the Portfolio and its Ledger again. Match the mutation’s returned `operation_id` and `entry_id` to the appended entry, and compare projected cash/holdings with the grounded facts. If a mutation outcome is uncertain, inspect the Ledger before retrying to avoid recording a duplicate. Report recorded facts, not broker settlement or order execution claims.
+
+Read [the complete executed-trade example](references/examples.md) before recording a trade or checking its accounting result. It shows identity discovery, existing state and Ledger, every mutation argument, operation-based readback, and a final answer. Other fact types use their semantic tools: `initialize_portfolio`, `record_portfolio_cash_flow`, `record_portfolio_income`, `adjust_portfolio_cash`, `adjust_portfolio_position`, `correct_portfolio_entry`, `transfer_portfolio_cash`, or `transfer_portfolio_position`; metadata and archive changes use their dedicated Portfolio tools.
 
 ## Strategy binding and account attribution
 

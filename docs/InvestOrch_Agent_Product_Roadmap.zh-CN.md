@@ -65,7 +65,7 @@ Tool 委托无状态 Application 查询，由 Host 在首个 Run 前绑定并一
 
 ## 0.3.0 Session 派生
 
-开发实现增加需要审批的 `spawn_agent(task, title?)`：普通 Session 可递归派生，拥有独立历史与审批、可信 user-role 来源，以及一次性的 Portfolio 关联快照。全部顶层 Run 共享 Hot 全局上限，默认 3。显式 Delete/Clear 仅安全级联 Spawn 后代，活动/pending 节点或独立 Fork 引用阻断删除。Web 用右上紧凑卡片替换 Portfolio 横幅，TUI 显示 parent 来源。0.3.0 仍未发布；Agent as MCP 和 PyPI 分发仍属于未来工作。
+开发实现增加需要审批的 `spawn_agent(task, title?)`：普通 Session 可递归派生，拥有独立历史与审批、可信 user-role 来源，以及一次性的 Portfolio 关联快照。全部顶层 Run 共享 Hot 全局上限，默认 3。显式 Delete/Clear 仅安全级联 Spawn 后代，活动/pending 节点或独立 Fork 引用阻断删除。Web 用右上紧凑卡片替换 Portfolio 横幅，TUI 显示 parent 来源。0.3.0 仍未发布；Agent as MCP 已从 0.3.0 取消；PyPI 分发另行安排。
 
 ## 配置、管理与恢复
 
@@ -83,9 +83,11 @@ CNEquity 仍是可选后端。更广泛的依赖要等待上游行为足够稳�
 
 Multi-Agent 是长期方向，Stage A 已提供只读 Session 访问。Specialist 角色、路由模型、Handoff 拓扑及后续阶段排期仍待决定。只有真实职责证明拆分能降低复杂度后，才设计 Agent 边界。
 
-## 已确认方向：Agent as MCP
+## 0.3.0 模型连接与 ChatGPT
 
-未来将通过 MCP server 对外提供经过选择的 Agent 能力，让其他 MCP client 可以调用 InvestOrch Agent。对外能力范围、Session 模型、认证方式、传输方式和审批行为仍待决定。
+开发线增加两层连接/Agent 默认值、每个 Session 的模型 Draft、Run 冻结、Queue 晋升时解析最新模型、按连接复用 Client、前置压缩，以及官方 ChatGPT 本地授权与按需刷新。Web/TUI/plain 共用模型契约。旧 TOML 需离线人工转换，Session SQLite 元数据正常增量升级。参见[配置](Configuration.zh-CN.md)与[升级](Upgrade.zh-CN.md)。
+
+Agent as MCP 已取消，不是 0.3.0 范围或发布前置条件；已有 MCP client 集成保留。它也不再列为已确认的未来方向。
 
 ## 待决策事项
 
@@ -95,7 +97,6 @@ Multi-Agent 是长期方向，Stage A 已提供只读 Session 访问。Specialis
 - QMT Gateway 如何通信、认证、部署和恢复；
 - 统一数据层拥有什么，以及如何表达来源与时间；
 - 哪些职责（如果有）需要成为独立 Agent；
-- Agent as MCP 对外提供哪些能力，以及如何处理 Session、认证和审批；
 - 已确认方向如何对应未来版本或里程碑。
 
 ## 候选主题

@@ -3,24 +3,28 @@ import logging
 
 from agents import set_tracing_disabled
 
+from investorch.agents import ContextBudgetError
 from investorch.application import (
     ActivityLabelEvent,
     ApplicationCallbacks,
     ApprovalResolvedEvent,
     SessionOperations,
+    SessionPresentationState,
     open_application_host,
 )
 from investorch.commands import dispatch_command, parse_command
-from investorch.config import AppConfig, load_config
+from investorch.config import AppConfig, ConfigError, load_config
 from investorch.context import AppState
 from investorch.initializer import initialize
 from investorch.inputs import UserInput
+from investorch.llm.models import ChatGPTInferenceError
+from investorch.llm.oauth import ChatGPTAuthError
 from investorch.log import configure_logging
 from investorch.runtime import (
     AgentRuntime,
     ApprovalRequest,
     RunCapacityExceededError,
-    RunOptions,
+    RunDefaults,
     RuntimeFollowUpEvent,
     RuntimeOutput,
     RuntimeRunEnded,
@@ -63,16 +67,22 @@ async def _run_console(state: AppState, runtime: AgentRuntime, sessions: Session
             active_run = runtime.start_run(
                 session_id,
                 UserInput(user_input),
-                RunOptions(
-                    reasoning_effort=state.main_reasoning_effort,
+                RunDefaults(
                     permission_mode=state.permission_mode,
                     follow_up_behavior=state.follow_up_behavior,
                 ),
             )
-        except RunCapacityExceededError as error:
+        except (RunCapacityExceededError, ConfigError) as error:
             ui.write(str(error))
             continue
-        result = await active_run.task
+        try:
+            result = await active_run.task
+        except (ChatGPTAuthError, ChatGPTInferenceError, ContextBudgetError):
+            # Runtime already emitted the safe recovery guidance to all clients.
+            continue
+        except ConfigError as error:
+            ui.write(str(error))
+            continue
         if result.auto_compaction is not None and result.auto_compaction.changed:
             ui.write("Context compacted automatically.")
         elif result.auto_compaction_consistency_uncertain:
@@ -140,6 +150,10 @@ async def _run_configured_app(ui: ConsoleUI, config: AppConfig, initialized: boo
         if tui is not None:
             tui.handle_runtime_state(snapshot)
 
+    def handle_presentation_state(session_id: str, presentation: SessionPresentationState) -> None:
+        if tui is not None:
+            tui.handle_presentation_state(session_id, presentation)
+
     async def request_user_approval(request: ApprovalRequest, review_reason: str | None = None) -> bool:
         if tui is None:
             return await ui.request_tool_approval(request.tool_name, request.arguments, review_reason)
@@ -171,6 +185,7 @@ async def _run_configured_app(ui: ConsoleUI, config: AppConfig, initialized: boo
         handle_user_input_committed=handle_user_input_committed,
         handle_run_ended=handle_run_ended,
         handle_runtime_state=handle_runtime_state,
+        handle_presentation_state=handle_presentation_state,
         handle_approval_resolved=handle_approval_resolved,
         handle_activity_label=handle_activity_label,
     )
@@ -184,4 +199,8 @@ async def _run_configured_app(ui: ConsoleUI, config: AppConfig, initialized: boo
 
         tui = InvestOrchAgentTUI(host.state, config.session_journal_dir, host.journal)
         tui.bind_runtime(host.runtime, host.sessions)
+        if host.state.selected_session_id is not None:
+            tui.handle_presentation_state(
+                host.state.selected_session_id, host.presentation_state.get(host.state.selected_session_id)
+            )
         await tui.run_async()

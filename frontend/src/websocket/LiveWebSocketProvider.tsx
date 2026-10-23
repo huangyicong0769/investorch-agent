@@ -18,6 +18,8 @@ import {
   getSessionState,
   getSessions,
 } from '../api/client'
+import { cachedPresentation, reconcilePresentation } from '../api/presentation'
+import { sessionModelQueryOptions } from '../api/sessionModel'
 import { removeDeletedSessionCaches } from '../api/sessionLifecycle'
 import {
   queryKeys,
@@ -37,6 +39,8 @@ import type {
   OutputEventAssistantMessageUpdate,
   RuntimeStateLiveEvent,
   SessionStateResponse,
+  SessionPresentationState,
+  TokenUsage,
   SessionContextResponse,
   SessionContextStatus,
   SessionListResponse,
@@ -60,7 +64,9 @@ export interface LiveNotice {
   id: string
   text: string
   timestamp: string
-  stoppedRunId?: string
+  endedRunId?: string
+  severity?: 'error'
+  error?: string | null
 }
 
 interface LiveSessionValue {
@@ -95,6 +101,7 @@ type ParsedRunEndedEvent = {
   session_id: string
   run_id: string
   status: 'completed' | 'cancelled' | 'failed'
+  error: string | null
   started_at: string | null
   ended_at: string | null
   duration_ms: number | null
@@ -186,7 +193,8 @@ function outputEvent(value: unknown): OutputEvent | null {
     }
     case 'reasoning': {
       const text = stringField(value, 'text')
-      return text === null ? null : { type: 'reasoning', text }
+      const summary = stringField(value, 'summary')
+      return text === null ? null : { type: 'reasoning', text, ...(summary ? { summary } : {}) }
     }
     case 'tool_called': {
       const name = stringField(value, 'name')
@@ -279,12 +287,48 @@ function runtimeSnapshot(value: Record<string, unknown>): RuntimeStateLiveEvent 
   }
 }
 
+function tokenUsage(value: unknown): value is TokenUsage {
+  if (!isRecord(value)) return false
+  const counts = ['requests', 'input_tokens', 'cached_input_tokens', 'cache_write_input_tokens',
+    'output_tokens', 'reasoning_output_tokens', 'total_tokens']
+  return counts.every((key) => typeof value[key] === 'number' && Number.isInteger(value[key]) && value[key] >= 0)
+    && (value.last_request_total_tokens === null || (typeof value.last_request_total_tokens === 'number'
+      && Number.isInteger(value.last_request_total_tokens) && value.last_request_total_tokens >= 0))
+}
+
+function presentationSnapshot(value: unknown): SessionPresentationState | null {
+  if (!isRecord(value) || !tokenUsage(value.usage) || !tokenUsage(value.main_usage) || !tokenUsage(value.auxiliary_usage)) return null
+  if (typeof value.epoch !== 'string' || !value.epoch || typeof value.revision !== 'number'
+    || !Number.isInteger(value.revision) || value.revision < 0 || typeof value.compacting !== 'boolean'
+    || !['unknown', 'measured', 'estimated'].includes(String(value.context_kind))) return null
+  const contextTokens = value.main_context_tokens
+  const capacity = value.context_window_tokens
+  if (contextTokens !== null && (typeof contextTokens !== 'number' || !Number.isInteger(contextTokens) || contextTokens < 0)) return null
+  if (capacity !== null && (typeof capacity !== 'number' || !Number.isInteger(capacity) || capacity <= 0)) return null
+  const contextModel = nullableStringField(value, 'context_model')
+  const lastTodoRunId = nullableStringField(value, 'last_todo_run_id')
+  const todos = todoItems(value.last_todos)
+  if (contextModel === undefined || lastTodoRunId === undefined || todos === null) return null
+  return {
+    usage: value.usage, main_usage: value.main_usage, auxiliary_usage: value.auxiliary_usage,
+    main_context_tokens: contextTokens, context_window_tokens: capacity, context_model: contextModel,
+    context_kind: value.context_kind as SessionPresentationState['context_kind'], compacting: value.compacting,
+    revision: value.revision, epoch: value.epoch, last_todo_run_id: lastTodoRunId, last_todos: todos,
+  }
+}
+
 function parseLiveEvent(value: unknown): ParsedLiveEvent | null {
   if (!isRecord(value) || typeof value.kind !== 'string') {
     return null
   }
 
   switch (value.kind) {
+    case 'presentation_state': {
+      const sessionId = stringField(value, 'session_id')
+      const presentation = presentationSnapshot(value.presentation)
+      return sessionId === null || presentation === null ? null
+        : { kind: 'presentation_state', session_id: sessionId, presentation }
+    }
     case 'output': {
       const sessionId = stringField(value, 'session_id')
       const runId = stringField(value, 'run_id')
@@ -367,6 +411,8 @@ function parseLiveEvent(value: unknown): ParsedLiveEvent | null {
       const sessionId = stringField(value, 'session_id')
       const runId = stringField(value, 'run_id')
       const status = value.status
+      const error = nullableStringField(value, 'error')
+      if ('error' in value && error === undefined) return null
       const autoCompaction = value.auto_compaction
       const startedAt = isoTimestampField(value, 'started_at')
       const endedAt = isoTimestampField(value, 'ended_at')
@@ -392,6 +438,7 @@ function parseLiveEvent(value: unknown): ParsedLiveEvent | null {
             session_id: sessionId,
             run_id: runId,
             status,
+            error: error ?? null,
             started_at: timing?.started_at ?? null,
             ended_at: timing?.ended_at ?? null,
             duration_ms: timing?.duration_ms ?? null,
@@ -470,6 +517,7 @@ function overlayRecord(event: ParsedLiveEvent, runEndedSequence: number | null =
       type: 'run_ended',
       run_id: event.run_id,
       status: event.status,
+      error: event.error,
       started_at: event.started_at,
       ended_at: event.ended_at,
       duration_ms: event.duration_ms,
@@ -618,14 +666,14 @@ export function LiveWebSocketProvider({ children }: PropsWithChildren) {
     setResyncedRun(null)
   }
 
-  const addNotice = (sessionId: string, key: string, text: string, stoppedRunId?: string) => {
+  const addNotice = (sessionId: string, key: string, text: string, endedRunId?: string, severity?: 'error', error?: string | null) => {
     if (selectedSessionRef.current !== sessionId) {
       return
     }
 
-    if (stoppedRunId) {
+    if (endedRunId) {
       const activeRunId = queryClient.getQueryData<SessionStateResponse>(queryKeys.sessionState(sessionId))?.runtime.run_id
-      if (canonicalRunEndedIds(queryClient, sessionId).has(stoppedRunId) || (activeRunId && activeRunId !== stoppedRunId)) return
+      if (canonicalRunEndedIds(queryClient, sessionId).has(endedRunId) || (activeRunId && activeRunId !== endedRunId)) return
     }
 
     if (liveSessionRef.current !== sessionId) {
@@ -638,8 +686,10 @@ export function LiveWebSocketProvider({ children }: PropsWithChildren) {
     const notice: LiveNotice = {
       id,
       text,
+      severity,
+      error,
       timestamp: receivedAt(),
-      ...(stoppedRunId ? { stoppedRunId } : {}),
+      ...(endedRunId ? { endedRunId } : {}),
     }
     setNoticeState((current) =>
       current.some((item) => item.id === id)
@@ -648,14 +698,14 @@ export function LiveWebSocketProvider({ children }: PropsWithChildren) {
     )
   }
 
-  const pruneStoppedNotices = (sessionId: string, activeRunId: string | null = null) => {
+  const pruneEndedNotices = (sessionId: string, activeRunId: string | null = null) => {
     if (selectedSessionRef.current !== sessionId || liveSessionRef.current !== sessionId) return
     const canonicalRunIds = canonicalRunEndedIds(queryClient, sessionId)
     setNoticeState((current) => {
       if (selectedSessionRef.current !== sessionId || liveSessionRef.current !== sessionId) return current
-      // Stop is a temporary fallback; durable timing stays at its original place in history.
-      const next = current.filter((notice) => !notice.stoppedRunId || (
-        !canonicalRunIds.has(notice.stoppedRunId) && (!activeRunId || notice.stoppedRunId === activeRunId)
+      // Terminal notices are temporary fallbacks; durable outcomes stay at their original place in history.
+      const next = current.filter((notice) => !notice.endedRunId || (
+        !canonicalRunIds.has(notice.endedRunId) && (!activeRunId || notice.endedRunId === activeRunId)
       ))
       return next.length === current.length ? current : next
     })
@@ -721,6 +771,16 @@ export function LiveWebSocketProvider({ children }: PropsWithChildren) {
   }
 
   const processEvent = (event: ParsedLiveEvent) => {
+    if (event.kind === 'presentation_state') {
+      const presentation = reconcilePresentation(queryClient, event.session_id, event.presentation)
+      queryClient.setQueryData<SessionStateResponse>(queryKeys.sessionState(event.session_id), (current) =>
+        current ? { ...current, presentation } : current,
+      )
+      queryClient.setQueryData<BootstrapResponse>(queryKeys.bootstrap(), (current) =>
+        current?.initial_session_id === event.session_id ? { ...current, presentation } : current,
+      )
+      return
+    }
     if (event.session_id === selectedSessionRef.current) {
       if (event.kind === 'output' && event.event.type === 'assistant_message_update') {
         const message = event.event
@@ -739,7 +799,10 @@ export function LiveWebSocketProvider({ children }: PropsWithChildren) {
         setStreamingState((current) => current?.runId === event.run_id ? null : current)
       }
     }
-    if (event.kind === 'runtime_state' || event.kind === 'run_ended') recordContextEventDuringFetch(queryClient, event)
+    if (event.kind === 'runtime_state' || event.kind === 'run_ended') {
+      recordContextEventDuringFetch(queryClient, event)
+      void queryClient.invalidateQueries({ queryKey: queryKeys.sessionModel(event.session_id) })
+    }
     if (event.kind === 'runtime_state' || event.kind === 'run_ended' || event.kind === 'user_input_committed') {
       const record = queryClient.getQueryData<SessionResponse>(queryKeys.session(event.session_id))?.session
         ?? queryClient.getQueryData<SessionListResponse>(queryKeys.sessions())?.sessions.find((entry) => entry.session_id === event.session_id)
@@ -796,7 +859,7 @@ export function LiveWebSocketProvider({ children }: PropsWithChildren) {
     } else if (event.kind === 'approval_cancelled') {
       updateSessionApproval(queryClient, event.session_id, (current) => removePendingApproval(current, event.approval_id))
     } else if (event.kind === 'runtime_state') {
-      if (event.run_id) pruneStoppedNotices(event.session_id, event.run_id)
+      if (event.run_id) pruneEndedNotices(event.session_id, event.run_id)
       queryClient.setQueryData<SessionStateResponse>(queryKeys.sessionState(event.session_id), (current) =>
         current ? { ...current, runtime: event } : current,
       )
@@ -812,7 +875,7 @@ export function LiveWebSocketProvider({ children }: PropsWithChildren) {
       if (event.status === 'cancelled') {
         addNotice(event.session_id, `${event.run_id}:cancelled`, 'Run stopped.', event.run_id)
       } else if (event.status === 'failed') {
-        addNotice(event.session_id, `${event.run_id}:failed`, 'Run failed.')
+        addNotice(event.session_id, `${event.run_id}:failed`, 'Run failed.', event.run_id, 'error', event.error)
       }
       if (event.auto_compaction_changed === true) {
         addNotice(event.session_id, `${event.run_id}:compacted`, 'Context compacted automatically.')
@@ -881,11 +944,13 @@ export function LiveWebSocketProvider({ children }: PropsWithChildren) {
       return
     }
 
+    const previousPresentation = cachedPresentation(queryClient, sessionId)
     const requests = await Promise.allSettled([
       getBootstrap({ signal: controller.signal }),
       getSessions({ signal: controller.signal }),
       getSessionState(sessionId, { signal: controller.signal }),
       getSessionHistory(sessionId, { limit: webConfig.history_page_size, signal: controller.signal }),
+      queryClient.fetchQuery({ ...sessionModelQueryOptions(sessionId), staleTime: 0 }),
     ])
 
     if (!mountedRef.current || token !== resyncTokenRef.current || selectedSessionRef.current !== sessionId) {
@@ -917,7 +982,9 @@ export function LiveWebSocketProvider({ children }: PropsWithChildren) {
       return
     }
     if (state) {
-      queryClient.setQueryData(queryKeys.sessionState(sessionId), state)
+      queryClient.setQueryData(queryKeys.sessionState(sessionId), { ...state,
+        presentation: reconcilePresentation(queryClient, sessionId, state.presentation, previousPresentation),
+      })
       queryClient.setQueryData(queryKeys.session(sessionId), { session: state.session })
     }
     if (latest) {
@@ -966,7 +1033,7 @@ export function LiveWebSocketProvider({ children }: PropsWithChildren) {
       }
     }
     drainingRef.current = false
-    pruneStoppedNotices(sessionId, queryClient.getQueryData<SessionStateResponse>(queryKeys.sessionState(sessionId))?.runtime.run_id ?? null)
+    pruneEndedNotices(sessionId, queryClient.getQueryData<SessionStateResponse>(queryKeys.sessionState(sessionId))?.runtime.run_id ?? null)
     const deferredSessionId = deferredResyncRef.current
     deferredResyncRef.current = null
     if (deferredSessionId && selectedSessionRef.current === deferredSessionId) {

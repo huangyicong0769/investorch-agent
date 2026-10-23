@@ -124,7 +124,15 @@ async def test_main_agent_creates_or_acquires_reviews_and_installs_a_skill(tmp_p
     create_session(config.sessions_db, "session")
     set_session_title(config.sessions_db, "session", "Skill workflow")
     session = SQLiteSession("session", config.sessions_db)
-    loop = AgentLoop(main, unused, unused, config, PortfolioOperations(config=config), skills=skills)
+    loop = AgentLoop(
+        main,
+        unused,
+        unused,
+        config,
+        PortfolioOperations(config=config),
+        skills=skills,
+        model_factory=lambda _: main.model,
+    )
     try:
         await loop.run(
             "Create a note-summary Skill"
@@ -134,7 +142,7 @@ async def test_main_agent_creates_or_acquires_reviews_and_installs_a_skill(tmp_p
             ExecutionState(workspace_root=config.workspace_dir),
             run_id="run",
             session_id="session",
-            reasoning_effort="none",
+            model_config=config.agent_model("main"),
             approval_handler=approve,
             output_handler=output,
             run_control=RunControl("session", "run", lambda: None),

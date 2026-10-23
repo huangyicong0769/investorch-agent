@@ -94,12 +94,13 @@ def serialize_run_ended(event: RuntimeRunEnded) -> dict[str, object]:
         "session_id": event.session_id,
         "run_id": event.run_id,
         "status": event.status,
+        "error": event.error,
         "started_at": event.started_at.isoformat(),
         "ended_at": event.ended_at.isoformat(),
         "duration_ms": max(0, round((event.ended_at - event.started_at).total_seconds() * 1000)),
         "discarded_steer_count": event.discarded_steer_count,
         "main_usage": serialize_token_usage(result.main_usage) if result is not None else None,
-        "auxiliary_usage": serialize_token_usage(result.auxiliary_usage) if result is not None else None,
+        "auxiliary_usage": serialize_token_usage(event.auxiliary_usage),
         "main_context_tokens": None if result is None or compacted else result.main_usage.last_request_total_tokens,
         "auto_compaction": serialize_compaction_result(result.auto_compaction)
         if result is not None and result.auto_compaction is not None
@@ -181,6 +182,14 @@ def serialize_queue_item(item: QueuedInput) -> dict[str, object]:
 def serialize_session_presentation_state(state: SessionPresentationState) -> dict[str, object]:
     return {
         "usage": serialize_token_usage(state.usage),
+        "main_usage": serialize_token_usage(state.main_usage),
+        "auxiliary_usage": serialize_token_usage(state.auxiliary_usage),
+        "context_window_tokens": state.context_window_tokens,
+        "context_model": state.context_model,
+        "context_kind": state.context_kind,
+        "compacting": state.compacting,
+        "epoch": state.epoch,
+        "revision": state.revision,
         "main_context_tokens": state.main_context_tokens,
         "last_todo_run_id": state.last_todo_run_id,
         "last_todos": [{"content": todo["content"], "status": todo["status"]} for todo in state.last_todos],

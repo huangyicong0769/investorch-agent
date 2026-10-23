@@ -16,10 +16,12 @@ from investorch.config import AppConfig, ConfigError, load_config
 from investorch.config_schema import AppConfigSchema
 from investorch.diagnostics import doctor_checks
 from investorch.initializer import initialize
+from investorch.llm.oauth import ChatGPTAuth
 from investorch.log import configure_logging
 
 from .approvals import WebApprovalBroker
 from .assets import install_webui_routes
+from .auth_routes import router as auth_router
 from .config_routes import router as config_router
 from .connections import WebConnectionHub, websocket_router
 from .errors import APIError, install_error_handlers
@@ -78,7 +80,10 @@ def create_web_app(
                     if app.state.recovery_error:
                         raise APIError(409, "recovery_required", app.state.recovery_error)
                     try:
-                        configured = await asyncio.to_thread(load_config, instance_root)
+                        configured = app.state.config
+                        if configured is None:
+                            configured = await asyncio.to_thread(load_config, instance_root)
+                        configured.activate_saved_for_startup()
                     except (ConfigError, OSError):
                         raise APIError(
                             409, "recovery_required", "Configuration cannot be loaded. Run investorch doctor."
@@ -99,6 +104,7 @@ def create_web_app(
                                 manual_approval_handler=broker.request,
                                 callbacks=events.application_callbacks(),
                                 create_initial_session=False,
+                                chatgpt_auth=app.state.chatgpt_auth,
                             )
                         )
                     except Exception as exc:
@@ -119,6 +125,8 @@ def create_web_app(
                         else:
                             await asyncio.to_thread(initialize, loaded)
                             app.state.config = loaded
+                            app.state.chatgpt_auth = ChatGPTAuth(loaded)
+                            stack.push_async_callback(app.state.chatgpt_auth.close)
                             set_tracing_disabled(not loaded["observability.sdk_tracing_enabled"])
                             configure_logging(loaded)
                             if not loaded.readiness():
@@ -148,11 +156,13 @@ def create_web_app(
     app.state.connections = None
     app.state.events = None
     app.state.approval_broker = None
+    app.state.chatgpt_auth = None
     install_error_handlers(app)
     install_http_security(app)
     app.include_router(router)
     app.include_router(config_router)
     app.include_router(setup_router)
+    app.include_router(auth_router)
     app.include_router(system_router)
     app.include_router(mcp_router)
     app.include_router(skill_router)

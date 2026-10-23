@@ -10,9 +10,7 @@ from dataclasses import dataclass
 from functools import partial
 from zoneinfo import ZoneInfo
 
-from agents import ModelSettings, OpenAIResponsesModel
-from agents.mcp import MCPServer, MCPServerManager, MCPServerStdio
-from openai import AsyncOpenAI
+from agents.mcp import MCPServer, MCPServerManager
 
 from investorch.agents import (
     AgentLoop,
@@ -28,7 +26,10 @@ from investorch.config import AppConfig
 from investorch.context import AppState, ExecutionState
 from investorch.inputs import UserInput
 from investorch.journal import SessionJournal
+from investorch.llm.clients import ModelConnectionClients
+from investorch.llm.oauth import ChatGPTAuth
 from investorch.mcp import load_mcp_servers as load_configured_mcp_servers
+from investorch.mcp_runtime import IsolatedMCPServerStdio
 from investorch.output import AssistantMessageUpdate
 from investorch.runtime import (
     AgentRuntime,
@@ -37,6 +38,7 @@ from investorch.runtime import (
     RuntimeRunEnded,
     RuntimeSessionSnapshot,
 )
+from investorch.runtime.errors import format_run_error
 from investorch.storage import create_session, delete_unused_session, list_sessions
 from investorch.tools import close_execution, make_messaging_tools, make_session_tools, start_execution
 
@@ -51,7 +53,7 @@ from .portfolio_context import (
 )
 from .portfolio_sessions import PortfolioSessionWorkflows
 from .portfolios import PortfolioOperations
-from .presentation_state import SessionPresentationStore
+from .presentation_state import PresentationStateHandler, SessionPresentationState, SessionPresentationStore
 from .sessions import SessionOperations
 from .skill_sessions import SkillSessionWorkflows
 from .skills import SkillOperations
@@ -81,6 +83,10 @@ def _ignore_runtime_state(_snapshot: RuntimeSessionSnapshot) -> None:
     pass
 
 
+def _ignore_presentation_state(_session_id: str, _state: SessionPresentationState) -> None:
+    pass
+
+
 async def _ignore_user_input_committed(_session_id: str, _user_input: UserInput, _journal_seq: int) -> None:
     pass
 
@@ -91,6 +97,7 @@ class ApplicationCallbacks:
     handle_follow_up: ApplicationFollowUpHandler = _ignore_follow_up
     handle_run_ended: ApplicationRunEndedHandler = _ignore_run_ended
     handle_runtime_state: ApplicationRuntimeStateHandler = _ignore_runtime_state
+    handle_presentation_state: PresentationStateHandler = _ignore_presentation_state
     handle_user_input_committed: ApplicationUserInputCommittedHandler = _ignore_user_input_committed
     handle_approval_resolved: ApprovalResolvedHandler = _ignore_approval_resolved
     handle_activity_label: ActivityLabelHandler = _ignore_activity_label
@@ -113,18 +120,15 @@ class ApplicationHost:
     activity: ActivityCoordinator | None
     presentation_state: SessionPresentationStore
     initial_session_id: str | None
+    mcp_servers: tuple[MCPServer, ...] = ()
+
+    @property
+    def session_models(self):
+        return self.state.session_models
 
     @property
     def session_lifecycle_lock(self) -> asyncio.Lock:
         return self.sessions.lifecycle_lock
-
-
-def create_model(config: AppConfig, agent: str) -> tuple[OpenAIResponsesModel, ModelSettings]:
-    model = config.model(agent)
-    client = AsyncOpenAI(api_key=config.secret(model.api_key_secret), base_url=model.base_url)
-    return OpenAIResponsesModel(model=model.name, openai_client=client), ModelSettings(
-        reasoning={"effort": model.reasoning_effort}
-    )
 
 
 def _load_agent_mcp_servers(config: AppConfig) -> list[MCPServer]:
@@ -132,7 +136,7 @@ def _load_agent_mcp_servers(config: AppConfig) -> list[MCPServer]:
     if not config["backtest.use_cnequity"]:
         return servers
 
-    cnequity_server = MCPServerStdio(
+    cnequity_server = IsolatedMCPServerStdio(
         name="cnequity",
         params={
             "command": sys.executable,
@@ -172,10 +176,11 @@ async def open_application_host(
     callbacks: ApplicationCallbacks | None = None,
     create_initial_session: bool = True,
     enable_activity: bool = True,
+    chatgpt_auth: ChatGPTAuth | None = None,
 ) -> AsyncIterator[ApplicationHost]:
     callbacks = callbacks or ApplicationCallbacks()
     journal = SessionJournal(config.session_journal_dir, ZoneInfo(config["runtime.default_timezone"]))
-    presentation_state = SessionPresentationStore()
+    presentation_state = SessionPresentationStore(callbacks.handle_presentation_state)
     await _discard_legacy_unused_sessions(config, journal)
 
     selected_session_id = uuid.uuid4().hex
@@ -235,6 +240,7 @@ async def open_application_host(
                 event.started_at,
                 event.ended_at,
                 discarded_user_steer_seqs=event.discarded_steer_seqs,
+                error=event.error,
             )
         except Exception:
             logger.exception(
@@ -242,7 +248,6 @@ async def open_application_host(
                 event.session_id,
                 event.run_id,
             )
-        presentation_state.observe_run_ended(event)
         await callbacks.handle_run_ended(event)
 
     def handle_runtime_state(snapshot: RuntimeSessionSnapshot) -> None:
@@ -250,11 +255,14 @@ async def open_application_host(
         callbacks.handle_runtime_state(snapshot)
 
     async def handle_activity_label(event: ActivityLabelEvent) -> None:
-        presentation_state.add_usage(event.session_id, event.usage)
         await callbacks.handle_activity_label(event)
 
     runtime: AgentRuntime | None = None
     activity: ActivityCoordinator | None = None
+    owns_auth = chatgpt_auth is None
+    chatgpt_auth = chatgpt_auth or ChatGPTAuth(config)
+    state.chatgpt_auth = chatgpt_auth
+    model_clients = ModelConnectionClients(config, chatgpt_auth)
 
     try:
         await start_execution(execution, config.workspace_dir)
@@ -262,11 +270,14 @@ async def open_application_host(
         logger.info("Starting MCP server manager with %d configured servers", len(mcp_servers))
         async with MCPServerManager(mcp_servers, drop_failed_servers=config["mcp.drop_failed_servers"]) as mcp_manager:
             try:
+                errors = mcp_manager.errors
+                for server in mcp_servers:
+                    server.record_connection_result(errors.get(server))
                 logger.info("MCP server manager started with %d active servers", len(mcp_manager.active_servers))
-                main_model, main_model_settings = create_model(config, "main")
-                title_model, title_model_settings = create_model(config, "title")
-                compact_model, compact_model_settings = create_model(config, "compact")
-                permission_model, permission_model_settings = create_model(config, "permission")
+                main_model, main_model_settings = model_clients.for_agent("main")
+                title_model, title_model_settings = model_clients.for_agent("title")
+                compact_model, compact_model_settings = model_clients.for_agent("compact")
+                permission_model, permission_model_settings = model_clients.for_agent("permission")
                 skills.review_agent = create_skill_review_agent(permission_model, permission_model_settings)
                 portfolio_context = PortfolioContextOperations(
                     config=config,
@@ -276,7 +287,7 @@ async def open_application_host(
                     model=main_model,
                     model_settings=main_model_settings,
                     config=config,
-                    mcp_servers=mcp_manager.active_servers,
+                    mcp_servers=mcp_servers,
                     skill_catalog=skill_catalog,
                 )
                 agent_loop = AgentLoop(
@@ -285,8 +296,11 @@ async def open_application_host(
                     create_compaction_agent(compact_model, compact_model_settings),
                     config,
                     portfolios,
+                    model_factory=model_clients.resolve,
                     successful_tool_handler=portfolio_context.observe_successful_tool,
                     skills=skills,
+                    usage_handler=presentation_state.add_usage,
+                    context_handler=presentation_state.observe_context,
                 )
                 approvals = ApprovalCoordinator(
                     config=config,
@@ -298,6 +312,7 @@ async def open_application_host(
                     journal=journal,
                     manual_handler=manual_approval_handler,
                     resolved_handler=callbacks.handle_approval_resolved,
+                    usage_handler=presentation_state.add_usage,
                     skills=skills,
                 )
                 runtime = AgentRuntime(
@@ -310,18 +325,23 @@ async def open_application_host(
                     record_user_steer,
                     record_user_steers_activated,
                     record_user_steers_discarded,
+                    session_models=state.session_models,
                     state_handler=handle_runtime_state,
                     run_ended_handler=handle_run_ended,
+                    error_formatter=lambda error: format_run_error(error, secrets=config.secret_values()),
                     follow_up_handler=callbacks.handle_follow_up,
                     max_concurrent_runs=lambda: config["runtime.max_concurrent_runs"],
                 )
                 agent.tools.extend(
                     make_session_tools(
                         list_query=partial(
-                            session_queries.list_sessions, sessions_db=config.sessions_db, runtime=runtime
+                            session_queries.list_sessions,
+                            config=config,
+                            sessions_db=config.sessions_db,
+                            runtime=runtime,
                         ),
                         read_query=partial(
-                            session_queries.read_session, sessions_db=config.sessions_db, journal=journal
+                            session_queries.read_session, config=config, sessions_db=config.sessions_db, journal=journal
                         ),
                     )
                 )
@@ -329,13 +349,14 @@ async def open_application_host(
                     make_messaging_tools(submit=partial(send_message, state=state, runtime=runtime, journal=journal))
                 )
                 if enable_activity:
-                    activity_model, activity_model_settings = create_model(config, "activity")
+                    activity_model, activity_model_settings = model_clients.for_agent("activity")
                     activity = ActivityCoordinator(
                         config=config,
                         activity_agent=create_activity_agent(activity_model, activity_model_settings),
                         journal=journal,
                         runtime=runtime,
                         label_handler=handle_activity_label,
+                        usage_handler=presentation_state.add_usage,
                     )
                 sessions = SessionOperations(
                     config=config,
@@ -372,6 +393,7 @@ async def open_application_host(
                     activity=activity,
                     presentation_state=presentation_state,
                     initial_session_id=initial_session_id,
+                    mcp_servers=tuple(mcp_servers),
                 )
             finally:
                 try:
@@ -387,9 +409,16 @@ async def open_application_host(
                         if execution.sandbox is not None:
                             await close_execution(execution)
     finally:
-        if runtime is not None:
-            await runtime.aclose()
-        if execution.sandbox is not None:
-            await close_execution(execution)
-        if create_initial_session:
-            await _discard_unused_session(config, journal, state.selected_session_id)
+        try:
+            if runtime is not None:
+                await runtime.aclose()
+            if execution.sandbox is not None:
+                await close_execution(execution)
+            if create_initial_session:
+                await _discard_unused_session(config, journal, state.selected_session_id)
+        finally:
+            try:
+                await model_clients.close()
+            finally:
+                if owns_auth:
+                    await chatgpt_auth.close()

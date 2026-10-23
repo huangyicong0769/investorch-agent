@@ -50,7 +50,7 @@ def configure_mcp_server(
     """
     Add or update an MCP server.
 
-    This operation requires user approval.
+    This operation uses the configured approval policy.
     Only streamable HTTP MCP servers are currently supported.
     For an existing server, omitted values keep their current values.
     When adding a new server, url is required.
@@ -98,7 +98,7 @@ def remove_mcp_server(context: RunContextWrapper[AgentContext], name: str) -> di
     """
     Remove an MCP server.
 
-    This operation requires user approval.
+    This operation uses the configured approval policy.
     The change takes effect after InvestOrch Agent is restarted.
 
     Args:

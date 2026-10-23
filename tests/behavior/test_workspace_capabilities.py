@@ -118,6 +118,24 @@ async def test_large_full_read_fails_but_bounded_line_read_succeeds(tmp_path: Pa
 
 
 @pytest.mark.asyncio
+async def test_default_explore_reads_complete_long_guidance_and_broader_search_context(tmp_path: Path) -> None:
+    context = make_tool_context(tmp_path)
+    note = context.context.config.workspace_dir / "guide.txt"
+    content = "".join(f"evidence {index:03}: {'x' * 600}\n" for index in range(200))
+    note.write_text(content, encoding="utf-8")
+
+    full = await invoke(explore, context, operation="read", path="guide.txt", query="", start_line=0, end_line=0)
+    search = await invoke(explore, context, operation="search", path="guide.txt", query="evidence")
+
+    assert isinstance(full, dict)
+    assert full["content"] == content
+    assert isinstance(search, dict)
+    assert len(search["results"]) == 200
+    assert search["results"][-1]["snippet"] == content.splitlines()[-1]
+    assert search["truncated"] is False
+
+
+@pytest.mark.asyncio
 async def test_create_does_not_overwrite_and_replace_requires_one_match(tmp_path: Path) -> None:
     context = make_tool_context(tmp_path)
 

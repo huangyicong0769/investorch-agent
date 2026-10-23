@@ -8,7 +8,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from agents import SQLiteSession
 
@@ -17,12 +17,17 @@ from investorch.agents import (
     AgentRunResult,
     ApprovalOutcome,
     CompactionResult,
+    ContextBudgetError,
+    TokenUsage,
 )
 from investorch.context import ExecutionState, TodoItem
 from investorch.inputs import UserInput, input_summary
-from investorch.output import OutputEvent
+from investorch.llm.models import ChatGPTInferenceError
+from investorch.llm.oauth import ChatGPTAuthError
+from investorch.output import AssistantMessage, OutputEvent
 
 from .control import RunControl
+from .errors import format_run_error
 from .models import (
     ActiveRun,
     ApprovalRequest,
@@ -30,6 +35,7 @@ from .models import (
     PendingSteer,
     QueuedInput,
     RunCapacityExceededError,
+    RunDefaults,
     RunOptions,
     RuntimeFollowUpEvent,
     RuntimeOutput,
@@ -37,6 +43,9 @@ from .models import (
     RuntimeSessionSnapshot,
     SessionBusyError,
 )
+
+if TYPE_CHECKING:
+    from investorch.application.session_models import SessionModelSnapshot, SessionModelStore
 
 logger = logging.getLogger(__name__)
 
@@ -100,11 +109,15 @@ class AgentRuntime:
         record_user_steer: RecordUserSteer,
         record_user_steers_activated: RecordUserSteersActivated,
         record_user_steers_discarded: RecordUserSteersDiscarded,
+        session_models: SessionModelStore,
         state_handler: RuntimeStateHandler | None = None,
         run_ended_handler: RunEndedHandler | None = None,
         follow_up_handler: RuntimeFollowUpHandler | None = None,
         max_concurrent_runs: Callable[[], int] = lambda: 3,
+        error_formatter: Callable[[Exception], str] = format_run_error,
     ) -> None:
+        self.session_models = session_models
+        session_models.on_change = self._model_changed
         self._agent_loop = agent_loop
         self._execution = execution
         self._sessions_db = sessions_db
@@ -118,6 +131,7 @@ class AgentRuntime:
         self._record_user_steers_discarded = record_user_steers_discarded
         self._follow_up_handler = follow_up_handler
         self._max_concurrent_runs = max_concurrent_runs
+        self._error_formatter = error_formatter
         self._active_by_session: dict[str, ActiveRun] = {}
         self._active_by_run: dict[str, ActiveRun] = {}
         self._run_tasks: set[asyncio.Task[AgentRunResult]] = set()
@@ -131,7 +145,11 @@ class AgentRuntime:
         self._maintenance_sessions: set[str] = set()
         self._closed = False
 
-    def start_run(self, session_id: str, user_input: UserInput | str, options: RunOptions) -> ActiveRun:
+    @property
+    def closed(self) -> bool:
+        return self._closed
+
+    def start_run(self, session_id: str, user_input: UserInput | str, options: RunDefaults) -> ActiveRun:
         return self._start_run(
             session_id, UserInput(user_input) if isinstance(user_input, str) else user_input, options
         )
@@ -141,7 +159,7 @@ class AgentRuntime:
         session_id: str,
         user_input: UserInput | str,
         application_instruction: str,
-        options: RunOptions,
+        options: RunDefaults,
     ) -> ActiveRun:
         user_input = UserInput(user_input) if isinstance(user_input, str) else user_input
         if not application_instruction.strip():
@@ -157,7 +175,7 @@ class AgentRuntime:
         self,
         session_id: str,
         application_instruction: str,
-        options: RunOptions,
+        options: RunDefaults,
     ) -> ActiveRun:
         if not application_instruction.strip():
             raise ValueError("Application instruction must not be empty")
@@ -178,7 +196,7 @@ class AgentRuntime:
         self,
         session_id: str,
         user_input: UserInput | None,
-        options: RunOptions,
+        options: RunDefaults,
         *,
         record_user_message: bool = True,
         start_gate: asyncio.Event | None = None,
@@ -200,6 +218,8 @@ class AgentRuntime:
         if len(self._active_by_session) >= limit:
             raise RunCapacityExceededError(active=len(self._active_by_session), limit=limit)
 
+        model_snapshot = self.session_models.snapshot(session_id)
+        options = RunOptions(model_snapshot.model, options.permission_mode, options.follow_up_behavior)
         run_id = uuid.uuid4().hex
         started_at = datetime.now(UTC)
         run_control = RunControl(session_id, run_id, lambda: self._notify_state(session_id))
@@ -214,6 +234,7 @@ class AgentRuntime:
                 run_control,
                 input_journal,
                 started_at,
+                model_snapshot,
                 record_user_message=record_user_message,
                 start_gate=start_gate,
                 application_instruction=application_instruction,
@@ -281,7 +302,7 @@ class AgentRuntime:
         return any(self._queued_by_session.values())
 
     async def submit_follow_up(
-        self, session_id: str, user_input: UserInput | str, next_run_options: RunOptions
+        self, session_id: str, user_input: UserInput | str, next_run_options: RunDefaults
     ) -> FollowUpSubmission:
         user_input = UserInput(user_input) if isinstance(user_input, str) else user_input
         task = asyncio.current_task()
@@ -294,7 +315,7 @@ class AgentRuntime:
             self._submission_tasks.discard(task)
 
     async def _submit_follow_up(
-        self, session_id: str, user_input: UserInput | str, next_run_options: RunOptions
+        self, session_id: str, user_input: UserInput | str, next_run_options: RunDefaults
     ) -> FollowUpSubmission:
         if self._closed:
             raise RuntimeError("Agent runtime is closed")
@@ -450,7 +471,7 @@ class AgentRuntime:
         self._queue_paused_sessions.discard(session_id)
         self._notify_state(session_id)
         logger.info("Queue resumed session=%s count=%d", session_id, len(self._queued_by_session[session_id]))
-        await self._try_promote_queue(session_id, raise_capacity=True)
+        await self._try_promote_queue(session_id, raise_admission_error=True)
 
     @property
     def agent_name(self) -> str:
@@ -485,7 +506,9 @@ class AgentRuntime:
             session: SQLiteSession | None = None
             try:
                 session = SQLiteSession(session_id, self._sessions_db)
-                return await self._agent_loop.compact(session)
+                return await self._agent_loop.compact(
+                    session, model_config=self.session_models.view(session_id).effective
+                )
             finally:
                 if session is not None:
                     session.close()
@@ -520,6 +543,7 @@ class AgentRuntime:
         run_control: RunControl,
         input_journal: _InputJournalBarrier,
         started_at: datetime,
+        model_snapshot: SessionModelSnapshot,
         *,
         record_user_message: bool,
         start_gate: asyncio.Event | None,
@@ -530,6 +554,12 @@ class AgentRuntime:
         status: Literal["completed", "cancelled", "failed"] = "failed"
         discarded_steer_count = 0
         discarded_steer_seqs: tuple[int, ...] = ()
+        partial_auxiliary_usage = TokenUsage()
+        failure: str | None = None
+
+        def record_preflight_usage(usage: TokenUsage) -> None:
+            nonlocal partial_auxiliary_usage
+            partial_auxiliary_usage += usage
 
         async def handle_output(event: OutputEvent) -> None:
             await self._output_handler(RuntimeOutput(run_id=run_id, session_id=session_id, event=event))
@@ -604,13 +634,20 @@ class AgentRuntime:
                 input_journal.succeed(instruction_head_seq)
             else:
                 instruction_head_seq = await input_journal.wait()
+            try:
+                await self.session_models.commit(session_id, model_snapshot)
+            except Exception as error:
+                raise RuntimeError(
+                    "Run input was journaled but not executed: Session model metadata could not be saved. "
+                    "Inspect Session history before explicitly retrying the input."
+                ) from error
             result = await self._agent_loop.run(
                 user_input,
                 session,
                 self._execution,
                 run_id=run_id,
                 session_id=session_id,
-                reasoning_effort=options.reasoning_effort,
+                model_config=options.model,
                 approval_handler=handle_approval,
                 output_handler=handle_output,
                 run_control=run_control,
@@ -618,6 +655,7 @@ class AgentRuntime:
                 instruction_head_seq=instruction_head_seq,
                 steer_activated_handler=handle_steers_activated,
                 application_instruction=application_instruction,
+                preflight_usage_handler=record_preflight_usage,
             )
             status = "completed"
             logger.info("Completed Agent run session=%s run=%s", session_id, run_id)
@@ -629,6 +667,9 @@ class AgentRuntime:
             raise
         except Exception as error:
             input_journal.fail(error)
+            failure = self._error_formatter(error)
+            if isinstance(error, (ChatGPTInferenceError, ChatGPTAuthError, ContextBudgetError)):
+                await handle_output(AssistantMessage(str(error)))
             logger.exception("Failed Agent run session=%s run=%s", session_id, run_id)
             raise
         finally:
@@ -698,6 +739,8 @@ class AgentRuntime:
                         result=result,
                         discarded_steer_count=discarded_steer_count,
                         discarded_steer_seqs=discarded_steer_seqs,
+                        partial_auxiliary_usage=partial_auxiliary_usage,
+                        error=failure,
                     )
                 )
                 await self._promote_follow_ups(session_id)
@@ -711,6 +754,17 @@ class AgentRuntime:
         for pending_session_id in tuple(self._steer_fallback_by_session):
             if pending_session_id != session_id:
                 await self._try_promote_steer_fallback(pending_session_id)
+
+    def _model_changed(self, session_id: str) -> None:
+        self._notify_state(session_id)
+        if (
+            not self._closed
+            and self._steer_fallback_by_session.get(session_id)
+            and not self.is_session_active(session_id)
+        ):
+            task = asyncio.create_task(self._try_promote_steer_fallback(session_id))
+            self._promotion_tasks.add(task)
+            task.add_done_callback(self._promotion_tasks.discard)
 
     def _notify_state(self, session_id: str) -> None:
         if self._state_handler is None:
@@ -782,7 +836,9 @@ class AgentRuntime:
             return
         except Exception:
             self._steer_fallback_by_session.setdefault(session_id, deque()).appendleft(steer)
-            raise
+            self._notify_state(session_id)
+            logger.exception("Steer fallback retained after model admission failed session=%s", session_id)
+            return
         input_journal = self._input_journal_by_run[active_run.run_id]
         cancellation: asyncio.CancelledError | None = None
 
@@ -849,17 +905,17 @@ class AgentRuntime:
             steer.steer_id,
         )
 
-    async def _try_promote_queue(self, session_id: str, *, raise_capacity: bool = False) -> None:
+    async def _try_promote_queue(self, session_id: str, *, raise_admission_error: bool = False) -> None:
         task = asyncio.current_task()
         if task is None:
             raise RuntimeError("Follow-up promotion requires an asyncio task")
         self._promotion_tasks.add(task)
         try:
-            await self._promote_queue(session_id, raise_capacity=raise_capacity)
+            await self._promote_queue(session_id, raise_admission_error=raise_admission_error)
         finally:
             self._promotion_tasks.discard(task)
 
-    async def _promote_queue(self, session_id: str, *, raise_capacity: bool = False) -> None:
+    async def _promote_queue(self, session_id: str, *, raise_admission_error: bool = False) -> None:
         queue = self._queued_by_session.get(session_id)
         if (
             self._closed
@@ -887,12 +943,16 @@ class AgentRuntime:
             self._queued_by_session.setdefault(session_id, deque()).appendleft(queued_input)
             self.pause_queue(session_id)
             logger.info("Queue promotion paused at Run capacity session=%s queue=%s", session_id, queued_input.queue_id)
-            if raise_capacity:
+            if raise_admission_error:
                 raise
             return
         except Exception:
             self._queued_by_session.setdefault(session_id, deque()).appendleft(queued_input)
-            raise
+            self.pause_queue(session_id)
+            logger.exception("Queue paused after model admission failed session=%s", session_id)
+            if raise_admission_error:
+                raise
+            return
         input_journal = self._input_journal_by_run[active_run.run_id]
 
         await asyncio.sleep(0)

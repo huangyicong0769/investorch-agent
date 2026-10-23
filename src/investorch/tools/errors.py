@@ -16,11 +16,13 @@ from investorch.portfolio.schema import PortfolioStorageError
 def format_tool_error(context: RunContextWrapper[AgentContext], error: Exception) -> str:
     """Expose corrective errors without SDK validation inputs or credentials."""
     # Application initialization imports the Agent's tools before its services.
+    from rqalpha.utils.exception import CustomException
+
     from investorch.application.messaging import MessageSendError
     from investorch.application.portfolios import PortfolioOperationError
     from investorch.application.session_queries import SessionReadError
     from investorch.application.spawning import SpawnError
-    from investorch.backtest.errors import BacktestDataError
+    from investorch.backtest.errors import BacktestDataError, BacktestStrategyError
     from investorch.runtime import RunCapacityExceededError
 
     validation = error.__cause__ if isinstance(error, ModelBehaviorError) else error
@@ -30,6 +32,11 @@ def format_tool_error(context: RunContextWrapper[AgentContext], error: Exception
         message = f"Invalid JSON input: {details}"
     elif isinstance(error, ModelBehaviorError):
         message = str(error).split(":", 1)[0]
+    elif isinstance(error, CustomException) and isinstance(error.error.exc_val, Exception):
+        # The wrapper's repr includes strategy source and locals. Pass through
+        # the original exception instead, keeping its type and message intact.
+        cause = error.error.exc_val
+        message = f"{type(cause).__name__}: {cause}"
     elif isinstance(
         error,
         (
@@ -39,6 +46,7 @@ def format_tool_error(context: RunContextWrapper[AgentContext], error: Exception
             PortfolioStorageError,
             PortfolioOperationError,
             BacktestDataError,
+            BacktestStrategyError,
             SessionReadError,
             MessageSendError,
             RunCapacityExceededError,
@@ -47,8 +55,11 @@ def format_tool_error(context: RunContextWrapper[AgentContext], error: Exception
     ) or (isinstance(error, RuntimeError) and str(error) == "exec_command is currently supported on macOS only"):
         message = str(error)
     else:
-        return "Error: The tool failed unexpectedly. Check System Status before retrying."
-    for secret in sorted(context.context.config.secrets.values(), key=len, reverse=True):
+        message = "The tool failed unexpectedly. Check System Status before retrying."
+    for note in getattr(error, "__notes__", ()):
+        if note.startswith("Backtest artifacts: "):
+            message += "\n" + note
+    for secret in sorted(context.context.config.secret_values(), key=len, reverse=True):
         if secret:
             message = message.replace(secret, "<redacted>")
     return f"Error: {message}"

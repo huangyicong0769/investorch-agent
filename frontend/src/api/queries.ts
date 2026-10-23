@@ -1,4 +1,5 @@
 import { infiniteQueryOptions, queryOptions, type QueryClient } from '@tanstack/react-query'
+import { cachedPresentation, reconcilePresentation } from './presentation'
 import type { RuntimeSnapshot, SessionContextEntry, SessionContextResponse } from './types'
 
 import {
@@ -29,6 +30,7 @@ export const queryKeys = {
   portfolioLedger: (portfolioId: string) => [...queryKeys.portfolioRecords(), portfolioId, 'ledger'] as const,
   portfolios: () => [...queryKeys.all, 'portfolios'] as const,
   session: (sessionId: string) => [...queryKeys.all, 'session', sessionId] as const,
+  sessionModel: (sessionId: string) => [...queryKeys.session(sessionId), 'model'] as const,
   sessionContexts: () => [...queryKeys.all, 'session-context'] as const,
   sessionContext: (sessionId: string) => [...queryKeys.sessionContexts(), sessionId] as const,
   sessionDeletionPreview: (sessionId: string) => [...queryKeys.all, 'session', sessionId, 'deletion-preview'] as const,
@@ -154,7 +156,11 @@ export const sessionDeletionPreviewQueryOptions = (sessionId: string) => queryOp
 export const sessionStateQueryOptions = (sessionId: string) =>
   queryOptions({
     queryKey: queryKeys.sessionState(sessionId),
-    queryFn: ({ signal }) => getSessionState(sessionId, { signal }),
+    queryFn: async ({ signal, client }) => {
+      const before = cachedPresentation(client, sessionId)
+      const response = await getSessionState(sessionId, { signal })
+      return { ...response, presentation: reconcilePresentation(client, sessionId, response.presentation, before) }
+    },
   })
 
 export const sessionHistoryQueryOptions = (sessionId: string, beforeSeq?: number, limit?: number) =>

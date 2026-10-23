@@ -261,6 +261,8 @@ def init_session_metadata(db_path: str | Path) -> None:
             """
         )
         columns = {row[1] for row in connection.execute("PRAGMA table_info(extra_session_metadata)")}
+        if "model_config_json" not in columns:
+            connection.execute("ALTER TABLE extra_session_metadata ADD COLUMN model_config_json TEXT")
         if "archived_at" not in columns:
             connection.execute("ALTER TABLE extra_session_metadata ADD COLUMN archived_at TEXT")
         if "related_portfolio_ids_json" not in columns:
@@ -682,3 +684,37 @@ def delete_session_metadata(db_path: str | Path, session_id: str) -> None:
             (session_id,),
         )
         connection.commit()
+
+
+def get_session_model(db_path: str | Path, session_id: str) -> dict[str, object] | None:
+    with closing(sqlite3.connect(db_path)) as connection:
+        row = connection.execute(
+            "SELECT model_config_json FROM extra_session_metadata WHERE session_id = ?", (session_id,)
+        ).fetchone()
+    if row is None or row[0] is None:
+        return None
+    try:
+        value = json.loads(row[0])
+        if not isinstance(value, dict):
+            raise ValueError("Expected model object")
+        return value
+    except (ValueError, TypeError) as error:
+        raise SessionMetadataError("Invalid Session model metadata") from error
+
+
+def set_session_model(db_path: str | Path, session_id: str, model: dict[str, object]) -> None:
+    with closing(sqlite3.connect(db_path)) as connection:
+        connection.execute(
+            "INSERT INTO extra_session_metadata (session_id, title, model_config_json) VALUES (?, '', ?) "
+            "ON CONFLICT(session_id) DO UPDATE SET model_config_json = excluded.model_config_json",
+            (session_id, json.dumps(model, ensure_ascii=False)),
+        )
+        connection.commit()
+
+
+def session_model_references(db_path: str | Path, connection_id: str) -> list[str]:
+    with closing(sqlite3.connect(db_path)) as connection:
+        rows = connection.execute(
+            "SELECT session_id, model_config_json FROM extra_session_metadata WHERE model_config_json IS NOT NULL"
+        ).fetchall()
+    return [session_id for session_id, model in rows if json.loads(model).get("model") == connection_id]

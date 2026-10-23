@@ -145,7 +145,6 @@ async def test_archive_and_unarchive_preserve_durable_session_state(tmp_path: Pa
         config=harness.runtime.config,
         execution=harness.runtime.execution,
         selected_session_id=session_id,
-        main_reasoning_effort="none",
         permission_mode="manual",
     )
     with pytest.raises(ArchivedSessionInputError):
