@@ -506,7 +506,9 @@ class AgentRuntime:
             session: SQLiteSession | None = None
             try:
                 session = SQLiteSession(session_id, self._sessions_db)
-                return await self._agent_loop.compact(session)
+                return await self._agent_loop.compact(
+                    session, model_config=self.session_models.view(session_id).effective
+                )
             finally:
                 if session is not None:
                     session.close()

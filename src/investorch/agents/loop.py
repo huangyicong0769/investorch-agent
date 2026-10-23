@@ -22,7 +22,8 @@ from investorch.llm.models import ChatGPTResponsesModel, chatgpt_tools
 from investorch.output import AssistantMessage, OutputEvent, OutputHandler, consume_run_events
 from investorch.output.stream import assistant_message_from_result
 
-from .compact import CompactionResult, compact_session, session_history_restore_failed
+from .compact import CompactionResult, compact_session, estimate_context_tokens, session_history_restore_failed
+from .context_projection import ContextProjection, ContextProjectionBudgetError
 from .continuation import portable_history_filter
 from .title import ensure_session_title
 from .usage import TokenUsage, UsageTracker
@@ -38,15 +39,22 @@ logger = logging.getLogger(__name__)
 class ContextBudgetError(ValueError):
     """A safe preflight failure containing only computed counts and fixed recovery guidance."""
 
-    def __init__(self, estimated_tokens: int, budget_tokens: int, *, after_compaction: bool = False) -> None:
+    def __init__(
+        self, estimated_tokens: int, budget_tokens: int, *, after_compaction: bool = False, during_run: bool = False
+    ) -> None:
         reason = (
             "Context still exceeds the selected model budget after Compact"
             if after_compaction
             else "The new input, instructions and Tools exceed the selected model context budget"
         )
+        if during_run:
+            reason = "The next model request exceeds the selected model input budget"
+        execution = (
+            "Next model request was not sent; completed work is preserved." if during_run else "Main was not executed."
+        )
         super().__init__(
             f"{reason} (estimated {estimated_tokens:d} tokens; available budget {max(0, budget_tokens):d} tokens). "
-            "Main was not executed. Please shorten the input or select a larger window supported by the model."
+            f"{execution} Please shorten the input or select a larger window supported by the model."
         )
 
 
@@ -118,7 +126,12 @@ def should_auto_compact(
     return context_tokens >= math.floor(context_window_tokens * trigger_ratio)
 
 
-def _run_model_input_filter(history: list[TResponseInputItem]) -> CallModelInputFilter:
+def _run_model_input_filter(
+    history: list[TResponseInputItem],
+    *,
+    projection: ContextProjection | None = None,
+    context_window_tokens: int = 0,
+) -> CallModelInputFilter:
     """Make prior history portable and add live Todo data only to each model request."""
     portable_filter = portable_history_filter(history)
 
@@ -126,29 +139,58 @@ def _run_model_input_filter(history: list[TResponseInputItem]) -> CallModelInput
         filtered = portable_filter(data)
         if inspect.isawaitable(filtered):
             filtered = await filtered
-        if data.context is None:
-            return filtered
-        notes = []
-        if data.context.turn.todos:
-            notes.append(
-                "Current Run Todo snapshot (state data). Apply the Todo workflow from your instructions "
-                "when transitioning stages and finalizing verified results:\n"
-                + json.dumps(data.context.turn.todos, ensure_ascii=False)
+        tools = await data.agent.get_all_tools(RunContextWrapper(data.context)) if projection is not None else []
+        extra_input: list[TResponseInputItem] = []
+        if data.context is not None:
+            if data.context.turn.todos:
+                extra_input.append(
+                    {
+                        "role": "developer",
+                        "content": (
+                            "Current Run Todo snapshot (state data). Apply the Todo workflow from your instructions "
+                            "when transitioning stages and finalizing verified results:\n"
+                            + json.dumps(data.context.turn.todos, ensure_ascii=False)
+                        ),
+                    }
+                )
+            if data.context.turn.mcp_errors:
+                extra_input.append(
+                    {
+                        "role": "developer",
+                        "content": (
+                            "Current Run MCP connection failures (state data). Work using available tools can continue. "
+                            "Identify the server by name when reporting an affected capability:\n"
+                            + json.dumps(
+                                [{"server": name, **failure} for name, failure in data.context.turn.mcp_errors.items()],
+                                ensure_ascii=False,
+                            )
+                        ),
+                    }
+                )
+        if projection is None:
+            return ModelInputData(input=[*filtered.input, *extra_input], instructions=filtered.instructions)
+        try:
+            prepared = await projection.prepare(
+                filtered.input,
+                instructions=filtered.instructions,
+                tool_schemas=_tool_schemas(tools),
+                context_window_tokens=context_window_tokens,
+                extra_input=extra_input,
             )
-        if data.context.turn.mcp_errors:
-            notes.append(
-                "Current Run MCP connection failures (state data). Work using available tools can continue. "
-                "Explain a missing capability when it affects the requested task:\n"
-                + json.dumps(data.context.turn.mcp_errors, ensure_ascii=False)
-            )
-        if not notes:
-            return filtered
-        return ModelInputData(
-            input=[*filtered.input, *({"role": "developer", "content": note} for note in notes)],
-            instructions=filtered.instructions,
-        )
+        except ContextProjectionBudgetError as error:
+            raise ContextBudgetError(error.estimated_tokens, error.budget_tokens, during_run=True) from error
+        return ModelInputData(input=prepared, instructions=filtered.instructions)
 
     return filter_input
+
+
+def _tool_schemas(tools: list[Tool]) -> list[dict[str, Any]]:
+    return [
+        {"name": tool.name, "description": tool.description, "parameters": tool.params_json_schema}
+        if isinstance(tool, FunctionTool)
+        else {"type": type(tool).__name__, "protocol_reserve": " " * 1024}
+        for tool in tools
+    ]
 
 
 class AgentLoop:
@@ -215,7 +257,11 @@ class AgentLoop:
             if self._usage_handler is not None:
                 self._usage_handler(session_id, usage, model_config)
 
+        observed_auxiliary_usage = TokenUsage()
+
         def record_auxiliary_usage(usage: TokenUsage) -> None:
+            nonlocal observed_auxiliary_usage
+            observed_auxiliary_usage += usage
             if self._usage_handler is not None:
                 self._usage_handler(session_id, usage, None)
 
@@ -224,6 +270,7 @@ class AgentLoop:
             if preflight_usage_handler is not None:
                 preflight_usage_handler(usage)
 
+        agent_context.auxiliary_usage_handler = record_auxiliary_usage
         main_usage_tracker = UsageTracker(record_main_usage)
         hooks = _SuccessfulToolHooks(
             session_id=session_id,
@@ -244,15 +291,32 @@ class AgentLoop:
         if not model_input:
             raise ValueError("Run requires user input or an application instruction")
 
-        preflight_compaction = await self._preflight_compact(
+        await self._preflight_compact(
             session,
             run_agent,
             agent_context,
             model_input,
-            model_config.context_window_tokens,
+            model_config,
             record_preflight_usage,
         )
-        run_config = RunConfig(call_model_input_filter=_run_model_input_filter(await session.get_items()))
+        history = await session.get_items()
+
+        def record_context(tokens: int, compacting: bool) -> None:
+            if self._context_handler is not None:
+                self._context_handler(session_id, tokens, model_config, compacting=compacting)
+
+        projection = ContextProjection(
+            self._compaction_agent,
+            self._config,
+            initial_history_count=sum(item.get("type") != "reasoning" for item in history),
+            usage_handler=record_auxiliary_usage,
+            context_handler=record_context,
+        )
+        run_config = RunConfig(
+            call_model_input_filter=_run_model_input_filter(
+                history, projection=projection, context_window_tokens=model_config.context_window_tokens
+            )
+        )
         result = Runner.run_streamed(
             run_agent,
             model_input,
@@ -273,74 +337,104 @@ class AgentLoop:
             if isinstance(event, AssistantMessage):
                 last_message = event
 
-        while True:
-            run_control.bind_stream(result)
-            try:
-                current_agent_name = await consume_run_events(result, stream_output, current_agent_name)
-            finally:
-                main_usage_tracker.record(result.context_wrapper.usage)
-                run_control.unbind_stream(result)
-
-            sdk_state = result.to_state() if result.interruptions else None
-            if sdk_state is not None:
-                for interruption in result.interruptions:
-                    outcome = await approval_handler(
-                        instruction_head_seq,
-                        interruption.name or "unknown_tool",
-                        interruption.arguments,
-                    )
-                    approval_usage += outcome.usage
-
-                    if outcome.approved:
-                        sdk_state.approve(interruption, always_approve=False)
-                    else:
-                        sdk_state.reject(
-                            interruption, always_reject=False, rejection_message="The tool action was rejected."
-                        )
-
-            pending_steers = await run_control.pending_for_boundary(seal_if_empty=not result.interruptions)
-            staged_ids: list[str] = []
-            if pending_steers:
-                sdk_state = sdk_state or result.to_state()
+        try:
+            while True:
+                run_control.bind_stream(result)
                 try:
-                    for steer in pending_steers:
-                        sdk_state.add_input([user_input_to_response_item(steer.user_input)])
-                        staged_ids.append(steer.steer_id)
-                except UserError as error:
-                    if staged_ids:
-                        raise RuntimeError("Steer input staging failed after a partial FIFO write") from error
-                    run_control.move_pending_to_fallback()
-                    logger.info(
-                        "Steer input could not be staged and will continue as a subsequent Run: session=%s run=%s count=%d",
-                        session_id,
-                        run_id,
-                        len(pending_steers),
-                    )
-                else:
-                    steer_seqs = tuple(steer.journal_seq for steer in pending_steers)
-                    if any(seq is None for seq in steer_seqs):
-                        raise RuntimeError("Steer input reached the Agent boundary without durable journal sequence")
-                    if steer_activated_handler is None:
-                        raise RuntimeError("Steer input reached the Agent boundary without an activation recorder")
-                    instruction_head_seq, activation_cancellation = await steer_activated_handler(
-                        tuple(seq for seq in steer_seqs if seq is not None)
-                    )
-                    run_control.mark_staged(staged_ids)
-                    if activation_cancellation is not None:
-                        raise activation_cancellation
-                    logger.info("Steer staged session=%s run=%s count=%d", session_id, run_id, len(staged_ids))
+                    current_agent_name = await consume_run_events(result, stream_output, current_agent_name)
+                finally:
+                    main_usage_tracker.record(result.context_wrapper.usage)
+                    run_control.unbind_stream(result)
 
-            if sdk_state is not None and (result.interruptions or staged_ids):
-                result = Runner.run_streamed(
-                    run_agent,
-                    sdk_state,
-                    session=session,
-                    max_turns=self._config["runtime.max_turns"],
-                    run_config=run_config,
-                    hooks=hooks,
+                sdk_state = result.to_state() if result.interruptions else None
+                if sdk_state is not None:
+                    for interruption in result.interruptions:
+                        outcome = await approval_handler(
+                            instruction_head_seq,
+                            interruption.name or "unknown_tool",
+                            interruption.arguments,
+                        )
+                        approval_usage += outcome.usage
+
+                        if outcome.approved:
+                            sdk_state.approve(interruption, always_approve=False)
+                        else:
+                            sdk_state.reject(
+                                interruption, always_reject=False, rejection_message="The tool action was rejected."
+                            )
+
+                pending_steers = await run_control.pending_for_boundary(seal_if_empty=not result.interruptions)
+                staged_ids: list[str] = []
+                if pending_steers:
+                    sdk_state = sdk_state or result.to_state()
+                    try:
+                        for steer in pending_steers:
+                            sdk_state.add_input([user_input_to_response_item(steer.user_input)])
+                            staged_ids.append(steer.steer_id)
+                    except UserError as error:
+                        if staged_ids:
+                            raise RuntimeError("Steer input staging failed after a partial FIFO write") from error
+                        run_control.move_pending_to_fallback()
+                        logger.info(
+                            "Steer input could not be staged and will continue as a subsequent Run: session=%s run=%s count=%d",
+                            session_id,
+                            run_id,
+                            len(pending_steers),
+                        )
+                    else:
+                        steer_seqs = tuple(steer.journal_seq for steer in pending_steers)
+                        if any(seq is None for seq in steer_seqs):
+                            raise RuntimeError(
+                                "Steer input reached the Agent boundary without durable journal sequence"
+                            )
+                        if steer_activated_handler is None:
+                            raise RuntimeError("Steer input reached the Agent boundary without an activation recorder")
+                        instruction_head_seq, activation_cancellation = await steer_activated_handler(
+                            tuple(seq for seq in steer_seqs if seq is not None)
+                        )
+                        run_control.mark_staged(staged_ids)
+                        if activation_cancellation is not None:
+                            raise activation_cancellation
+                        logger.info("Steer staged session=%s run=%s count=%d", session_id, run_id, len(staged_ids))
+
+                if sdk_state is not None and (result.interruptions or staged_ids):
+                    result = Runner.run_streamed(
+                        run_agent,
+                        sdk_state,
+                        session=session,
+                        max_turns=self._config["runtime.max_turns"],
+                        run_config=run_config,
+                        hooks=hooks,
+                    )
+                    continue
+                break
+        finally:
+            # A cancelled stream may return before the SDK has finished writing tool results.
+            # Await its public run task before rewriting the compacted history prefix.
+            if result.run_loop_task is not None and not result.run_loop_task.done():
+                result.cancel()
+                await asyncio.gather(result.run_loop_task, return_exceptions=True)
+            main_usage_tracker.record(result.context_wrapper.usage)
+            flushed = await projection.flush(session)
+            if projection.changed and not flushed and self._context_handler is not None:
+                retained = await session.get_items()
+                portable = await _run_model_input_filter(retained)(
+                    CallModelData(
+                        model_data=ModelInputData(input=retained, instructions=None), agent=run_agent, context=None
+                    )
                 )
-                continue
-            break
+                wrapper = RunContextWrapper(agent_context)
+                estimate = (
+                    estimate_context_tokens(
+                        [
+                            portable.input,
+                            await run_agent.get_system_prompt(wrapper),
+                            _tool_schemas(await run_agent.get_all_tools(wrapper)),
+                        ]
+                    )
+                    + 1024
+                )
+                self._context_handler(session_id, estimate, model_config)
 
         message = assistant_message_from_result(result)
         output = message.text
@@ -351,18 +445,14 @@ class AgentLoop:
             # Image generation results are separate SDK items; keep them without
             # repeating the final text already delivered by message_output_created.
             await output_handler(AssistantMessage(text="", images=message.images))
-        title_usage = await ensure_session_title(
+        await ensure_session_title(
             self._title_agent, session, self._config.sessions_db, usage_handler=record_auxiliary_usage
         )
         auto_compaction, auto_compaction_failed, consistency_uncertain = await self._auto_compact(
-            session, main_usage, model_config.context_window_tokens
+            session, main_usage, model_config, agent_context, record_auxiliary_usage
         )
-        auxiliary_usage = (
-            approval_usage
-            + title_usage
-            + (auto_compaction.usage if auto_compaction is not None else TokenUsage())
-            + (preflight_compaction.usage if preflight_compaction is not None else TokenUsage())
-        )
+        auxiliary_usage = observed_auxiliary_usage + approval_usage
+
         return AgentRunResult(
             output=output,
             main_usage=main_usage,
@@ -378,18 +468,13 @@ class AgentLoop:
         agent: Agent[AgentContext],
         context: AgentContext,
         model_input: list[TResponseInputItem],
-        context_window_tokens: int,
+        model_config: AgentModelConfig,
         usage_handler: Callable[[TokenUsage], None] | None,
     ) -> CompactionResult | None:
+        context_window_tokens = model_config.context_window_tokens
         wrapper = RunContextWrapper(context)
         instructions = await agent.get_system_prompt(wrapper)
-        tools = await agent.get_all_tools(wrapper)
-        tool_schemas = [
-            {"name": tool.name, "description": tool.description, "parameters": tool.params_json_schema}
-            if isinstance(tool, FunctionTool)
-            else {"type": type(tool).__name__, "protocol_reserve": " " * 1024}
-            for tool in tools
-        ]
+        tool_schemas = _tool_schemas(await agent.get_all_tools(wrapper))
         # One token per UTF-8 byte deliberately overestimates text, including non-Latin text.
         # Images are budgeted separately: base64 size is unrelated to visual tokenization.
         overhead = estimate_context_tokens([instructions, tool_schemas, model_input]) + 1024
@@ -398,9 +483,17 @@ class AgentLoop:
         if overhead >= budget:
             raise ContextBudgetError(overhead, budget)
         history = await session.get_items()
-        if estimate_context_tokens(history) + overhead < budget:
+        portable_history = await _run_model_input_filter(history)(
+            CallModelData(model_data=ModelInputData(input=history, instructions=None), agent=agent, context=None)
+        )
+        estimated_tokens = estimate_context_tokens(portable_history.input) + overhead
+        if self._context_handler is not None:
+            self._context_handler(session.session_id, estimated_tokens, model_config)
+        if estimated_tokens < budget:
             return None
         try:
+            if self._context_handler is not None:
+                self._context_handler(session.session_id, estimated_tokens, model_config, compacting=True)
             result = await compact_session(self._compaction_agent, session, self._config, usage_handler=usage_handler)
         except BaseException as error:
             if session_history_restore_failed(error):
@@ -408,6 +501,10 @@ class AgentLoop:
                     "Preflight Compact failed: continuation consistency uncertain; Main was not executed."
                 ) from error
             raise
+        finally:
+            estimated_tokens = estimate_context_tokens(await session.get_items()) + overhead
+            if self._context_handler is not None:
+                self._context_handler(session.session_id, estimated_tokens, model_config)
         if self._preflight_compaction_handler is not None:
             self._preflight_compaction_handler(session.session_id, result)
         estimated_tokens = estimate_context_tokens(await session.get_items()) + overhead
@@ -415,19 +512,63 @@ class AgentLoop:
             raise ContextBudgetError(estimated_tokens, budget, after_compaction=True)
         return result
 
-    async def compact(self, session: SQLiteSession) -> CompactionResult:
-        return await compact_session(
-            self._compaction_agent,
-            session,
-            self._config,
-            usage_handler=(lambda usage: self._usage_handler(session.session_id, usage, None))
-            if self._usage_handler is not None
-            else None,
+    async def compact(
+        self,
+        session: SQLiteSession,
+        *,
+        model_config: AgentModelConfig | None = None,
+        context: AgentContext | None = None,
+        usage_handler: Callable[[TokenUsage], None] | None = None,
+    ) -> CompactionResult:
+        model_config = model_config or self._config.agent_model("main")
+        context = context or AgentContext(
+            config=self._config,
+            execution=ExecutionState(),
+            session_id=session.session_id,
+            run_id="",
+            portfolios=self._portfolios,
+            skills=self._skills,
         )
+        wrapper = RunContextWrapper(context)
+        instructions = await self._agent.get_system_prompt(wrapper)
+        schemas = _tool_schemas(await self._agent.get_all_tools(wrapper))
+
+        async def notify(compacting: bool) -> None:
+            if self._context_handler is not None:
+                history = await session.get_items()
+                filtered = await _run_model_input_filter(history)(
+                    CallModelData(
+                        model_data=ModelInputData(input=history, instructions=None), agent=self._agent, context=None
+                    )
+                )
+                estimate = estimate_context_tokens([instructions, schemas, filtered.input]) + 1024
+                self._context_handler(session.session_id, estimate, model_config, compacting=compacting)
+
+        await notify(True)
+        try:
+            return await compact_session(
+                self._compaction_agent,
+                session,
+                self._config,
+                usage_handler=usage_handler
+                or (
+                    (lambda usage: self._usage_handler(session.session_id, usage, None))
+                    if self._usage_handler is not None
+                    else None
+                ),
+            )
+        finally:
+            await notify(False)
 
     async def _auto_compact(
-        self, session: SQLiteSession, main_usage: TokenUsage, context_window_tokens: int
+        self,
+        session: SQLiteSession,
+        main_usage: TokenUsage,
+        model_config: AgentModelConfig,
+        context: AgentContext,
+        usage_handler: Callable[[TokenUsage], None],
     ) -> tuple[CompactionResult | None, bool, bool]:
+        context_window_tokens = model_config.context_window_tokens
         context_tokens = main_usage.last_request_total_tokens
         trigger_ratio = self._config["compaction.trigger_ratio"]
         if not should_auto_compact(
@@ -441,7 +582,9 @@ class AgentLoop:
         assert context_tokens is not None
         threshold = math.floor(context_window_tokens * trigger_ratio)
         try:
-            result = await self.compact(session)
+            result = await self.compact(
+                session, model_config=model_config, context=context, usage_handler=usage_handler
+            )
         except BaseException as exc:
             consistency_uncertain = session_history_restore_failed(exc)
             if consistency_uncertain:
@@ -491,17 +634,3 @@ def user_input_to_response_item(user_input: UserInput) -> dict[str, Any]:
         {"type": "input_image", "image_url": image.image_url, "detail": image.detail} for image in user_input.images
     )
     return {"role": "user", "content": content}
-
-
-def estimate_context_tokens(value: object) -> int:
-    """Budget serialized text conservatively and reserve visual tokens per image."""
-    if isinstance(value, dict):
-        kind = value.get("type")
-        if isinstance(kind, str) and kind in {"input_image", "image_url"}:
-            return 32768
-        return sum(len(str(key).encode("utf-8")) + estimate_context_tokens(item) + 8 for key, item in value.items())
-    if isinstance(value, (list, tuple)):
-        return sum(estimate_context_tokens(item) + 8 for item in value)
-    if value is None:
-        return 0
-    return len(str(value).encode("utf-8")) + 8

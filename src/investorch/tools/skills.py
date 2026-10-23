@@ -58,7 +58,9 @@ async def review_skill_candidate(
         candidate_path: Candidate Skill directory containing SKILL.md, inside Workspace and outside installed skills.
         source_type: "created" for an authored candidate or "external" for an imported candidate. Defaults to "external".
     """
-    result = await _skills(ctx).review_candidate(candidate_path, source_type)
+    result = await _skills(ctx).review_candidate(
+        candidate_path, source_type, usage_handler=ctx.context.auxiliary_usage_handler
+    )
     return result.review.model_dump()
 
 

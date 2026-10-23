@@ -176,3 +176,64 @@ async def test_title_persistence_failure_cannot_discard_completed_usage(tmp_path
     assert updates[0].total_tokens == 18
     assert len(updates) == 1
     session.close()
+
+
+async def test_candidate_review_tool_accounts_nested_model_separately_once(tmp_path: Path) -> None:
+    from investorch.application.portfolios import PortfolioOperations
+    from investorch.application.skills import SkillOperations
+    from investorch.context import AgentContext, ExecutionState
+    from investorch.tools.skills import review_skill_candidate
+
+    config = make_test_config(tmp_path)
+    candidate = config.workspace_dir / "note-summary"
+    candidate.mkdir()
+    (candidate / "SKILL.md").write_text(
+        "---\nname: note-summary\ndescription: Summarize user notes when requested.\n---\n"
+        "Read the supplied note and summarize its facts.\n"
+    )
+    main_updates = []
+    auxiliary_updates = []
+    reviewer = ScriptedModel(
+        ((assistant_message('{"decision":"pass","reason":"ordinary summarization"}'),),),
+        default_usage=request_usage(),
+    )
+    skills = SkillOperations(config=config, review_agent=create_skill_review_agent(reviewer, ModelSettings()))
+    context = AgentContext(
+        config=config,
+        execution=ExecutionState(),
+        session_id="session",
+        run_id="run",
+        portfolios=PortfolioOperations(config=config),
+        skills=skills,
+        auxiliary_usage_handler=lambda usage: auxiliary_updates.append(("session", usage)),
+    )
+
+    def observe_review(call):
+        assert len(auxiliary_updates) == 1
+        assert auxiliary_updates[0][0] == "session"
+        assert auxiliary_updates[0][1].total_tokens == 18
+        assert "ordinary summarization" in str(call.input)
+        return (assistant_message("Review complete"),)
+
+    from agents.testing import ModelStep
+
+    main = ScriptedModel(
+        (
+            (function_call("review_skill_candidate", {"candidate_path": "note-summary"}, call_id="review"),),
+            ModelStep.respond(observe_review),
+        ),
+        default_usage=request_usage(),
+    )
+    result = await run_with_usage(
+        Agent(name="Main", model=main, tools=[review_skill_candidate]),
+        "Review this candidate",
+        context=context,
+        usage_handler=main_updates.append,
+        run_config={"tracing_disabled": True},
+    )
+    assert result.final_output == "Review complete"
+    assert sum(usage.total_tokens for usage in main_updates) == 36
+    assert sum(usage.total_tokens for _session, usage in auxiliary_updates) == 18
+    assert len(auxiliary_updates) == 1
+    main.assert_complete()
+    reviewer.assert_complete()

@@ -1,14 +1,17 @@
+import inspect
+import json
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from agents import Agent, Model, ModelSettings, RunConfig, Runner, SQLiteSession, TResponseInputItem
+from agents import Agent, Model, ModelSettings, RunConfig, RunContextWrapper, SQLiteSession, TResponseInputItem
+from agents.run_config import CallModelData, ModelInputData
 
 from investorch.config import AppConfig
 
 from .continuation import portable_history_filter
 from .prompts import COMPACTION_AGENT_INSTRUCTIONS
-from .usage import TokenUsage
+from .usage import TokenUsage, run_with_usage
 
 logger = logging.getLogger(__name__)
 
@@ -90,24 +93,7 @@ async def compact_session(
     if not history or (source_items == 1 and _is_compacted_summary(history[0])):
         return CompactionResult(changed=False, usage=TokenUsage(), source_items=source_items, summary_chars=0)
 
-    settings = agent.model_settings.resolve({"max_tokens": config["compaction.max_output_tokens"]})
-    try:
-        result = await Runner.run(
-            agent.clone(model_settings=settings),
-            history,
-            max_turns=1,
-            run_config=RunConfig(call_model_input_filter=portable_history_filter(history)),
-        )
-    except Exception as error:
-        error.add_note("Context compaction failed.")
-        raise
-    usage = TokenUsage.from_sdk(result.context_wrapper.usage)
-    if usage_handler is not None:
-        usage_handler(usage)
-    summary = str(result.final_output).strip()
-
-    if not summary:
-        raise ValueError("Compaction agent returned an empty summary.")
+    summary, usage = await summarize_history(agent, history, config, usage_handler=usage_handler)
 
     replacement: list[TResponseInputItem] = [{"role": "assistant", "content": COMPACTED_CONTEXT_PREFIX + summary}]
     await _replace_session_history(session, history, replacement)
@@ -120,3 +106,120 @@ async def compact_session(
         source_items=source_items,
         summary_chars=len(summary),
     )
+
+
+def estimate_context_tokens(value: object) -> int:
+    """Budget serialized text conservatively and reserve visual tokens per image."""
+    if isinstance(value, dict):
+        kind = value.get("type")
+        if isinstance(kind, str) and kind in {"input_image", "image_url"}:
+            return 32768
+        return sum(len(str(key).encode("utf-8")) + estimate_context_tokens(item) + 8 for key, item in value.items())
+    if isinstance(value, (list, tuple)):
+        return sum(estimate_context_tokens(item) + 8 for item in value)
+    if value is None:
+        return 0
+    return len(str(value).encode("utf-8")) + 8
+
+
+async def summarize_history(
+    agent: Agent,
+    history: list[TResponseInputItem],
+    config: AppConfig,
+    *,
+    usage_handler: Callable[[TokenUsage], None] | None = None,
+) -> tuple[str, TokenUsage]:
+    """Summarize within the compact model's own budget, splitting oversized text safely."""
+    usage = TokenUsage()
+
+    def record_usage(value: TokenUsage) -> None:
+        nonlocal usage
+        usage += value
+        if usage_handler is not None:
+            usage_handler(value)
+
+    settings = agent.model_settings.resolve({"max_tokens": config["compaction.max_output_tokens"]})
+    selected = agent.clone(model_settings=settings)
+    instructions = await selected.get_system_prompt(RunContextWrapper(None))
+    window = config.agent_model("compact").context_window_tokens
+    budget = window - config["compaction.max_output_tokens"] - estimate_context_tokens(instructions) - 1024
+    if budget <= 512:
+        raise ValueError("Compaction instructions and output reserve exceed the compact model context budget")
+
+    async def summarize(items: list[TResponseInputItem]) -> str:
+        try:
+            result = await run_with_usage(
+                selected,
+                items,
+                max_turns=1,
+                run_config=RunConfig(call_model_input_filter=portable_history_filter(items)),
+                usage_handler=record_usage,
+            )
+        except Exception as error:
+            error.add_note("Context compaction failed.")
+            raise
+        summary = str(result.final_output).strip()
+        if not summary:
+            raise ValueError("Compaction agent returned an empty summary.")
+        return summary
+
+    filtered = portable_history_filter(history)(
+        CallModelData(agent=agent, context=None, model_data=ModelInputData(input=history, instructions=instructions))
+    )
+    if inspect.isawaitable(filtered):
+        filtered = await filtered
+    current = filtered.input
+    # Each pass must strictly reduce the serialized input; an expansive summary fails closed.
+    while estimate_context_tokens(current) >= budget:
+        fragments: list[TResponseInputItem] = []
+        for batch in _summary_batches(current, budget):
+            summary = await summarize(batch)
+            fragments.append({"role": "assistant", "content": COMPACTED_CONTEXT_PREFIX + summary})
+        if estimate_context_tokens(fragments) >= estimate_context_tokens(current):
+            raise ValueError("Compaction summaries did not reduce the oversized history")
+        current = fragments
+    return await summarize(current), usage
+
+
+def _contains_image(value: object) -> bool:
+    if isinstance(value, dict):
+        kind = value.get("type")
+        if isinstance(kind, str) and kind in {"input_image", "image_url", "image_generation_call"}:
+            return True
+        return any(_contains_image(item) for item in value.values())
+    if isinstance(value, (list, tuple)):
+        return any(_contains_image(item) for item in value)
+    return isinstance(value, str) and value.startswith("data:image/")
+
+
+def _summary_batches(history: list[TResponseInputItem], budget: int) -> list[list[TResponseInputItem]]:
+    batches: list[list[TResponseInputItem]] = []
+    batch: list[TResponseInputItem] = []
+    for item in history:
+        if not _contains_image(item):
+            # Batches may split tool call/output groups. Encode them as quoted data,
+            # never as orphan provider protocol items in a compact model request.
+            item = {"role": "user", "content": "Prior conversation data:\n" + json.dumps(item, ensure_ascii=False)}
+        if estimate_context_tokens([*batch, item]) < budget:
+            batch.append(item)
+            continue
+        if batch:
+            batches.append(batch)
+            batch = []
+        if estimate_context_tokens([item]) < budget:
+            batch.append(item)
+            continue
+        if _contains_image(item):
+            raise ValueError("An image-bearing history item exceeds the compact model context budget")
+        serialized = json.dumps(item, ensure_ascii=False).encode("utf-8")
+        offset = 0
+        while offset < len(serialized):
+            end = min(len(serialized), offset + budget - 256)
+            while end < len(serialized) and serialized[end] & 0xC0 == 0x80:
+                end -= 1
+            text = serialized[offset:end].decode("utf-8")
+            batches.append([{"role": "user", "content": "Prior conversation data, serialized fragment:\n" + text}])
+            offset = end
+    if batch:
+        batches.append(batch)
+    return batches
