@@ -49,6 +49,10 @@ With `backtest.use_cnequity=false`, strategy API calls flow through `RQAlpha Dat
 
 With `backtest.use_cnequity=true`, strategy API calls flow through `RQAlpha DataProxy -> CNEquityOverlayDataSource`. For Shanghai and Shenzhen stocks, CNEquity supplies daily OHLCV, turnover, and adjustment factors, while native RQAlpha data retains instruments, calendars, limits, corporate actions, suspension evidence, and fallback market semantics. The RQAlpha inspection Tool is not exposed in this mode.
 
+Native inspection also returns `share_transformations`: the source conversion records with `predecessor_exists` and `successor_exists` indicating whether instrument metadata is present. A `symbols` query includes records where a requested ID is either endpoint, even when that ID itself is absent. An overview includes all conversion records. These are reference-integrity diagnostics; `available=true` establishes bundle loadability, and endpoint existence establishes metadata presence. Check effective dates and observed execution separately.
+
+An engine-generated successor holding can lie outside the strategy's selected universe. On `InstrumentNotFound`, inspect the reported ID and its conversion references before attributing it to stock selection. A missing conversion endpoint is a data dependency gap. Record the affected study case and isolate the event in a small diagnostic run; preserve the formal universe and interval while resolving it.
+
 Never invoke the CNEquity CLI, MCP, Python ingestion lifecycle, or RQAlpha bundle updater inside a strategy. CNEquity MCP remains an independent research/query plane in both modes; its availability does not identify the configured backtest source.
 
 ## Instrument identifiers
@@ -76,6 +80,20 @@ Pinned signature:
 `history_bars(order_book_id, bar_count, frequency, fields=None, skip_suspended=True, include_now=False, adjust_type="pre")`
 
 Use `frequency="1d"`. Common stock fields are `datetime`, `open`, `high`, `low`, `close`, `volume`, and `total_turnover`. Prefer `adjust_type="pre"` unless the research question explicitly requires raw (`"none"`) or post-adjusted (`"post"`) prices. `skip_suspended=True` omits suspended days from the returned series.
+
+A single field name returns a one-dimensional NumPy array of that field's values. A list of fields returns a structured NumPy array: rows are bars and `bars["high"]` selects the high column. For example, inside `before_trading`:
+
+```python
+bars = history_bars(
+    stock, 60, "1d", ["datetime", "high", "low", "volume"],
+    skip_suspended=False, include_now=False, adjust_type="pre",
+)
+if len(bars) < 60:
+    return  # Apply the strategy's specified insufficient-history policy.
+high, low, volume = bars["high"], bars["low"], bars["volume"]
+```
+
+Preserve the candidate's validity rules when filtering these columns. A zero-volume observation, insufficient history and an invalid price on a traded day are distinct cases. Propagate unexpected data/API failures with the instrument and observation context; use explicit eligibility checks for expected exclusions. The integrating agent verifies these cases for design-only submissions as well as generated executable strategies.
 
 Build signals in `before_trading` from completed historical bars by default:
 
