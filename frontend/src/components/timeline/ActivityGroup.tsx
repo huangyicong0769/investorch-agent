@@ -131,7 +131,7 @@ export function ActivityGroup({ group }: ActivityGroupProps) {
     <Collapsible className="my-1 max-w-full" data-seq={group.seq} onOpenChange={setOpen} open={single || open}>
       {!single ? <CollapsibleTrigger className={triggerClass}>
         <ListTree aria-hidden="true" className="size-3.5 shrink-0" />
-        <span>Activity</span>
+        <span className="min-w-0 truncate" title={group.title}>{group.title}</span>
         <span className="text-muted-foreground/65">{group.items.length} steps</span>
         <ChevronRight aria-hidden="true" className="size-3.5 shrink-0 transition-transform group-data-[state=open]:rotate-90 motion-reduce:transition-none" />
       </CollapsibleTrigger> : null}
