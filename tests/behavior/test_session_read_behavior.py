@@ -23,23 +23,24 @@ async def test_list_enumerates_root_sessions_with_stable_ties_title_filter_and_a
     harness = make_runtime_harness(tmp_path)
     list_query = partial(list_sessions, sessions_db=harness.config.sessions_db, runtime=harness.runtime)
     assert await list_query() == {"sessions": [], "has_more": False, "next_offset": None}
-    for index in reversed(range(55)):
+    for index in reversed(range(205)):
         session_id = f"session-{index:02}"
         create_session(harness.config.sessions_db, session_id)
         set_session_title(harness.config.sessions_db, session_id, f"Straße {index}")
     set_session_branch_from(harness.config.sessions_db, "session-02", "session-01")
-    archive_session(harness.config.sessions_db, "session-54")
+    archive_session(harness.config.sessions_db, "session-204")
     with sqlite3.connect(harness.config.sessions_db) as connection:
         connection.execute("UPDATE agent_sessions SET updated_at = '2026-10-13 00:00:00'")
 
     first = await list_query()
     last = await list_query(offset=first["next_offset"])
-    archived = await list_query(query="STRASSE", include_archived=True, offset=54)
+    archived = await list_query(query="STRASSE 204", include_archived=True)
 
-    assert [item["session_id"] for item in first["sessions"]] == [f"session-{i:02}" for i in range(50)]
+    expected_ids = sorted(f"session-{i:02}" for i in range(204))
+    assert [item["session_id"] for item in first["sessions"]] == expected_ids[:200]
     assert first["has_more"] is True
-    assert first["next_offset"] == 50
-    assert [item["session_id"] for item in last["sessions"]] == ["session-50", "session-51", "session-52", "session-53"]
+    assert first["next_offset"] == 200
+    assert [item["session_id"] for item in last["sessions"]] == expected_ids[200:]
     assert last["has_more"] is False
     assert last["next_offset"] is None
     assert first["sessions"][2] == {
@@ -113,20 +114,20 @@ async def test_list_budget_shortens_pages_without_losing_any_session(tmp_path: P
     for index in range(40):
         session_id = f"session-{index:02}"
         create_session(harness.config.sessions_db, session_id)
-        set_session_title(harness.config.sessions_db, session_id, "a" * 1000)
+        set_session_title(harness.config.sessions_db, session_id, "a" * 10000)
     seen = []
     offset = 0
     while True:
         page = await list_query(limit=100, offset=offset)
-        assert len(json.dumps(page)) <= 32000
+        assert len(json.dumps(page)) <= 262144
         seen.extend(item["session_id"] for item in page["sessions"])
         if not page["has_more"]:
             break
         offset = page["next_offset"]
     assert len(seen) == len(set(seen)) == 40
-    set_session_title(harness.config.sessions_db, seen[0], "a" * 32000)
+    set_session_title(harness.config.sessions_db, seen[0], "a" * 262144)
     with pytest.raises(SessionReadError, match="response_too_large"):
-        await list_query(query="a" * 32000)
+        await list_query(query="a" * 262144)
     await harness.runtime.aclose()
 
 
@@ -135,7 +136,7 @@ async def test_list_budget_shortens_pages_without_losing_any_session(tmp_path: P
     "arguments",
     [
         {"limit": 0},
-        {"limit": 101},
+        {"limit": 501},
         {"limit": True},
         {"offset": -1},
         {"offset": False},
@@ -272,7 +273,7 @@ async def test_empty_history_is_distinct_from_an_unknown_exact_id_and_empty_snap
         {"session_id": 1},
         {"view": "summary"},
         {"limit": 0},
-        {"limit": 101},
+        {"limit": 501},
         {"before_seq": 0},
         {"before_seq": True},
         {"snapshot_seq": -1},
@@ -337,7 +338,7 @@ async def test_encoded_budget_retains_complete_newest_suffix_and_pagination_reco
     create_session(harness.config.sessions_db, "a")
     read_query = partial(read_session, sessions_db=harness.config.sessions_db, journal=harness.journal)
     for suffix in ["oldest", "middle", "newest"]:
-        await harness.journal.record_user_message("a", '"' * 10000 + suffix)
+        await harness.journal.record_user_message("a", '"' * 120000 + suffix)
 
     page = await read_query("a", limit=100)
     middle = await read_query("a", before_seq=page["next_before_seq"], snapshot_seq=page["snapshot_seq"])
@@ -346,14 +347,36 @@ async def test_encoded_budget_retains_complete_newest_suffix_and_pagination_reco
     assert [record["seq"] for record in page["records"]] == [3]
     assert page["has_older"] is True
     assert page["omitted_fields"] == 0
-    assert page["records"][0]["text"] == '"' * 10000 + "newest"
+    assert page["records"][0]["text"] == '"' * 120000 + "newest"
     assert middle["records"][0]["seq"] == 2
     assert oldest["records"][0]["seq"] == 1
     assert oldest["has_older"] is False
-    assert all(len(json.dumps(value)) <= 32000 for value in [page, middle, oldest])
+    assert all(len(json.dumps(value)) <= 262144 for value in [page, middle, oldest])
     with pytest.raises(SessionReadError, match="response_too_large"):
         await read_query("a", view="events")
-    assert (await read_query("a", view="events", limit=1))["records"][0]["text"] == '"' * 10000 + "newest"
+    assert (await read_query("a", view="events", limit=1))["records"][0]["text"] == '"' * 120000 + "newest"
+    await harness.runtime.aclose()
+
+
+@pytest.mark.asyncio
+async def test_default_history_read_keeps_long_tool_results_and_two_hundred_records(tmp_path: Path) -> None:
+    harness = make_runtime_harness(tmp_path)
+    create_session(harness.config.sessions_db, "a")
+    for index in range(200):
+        await harness.journal.record_user_message("a", f"decision {index}")
+    evidence = "verified result\n" * 4000
+    await harness.journal.record_output("a", ToolOutput(evidence))
+    read_query = partial(read_session, sessions_db=harness.config.sessions_db, journal=harness.journal)
+
+    page = await read_query("a")
+
+    assert len(page["records"]) == 200
+    assert page["records"][0]["seq"] == 2
+    assert page["records"][-1]["output"] == evidence
+    assert page["omitted_fields"] == 0
+    assert page["has_older"] is True
+    older = await read_query("a", before_seq=page["next_before_seq"], snapshot_seq=page["snapshot_seq"])
+    assert [record["seq"] for record in older["records"]] == [1]
     await harness.runtime.aclose()
 
 
@@ -390,17 +413,17 @@ async def test_single_oversized_field_has_explicit_original_length_without_trapp
 async def test_giant_image_payload_is_metadata_only_and_encoded_unicode_can_require_omission(tmp_path: Path) -> None:
     harness = make_runtime_harness(tmp_path)
     create_session(harness.config.sessions_db, "a")
-    image = ImageContent("data:image/png;base64," + "A" * 200000, filename="https://example.test/file.png?token=secret")
+    image = ImageContent("data:image/png;base64," + "A" * 400000, filename="https://example.test/file.png?token=secret")
     await harness.journal.record_user_message("a", UserInput("", (image,)))
-    await harness.journal.record_user_message("a", "雪" * 8000)
+    await harness.journal.record_user_message("a", "雪" * 50000)
     read_query = partial(read_session, sessions_db=harness.config.sessions_db, journal=harness.journal)
 
     page = await read_query("a")
 
-    assert len(json.dumps(page)) <= 32000
+    assert len(json.dumps(page)) <= 262144
     assert page["records"][0]["text"] == ""
     assert page["records"][0]["images"][0]["filename"] == "file.png"
-    assert page["records"][1]["omitted_fields"] == [{"field": "text", "reason": "size_limit", "original_chars": 8000}]
+    assert page["records"][1]["omitted_fields"] == [{"field": "text", "reason": "size_limit", "original_chars": 50000}]
     assert "image_url" not in json.dumps(page)
     assert "base64" not in json.dumps(page)
     assert "token" not in json.dumps(page)
@@ -432,7 +455,7 @@ async def test_oversized_metadata_fails_explicitly_and_old_large_raw_records_do_
 ) -> None:
     harness = make_runtime_harness(tmp_path)
     create_session(harness.config.sessions_db, "a")
-    await harness.journal.record_output("a", ToolCalled("x" * 40000))
+    await harness.journal.record_output("a", ToolCalled("x" * 300000))
     await harness.journal.record_output("a", AssistantMessage("newer"))
     read_query = partial(read_session, sessions_db=harness.config.sessions_db, journal=harness.journal)
 

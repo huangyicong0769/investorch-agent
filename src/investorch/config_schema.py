@@ -282,7 +282,7 @@ class BacktestConfig(BacktestRuntimeConfig):
     rqalpha_bundle_dir: NonEmptyString = restart(".rqalpha/bundle")
     artifact_dir: NonEmptyString = hot("backtests")
     default_initial_cash: PositiveNumber = hot(1000000.0)
-    inspect_max_symbols: PositiveInt = hot(50)
+    inspect_max_symbols: PositiveInt = hot(1000)
 
 
 class ExecutionConfig(ConfigSection):
@@ -298,10 +298,10 @@ class ExecutionConfig(ConfigSection):
 
 
 class ExploreConfig(ConfigSection):
-    max_full_read_bytes: PositiveInt = hot(65536)
-    max_read_chars: PositiveInt = hot(65536)
-    max_search_results: PositiveInt = hot(50)
-    max_search_snippet_chars: PositiveInt = hot(300)
+    max_full_read_bytes: PositiveInt = hot(262144)
+    max_read_chars: PositiveInt = hot(262144)
+    max_search_results: PositiveInt = hot(200)
+    max_search_snippet_chars: PositiveInt = hot(1000)
 
 
 class CalculateConfig(ConfigSection):

@@ -21,9 +21,10 @@ from investorch.storage import list_sessions as list_session_metadata
 if TYPE_CHECKING:
     from investorch.runtime import AgentRuntime
 
-MAX_PAGE_SIZE = 100
-MAX_RESPONSE_CHARS = 32000
-MAX_FIELD_CHARS = 16000
+DEFAULT_PAGE_SIZE = 200
+MAX_PAGE_SIZE = 500
+MAX_RESPONSE_CHARS = 262144
+MAX_FIELD_CHARS = 131072
 
 
 class SessionReadError(RuntimeError):
@@ -97,7 +98,7 @@ async def list_sessions(
     runtime: AgentRuntime,
     query: str | None = None,
     include_archived: bool = False,
-    limit: int = 50,
+    limit: int = DEFAULT_PAGE_SIZE,
     offset: int = 0,
 ) -> dict[str, object]:
     """Return complete metadata rows; offset pages reflect the current, unfrozen listing."""
@@ -147,7 +148,7 @@ async def read_session(
     view: Literal["conversation", "events"] = "conversation",
     before_seq: int | None = None,
     snapshot_seq: int | None = None,
-    limit: int = 50,
+    limit: int = DEFAULT_PAGE_SIZE,
 ) -> dict[str, object]:
     """Read exact-ID history only; reuse snapshot_seq and the exclusive cursor on older pages."""
     _validate_limit(limit)

@@ -227,7 +227,7 @@ def explore(
     - read: Read a UTF-8 text file or view a JPEG, PNG, GIF, or WebP image.
     - search: Search text content recursively below a path.
 
-    Large files are not silently truncated. Use start_line/end_line for bounded reads. Text read and search limits come from explore; image limits come from images.
+    Read task-relevant text files in full by leaving both line bounds at 0. For a targeted lookup or a file above the configured size limit, use a complete section's start_line/end_line range. Text read and search limits come from explore; image limits come from images.
 
     Args:
         operation: list, read, or search.

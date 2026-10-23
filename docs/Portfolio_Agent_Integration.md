@@ -15,7 +15,7 @@ kept in Agent context.
 ## Tool surface and approval
 
 Read tools list Portfolios, return one Portfolio with its current logical state, and return a bounded recent Ledger.
-Ledger reads default to 50 entries, accept 1 through 200, select the newest entries, return them in ascending audit
+Agent Ledger reads default to 200 entries, accept 1 through 1000, select the newest entries, return them in ascending audit
 sequence, and report total, returned, and older-history metadata.
 
 Mutation tools explicitly create, update, archive, restore, and initialize Portfolios; record trades, external

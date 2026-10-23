@@ -131,7 +131,7 @@ async def test_get_portfolio_returns_exact_deterministic_logical_state(tmp_path:
 async def test_get_portfolio_ledger_returns_newest_entries_with_explicit_truncation(tmp_path: Path) -> None:
     context = make_tool_context(tmp_path)
     portfolio = await context.context.portfolios.create(name="Core", base_currency="CNY")
-    for amount in ("0.1", "0.03", "1523.45"):
+    for amount in ("0.1", "0.03", "1523.45") * 20:
         await context.context.portfolios.record_cash_flow(portfolio.id, amount=Decimal(amount), source="import")
 
     result = await invoke(get_portfolio_ledger, context, portfolio_id=portfolio.id, limit=2)
@@ -139,18 +139,18 @@ async def test_get_portfolio_ledger_returns_newest_entries_with_explicit_truncat
 
     assert isinstance(result, dict)
     assert result["portfolio_id"] == portfolio.id
-    assert result["total"] == 3
+    assert result["total"] == 60
     assert result["returned"] == 2
     assert result["has_older"] is True
-    assert [entry["sequence"] for entry in result["entries"]] == [2, 3]
+    assert [entry["sequence"] for entry in result["entries"]] == [59, 60]
     assert [entry["payload"]["amount"] for entry in result["entries"]] == ["0.03", "1523.45"]
     assert isinstance(default_result, dict)
-    assert default_result["returned"] == 3
+    assert default_result["returned"] == 60
     assert default_result["has_older"] is False
 
-    invalid = await invoke(get_portfolio_ledger, context, portfolio_id=portfolio.id, limit=201)
+    invalid = await invoke(get_portfolio_ledger, context, portfolio_id=portfolio.id, limit=1001)
     assert isinstance(invalid, str)
-    assert "limit must be between 1 and 200" in invalid
+    assert "limit must be between 1 and 1000" in invalid
 
 
 async def test_approved_lifecycle_tools_preserve_update_and_clear_semantics(tmp_path: Path) -> None:

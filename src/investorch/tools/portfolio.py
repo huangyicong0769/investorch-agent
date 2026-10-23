@@ -187,19 +187,19 @@ async def get_portfolio(
 async def get_portfolio_ledger(
     context: RunContextWrapper[AgentContext],
     portfolio_id: str,
-    limit: int = 50,
+    limit: int = 200,
 ) -> dict[str, Any]:
     """Get recent Ledger history; returns newest entries in audit order with truncation metadata.
 
     Args:
         portfolio_id: Durable Portfolio identifier.
-        limit: Maximum newest entries to return, from 1 through 200. Defaults to 50.
+        limit: Maximum newest entries to return, from 1 through 1000. Defaults to 200.
 
     Returns:
         Ledger entries plus total, returned, and has_older pagination metadata.
     """
-    if not 1 <= limit <= 200:
-        raise ValueError("limit must be between 1 and 200")
+    if not 1 <= limit <= 1000:
+        raise ValueError("limit must be between 1 and 1000")
     ledger = await context.context.portfolios.list_ledger(portfolio_id)
     selected = ledger[-limit:]
     return {
