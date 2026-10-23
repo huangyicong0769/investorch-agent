@@ -2,6 +2,30 @@
 
 [English](CHANGELOG.md)
 
+## 0.3.0
+
+### Session 协作与模型选择
+
+- 新增有界 Session 查找/历史工具、带发送来源且经审批的文字/图片消息，以及拥有独立审批并共享 Run 上限的递归子 Session。
+- Delete/Clear 前确认完整 Spawn 后代范围，保护活动工作和独立 Fork 引用。
+- 拆分模型连接与 Agent 默认值，新增官方本地 ChatGPT 授权，支持每个 Session 的模型/effort Draft，活动 Run 保持冻结选择。
+- 新增推理前与工具调用间压缩，多次压缩保留未完成工作；旧 Run 历史可跨模型连接继续使用。
+
+### 运行反馈与工作流
+
+- 显示实时 Main/辅助角色用量与 Provider 推理摘要，持久化脱敏 Run 失败原因，并把审批拒绝意见返回 Main Agent。
+- 刷新、重连与调整窗口时保留 Web 审批、草稿和导航；显示孤立后台进程，区分诊断问题与未检查状态。
+- 隔离 MCP 连接失败，避免其直接终止 Run，并保留可操作的初始化原因。
+- 明确内置专用工具链与 Artifact 验证；RQAlpha 支持带类型的单次参数、串行执行、原生日志和原始引擎拒绝诊断。
+
+### 兼容性与分发
+
+- 更新 Python/Web 依赖及 lockfile，包括 OpenAI Agents SDK 0.24.0、FastAPI 0.161.1、RQAlpha 6.4.2 和 uv_build 0.13.5；发行包不安装 CNEquity 依赖，保留集成代码。
+- 通过 PyPI 分发 wheel 与源码包，并提供 GitHub 发行包和 SHA-256 checksum。
+- **不兼容变更：** 旧 `models.<role>` TOML 须人工转换为 `models.<connection>` 和 `agents.<role>`。Session 模型元数据正常增量初始化；已有 Root 启动前须备份与预检。
+
+详见 [0.3.0 发行说明](docs/releases/0.3.0.zh-CN.md)与[升级说明](docs/Upgrade.zh-CN.md)。
+
 ## 0.2.0
 
 ### Portfolio 与审批

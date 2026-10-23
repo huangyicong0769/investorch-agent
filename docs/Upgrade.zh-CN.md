@@ -2,9 +2,9 @@
 
 [English](Upgrade.md)
 
-本文说明尚未发布的 0.3.0 模型配置迁移，并保留早期 0.2.0 升级流程。版本范围见 [0.3.0 发行说明](releases/0.3.0.zh-CN.md)。
+本文说明 0.3.0 模型配置迁移，并保留早期 0.2.0 升级流程。安装方式见 [README](../README.zh-CN.md#安装)，版本范围见 [0.3.0 发行说明](releases/0.3.0.zh-CN.md)。
 
-## 0.2.0 → 0.3.0 模型配置（尚未发布）
+## 0.2.0 → 0.3.0 模型配置
 
 0.3.0 包含 **TOML Breaking Change**：没有 `config_version`，也不自动转换旧 TOML。原五个 `[models.<role>]` 拆成任意命名的连接与固定 Agent 默认值：
 
@@ -57,7 +57,7 @@ PY
 
 ### 离线转换与验证
 
-4. Review 预期修改后，在独立环境安装选定的 0.3.0 开发构建。保持写入者停止，编辑私有 `investorch.toml`：把旧角色表拆为两层，保留非模型设置及原 API key 值，补全必需的有效窗口。不要把 TOML 复制到仓库或报告。ChatGPT 凭据由结构转换完成后的浏览器授权流程生成。
+4. Review 预期修改后，在独立环境安装 0.3.0。保持写入者停止，编辑私有 `investorch.toml`：把旧角色表拆为两层，保留非模型设置及原 API key 值，补全必需的有效窗口。不要把 TOML 复制到仓库或报告。ChatGPT 凭据由结构转换完成后的浏览器授权流程生成。
 5. 使用新构建做离线校验，不启动 Host。隔离演练时，将参数换成复制的 Root：
 
 ```sh
@@ -96,7 +96,7 @@ Session 模型元数据使用正常的 SQLite 增量初始化：旧记录可没�
 
 ## 选择预检命令
 
-`doctor`、`upgrade check` 和 `backup` 是 0.2.0 新命令。升级 0.1.0 工具安装时，先保留旧工具，从[源码](../README.zh-CN.md#源码安装)运行 0.2.0 的离线命令：
+`doctor`、`upgrade check` 和 `backup` 是 0.2.0 新命令。升级 0.1.0 工具安装时，先保留旧工具，从 [0.2.0 源码](releases/0.2.0.zh-CN.md#源码安装)运行 0.2.0 的离线命令：
 
 ```sh
 uv run --project /path/to/investorch-agent --locked --python 3.12 investorch doctor --root "$HOME/.investorch"

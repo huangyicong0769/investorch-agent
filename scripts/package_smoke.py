@@ -134,9 +134,7 @@ def main() -> None:
     cnequity_requirements = [
         requirement for requirement in package_distribution.requires or [] if requirement.lower().startswith("cnequity")
     ]
-    assert len(cnequity_requirements) == 1
-    assert "cnequity==0.7.3" in cnequity_requirements[0]
-    assert "extra ==" in cnequity_requirements[0]
+    assert not cnequity_requirements, "The release must not install CNEquity as a dependency"
     cnequity_version = None
     try:
         cnequity_distribution = distribution("cnequity")
