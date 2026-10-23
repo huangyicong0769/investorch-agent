@@ -172,4 +172,17 @@ class ApprovalCoordinator:
                 journal_seq=journal_seq,
             )
         )
-        return ApprovalOutcome(approved=approved, usage=review_usage)
+        feedback = None
+        if review_reason:
+            reason = review_reason
+            for secret in sorted(self._config.secret_values(), key=len, reverse=True):
+                if secret:
+                    reason = reason.replace(secret, "<redacted>")
+            feedback = {
+                "tool_name": request.tool_name,
+                "approved": approved,
+                "source": source,
+                "review_decision": review_decision,
+                "review_reason": reason,
+            }
+        return ApprovalOutcome(approved=approved, usage=review_usage, feedback=feedback)

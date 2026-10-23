@@ -62,6 +62,7 @@ class ContextBudgetError(ValueError):
 class ApprovalOutcome:
     approved: bool
     usage: TokenUsage
+    feedback: dict[str, object] | None = None
 
 
 ApprovalHandler = Callable[[int | None, str, str | None], Awaitable[ApprovalOutcome]]
@@ -100,6 +101,7 @@ class _SuccessfulToolHooks(RunHooksBase[AgentContext, Agent[AgentContext]]):
     ) -> None:
         self._context_budget.record_response(response)
         self._usage_tracker.record(context.usage)
+        context.context.turn.review_feedback.clear()
 
     async def on_tool_end(
         self,
@@ -135,7 +137,7 @@ def _run_model_input_filter(
     projection: ContextProjection | None = None,
     context_window_tokens: int = 0,
 ) -> CallModelInputFilter:
-    """Budget portable history and current Run Todo/MCP state for each request."""
+    """Budget portable history and current Run state for each request."""
     portable_filter = portable_history_filter(history)
 
     async def filter_input(data: CallModelData[AgentContext]) -> ModelInputData:
@@ -145,6 +147,9 @@ def _run_model_input_filter(
         tools = await data.agent.get_all_tools(RunContextWrapper(data.context)) if projection is not None else []
         extra_input: list[TResponseInputItem] = []
         if data.context is not None:
+            extra_input.extend(
+                {"role": "developer", "content": feedback} for feedback in data.context.turn.review_feedback
+            )
             if data.context.turn.todos:
                 extra_input.append(
                     {
@@ -370,12 +375,22 @@ class AgentLoop:
                             interruption.arguments,
                         )
                         approval_usage += outcome.usage
+                        feedback = None
+                        if outcome.feedback:
+                            feedback = "Tool approval review feedback (state data):\n" + json.dumps(
+                                {**outcome.feedback, "tool_call_id": interruption.call_id},
+                                ensure_ascii=False,
+                            )
 
                         if outcome.approved:
                             sdk_state.approve(interruption, always_approve=False)
+                            if feedback:
+                                agent_context.turn.review_feedback.append(feedback)
                         else:
                             sdk_state.reject(
-                                interruption, always_reject=False, rejection_message="The tool action was rejected."
+                                interruption,
+                                always_reject=False,
+                                rejection_message=feedback or "The tool action was rejected.",
                             )
 
                 pending_steers = await run_control.pending_for_boundary(seal_if_empty=not result.interruptions)

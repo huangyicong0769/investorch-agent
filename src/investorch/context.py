@@ -61,6 +61,7 @@ class TurnState:
 
     todos: list[TodoItem] = field(default_factory=list)
     mcp_errors: dict[str, dict[str, str]] = field(default_factory=dict)
+    review_feedback: list[str] = field(default_factory=list)
 
 
 @dataclass
