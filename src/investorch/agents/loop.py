@@ -22,8 +22,8 @@ from investorch.llm.models import ChatGPTResponsesModel, chatgpt_tools
 from investorch.output import AssistantMessage, OutputEvent, OutputHandler, consume_run_events
 from investorch.output.stream import assistant_message_from_result
 
-from .compact import CompactionResult, compact_session, estimate_context_tokens, session_history_restore_failed
-from .context_projection import ContextProjection, ContextProjectionBudgetError
+from .compact import CompactionResult, compact_session, session_history_restore_failed
+from .context_projection import ContextBudget, ContextProjection, ContextProjectionBudgetError
 from .continuation import portable_history_filter
 from .title import ensure_session_title
 from .usage import TokenUsage, UsageTracker
@@ -84,18 +84,21 @@ class _SuccessfulToolHooks(RunHooksBase[AgentContext, Agent[AgentContext]]):
         run_id: str,
         handler: SuccessfulToolHandler,
         usage_tracker: UsageTracker,
+        context_budget: ContextBudget,
     ) -> None:
         self._session_id = session_id
         self._run_id = run_id
         self._handler = handler
         self._usage_tracker = usage_tracker
+        self._context_budget = context_budget
 
     async def on_llm_end(
         self,
         context: RunContextWrapper[AgentContext],
         _agent: Agent[AgentContext],
-        _response: ModelResponse,
+        response: ModelResponse,
     ) -> None:
+        self._context_budget.record_response(response)
         self._usage_tracker.record(context.usage)
 
     async def on_tool_end(
@@ -219,6 +222,14 @@ class AgentLoop:
         self._preflight_compaction_handler = preflight_compaction_handler
         self._usage_handler = usage_handler
         self._context_handler = context_handler
+        self._context_budgets: dict[str, tuple[AgentModelConfig, ContextBudget]] = {}
+
+    def _context_budget(self, session_id: str, model: AgentModelConfig) -> ContextBudget:
+        cached = self._context_budgets.get(session_id)
+        if cached is None or cached[0] != model:
+            cached = (model, ContextBudget())
+            self._context_budgets[session_id] = cached
+        return cached[1]
 
     async def run(
         self,
@@ -272,11 +283,13 @@ class AgentLoop:
 
         agent_context.auxiliary_usage_handler = record_auxiliary_usage
         main_usage_tracker = UsageTracker(record_main_usage)
+        context_budget = self._context_budget(session_id, model_config)
         hooks = _SuccessfulToolHooks(
             session_id=session_id,
             run_id=run_id,
             handler=self._successful_tool_handler,
             usage_tracker=main_usage_tracker,
+            context_budget=context_budget,
         )
         # Application-started workflows contain only developer instructions.
         if isinstance(user_input, str):
@@ -298,6 +311,7 @@ class AgentLoop:
             model_input,
             model_config,
             record_preflight_usage,
+            context_budget,
         )
         history = await session.get_items()
 
@@ -311,6 +325,7 @@ class AgentLoop:
             initial_history_count=sum(item.get("type") != "reasoning" for item in history),
             usage_handler=record_auxiliary_usage,
             context_handler=record_context,
+            context_budget=context_budget,
         )
         run_config = RunConfig(
             call_model_input_filter=_run_model_input_filter(
@@ -424,15 +439,10 @@ class AgentLoop:
                     )
                 )
                 wrapper = RunContextWrapper(agent_context)
-                estimate = (
-                    estimate_context_tokens(
-                        [
-                            portable.input,
-                            await run_agent.get_system_prompt(wrapper),
-                            _tool_schemas(await run_agent.get_all_tools(wrapper)),
-                        ]
-                    )
-                    + 1024
+                estimate = context_budget.estimate(
+                    portable.input,
+                    instructions=await run_agent.get_system_prompt(wrapper),
+                    tool_schemas=_tool_schemas(await run_agent.get_all_tools(wrapper)),
                 )
                 self._context_handler(session_id, estimate, model_config)
 
@@ -470,23 +480,27 @@ class AgentLoop:
         model_input: list[TResponseInputItem],
         model_config: AgentModelConfig,
         usage_handler: Callable[[TokenUsage], None] | None,
+        context_budget: ContextBudget,
     ) -> CompactionResult | None:
         context_window_tokens = model_config.context_window_tokens
         wrapper = RunContextWrapper(context)
         instructions = await agent.get_system_prompt(wrapper)
         tool_schemas = _tool_schemas(await agent.get_all_tools(wrapper))
-        # One token per UTF-8 byte deliberately overestimates text, including non-Latin text.
-        # Images are budgeted separately: base64 size is unrelated to visual tokenization.
-        overhead = estimate_context_tokens([instructions, tool_schemas, model_input]) + 1024
         output_reserve = min(8192, max(256, context_window_tokens // 20))
         budget = math.floor(context_window_tokens * self._config["compaction.trigger_ratio"]) - output_reserve
-        if overhead >= budget:
-            raise ContextBudgetError(overhead, budget)
-        history = await session.get_items()
-        portable_history = await _run_model_input_filter(history)(
-            CallModelData(model_data=ModelInputData(input=history, instructions=None), agent=agent, context=None)
-        )
-        estimated_tokens = estimate_context_tokens(portable_history.input) + overhead
+
+        async def estimate():
+            history = await session.get_items()
+            portable = portable_history_filter(history)(
+                CallModelData(model_data=ModelInputData(input=history, instructions=None), agent=agent, context=None)
+            )
+            return context_budget.estimate(
+                [*portable.input, *model_input],
+                instructions=instructions,
+                tool_schemas=tool_schemas,
+            )
+
+        estimated_tokens = await estimate()
         if self._context_handler is not None:
             self._context_handler(session.session_id, estimated_tokens, model_config)
         if estimated_tokens < budget:
@@ -495,6 +509,8 @@ class AgentLoop:
             if self._context_handler is not None:
                 self._context_handler(session.session_id, estimated_tokens, model_config, compacting=True)
             result = await compact_session(self._compaction_agent, session, self._config, usage_handler=usage_handler)
+            if result.changed:
+                context_budget.reset()
         except BaseException as error:
             if session_history_restore_failed(error):
                 raise RuntimeError(
@@ -502,12 +518,12 @@ class AgentLoop:
                 ) from error
             raise
         finally:
-            estimated_tokens = estimate_context_tokens(await session.get_items()) + overhead
+            estimated_tokens = await estimate()
             if self._context_handler is not None:
                 self._context_handler(session.session_id, estimated_tokens, model_config)
         if self._preflight_compaction_handler is not None:
             self._preflight_compaction_handler(session.session_id, result)
-        estimated_tokens = estimate_context_tokens(await session.get_items()) + overhead
+        estimated_tokens = await estimate()
         if estimated_tokens >= budget:
             raise ContextBudgetError(estimated_tokens, budget, after_compaction=True)
         return result
@@ -532,6 +548,7 @@ class AgentLoop:
         wrapper = RunContextWrapper(context)
         instructions = await self._agent.get_system_prompt(wrapper)
         schemas = _tool_schemas(await self._agent.get_all_tools(wrapper))
+        context_budget = self._context_budget(session.session_id, model_config)
 
         async def notify(compacting: bool) -> None:
             if self._context_handler is not None:
@@ -541,12 +558,12 @@ class AgentLoop:
                         model_data=ModelInputData(input=history, instructions=None), agent=self._agent, context=None
                     )
                 )
-                estimate = estimate_context_tokens([instructions, schemas, filtered.input]) + 1024
+                estimate = context_budget.estimate(filtered.input, instructions=instructions, tool_schemas=schemas)
                 self._context_handler(session.session_id, estimate, model_config, compacting=compacting)
 
         await notify(True)
         try:
-            return await compact_session(
+            result = await compact_session(
                 self._compaction_agent,
                 session,
                 self._config,
@@ -557,6 +574,9 @@ class AgentLoop:
                     else None
                 ),
             )
+            if result.changed:
+                context_budget.reset()
+            return result
         finally:
             await notify(False)
 

@@ -86,6 +86,8 @@ Detailed invariants are defined in the [Runtime / Session Execution Model](Runti
 
 InvestOrch uses OpenAI Agents SDK rather than implementing an Agent loop or Tool-call protocol. `AgentLoop` adds application behavior around SDK runs: streaming output, approval continuation, title generation, usage, compaction, and Steer continuation.
 
+Context budgets use the latest completed main-model response's reported token total as their baseline. Only subsequent input items and changed instruction, tool-schema or Run-state fragments are estimated; the response's own output is already covered. The matching baseline can carry into the next Run of the same Session and model. A cold start, changed model, replaced history or compaction rebuilds that baseline. Display and compaction checks share this calculation.
+
 The Main Agent is cloned with captured model settings for each Run. Support agents have narrow responsibilities:
 
 - Title Agent generates a Session title.

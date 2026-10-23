@@ -69,6 +69,8 @@ async def test_usage_is_live_and_survives_later_failure_without_double_counting(
         midway = host.presentation_state.get(session_id)
         assert midway.main_usage.total_tokens == 2200
         assert midway.auxiliary_usage.total_tokens == 0
+        assert 2200 <= midway.main_context_tokens < 3000
+        assert midway.context_kind == "estimated"
         assert any(payload["main_context_tokens"] == 2200 for _, payload in snapshots)
         assert not run.task.done()
         if outcome == "cancelled":
@@ -91,6 +93,12 @@ async def test_usage_is_live_and_survives_later_failure_without_double_counting(
         assert final.main_usage.total_tokens == expected
         assert final.usage.total_tokens == expected
         assert final.auxiliary_usage.total_tokens == 0
+        if outcome in {"completed", "invalid_tool"}:
+            assert final.main_context_tokens == 3300
+            assert final.context_kind == "measured"
+        else:
+            assert final.main_context_tokens == midway.main_context_tokens
+            assert final.context_kind == "estimated"
         assert host.presentation_state.get(other_id).usage.total_tokens == 0
         versions = [payload["revision"] for sid, payload in snapshots if sid == session_id]
         assert versions == sorted(set(versions))

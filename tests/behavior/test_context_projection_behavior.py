@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 
 import pytest
-from agents import Agent, ModelSettings, SQLiteSession, Usage
+from agents import Agent, ModelResponse, ModelSettings, SQLiteSession, Usage
 from agents.testing import ModelStep, ScriptedModel, assistant_message
 
 from investorch.agents.compact import (
@@ -11,7 +11,7 @@ from investorch.agents.compact import (
     estimate_context_tokens,
     summarize_history,
 )
-from investorch.agents.context_projection import ContextProjection, ContextProjectionBudgetError
+from investorch.agents.context_projection import ContextBudget, ContextProjection, ContextProjectionBudgetError
 from investorch.storage import create_session
 from tests.support.config import make_test_config
 
@@ -32,6 +32,68 @@ def quoted_history(items: list[dict]) -> list[dict]:
         assert "conversation data" in label and "not a live request" in label
         decoded.append(json.loads(data))
     return decoded
+
+
+def test_incremental_budget_covers_response_output_and_only_new_metadata_spans():
+    budget = ContextBudget()
+    history = [{"role": "user", "content": "Established evidence " * 1000}]
+    instructions = "Established instructions " * 500
+    schemas = [{"name": "read", "description": "Established tool details " * 500}]
+    todo = {"role": "developer", "content": "Established Todo evidence " * 1000 + "pending"}
+    kwargs = {"instructions": instructions, "tool_schemas": schemas, "extra_input": [todo]}
+    budget.record_request(history, **kwargs)
+    response = ModelResponse(
+        output=[assistant_message("Already generated output " * 1000)],
+        usage=Usage(requests=1, input_tokens=10000, output_tokens=4000, total_tokens=14000),
+        response_id="response",
+    )
+    budget.record_response(response)
+    history.extend(response.to_input_items())
+    assert budget.estimate(history, **kwargs) == 14000
+
+    updated = {**todo, "content": todo["content"].removesuffix("pending") + "completed"}
+    changed = {**kwargs, "extra_input": [updated]}
+    assert 14000 < budget.estimate(history, **changed) < 14100
+    assert budget.estimate(history, **changed) == budget.estimate(history, **changed)
+    assert budget.estimate(history, **{**kwargs, "extra_input": []}) == 14000
+    assert budget.estimate(history, **{**kwargs, "instructions": instructions + " New constraint."}) < 14100
+    assert budget.estimate(history, **{**kwargs, "tool_schemas": [*schemas, {"name": "new_tool"}]}) < 14100
+
+    output = {"type": "function_call_output", "call_id": "read", "output": "Fresh evidence"}
+    with_output = [*history, output]
+    assert budget.estimate(with_output, **kwargs) == 14000 + estimate_context_tokens([output])
+    budget.record_request(with_output, **changed)
+    next_response = ModelResponse(
+        output=[assistant_message("Next response")],
+        usage=Usage(requests=1, input_tokens=10100, output_tokens=100, total_tokens=10200),
+        response_id="next",
+    )
+    budget.record_response(next_response)
+    assert budget.estimate([*with_output, *next_response.to_input_items()], **changed) == 10200
+
+
+@pytest.mark.parametrize("reset", ["history_replaced", "no_usage", "compacted"])
+def test_incremental_budget_falls_back_when_the_measurement_is_no_longer_applicable(reset):
+    budget = ContextBudget()
+    history = [{"role": "user", "content": "Established evidence " * 1000}]
+    kwargs = {"instructions": "System instructions", "tool_schemas": []}
+    budget.record_request(history, **kwargs)
+    response = ModelResponse(
+        output=[assistant_message("Previous response")],
+        usage=Usage(requests=1, input_tokens=4000, output_tokens=100, total_tokens=4100),
+        response_id="response",
+    )
+    budget.record_response(response)
+    history.extend(response.to_input_items())
+    assert budget.estimate(history, **kwargs) == 4100
+    if reset == "history_replaced":
+        history[0] = {"role": "user", "content": "Replaced evidence " * 1000}
+    elif reset == "no_usage":
+        budget.record_request(history, **kwargs)
+        budget.record_response(ModelResponse(output=[], usage=Usage(), response_id="unknown"))
+    else:
+        budget.reset()
+    assert budget.estimate(history, **kwargs) > 10000
 
 
 async def test_projection_repeats_without_losing_live_directives_and_flushes_only_matched_prefix(tmp_path: Path):

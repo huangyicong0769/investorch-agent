@@ -5,9 +5,11 @@ import logging
 import math
 from collections.abc import Callable, Sequence
 from copy import deepcopy
+from dataclasses import dataclass, replace
+from hashlib import sha256
 from itertools import pairwise
 
-from agents import Agent, SQLiteSession, TResponseInputItem
+from agents import Agent, ModelResponse, SQLiteSession, TResponseInputItem
 
 from investorch.config import AppConfig
 
@@ -43,6 +45,101 @@ def _canonical_item(item: TResponseInputItem) -> str | None:
     return json.dumps(item, sort_keys=True, ensure_ascii=False)
 
 
+def _item_fingerprints(items: Sequence[TResponseInputItem]) -> tuple[bytes, ...]:
+    return tuple(sha256(value.encode()).digest() for item in items if (value := _canonical_item(item)) is not None)
+
+
+def _added_text(previous: str, current: str) -> str:
+    """Keep the changed span while excluding the unchanged prefix and suffix."""
+    start = 0
+    while start < min(len(previous), len(current)) and previous[start] == current[start]:
+        start += 1
+    old_end, new_end = len(previous), len(current)
+    while old_end > start and new_end > start and previous[old_end - 1] == current[new_end - 1]:
+        old_end -= 1
+        new_end -= 1
+    return current[start:new_end]
+
+
+@dataclass(frozen=True)
+class _MeasuredContext:
+    items: tuple[bytes, ...]
+    metadata: tuple[str, ...]
+    tokens: int = 0
+
+
+class ContextBudget:
+    """Anchor estimates to one completed response and budget only its additions."""
+
+    def __init__(self) -> None:
+        self._measured: _MeasuredContext | None = None
+        self._pending: _MeasuredContext | None = None
+
+    @staticmethod
+    def _metadata(
+        instructions: str | None, tool_schemas: object, extra_input: Sequence[TResponseInputItem]
+    ) -> tuple[str, ...]:
+        return tuple(
+            json.dumps(value, sort_keys=True, ensure_ascii=False)
+            for value in (instructions, tool_schemas, list(extra_input))
+        )
+
+    def estimate(
+        self,
+        items: Sequence[TResponseInputItem],
+        *,
+        instructions: str | None,
+        tool_schemas: object,
+        extra_input: Sequence[TResponseInputItem] = (),
+    ) -> int:
+        measured = self._measured
+        fingerprints = _item_fingerprints(items)
+        if measured is None or fingerprints[: len(measured.items)] != measured.items:
+            return (
+                estimate_context_tokens(items)
+                + estimate_context_tokens([instructions, tool_schemas, list(extra_input)])
+                + 1024
+            )
+        # Opaque reasoning/SDK IDs do not establish new portable history items.
+        portable = [item for item in items if _canonical_item(item) is not None]
+        estimate = measured.tokens + estimate_context_tokens(portable[len(measured.items) :])
+        metadata = self._metadata(instructions, tool_schemas, extra_input)
+        for previous, current in zip(measured.metadata, metadata, strict=True):
+            if added := _added_text(previous, current):
+                estimate += estimate_context_tokens(added)
+        # A replacement charges only its changed span. Deletions never subtract
+        # an unknown token count from measured usage; the next response rebases it.
+        return estimate
+
+    def record_request(
+        self,
+        items: Sequence[TResponseInputItem],
+        *,
+        instructions: str | None,
+        tool_schemas: object,
+        extra_input: Sequence[TResponseInputItem] = (),
+    ) -> None:
+        self._pending = _MeasuredContext(
+            _item_fingerprints(items),
+            self._metadata(instructions, tool_schemas, extra_input),
+        )
+
+    def record_response(self, response: ModelResponse) -> None:
+        pending, self._pending = self._pending, None
+        self._measured = (
+            replace(
+                pending,
+                items=(*pending.items, *_item_fingerprints(response.to_input_items())),
+                tokens=response.usage.total_tokens,
+            )
+            if pending is not None and response.usage.total_tokens > 0
+            else None
+        )
+
+    def reset(self) -> None:
+        self._measured = self._pending = None
+
+
 def _safe_prefix_lengths(items: list[TResponseInputItem]) -> list[int]:
     """Never separate a local tool invocation from its output or pending approval."""
     pending: set[str] = set()
@@ -74,12 +171,14 @@ class ContextProjection:
         initial_history_count: int,
         usage_handler: Callable[[TokenUsage], None] | None = None,
         context_handler: Callable[[int, bool], None] | None = None,
+        context_budget: ContextBudget | None = None,
     ) -> None:
         self._agent = compaction_agent
         self._config = config
         self._initial_history_count = initial_history_count
         self._usage_handler = usage_handler
         self._context_handler = context_handler
+        self._budget = context_budget or ContextBudget()
         self._covered: list[TResponseInputItem] = []
         self._replacement: list[TResponseInputItem] = []
         self._flushed = False
@@ -110,12 +209,21 @@ class ContextProjection:
         soft_budget = math.floor(context_window_tokens * self._config["compaction.trigger_ratio"]) - reserve
         hard_budget = context_window_tokens - reserve
         projected = self._apply(items)
-        estimate = estimate_context_tokens(projected) + overhead
+
+        def prepared(current):
+            self._budget.record_request(
+                current, instructions=instructions, tool_schemas=tool_schemas, extra_input=extra_input
+            )
+            return [*current, *extra_input]
+
+        estimate = self._budget.estimate(
+            projected, instructions=instructions, tool_schemas=tool_schemas, extra_input=extra_input
+        )
         if self._context_handler is not None:
             self._context_handler(estimate, False)
         enabled = self._config["compaction.auto_enabled"]
         if estimate < soft_budget or (not enabled and estimate < hard_budget):
-            return [*projected, *extra_input]
+            return prepared(projected)
         if not enabled:
             raise ContextProjectionBudgetError(estimate, hard_budget)
         boundaries = _safe_prefix_lengths(items)
@@ -160,17 +268,18 @@ class ContextProjection:
                     continue
                 self._covered = deepcopy(items[:prefix_length])
                 self._replacement = replacement
+                self._budget.reset()
                 estimate = compressed_estimate
-                return [*candidate, *extra_input]
+                return prepared(candidate)
             if estimate >= hard_budget:
                 raise ContextProjectionBudgetError(estimate, hard_budget)
-            return [*projected, *extra_input]
+            return prepared(projected)
         except Exception:
             # A soft-limit maintenance failure must not interrupt a safe model request.
             # Cancellation derives from BaseException and intentionally propagates.
             if estimate >= hard_budget:
                 raise
-            return [*projected, *extra_input]
+            return prepared(projected)
         finally:
             if self._context_handler is not None:
                 self._context_handler(estimate, False)
