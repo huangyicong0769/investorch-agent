@@ -337,3 +337,45 @@ async def test_streamed_plan_limit_is_safe_failure_before_forwarding_provider_bo
     assert caught.value.code == "subscription_sharing_usage_limit_exceeded"
     assert "Manage Usage" in str(caught.value)
     assert "private-" not in str(caught.value)
+
+
+@pytest.mark.parametrize(
+    ("reasoning", "expected"),
+    [
+        ({"effort": "high"}, {"effort": "high", "summary": "auto"}),
+        ({"effort": "none"}, {"effort": "none"}),
+        ({"effort": "high", "summary": "detailed"}, {"effort": "high", "summary": "detailed"}),
+    ],
+)
+async def test_chatgpt_requests_summaries_for_enabled_reasoning(reasoning, expected):
+    requests = []
+
+    def handle(request):
+        requests.append(json.loads(request.content))
+        return httpx2.Response(
+            200,
+            headers={"content-type": "text/event-stream"},
+            content=events(
+                response(
+                    [
+                        {
+                            "id": "msg_summary_check",
+                            "type": "message",
+                            "role": "assistant",
+                            "status": "completed",
+                            "content": [{"type": "output_text", "text": "Done", "annotations": []}],
+                        }
+                    ]
+                )
+            ),
+        )
+
+    settings = ModelSettings(reasoning=reasoning)
+    original_reasoning = settings.reasoning.model_dump()
+    async with AsyncOpenAI(
+        api_key="test-oauth-token", http_client=httpx2.AsyncClient(transport=httpx2.MockTransport(handle))
+    ) as client:
+        agent = Agent(name="Main", model=ChatGPTResponsesModel("test-model", client), model_settings=settings)
+        await Runner.run(agent, "Inspect", max_turns=1, run_config={"tracing_disabled": True})
+    assert requests[0]["reasoning"] == expected
+    assert settings.reasoning.model_dump() == original_reasoning

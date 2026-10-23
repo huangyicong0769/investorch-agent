@@ -102,8 +102,13 @@ def _settings(settings: ModelSettings) -> ModelSettings:
             return None
         return {key: value for key, value in values.items() if key not in UNSUPPORTED_FIELDS | {"store", "stream"}}
 
+    reasoning = settings.reasoning
+    if reasoning is not None and reasoning.effort != "none" and reasoning.summary is None:
+        reasoning = reasoning.model_copy(update={"summary": "auto"})
+
     return replace(
         settings,
+        reasoning=reasoning,
         store=False,
         max_tokens=None,
         temperature=None,
