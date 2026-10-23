@@ -21,7 +21,7 @@ Selected fields of the illustrative return (the actual return also includes full
 ```json
 {
   "name": "investorch-configuration",
-  "version": "1.3.1",
+  "version": "1.3.2",
   "resources": [
     "references/configuration.md",
     "references/examples.md"
