@@ -25,14 +25,14 @@ jobs:
           persist-credentials: false
 
       - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version-file: .python-version
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
-          version: "0.13.0"
+          version: "0.13.5"
           enable-cache: true
 
       - name: Set up Node.js
@@ -98,7 +98,7 @@ jobs:
       - name: Build distributions
         run: uv build --no-sources
 
-      - name: Smoke test wheel and source distribution
+      - name: Smoke test core and CNEquity wheel and source installations
         shell: bash
         run: |
           set -euo pipefail
@@ -109,8 +109,11 @@ jobs:
           test "${#wheel[@]}" -eq 1
           test "${#sdist[@]}" -eq 1
           cd "$smoke_dir"
-          uv run --isolated --no-project --with "${wheel[0]}" python package_smoke.py
-          uv run --isolated --no-project --with "${sdist[0]}" python package_smoke.py
+          for distribution in "${wheel[0]}" "${sdist[0]}"; do
+            uv run --isolated --no-project --with "$distribution" python package_smoke.py
+            uv run --isolated --no-project --with "$distribution[cnequity]" \
+              python package_smoke.py --expect-cnequity
+          done
 
       - name: Generate SHA-256 checksums
         working-directory: dist
@@ -118,8 +121,8 @@ jobs:
 
       - name: Install pinned GitHub CLI
         env:
-          GH_CLI_SHA256: bb766f710eef8ede859c18578c72c327597cd4c8a85b06001b1f3843c6019386
-          GH_CLI_VERSION: 2.102.0
+          GH_CLI_SHA256: fdd768eb70f6409f80fcfa9f3a1c0adf0fc98d827ab3ce0bed2ac22762c5d786
+          GH_CLI_VERSION: 2.103.0
         shell: bash
         run: |
           set -euo pipefail
@@ -132,7 +135,7 @@ jobs:
           echo "$RUNNER_TEMP/gh_${GH_CLI_VERSION}_linux_amd64/bin" >> "$GITHUB_PATH"
 
       - name: Verify GitHub CLI version
-        run: test "$(gh --version | head -n 1 | cut -d ' ' -f 3)" = "2.102.0"
+        run: test "$(gh --version | head -n 1 | cut -d ' ' -f 3)" = "2.103.0"
 
       - name: Create or update draft prerelease
         env:

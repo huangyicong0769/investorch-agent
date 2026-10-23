@@ -25,13 +25,13 @@ jobs:
         with:
           persist-credentials: false
       - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version-file: .python-version
       - name: Set up uv
-        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
-          version: "0.13.0"
+          version: "0.13.5"
           enable-cache: true
       - name: Sync locked environment
         run: uv sync --locked --dev
@@ -81,7 +81,11 @@ jobs:
           fi
 
   package:
-    name: Package / Distribution
+    name: Package / ${{ matrix.installation }}
+    strategy:
+      fail-fast: false
+      matrix:
+        installation: [core, cnequity]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -90,17 +94,19 @@ jobs:
         with:
           persist-credentials: false
       - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version-file: .python-version
       - name: Set up uv
-        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
-          version: "0.13.0"
+          version: "0.13.5"
           enable-cache: true
       - name: Build distributions
         run: uv build --no-sources
       - name: Smoke test wheel and source distribution
+        env:
+          INSTALLATION: ${{ matrix.installation }}
         shell: bash
         run: |
           set -euo pipefail
@@ -110,9 +116,15 @@ jobs:
           sdist=("$GITHUB_WORKSPACE"/dist/*.tar.gz)
           test "${#wheel[@]}" -eq 1
           test "${#sdist[@]}" -eq 1
+          smoke_args=()
+          if [ "$INSTALLATION" = "cnequity" ]; then
+            wheel[0]="${wheel[0]}[cnequity]"
+            sdist[0]="${sdist[0]}[cnequity]"
+            smoke_args+=(--expect-cnequity)
+          fi
           cd "$smoke_dir"
-          uv run --isolated --no-project --with "${wheel[0]}" python package_smoke.py
-          uv run --isolated --no-project --with "${sdist[0]}" python package_smoke.py
+          uv run --isolated --no-project --with "${wheel[0]}" python package_smoke.py "${smoke_args[@]}"
+          uv run --isolated --no-project --with "${sdist[0]}" python package_smoke.py "${smoke_args[@]}"
 
   gate:
     name: CI / Gate
