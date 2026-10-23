@@ -65,7 +65,11 @@ There is no automatic reply, wait/completion mechanism, or persistent mailbox.
 
 ## 0.3.0 Session spawning
 
-The development implementation adds approval-required `spawn_agent(task, title?)` with ordinary, recursively capable Sessions; independent history and approvals; trusted user-role origin; and one-time Portfolio association snapshots. All top-level Runs share a hot global limit, default 3. Explicit Delete/Clear safely cascade only Spawn descendants and refuse active/pending nodes or independent Fork references. Web replaces the Portfolio banner with a compact context card; TUI shows parent provenance. 0.3.0 remains unreleased. Agent as MCP is cancelled for 0.3.0; PyPI distribution is scheduled separately.
+The development implementation adds approval-required `spawn_agent(task, title?)` with ordinary, recursively capable Sessions; independent history and approvals; trusted user-role origin; and one-time Portfolio association snapshots. All top-level Runs share a hot global limit, default 3. Explicit Delete/Clear safely cascade only Spawn descendants and refuse active/pending nodes or independent Fork references. Web replaces the Portfolio banner with a compact context card; TUI shows parent provenance. 0.3.0 remains unreleased. Agent as MCP is cancelled for 0.3.0.
+
+## 0.3.0 release preparation and package distribution
+
+0.3.0 release preparation includes refreshed Python/Web dependencies, real application and package checks, and fixes found through those checks. Wheel and source distribution to PyPI is part of the 0.3.0 plan, alongside GitHub artifacts and checksums. PyPI publication, Git tags and GitHub release publication require final review and approval; local preparation does not imply publication or completed acceptance. See the [release preparation notes](releases/0.3.0.md).
 
 ## Configuration, management, and recovery
 
@@ -81,7 +85,7 @@ CNEquity remains an optional backend. Broader reliance on it is deferred until u
 
 ## Confirmed direction: Multi-Agent
 
-Multi-Agent is a long-term direction, with Stage A providing read-only Session access. Specialist roles, routing model, handoff topology, and the schedule for later stages remain open. Agent boundaries will be designed only after real responsibilities prove that separation reduces complexity.
+Multi-Agent is a long-term direction. Session access, approved messaging and child Sessions provide its current building blocks. Specialist roles, routing model, handoff topology, and further scheduling remain open. Agent boundaries will be designed only after real responsibilities prove that separation reduces complexity.
 
 ## 0.3.0 model connections and ChatGPT
 

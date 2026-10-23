@@ -2,7 +2,7 @@
 
 [English](Upgrade.md)
 
-本文说明尚未发布的 0.3.0 模型配置迁移，并保留早期 0.2.0 升级流程。版本范围见 [0.3.0 发行说明](releases/0.3.0.zh-CN.md)。
+本文说明 0.3.0 候选版本的模型配置迁移，并保留早期 0.2.0 升级流程。0.3.0 尚未发布，按 [README](../README.zh-CN.md#安装)使用已审查的本地源码或自行构建的 wheel。版本范围见 [0.3.0 发行说明](releases/0.3.0.zh-CN.md)。
 
 ## 0.2.0 → 0.3.0 模型配置（尚未发布）
 
@@ -96,7 +96,7 @@ Session 模型元数据使用正常的 SQLite 增量初始化：旧记录可没�
 
 ## 选择预检命令
 
-`doctor`、`upgrade check` 和 `backup` 是 0.2.0 新命令。升级 0.1.0 工具安装时，先保留旧工具，从[源码](../README.zh-CN.md#源码安装)运行 0.2.0 的离线命令：
+`doctor`、`upgrade check` 和 `backup` 是 0.2.0 新命令。升级 0.1.0 工具安装时，先保留旧工具，从 [0.2.0 源码](releases/0.2.0.zh-CN.md#源码安装)运行 0.2.0 的离线命令：
 
 ```sh
 uv run --project /path/to/investorch-agent --locked --python 3.12 investorch doctor --root "$HOME/.investorch"

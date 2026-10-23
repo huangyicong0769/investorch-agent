@@ -2,7 +2,7 @@
 
 [简体中文](Upgrade.zh-CN.md)
 
-This guide covers the unreleased 0.3.0 model transition and retains the earlier 0.2.0 upgrade procedure. See [0.3.0 release notes](releases/0.3.0.md).
+This guide covers the 0.3.0 release candidate's model transition and retains the earlier 0.2.0 upgrade procedure. 0.3.0 publication is pending; use a reviewed local checkout or built wheel as described in the [README](../README.md#installation). See [0.3.0 release notes](releases/0.3.0.md).
 
 ## 0.2.0 → 0.3.0 model configuration (unreleased)
 
@@ -96,7 +96,7 @@ Use Python 3.12–3.14 (`>=3.12,<3.15`). The commands below select Python 3.12 e
 
 ## Choose the preflight command
 
-`doctor`, `upgrade check` and `backup` are new in 0.2.0. When upgrading a 0.1.0 tool installation, leave the previous tool installed and run the 0.2.0 offline commands from a [source checkout](../README.md#source-checkout):
+`doctor`, `upgrade check` and `backup` are new in 0.2.0. When upgrading a 0.1.0 tool installation, leave the previous tool installed and run the 0.2.0 offline commands from a [0.2.0 source checkout](releases/0.2.0.md#source-checkout):
 
 ```sh
 uv run --project /path/to/investorch-agent --locked --python 3.12 investorch doctor --root "$HOME/.investorch"

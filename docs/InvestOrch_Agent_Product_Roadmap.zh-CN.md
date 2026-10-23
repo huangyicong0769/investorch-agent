@@ -65,7 +65,11 @@ Tool 委托无状态 Application 查询，由 Host 在首个 Run 前绑定并一
 
 ## 0.3.0 Session 派生
 
-开发实现增加需要审批的 `spawn_agent(task, title?)`：普通 Session 可递归派生，拥有独立历史与审批、可信 user-role 来源，以及一次性的 Portfolio 关联快照。全部顶层 Run 共享 Hot 全局上限，默认 3。显式 Delete/Clear 仅安全级联 Spawn 后代，活动/pending 节点或独立 Fork 引用阻断删除。Web 用右上紧凑卡片替换 Portfolio 横幅，TUI 显示 parent 来源。0.3.0 仍未发布；Agent as MCP 已从 0.3.0 取消；PyPI 分发另行安排。
+开发实现增加需要审批的 `spawn_agent(task, title?)`：普通 Session 可递归派生，拥有独立历史与审批、可信 user-role 来源，以及一次性的 Portfolio 关联快照。全部顶层 Run 共享 Hot 全局上限，默认 3。显式 Delete/Clear 仅安全级联 Spawn 后代，活动/pending 节点或独立 Fork 引用阻断删除。Web 用右上紧凑卡片替换 Portfolio 横幅，TUI 显示 parent 来源。0.3.0 仍未发布；Agent as MCP 已从 0.3.0 取消。
+
+## 0.3.0 发布准备与软件包分发
+
+0.3.0 发布准备包含更新 Python/Web 依赖、实机应用与软件包检查，以及修复检查中发现的问题。向 PyPI 分发 wheel 和源码包属于 0.3.0 计划，并保留 GitHub 发行包与 checksum。PyPI 发布、Git tag 和 GitHub Release 发布须经最终 review 和批准；本地准备不表示已发布或验收完成。详见[发布准备说明](releases/0.3.0.zh-CN.md)。
 
 ## 配置、管理与恢复
 
@@ -81,7 +85,7 @@ CNEquity 仍是可选后端。更广泛的依赖要等待上游行为足够稳�
 
 ## 已确认方向：Multi-Agent
 
-Multi-Agent 是长期方向，Stage A 已提供只读 Session 访问。Specialist 角色、路由模型、Handoff 拓扑及后续阶段排期仍待决定。只有真实职责证明拆分能降低复杂度后，才设计 Agent 边界。
+Multi-Agent 是长期方向；Session 访问、经审批的消息与子 Session 提供当前基础能力。Specialist 角色、路由模型、Handoff 拓扑及后续排期仍待决定。只有真实职责证明拆分能降低复杂度后，才设计 Agent 边界。
 
 ## 0.3.0 模型连接与 ChatGPT
 

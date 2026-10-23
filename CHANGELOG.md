@@ -2,6 +2,30 @@
 
 [简体中文](CHANGELOG.zh-CN.md)
 
+## 0.3.0 — unreleased
+
+### Session collaboration and model selection
+
+- Add bounded Session discovery/history tools, approved text/image messaging with sender provenance, and recursive child Sessions with independent approvals and a shared Run limit.
+- Confirm the full Spawn descendant scope before Delete/Clear, preserving active work and independent Fork references.
+- Split model connections from Agent defaults, add official local ChatGPT authorization, and support per-Session model/effort Drafts with immutable selections for active Runs.
+- Add preflight and between-tool-turn compaction, preserve outstanding work through repeated compaction, and keep prior-Run history portable across model connections.
+
+### Runtime feedback and workflows
+
+- Show live Main/auxiliary usage and provider reasoning summaries; persist redacted Run failures and deliver approval rejection feedback to the Main Agent.
+- Preserve Web approvals, drafts and navigation through refresh/reconnect/resize; expose orphaned background processes and distinguish diagnostic problems from unchecked state.
+- Isolate MCP connection failures from Runs and retain actionable initialization causes.
+- Clarify built-in specialist toolchains and artifact validation. Add typed per-run RQAlpha parameters, serialized execution, native logs and original engine rejection diagnostics.
+
+### Compatibility and distribution
+
+- Refresh Python/Web dependencies and lockfiles, including OpenAI Agents SDK 0.24.0, FastAPI 0.161.1, RQAlpha 6.4.2, optional CNEquity 0.18.0 and uv_build 0.13.5.
+- Prepare PyPI wheel/source distribution alongside GitHub artifacts. Publication remains pending final review and approval.
+- **Breaking:** old `models.<role>` TOML requires manual conversion to `models.<connection>` plus `agents.<role>`. Session model metadata upgrades through normal initialization; existing Roots require backup and preflight before startup.
+
+See the [0.3.0 release preparation notes](docs/releases/0.3.0.md) and [Upgrade](docs/Upgrade.md). This entry does not announce published artifacts or completed release acceptance.
+
 ## 0.2.0
 
 ### Portfolio and approval

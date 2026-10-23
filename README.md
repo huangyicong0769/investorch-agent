@@ -4,12 +4,13 @@
 
 InvestOrch Agent is a local-first, human-in-the-loop investment orchestration agent for an individual investor. Its long-term goal is to support the full path from research, strategy development, and backtesting to portfolio decisions, trading, position monitoring, and review.
 
-InvestOrch Agent **0.2.0** provides Web, TUI and plain-console clients, Portfolio accounting, managed Skills, image conversations, and configuration/recovery tools.
+**0.3.0 is being prepared for release.** It adds Session collaboration, reusable model connections and ChatGPT authorization, per-Session model selection, continuous context management, and clearer runtime diagnostics. Publication and release validation are still pending. See [0.3.0 notes](docs/releases/0.3.0.md), [model configuration](docs/Configuration.md) and the [manual upgrade procedure](docs/Upgrade.md).
 
-The **unreleased 0.3.0 development line** adds Session access, messaging and spawning, reusable model connections, per-Session model selection and ChatGPT authorization. See [0.3.0 notes](docs/releases/0.3.0.md), [model configuration](docs/Configuration.md) and the [manual upgrade procedure](docs/Upgrade.md). The installation commands below still target released 0.2.0.
+## What 0.3.0 includes
 
-## What 0.2.0 includes
-
+- Session discovery and history reading, approved text/image messaging, and recursive child Sessions with independent approvals.
+- API-key or ChatGPT model connections, separate Agent defaults, and per-Session model/effort selection.
+- Context compaction before inference and between tool turns, live Main/auxiliary usage, and persistent run failures.
 - First-class Web and [Textual](https://github.com/Textualize/textual) TUI clients backed by the same application and runtime.
 - Persistent sessions with titles, archive and restore, stable-head fork, clear, and context compaction.
 - Concurrent runs across sessions, with per-run Steer or Queue follow-up behavior.
@@ -23,7 +24,7 @@ The **unreleased 0.3.0 development line** adds Session access, messaging and spa
 - Web image conversations and Workspace image reading.
 - Web Setup, persistent Settings, MCP Integrations, System Status, offline diagnostics, and backup create/verify.
 
-Broker/account mirroring, a QMT gateway, live trading, a unified investment data layer, and Multi-Agent orchestration remain future work. See the [0.2.0 release notes](docs/releases/0.2.0.md) and [Product Roadmap](docs/InvestOrch_Agent_Product_Roadmap.md).
+Broker/account mirroring, a QMT gateway, live trading, a unified investment data layer, and Multi-Agent orchestration remain future work. See the [0.3.0 notes](docs/releases/0.3.0.md) and [Product Roadmap](docs/InvestOrch_Agent_Product_Roadmap.md).
 
 ## Compatibility
 
@@ -35,8 +36,7 @@ The core supports macOS and Linux. Agent shell-command execution through `exec_c
 
 - Python 3.12–3.14 (`>=3.12,<3.15`)
 - [uv](https://docs.astral.sh/uv/)
-- For released 0.2.0: a Responses-compatible model endpoint, model name, and API credential
-- For the 0.3.0 development line: an API-key connection or an eligible ChatGPT account authorizing plan usage
+- A Responses-compatible API-key connection, or an eligible ChatGPT account authorizing plan usage
 
 The runtime uses the [OpenAI Agents SDK](https://github.com/openai/openai-agents-python) Responses model adapter. Fresh source installations have no preselected provider. Web Setup accepts the initial model connection and credential; Settings allows the Main, Title, Activity, Permission and Compact roles to use independent configurations.
 
@@ -46,39 +46,41 @@ The installation commands below select Python 3.12.
 
 ### Source checkout
 
+Use a local checkout of the reviewed 0.3.0 candidate. The release-preparation branch is `release/0.3.0`; these instructions do not assume it or a `v0.3.0` tag has been published.
+
 ```bash
-git clone --branch v0.2.0 https://github.com/huangyicong0769/investorch-agent.git
-cd investorch-agent
+cd /path/to/investorch-agent
 uv sync --locked --python 3.12
 ```
 
-The examples below use the source-checkout form `uv run --locked investorch`. For a wheel tool installation, omit `uv run --locked` and start each command with `investorch`.
+The examples below use `uv run --locked investorch`. Start release checks with a separate root, for example `uv run --locked investorch web --root /path/to/isolated-root`. Follow [Upgrade](docs/Upgrade.md) before using an existing 0.2.0 root: its model TOML requires manual conversion.
 
-### Release wheel
+### Locally built wheel
 
-Download `investorch-0.2.0-py3-none-any.whl`, `investorch-0.2.0.tar.gz` and `SHA256SUMS` from the [0.2.0 GitHub Release](https://github.com/huangyicong0769/investorch-agent/releases/tag/v0.2.0).
-
-From the directory containing the wheel and checksum file:
+Build the reviewed candidate, then install its wheel in a separate uv-managed tool directory for testing:
 
 ```bash
-# macOS
-grep 'investorch-0.2.0-py3-none-any.whl$' SHA256SUMS | shasum -a 256 -c -
-
-# Linux
-grep 'investorch-0.2.0-py3-none-any.whl$' SHA256SUMS | sha256sum -c -
+uv build --no-sources
+UV_TOOL_DIR=/path/to/test-tools UV_TOOL_BIN_DIR=/path/to/test-bin \
+  uv tool install --python 3.12 ./dist/investorch-0.3.0-py3-none-any.whl
+/path/to/test-bin/investorch web --root /path/to/isolated-root
 ```
 
-Then install the wheel as a uv-managed tool:
+For a wheel installation, omit `uv run --locked` from later examples. A built wheel contains the committed production Web bundle; see the frontend build steps below when changing it.
+
+### PyPI installation after publication
+
+Publishing the wheel and source distribution to PyPI is part of the 0.3.0 release plan. **The following command becomes available after 0.3.0 is published:**
 
 ```bash
-uv tool install --python 3.12 ./investorch-0.2.0-py3-none-any.whl
+uv tool install --python 3.12 investorch==0.3.0
 ```
 
-The installed command is `investorch`. For an existing tool installation, complete the backup and preflight steps in [Upgrade](docs/Upgrade.md) before replacing it. The published [0.1.0 release](https://github.com/huangyicong0769/investorch-agent/releases/tag/v0.1.0) retains its own [historical instructions](docs/releases/0.1.0.md).
+0.3.0 PyPI packages, GitHub release artifacts and checksums are not published yet. The latest published GitHub package and its checksum/install instructions remain in the [0.2.0 release notes](docs/releases/0.2.0.md).
 
 ## First run
 
-The steps below describe released 0.2.0. On the 0.3.0 development line, Setup separates **Model Connections** from **Agent Defaults**: choose an API connection or **Continue with ChatGPT**, then select the model, effort and context window for each role. ChatGPT-only setups do not need an API key. Follow [Configuration](docs/Configuration.md) for complete examples and login guidance.
+Setup separates **Model Connections** from **Agent Defaults**: choose an API connection or **Continue with ChatGPT**, then select the model, effort and context window for each role. ChatGPT-only setups do not need an API key. Follow [Configuration](docs/Configuration.md) for complete examples and login guidance.
 
 ### 1. Open Web Setup
 
@@ -86,7 +88,7 @@ The steps below describe released 0.2.0. On the 0.3.0 development line, Setup se
 uv run --locked investorch web
 ```
 
-Open <http://127.0.0.1:1334>. A fresh instance keeps serving the Setup page without starting an Agent. Enter the provider endpoint, model and API key, choose the initial role settings, and save. Credentials remain in `~/.investorch/investorch.toml`; the browser does not receive them on subsequent reads.
+Open <http://127.0.0.1:1334>. A fresh instance keeps serving the Setup page without starting an Agent. Add an API-key connection or authorize ChatGPT, choose the initial Agent defaults, and save. Credentials remain in `~/.investorch/investorch.toml`; the browser does not receive them on subsequent reads.
 
 ### 2. Test and start
 
@@ -143,7 +145,7 @@ Web conversations accept JPEG, PNG, GIF and WebP by selection, paste or drop, in
 
 ## Session tools
 
-For the unreleased 0.3.0 work, Agents can discover exact Session IDs with `list_sessions`, read history with `read_session`, and submit approved text/images to another unarchived Session in the same Root with `send_message`. For example, `send_message(target_session_id="<exact-id>", text="Inspect this chart", images=[{"source":"workspace","path":"charts/result.png"}])`. Existing uploads can be forwarded by the sender's Journal `seq` and `image_index`, including image-only input. The recipient sees the sender's identity; Web/TUI show it in the usual message view. Read later history or send an explicit reply for results: receipts confirm submission, and Queue does not survive restart. See [Session messaging](docs/InvestOrch_Agent_Architecture.md#session-messaging) for the contract and limits.
+Agents can discover exact Session IDs with `list_sessions`, read history with `read_session`, and submit approved text/images to another unarchived Session in the same Root with `send_message`. For example, `send_message(target_session_id="<exact-id>", text="Inspect this chart", images=[{"source":"workspace","path":"charts/result.png"}])`. Existing uploads can be forwarded by the sender's Journal `seq` and `image_index`, including image-only input. The recipient sees the sender's identity; Web/TUI show it in the usual message view. Read later history or send an explicit reply for results: receipts confirm submission, and Queue does not survive restart. See [Session messaging](docs/InvestOrch_Agent_Architecture.md#session-messaging) for the contract and limits.
 
 ## Settings and System Status
 
@@ -171,7 +173,7 @@ uv sync --locked --python 3.12 --extra cnequity
 For a wheel installation, include the extra when installing the tool:
 
 ```bash
-uv tool install --python 3.12 './investorch-0.2.0-py3-none-any.whl[cnequity]'
+uv tool install --python 3.12 './dist/investorch-0.3.0-py3-none-any.whl[cnequity]'
 ```
 
 CNEquity is an optional data backend. Broader integration is deferred until its upstream behavior is sufficiently stable.
@@ -232,7 +234,7 @@ Configuration, workspace files, session metadata, journals, logs, and generated 
 
 ## Frontend development
 
-Run the Python Web server, then start Vite in another terminal:
+Use the Node.js version pinned in `frontend/.node-version` for frontend development. Run the Python Web server, then start Vite in another terminal:
 
 ```bash
 cd frontend
@@ -282,7 +284,7 @@ InvestOrch Agent is a human-led personal research project developed with AI assi
 
 ## Documentation
 
-- [0.2.0 release notes](docs/releases/0.2.0.md) and [Changelog](CHANGELOG.md).
+- [0.3.0 release preparation notes](docs/releases/0.3.0.md) and [Changelog](CHANGELOG.md).
 - [Upgrade](docs/Upgrade.md) and [Backup and Recovery](docs/Backup_and_Recovery.md).
 - [Architecture](docs/InvestOrch_Agent_Architecture.md): the implemented system and current boundaries.
 - [Runtime / Session Execution Model](docs/Runtime_Session_Execution_Model.md): lifecycle and concurrency rules.

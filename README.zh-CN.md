@@ -4,12 +4,13 @@
 
 InvestOrch Agent 是面向个人投资者的本地优先、human-in-the-loop 投资编排 Agent。长期目标是支持从研究、策略开发和回测，到组合决策、交易、持仓监控与复盘的完整流程。
 
-InvestOrch Agent **0.2.0** 提供 Web、TUI 和 plain console，支持 Portfolio 会计、受管 Skills、图片对话与配置/恢复工具。
+**0.3.0 正在准备发布。** 此版本增加 Session 协作、可复用模型连接与 ChatGPT 授权、按 Session 选模、持续上下文管理和更清晰的运行诊断。发布和发行验收尚未完成。详见 [0.3.0 说明](docs/releases/0.3.0.zh-CN.md)、[模型配置](docs/Configuration.zh-CN.md)和[手动升级步骤](docs/Upgrade.zh-CN.md)。
 
-**尚未发布的 0.3.0 开发版本**增加 Session 访问、消息和派生、可复用模型连接、按 Session 选模及 ChatGPT 授权。详见 [0.3.0 说明](docs/releases/0.3.0.zh-CN.md)、[模型配置](docs/Configuration.zh-CN.md)和[手动升级步骤](docs/Upgrade.zh-CN.md)。下方安装命令仍指向已发布的 0.2.0。
+## 0.3.0 包含
 
-## 0.2.0 包含
-
+- Session 查找与历史读取、经审批的文字/图片消息，以及拥有独立审批的递归子 Session。
+- API Key 或 ChatGPT 模型连接、独立 Agent 默认值，以及按 Session 选择模型与推理强度。
+- 推理前与工具调用间的上下文压缩、实时 Main/辅助角色用量，以及持久化失败原因。
 - 基于同一 Application 与 Runtime 的 Web 和 [Textual](https://github.com/Textualize/textual) TUI 两个一级界面。
 - 持久化 Session，支持标题、归档与恢复、稳定头部 Fork、清除和上下文压缩。
 - 不同 Session 的并发 Run，以及每个 Run 固定的 Steer 或 Queue 跟进模式。
@@ -23,7 +24,7 @@ InvestOrch Agent **0.2.0** 提供 Web、TUI 和 plain console，支持 Portfolio
 - Web 图片对话与 Workspace 读图。
 - Web Setup、持久 Settings、MCP Integrations、System Status、离线诊断与备份创建/验证。
 
-券商账户镜像、QMT Gateway、实盘交易、统一投资数据层和 Multi-Agent 编排属于后续工作。详见 [0.2.0 发行说明](docs/releases/0.2.0.zh-CN.md)和[产品路线图](docs/InvestOrch_Agent_Product_Roadmap.zh-CN.md)。
+券商账户镜像、QMT Gateway、实盘交易、统一投资数据层和 Multi-Agent 编排属于后续工作。详见 [0.3.0 说明](docs/releases/0.3.0.zh-CN.md)和[产品路线图](docs/InvestOrch_Agent_Product_Roadmap.zh-CN.md)。
 
 ## 兼容性
 
@@ -35,8 +36,7 @@ CLI、配置、存储格式和 Tool 接口可能在后续 0.x 版本中调整。
 
 - Python 3.12–3.14（`>=3.12,<3.15`）
 - [uv](https://docs.astral.sh/uv/)
-- 已发布 0.2.0：Responses 兼容模型 Endpoint、模型名称和 API 凭据
-- 0.3.0 开发版本：API Key 连接，或具备资格并授权计划用量的 ChatGPT 账号
+- Responses 兼容的 API Key 连接，或具备资格并授权计划用量的 ChatGPT 账号
 
 Runtime 使用 [OpenAI Agents SDK](https://github.com/openai/openai-agents-python) 的 Responses 模型适配器。源码新安装不预选 Provider；Web Setup 接收初始模型连接和凭据，随后可在 Settings 为 Main、Title、Activity、Permission、Compact 各角色独立设置。
 
@@ -46,39 +46,41 @@ Runtime 使用 [OpenAI Agents SDK](https://github.com/openai/openai-agents-pytho
 
 ### 源码安装
 
+使用已审查的本地 0.3.0 候选源码。发布准备分支为 `release/0.3.0`；以下步骤不假定该分支或 `v0.3.0` tag 已推送。
+
 ```bash
-git clone --branch v0.2.0 https://github.com/huangyicong0769/investorch-agent.git
-cd investorch-agent
+cd /path/to/investorch-agent
 uv sync --locked --python 3.12
 ```
 
-下文使用源码检出形式 `uv run --locked investorch`。如果通过 wheel 安装，请省略 `uv run --locked`，直接以 `investorch` 开始每条命令。
+下文使用 `uv run --locked investorch`。发行检查应使用独立 Root，例如 `uv run --locked investorch web --root /path/to/isolated-root`。使用已有 0.2.0 Root 前，先按[升级说明](docs/Upgrade.zh-CN.md)手动转换模型 TOML。
 
-### 发行 wheel
+### 本地构建 wheel
 
-从 [0.2.0 GitHub Release](https://github.com/huangyicong0769/investorch-agent/releases/tag/v0.2.0) 下载 `investorch-0.2.0-py3-none-any.whl`、`investorch-0.2.0.tar.gz` 和 `SHA256SUMS`。
-
-在 wheel 与校验文件所在的目录中执行：
+构建已审查的候选源码，再把 wheel 安装到独立 uv 工具目录进行测试：
 
 ```bash
-# macOS
-grep 'investorch-0.2.0-py3-none-any.whl$' SHA256SUMS | shasum -a 256 -c -
-
-# Linux
-grep 'investorch-0.2.0-py3-none-any.whl$' SHA256SUMS | sha256sum -c -
+uv build --no-sources
+UV_TOOL_DIR=/path/to/test-tools UV_TOOL_BIN_DIR=/path/to/test-bin \
+  uv tool install --python 3.12 ./dist/investorch-0.3.0-py3-none-any.whl
+/path/to/test-bin/investorch web --root /path/to/isolated-root
 ```
 
-校验通过后，将 wheel 安装为由 uv 管理的工具：
+wheel 安装后的示例省略 `uv run --locked`。wheel 包含仓库已提交的 Web 生产 bundle；修改前端时，先执行下文的前端构建步骤。
+
+### 发布后从 PyPI 安装
+
+0.3.0 发布计划包含向 PyPI 分发 wheel 与源码包。**以下命令将在 0.3.0 发布后可用：**
 
 ```bash
-uv tool install --python 3.12 ./investorch-0.2.0-py3-none-any.whl
+uv tool install --python 3.12 investorch==0.3.0
 ```
 
-安装后的命令是 `investorch`。替换已有工具安装前，先完成[升级说明](docs/Upgrade.zh-CN.md)中的备份和预检。已发布的 [0.1.0 Release](https://github.com/huangyicong0769/investorch-agent/releases/tag/v0.1.0)保留独立的[历史安装说明](docs/releases/0.1.0.zh-CN.md)。
+0.3.0 PyPI 软件包、GitHub 发行包与 checksum 尚未发布。目前已发布 GitHub 软件包的校验与安装步骤仍见 [0.2.0 发行说明](docs/releases/0.2.0.zh-CN.md)。
 
 ## 首次运行
 
-下述步骤适用于已发布的 0.2.0。0.3.0 开发版本将 Setup 分为 **Model Connections** 和 **Agent Defaults**：选择 API 连接或 **Continue with ChatGPT**，再为各角色指定模型、effort 和上下文窗口。纯 ChatGPT 配置无需 API Key。完整示例与登录方式见[配置指南](docs/Configuration.zh-CN.md)。
+Setup 分为 **Model Connections** 和 **Agent Defaults**：选择 API 连接或 **Continue with ChatGPT**，再为各角色指定模型、effort 和上下文窗口。纯 ChatGPT 配置无需 API Key。完整示例与登录方式见[配置指南](docs/Configuration.zh-CN.md)。
 
 ### 1. 打开 Web Setup
 
@@ -86,7 +88,7 @@ uv tool install --python 3.12 ./investorch-0.2.0-py3-none-any.whl
 uv run --locked investorch web
 ```
 
-打开 <http://127.0.0.1:1334>。新实例会持续提供 Setup 页面，此时尚未启动 Agent。填写 Provider Endpoint、模型名称和 API Key，选择初始角色配置并保存。凭据保存在 `~/.investorch/investorch.toml`，后续读取不会向浏览器回显明文。
+打开 <http://127.0.0.1:1334>。新实例会持续提供 Setup 页面，此时尚未启动 Agent。添加 API Key 连接或授权 ChatGPT，选择初始 Agent 默认值并保存。凭据保存在 `~/.investorch/investorch.toml`，后续读取不会向浏览器回显明文。
 
 ### 2. 测试并启动
 
@@ -143,7 +145,7 @@ Web 对话支持选择、粘贴或拖放 JPEG、PNG、GIF、WebP，也支持纯�
 
 ## Session Tool
 
-尚未发布的 0.3.0 工作中，Agent 可用 `list_sessions` 发现精确 Session ID，用 `read_session` 读取历史，用经审批的 `send_message` 向当前 Root 内另一未归档 Session 提交文本/图片。例如 `send_message(target_session_id="<exact-id>", text="检查这张图", images=[{"source":"workspace","path":"charts/result.png"}])`。已有上传图片可通过发送方 Journal 的 `seq` 与 `image_index` 转发，也支持纯图。接收方看到可信发送身份，Web/TUI 在原消息视图显示来源。需要结果时读取后续历史或显式回复；回执只确认提交，Queue 不跨重启保留。契约与限制见[Session 消息](docs/InvestOrch_Agent_Architecture.zh-CN.md#session-消息)。
+Agent 可用 `list_sessions` 发现精确 Session ID，用 `read_session` 读取历史，用经审批的 `send_message` 向当前 Root 内另一未归档 Session 提交文本/图片。例如 `send_message(target_session_id="<exact-id>", text="检查这张图", images=[{"source":"workspace","path":"charts/result.png"}])`。已有上传图片可通过发送方 Journal 的 `seq` 与 `image_index` 转发，也支持纯图。接收方看到可信发送身份，Web/TUI 在原消息视图显示来源。需要结果时读取后续历史或显式回复；回执只确认提交，Queue 不跨重启保留。契约与限制见[Session 消息](docs/InvestOrch_Agent_Architecture.zh-CN.md#session-消息)。
 
 ## Settings 与 System Status
 
@@ -171,7 +173,7 @@ uv sync --locked --python 3.12 --extra cnequity
 使用 wheel 安装时启用 extra：
 
 ```bash
-uv tool install --python 3.12 './investorch-0.2.0-py3-none-any.whl[cnequity]'
+uv tool install --python 3.12 './dist/investorch-0.3.0-py3-none-any.whl[cnequity]'
 ```
 
 CNEquity 是可选数据后端。更广泛的集成要等待上游行为足够稳定后再评估。
@@ -232,7 +234,7 @@ uv run --locked investorch data clean --dry-run
 
 ## 前端开发
 
-启动 Python Web server 后，在另一个终端启动 Vite：
+前端开发使用 `frontend/.node-version` 固定的 Node.js 版本。启动 Python Web server 后，在另一个终端启动 Vite：
 
 ```bash
 cd frontend
@@ -282,7 +284,7 @@ InvestOrch Agent 是由人主导、AI 辅助开发的个人研究项目。个人
 
 ## 文档
 
-- [0.2.0 发行说明](docs/releases/0.2.0.zh-CN.md)与[变更记录](CHANGELOG.zh-CN.md)。
+- [0.3.0 发布准备说明](docs/releases/0.3.0.zh-CN.md)与[变更记录](CHANGELOG.zh-CN.md)。
 - [升级说明](docs/Upgrade.zh-CN.md)与[备份和恢复](docs/Backup_and_Recovery.zh-CN.md)。
 - [架构](docs/InvestOrch_Agent_Architecture.zh-CN.md)：已实现系统与当前边界。
 - [Runtime / Session 执行模型](docs/Runtime_Session_Execution_Model.zh-CN.md)：生命周期与并发规则。
