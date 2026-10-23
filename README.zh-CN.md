@@ -13,7 +13,7 @@ InvestOrch Agent 是面向个人投资者的本地优先、human-in-the-loop 投
 - API Key 或 ChatGPT 模型连接，每个对话可选择模型和推理强度。
 - 持久化对话、归档恢复与历史分支，通过上下文压缩支持长任务。
 - Workspace 文件编辑、图片对话、命令执行与任务计划。
-- [RQAlpha](https://github.com/ricequant/rqalpha) 日频股票回测，以及可选 [CNEquity](https://github.com/rootSunc/cnequity) 行情集成。
+- [RQAlpha](https://github.com/ricequant/rqalpha) 日频股票回测；保留 [CNEquity](https://github.com/rootSunc/cnequity) 集成，发行包不安装 CNEquity 依赖。
 - 记录已确认成交、资金流、持仓与现金的 Portfolio，以及可审计的 Ledger。
 - 可复用 Skills 和外部 MCP 集成。
 - 模型用量、失败诊断、本地备份与恢复。
@@ -87,20 +87,6 @@ uv run --locked investorch web
 ```bash
 uv run --locked investorch
 uv run --locked investorch --plain
-```
-
-## 可选 CNEquity 集成
-
-需要 CNEquity 行情时，安装可选 extra：
-
-```bash
-uv sync --locked --python 3.12 --extra cnequity
-```
-
-使用 wheel 安装时启用 extra：
-
-```bash
-uv tool install --python 3.12 './investorch-0.3.0-py3-none-any.whl[cnequity]'
 ```
 
 ## 前端开发

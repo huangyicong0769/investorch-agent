@@ -20,7 +20,7 @@
 
 ### 兼容性与分发
 
-- 更新 Python/Web 依赖及 lockfile，包括 OpenAI Agents SDK 0.24.0、FastAPI 0.161.1、RQAlpha 6.4.2 和 uv_build 0.13.5；可选 CNEquity 维持既有版本 0.7.3。
+- 更新 Python/Web 依赖及 lockfile，包括 OpenAI Agents SDK 0.24.0、FastAPI 0.161.1、RQAlpha 6.4.2 和 uv_build 0.13.5；发行包不安装 CNEquity 依赖，保留集成代码。
 - 通过 PyPI 分发 wheel 与源码包，并提供 GitHub 发行包和 SHA-256 checksum。
 - **不兼容变更：** 旧 `models.<role>` TOML 须人工转换为 `models.<connection>` 和 `agents.<role>`。Session 模型元数据正常增量初始化；已有 Root 启动前须备份与预检。
 

@@ -13,7 +13,7 @@ InvestOrch Agent is a local-first, human-in-the-loop investment orchestration ag
 - API-key or ChatGPT model connections, with model and reasoning-effort choices for each conversation.
 - Persistent conversations, archive/restore and history forks, with context compaction for long tasks.
 - Workspace file editing, image conversations, command execution and task planning.
-- [RQAlpha](https://github.com/ricequant/rqalpha) daily stock backtesting and optional [CNEquity](https://github.com/rootSunc/cnequity) market-data integration.
+- [RQAlpha](https://github.com/ricequant/rqalpha) daily stock backtesting. [CNEquity](https://github.com/rootSunc/cnequity) integration is retained; release packages do not install CNEquity.
 - Portfolio records for confirmed trades, cash flows, holdings and cash, with an auditable Ledger.
 - Reusable Skills and external MCP integrations.
 - Model usage, failure diagnostics, local backup and recovery.
@@ -87,20 +87,6 @@ After setup, start the TUI or diagnostic plain console:
 ```bash
 uv run --locked investorch
 uv run --locked investorch --plain
-```
-
-## Optional CNEquity integration
-
-Install the optional extra to use CNEquity market data:
-
-```bash
-uv sync --locked --python 3.12 --extra cnequity
-```
-
-For a wheel installation, include the extra when installing the tool:
-
-```bash
-uv tool install --python 3.12 './investorch-0.3.0-py3-none-any.whl[cnequity]'
 ```
 
 ## Frontend development

@@ -20,7 +20,7 @@
 
 ### Compatibility and distribution
 
-- Refresh Python/Web dependencies and lockfiles, including OpenAI Agents SDK 0.24.0, FastAPI 0.161.1, RQAlpha 6.4.2 and uv_build 0.13.5. Keep optional CNEquity pinned to the existing 0.7.3 version.
+- Refresh Python/Web dependencies and lockfiles, including OpenAI Agents SDK 0.24.0, FastAPI 0.161.1, RQAlpha 6.4.2 and uv_build 0.13.5. Release packages do not install CNEquity; its integration code is retained.
 - Distribute wheel and source packages through PyPI, alongside GitHub artifacts and SHA-256 checksums.
 - **Breaking:** old `models.<role>` TOML requires manual conversion to `models.<connection>` plus `agents.<role>`. Session model metadata upgrades through normal initialization; existing Roots require backup and preflight before startup.
 
