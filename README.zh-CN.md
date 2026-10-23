@@ -287,6 +287,7 @@ InvestOrch Agent 是由人主导、AI 辅助开发的个人研究项目。个人
 ## 文档
 
 - [0.3.0 发行说明](docs/releases/0.3.0.zh-CN.md)与[变更记录](CHANGELOG.zh-CN.md)。
+- [维护者发布指引](docs/Publishing.md)：review、GitHub Release 与 PyPI 发布。
 - [升级说明](docs/Upgrade.zh-CN.md)与[备份和恢复](docs/Backup_and_Recovery.zh-CN.md)。
 - [架构](docs/InvestOrch_Agent_Architecture.zh-CN.md)：已实现系统与当前边界。
 - [Runtime / Session 执行模型](docs/Runtime_Session_Execution_Model.zh-CN.md)：生命周期与并发规则。

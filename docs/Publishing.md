@@ -1,8 +1,7 @@
 # Maintainer release procedure
 
-0.3.0 is being prepared. PyPI project ownership, the Trusted Publisher and GitHub
-`pypi` environment protection have not been verified. This preparation does not
-publish packages or establish that publication is ready to run.
+This guide covers release review, GitHub release assets and protected PyPI
+publication through a Trusted Publisher.
 
 ## Configure publication before the first release
 
