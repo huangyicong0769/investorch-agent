@@ -20,7 +20,7 @@ async def test_history_queries_need_no_runtime_and_repeated_frozen_reads_have_no
     journal = SessionJournal(config.session_journal_dir, ZoneInfo("UTC"))
     create_session(config.sessions_db, "b")
     await record_mixed_history(journal, "b")
-    query = partial(read_session, sessions_db=config.sessions_db, journal=journal)
+    query = partial(read_session, config=config, sessions_db=config.sessions_db, journal=journal)
 
     first = await query("b", limit=2)
     await journal.record_output("b", AssistantMessage("later append"))

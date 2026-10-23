@@ -304,6 +304,32 @@ class ExploreConfig(ConfigSection):
     max_search_snippet_chars: PositiveInt = hot(1000)
 
 
+class SessionToolsConfig(ConfigSection):
+    default_page_size: PositiveInt = hot(200)
+    max_page_size: PositiveInt = hot(500)
+    max_response_chars: PositiveInt = hot(262144)
+    max_field_chars: PositiveInt = hot(131072)
+
+    @model_validator(mode="after")
+    def validate_read_budgets(self) -> Self:
+        if self.default_page_size > self.max_page_size:
+            raise ValueError("session_tools.default_page_size must be <= session_tools.max_page_size")
+        if self.max_field_chars > self.max_response_chars:
+            raise ValueError("session_tools.max_field_chars must be <= session_tools.max_response_chars")
+        return self
+
+
+class PortfolioToolsConfig(ConfigSection):
+    default_ledger_limit: PositiveInt = hot(200)
+    max_ledger_limit: PositiveInt = hot(1000)
+
+    @model_validator(mode="after")
+    def validate_ledger_limits(self) -> Self:
+        if self.default_ledger_limit > self.max_ledger_limit:
+            raise ValueError("portfolio_tools.default_ledger_limit must be <= portfolio_tools.max_ledger_limit")
+        return self
+
+
 class CalculateConfig(ConfigSection):
     max_expression_chars: PositiveInt = hot(1000)
     max_nodes: PositiveInt = hot(100)
@@ -357,6 +383,8 @@ class AppConfigSchema(ConfigSection):
     backtest: BacktestConfig = Field(default_factory=BacktestConfig)
     execution: ExecutionConfig = Field(default_factory=ExecutionConfig)
     explore: ExploreConfig = Field(default_factory=ExploreConfig)
+    session_tools: SessionToolsConfig = Field(default_factory=SessionToolsConfig)
+    portfolio_tools: PortfolioToolsConfig = Field(default_factory=PortfolioToolsConfig)
     calculate: CalculateConfig = Field(default_factory=CalculateConfig)
     mcp: MCPConfig = Field(default_factory=MCPConfig)
     cnequity: CNEquityConfig = Field(default_factory=CNEquityConfig)

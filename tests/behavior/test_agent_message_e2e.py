@@ -63,7 +63,9 @@ async def test_sender_sdk_approval_controls_delivery_without_waiting_for_receive
         outputs.append(output)
 
     async def input_committed(session_id: str, user_input: UserInput, seq: int):
-        visible = (await read_session(session_id, sessions_db=config.sessions_db, journal=host.journal))["records"]
+        visible = (await read_session(session_id, config=config, sessions_db=config.sessions_db, journal=host.journal))[
+            "records"
+        ]
         assert any(record["seq"] == seq and record["text"] == user_input.text for record in visible)
         committed.append((session_id, seq, user_input))
 
@@ -83,14 +85,18 @@ async def test_sender_sdk_approval_controls_delivery_without_waiting_for_receive
             assert approvals[0].tool_name == "send_message"
             assert host.runtime.is_session_active("b") is False
             assert host.runtime.list_queued_inputs("b") == []
-            assert (await read_session("b", sessions_db=config.sessions_db, journal=host.journal))["records"] == []
+            assert (await read_session("b", config=config, sessions_db=config.sessions_db, journal=host.journal))[
+                "records"
+            ] == []
             if approved == "cancel":
                 host.runtime.cancel_run("a")
                 with pytest.raises(asyncio.CancelledError):
                     await sender.task
                 assert not receiver_started.is_set()
                 assert host.runtime.is_session_active("b") is False
-                assert (await read_session("b", sessions_db=config.sessions_db, journal=host.journal))["records"] == []
+                assert (await read_session("b", config=config, sessions_db=config.sessions_db, journal=host.journal))[
+                    "records"
+                ] == []
                 model.assert_complete()
                 return
             release_approval.set()
@@ -104,7 +110,9 @@ async def test_sender_sdk_approval_controls_delivery_without_waiting_for_receive
                     if isinstance(output.event, ToolOutput) and output.session_id == "a"
                 )
                 assert "run_started" in receipt
-                record = (await read_session("b", sessions_db=config.sessions_db, journal=host.journal))["records"][0]
+                record = (await read_session("b", config=config, sessions_db=config.sessions_db, journal=host.journal))[
+                    "records"
+                ][0]
                 assert record["type"] == "user"
                 assert record["text"] == "receiver task"
                 assert record["origin"] == {"kind": "agent", "sender_session_id": "a", "sender_run_id": sender.run_id}
@@ -120,7 +128,9 @@ async def test_sender_sdk_approval_controls_delivery_without_waiting_for_receive
             else:
                 assert not receiver_started.is_set()
                 assert host.runtime.is_session_active("b") is False
-                assert (await read_session("b", sessions_db=config.sessions_db, journal=host.journal))["records"] == []
+                assert (await read_session("b", config=config, sessions_db=config.sessions_db, journal=host.journal))[
+                    "records"
+                ] == []
             model.assert_complete()
         finally:
             release_approval.set()
@@ -178,7 +188,7 @@ async def test_real_sdk_promotes_origin_without_duplicating_target_input(tmp_pat
         release.set()
         await asyncio.wait_for(promoted_finished.wait(), 3)
         assert [event.status for event in ended] == ["completed", "completed"]
-        page = await read_session("target", sessions_db=config.sessions_db, journal=host.journal)
+        page = await read_session("target", config=config, sessions_db=config.sessions_db, journal=host.journal)
         users = [record for record in page["records"] if record["type"] == "user"]
         assert [record["text"] for record in users] == ["human instruction", "Agent follow-up"]
         assert users[1]["origin"]["sender_run_id"] == "sender-run"
@@ -187,7 +197,9 @@ async def test_real_sdk_promotes_origin_without_duplicating_target_input(tmp_pat
             {"type": "input_text", "text": 'Message sent by another InvestOrch Session: "sender" (Run "sender-run").'},
             {"type": "input_text", "text": "Agent follow-up"},
         ]
-        raw = await read_session("target", sessions_db=config.sessions_db, journal=host.journal, view="events")
+        raw = await read_session(
+            "target", config=config, sessions_db=config.sessions_db, journal=host.journal, view="events"
+        )
         assert sum(record["type"] in {"user_message", "user_steer"} for record in raw["records"]) == 2
         model.assert_complete()
 
@@ -242,7 +254,9 @@ async def test_active_agent_steer_reaches_sdk_and_frozen_permission_review_in_th
         assert receipt.disposition == "steer_submitted"
         release.set()
         await asyncio.wait_for(active.task, 3)
-        raw = await read_session("target", sessions_db=config.sessions_db, journal=host.journal, view="events")
+        raw = await read_session(
+            "target", config=config, sessions_db=config.sessions_db, journal=host.journal, view="events"
+        )
         activation = next(record for record in raw["records"] if record["type"] == "user_steers_activated")
         approval = next(record for record in raw["records"] if record["type"] == "approval")
         assert activation["run_id"] == approval["run_id"] == active.run_id
@@ -343,7 +357,7 @@ async def test_approved_image_reference_reaches_recipient_sdk_and_does_not_appro
         assert len(content) == (3 if text else 2)
         if text:
             assert content[1] == {"type": "input_text", "text": text}
-        page = await read_session("b", sessions_db=config.sessions_db, journal=host.journal)
+        page = await read_session("b", config=config, sessions_db=config.sessions_db, journal=host.journal)
         record = next(record for record in page["records"] if record["type"] == "user")
         assert record["text"] == text
         assert record["images"] == [{"filename": "chart.png", "media_type": "image/png", "detail": "high"}]

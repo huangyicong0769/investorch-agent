@@ -325,10 +325,13 @@ async def open_application_host(
                 agent.tools.extend(
                     make_session_tools(
                         list_query=partial(
-                            session_queries.list_sessions, sessions_db=config.sessions_db, runtime=runtime
+                            session_queries.list_sessions,
+                            config=config,
+                            sessions_db=config.sessions_db,
+                            runtime=runtime,
                         ),
                         read_query=partial(
-                            session_queries.read_session, sessions_db=config.sessions_db, journal=journal
+                            session_queries.read_session, config=config, sessions_db=config.sessions_db, journal=journal
                         ),
                     )
                 )

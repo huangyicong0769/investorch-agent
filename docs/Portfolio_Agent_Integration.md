@@ -15,8 +15,10 @@ kept in Agent context.
 ## Tool surface and approval
 
 Read tools list Portfolios, return one Portfolio with its current logical state, and return a bounded recent Ledger.
-Agent Ledger reads default to 200 entries, accept 1 through 1000, select the newest entries, return them in ascending audit
-sequence, and report total, returned, and older-history metadata.
+Agent Ledger reads use `portfolio_tools.default_ledger_limit` (default 200) when `limit` is null or omitted,
+and accept up to `portfolio_tools.max_ledger_limit` (default 1000). These AppConfig settings hot-apply to
+the next read. Reads select the newest entries, return them in ascending audit sequence, and report
+total, returned, and older-history metadata.
 
 Mutation tools explicitly create, update, archive, restore, and initialize Portfolios; record trades, external
 cash flows, income, and position or cash adjustments; correct one wrong Ledger entry; and transfer positions

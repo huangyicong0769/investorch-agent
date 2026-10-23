@@ -150,3 +150,28 @@ Web 输入框右下显示模型与思考强度。点选模型或在 **Thinking**
 Agent Tools 可读取脱敏配置，并经审批修改普通设置；`models/agents/secrets/auth/permission` 及已有 Session 模型由操作者管理，Agent 配置工具不能修改。配置只有两层，不增加 `providers` 或 `agents.spawned`。0.3.0 不将 InvestOrch 作为 MCP server 对外提供服务，已有 MCP client 集成继续保留。
 
 Doctor/升级预检是离线检查，只证明结构与凭据存在性，不证明 Token 当前有效或模型已经调用成功。内置 Skill 更新仍需显式 `investorch --update` 并重启。
+
+## 工具读取预算
+
+文件/搜索、Session 历史、Portfolio 账本和原生 bundle 检查的读取限制由 AppConfig 管理。
+Settings 从后端 Schema 展示这些设置，Local TOML 只需保存显式覆盖：
+
+```toml
+[session_tools]
+default_page_size = 200
+max_page_size = 500
+max_response_chars = 262144
+max_field_chars = 131072
+
+[portfolio_tools]
+default_ledger_limit = 200
+max_ledger_limit = 1000
+```
+
+这些设置在下一次工具调用时热生效。`limit` 为 null 或省略时继承有效默认值，显式值按有效上限校验；
+一次读取使用同一个配置快照。默认条数须不超过最大条数，Session 字段预算须不超过总响应预算。
+无效更新保持内存有效配置与 TOML 文件原状。
+
+Session 总预算按包含转义的序列化字符计量，字段预算按原文字符计量。完整记录、显式省略元数据和续读游标
+保留原有语义。文件/搜索设置继续位于 `explore.*`，原生标的检查使用 `backtest.inspect_max_symbols`。
+已有显式覆盖继续生效。

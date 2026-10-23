@@ -68,9 +68,11 @@ async def test_sdk_spawn_requires_permission_and_uses_the_normal_child_agent(tmp
                 child = children[0]
                 assert host.runtime.is_session_active(child.session_id)
                 assert child.title == "Child" and child.spawned_by_run_id == parent.run_id
-                record = (await read_session(child.session_id, sessions_db=config.sessions_db, journal=host.journal))[
-                    "records"
-                ][0]
+                record = (
+                    await read_session(
+                        child.session_id, config=config, sessions_db=config.sessions_db, journal=host.journal
+                    )
+                )["records"][0]
                 assert record["text"] == "child research" and record["type"] == "user"
                 assert record["origin"] == {
                     "kind": "agent",

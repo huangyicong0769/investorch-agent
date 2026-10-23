@@ -1,7 +1,7 @@
 ---
 name: investorch-configuration
 description: Inspect InvestOrch configuration and model status, change normal application settings or MCP connections, and guide operators through model and authorization setup. Use when configuring the application or diagnosing effective policy.
-version: 1.3.1
+version: 1.3.2
 ---
 
 # Configure InvestOrch
@@ -18,4 +18,4 @@ Read [the complete example](references/examples.md) before changing normal setti
 
 The Skill Review Agent uses `agents.permission` as an independent role. Candidate content is sent to that provider for safety review. Skill registry is state, not application configuration; use Skill management tools for lifecycle changes.
 
-This is managed built-in version 1.3.1. Existing instances adopt it only through explicit `investorch --update`, followed by restart; normal startup preserves the installed copy.
+This is managed built-in version 1.3.2. Existing instances adopt it through explicit `investorch --update`, followed by restart; normal startup preserves the installed copy.

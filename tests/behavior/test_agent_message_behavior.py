@@ -45,12 +45,14 @@ async def test_mixed_origins_preserve_target_ownership_and_frozen_effective_hist
     assert "Agent A instruction" in prepared.text
     assert "later C" not in prepared.text
     assert "discarded C" not in prepared.text
-    page = await read_session("target", sessions_db=config.sessions_db, journal=journal, snapshot_seq=boundary)
+    page = await read_session(
+        "target", config=config, sessions_db=config.sessions_db, journal=journal, snapshot_seq=boundary
+    )
     assert [record["type"] for record in page["records"]] == ["user", "user"]
     assert page["records"][1]["origin"] == records[1]["origin"]
-    latest = await read_session("target", sessions_db=config.sessions_db, journal=journal)
+    latest = await read_session("target", config=config, sessions_db=config.sessions_db, journal=journal)
     assert [record["text"] for record in latest["records"]] == ["human instruction", "Agent A instruction", "later C"]
-    events = await read_session("target", sessions_db=config.sessions_db, journal=journal, view="events")
+    events = await read_session("target", config=config, sessions_db=config.sessions_db, journal=journal, view="events")
     assert events["records"] == records
 
 
@@ -162,9 +164,11 @@ async def test_corrective_tool_failures_leave_destinations_unchanged(tmp_path, a
         assert "data:" not in error
         assert harness.runtime.list_active_runs() == []
         assert harness.runtime.list_queued_inputs("target") == []
-        assert (await read_session("target", sessions_db=harness.config.sessions_db, journal=harness.journal))[
-            "records"
-        ] == []
+        assert (
+            await read_session(
+                "target", config=harness.config, sessions_db=harness.config.sessions_db, journal=harness.journal
+            )
+        )["records"] == []
         assert get_session(harness.config.sessions_db, "missing") is None
         assert get_session(harness.config.sessions_db, "archived").archived_at is not None
     finally:
@@ -193,7 +197,11 @@ async def test_stopping_target_returns_a_safe_corrective_tool_error(tmp_path):
         )
         assert isinstance(error, str) and ("target_busy" in error or "queue_paused" in error)
         assert "too late" not in str(
-            (await read_session("target", sessions_db=harness.config.sessions_db, journal=harness.journal))["records"]
+            (
+                await read_session(
+                    "target", config=harness.config, sessions_db=harness.config.sessions_db, journal=harness.journal
+                )
+            )["records"]
         )
     finally:
         release_discard.set()
@@ -219,9 +227,14 @@ async def test_active_target_preserves_origin_through_existing_queue_promotion_a
             assert serialize_queue_item(harness.runtime.list_queued_inputs("target")[0])["origin"] == origin
             assert (
                 len(
-                    (await read_session("target", sessions_db=harness.config.sessions_db, journal=harness.journal))[
-                        "records"
-                    ]
+                    (
+                        await read_session(
+                            "target",
+                            config=harness.config,
+                            sessions_db=harness.config.sessions_db,
+                            journal=harness.journal,
+                        )
+                    )["records"]
                 )
                 == 1
             )
@@ -230,9 +243,11 @@ async def test_active_target_preserves_origin_through_existing_queue_promotion_a
         promoted = harness.agent_loop.input_for("target").structured_input
         assert promoted.text == "Agent follow-up"
         assert promoted.origin == InputOrigin("agent", "sender", "sender-run")
-        records = (await read_session("target", sessions_db=harness.config.sessions_db, journal=harness.journal))[
-            "records"
-        ]
+        records = (
+            await read_session(
+                "target", config=harness.config, sessions_db=harness.config.sessions_db, journal=harness.journal
+            )
+        )["records"]
         assert [record["text"] for record in records] == ["human instruction", "Agent follow-up"]
         assert records[1]["origin"] == origin
         harness.agent_loop.complete("target")
@@ -280,7 +295,9 @@ async def test_paused_queue_and_failed_steer_write_do_not_accept_another_message
         assert [
             record["text"]
             for record in (
-                await read_session("steer", sessions_db=harness.config.sessions_db, journal=harness.journal)
+                await read_session(
+                    "steer", config=harness.config, sessions_db=harness.config.sessions_db, journal=harness.journal
+                )
             )["records"]
         ] == ["initial"]
         active = harness.runtime.start_run("queue", "initial", run_options("queue"))
@@ -308,9 +325,11 @@ async def test_host_bound_tool_does_not_route_identical_ids_to_another_root_and_
         assert receipt["disposition"] == "run_started"
         await first.agent_loop.wait_until_started("target")
         assert second.runtime.is_session_active("target") is False
-        assert (await read_session("target", sessions_db=second.config.sessions_db, journal=second.journal))[
-            "records"
-        ] == []
+        assert (
+            await read_session(
+                "target", config=second.config, sessions_db=second.config.sessions_db, journal=second.journal
+            )
+        )["records"] == []
         reply = await invoke_message(
             tool, first, {"target_session_id": "sender", "text": "explicit reply"}, sender="target", run_id="reply-run"
         )

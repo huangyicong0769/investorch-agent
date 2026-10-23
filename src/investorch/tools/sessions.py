@@ -11,7 +11,7 @@ from investorch.tools.errors import tool
 
 class ListSessionsQuery(Protocol):
     def __call__(
-        self, *, query: str | None, include_archived: bool, limit: int, offset: int
+        self, *, query: str | None, include_archived: bool, limit: int | None, offset: int
     ) -> Awaitable[dict[str, object]]: ...
 
 
@@ -23,7 +23,7 @@ class ReadSessionQuery(Protocol):
         view: Literal["conversation", "events"],
         before_seq: int | None,
         snapshot_seq: int | None,
-        limit: int,
+        limit: int | None,
     ) -> Awaitable[dict[str, object]]: ...
 
 
@@ -34,7 +34,7 @@ def make_session_tools(*, list_query: ListSessionsQuery, read_query: ReadSession
     async def list_sessions(
         query: str | None = None,
         include_archived: StrictBool = False,
-        limit: StrictInt = 200,
+        limit: StrictInt | None = None,
         offset: StrictInt = 0,
     ) -> dict[str, object]:
         """List current Root Sessions with title-only filtering, current status, and offset pagination.
@@ -43,8 +43,9 @@ def make_session_tools(*, list_query: ListSessionsQuery, read_query: ReadSession
             query: Unicode case-insensitive title substring; null or blank disables filtering.
                 Searches titles only, not Session IDs or message contents.
             include_archived: Include both archived and unarchived Sessions when true. Defaults to false.
-            limit: Maximum Session rows to return, from 1 through 500. Defaults to 200.
-                The response budget may shorten the page.
+            limit: Maximum Session rows to return. Omitted or null inherits session_tools.default_page_size;
+                explicit values range from 1 through session_tools.max_page_size. Read effective values with get_config.
+                The session_tools.max_response_chars budget may shorten the page.
             offset: Non-negative number of matching Sessions to skip. Defaults to 0.
                 Continue with the returned next_offset; pages reflect the current listing without a frozen snapshot.
         """
@@ -56,7 +57,7 @@ def make_session_tools(*, list_query: ListSessionsQuery, read_query: ReadSession
         view: Literal["conversation", "events"] = "conversation",
         before_seq: StrictInt | None = None,
         snapshot_seq: StrictInt | None = None,
-        limit: StrictInt = 200,
+        limit: StrictInt | None = None,
     ) -> dict[str, object]:
         """Read exact-ID history, including self/archived; page backwards with returned snapshot_seq and next_before_seq.
 
@@ -72,7 +73,9 @@ def make_session_tools(*, list_query: ListSessionsQuery, read_query: ReadSession
                 For older pages, pass the returned next_before_seq; must not exceed snapshot_seq + 1.
             snapshot_seq: Frozen Journal head returned by the first read; null captures the current committed head.
                 Reuse the same value with before_seq on later pages. Zero represents an empty snapshot.
-            limit: Maximum visible Conversation records or raw Events to return, from 1 through 500. Defaults to 200.
+            limit: Maximum visible Conversation records or raw Events to return. Omitted or null inherits
+                session_tools.default_page_size; explicit values range from 1 through session_tools.max_page_size.
+                Read effective defaults and response/field limits with get_config().
                 The response budget may shorten Conversation pages; oversized Events return an explicit error.
         """
         return await read_query(

@@ -38,7 +38,7 @@ Web 客户端发送明确 Session ID，不依赖 Host 选中的 Session。`AppSt
 
 Session mutation 进入 `application.sessions.SessionOperations`。它通过 Runtime maintenance reservation 协调 SDK continuation、metadata 和 Journal，覆盖 create、unused cleanup、title、archive、unarchive、fork、clear 与 compact。Presentation client 负责 command parsing、selection 和用户提示。
 
-Agent 的 `list_sessions`、`read_session` 委托 `application.session_queries` 中的无状态函数。Host 将列表查询绑定到自己的数据库与当前 Runtime，将历史查询绑定到自己的数据库与已有 SessionJournal；在 Runtime 构造后、yield 前一次注册已绑定的 Tools。AgentContext 与 AgentLoop 不携带 Session 读取能力或 Provider。列表为每个目标 Session 调用 Runtime public snapshot，历史查询不需要 Runtime，Tool 仅转发公开参数。列表状态概括当前进程：active Run 的 phase、无 active Run 但有已接受 Queue/Steer 工作时的 `pending`，或 `idle`；不暴露队列内部状态或历史 Run 结果。精确 ID 读取只提供历史，包括自身、运行中与归档 Session，不改变 Selection、不创建 Run、不申请 maintenance reservation。Tool 参数、结果预算和分页示例见 [Session 访问](InvestOrch_Agent_Architecture.zh-CN.md#session-访问030-stage-a)。
+Agent 的 `list_sessions`、`read_session` 委托 `application.session_queries` 中的无状态函数。Host 将两个查询绑定到实时 AppConfig，将列表查询绑定到自己的数据库与当前 Runtime，将历史查询绑定到自己的数据库与已有 SessionJournal；每次调用取得 session_tools 热配置快照，省略或传 null 的 limit 继承当前配置默认值；在 Runtime 构造后、yield 前一次注册已绑定的 Tools。AgentContext 与 AgentLoop 不携带 Session 读取能力或 Provider。列表为每个目标 Session 调用 Runtime public snapshot，历史查询不需要 Runtime，Tool 仅转发公开参数。列表状态概括当前进程：active Run 的 phase、无 active Run 但有已接受 Queue/Steer 工作时的 `pending`，或 `idle`；不暴露队列内部状态或历史 Run 结果。精确 ID 读取只提供历史，包括自身、运行中与归档 Session，不改变 Selection、不创建 Run、不申请 maintenance reservation。Tool 参数、结果预算和分页示例见 [Session 访问](InvestOrch_Agent_Architecture.zh-CN.md#session-访问030-stage-a)。
 
 `presentation.py` 把 Application value 转换为明确的 JSON-safe projection dictionaries。
 

@@ -77,12 +77,16 @@ The effective configuration includes the following policy sections; Local TOML o
 - `[cnequity].config_path` and `mcp_cache_tools_list`
 - `[execution].default_timeout_seconds`, `max_timeout_seconds`, and `background_job_dir`
 - `[explore].max_full_read_bytes`, `max_read_chars`, `max_search_results`, and `max_search_snippet_chars`
+- `[session_tools].default_page_size`, `max_page_size`, `max_response_chars`, and `max_field_chars`
+- `[portfolio_tools].default_ledger_limit` and `max_ledger_limit`
 - `[calculate].max_expression_chars`, `max_nodes`, `max_integer_bits`, and `max_abs_exponent`
 - `[observability].sdk_tracing_enabled`
 - `[logging].level`, `max_bytes`, and `backup_count`
 - `[mcp].default_timeout_seconds`, `drop_failed_servers`, and `include_server_in_tool_names`
 
 They are validated at startup and again before an update is persisted. `background_job_dir` and `backtest.artifact_dir` must remain relative to the configured workspace.
+
+Session and Portfolio tool reading limits hot-apply through AppConfig. Null or omitted tool limits inherit the current default; explicit limits are validated against the current maximum. Session response budgets count serialized characters including escaping, while the field budget counts original text characters. Set default page/ledger sizes at or below their maximum, and the Session field budget at or below its response budget. Existing explicit overrides remain effective.
 
 `models.<id>` registers an arbitrary named connection. `openai_compatible` connections define `base_url` and `api_key_secret`, naming a key in `[secrets]`; `chatgpt` connections define a credential reference and use the official endpoint. `agents.<role>` selects a connection through `model`, an actual model ID through `name`, `reasoning_effort`, and `context_window_tokens`. Exactly five roles exist: `main`, `title`, `activity`, `permission`, and `compact`. Skill Review reuses `agents.permission`; Spawn inherits the parent Active Run model.
 

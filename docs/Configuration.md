@@ -149,4 +149,31 @@ At each new Run, the request copy of prior continuation omits opaque reasoning a
 
 Agent Tools can inspect redacted configuration and request approved changes to normal settings. `models`, `agents`, `secrets`, `auth` and `permission` are operator-owned; Agent config updates cannot edit them or existing Session model selections. Model configuration has no `providers` layer and no `agents.spawned` role. 0.3.0 does not expose InvestOrch as an MCP server; existing MCP client integrations continue.
 
+## Tool reading budgets
+
+AppConfig owns file/search, Session history, Portfolio Ledger and native bundle inspection limits.
+Settings exposes them from the backend schema; Local TOML contains only explicit overrides.
+
+```toml
+[session_tools]
+default_page_size = 200
+max_page_size = 500
+max_response_chars = 262144
+max_field_chars = 131072
+
+[portfolio_tools]
+default_ledger_limit = 200
+max_ledger_limit = 1000
+```
+
+These values hot-apply to the next tool call. A null or omitted `limit` inherits the effective default;
+an explicit value is checked against the effective maximum. Each read captures one configuration snapshot.
+Defaults must be at or below their maximum; the Session field budget must be at or below its response budget.
+Invalid updates leave both effective configuration and the TOML file unchanged.
+
+Session response budgets count serialized characters including escaping; field budgets count original
+text characters. Complete records, explicit omission metadata and continuation cursors retain their
+existing meaning. File/search budgets remain under `explore.*`, and native inspection uses
+`backtest.inspect_max_symbols`. Existing explicit overrides remain effective.
+
 Doctor and upgrade checks are offline. They validate structure and credential presence, not current token validity or a successful model request. Managed Skill updates still require explicit `investorch --update` followed by restart.
