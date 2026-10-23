@@ -4,11 +4,11 @@
 
 InvestOrch Agent is a local-first, human-in-the-loop investment orchestration agent for an individual investor. Its long-term goal is to support the full path from research, strategy development, and backtesting to portfolio decisions, trading, position monitoring, and review.
 
-**0.3.0** adds Session collaboration, reusable model connections and ChatGPT authorization, per-Session model selection, continuous context management, and clearer runtime diagnostics. See [0.3.0 notes](docs/releases/0.3.0.md), [model configuration](docs/Configuration.md) and the [manual upgrade procedure](docs/Upgrade.md).
+**0.3.0** adds multi-agent orchestration, reusable model connections and ChatGPT authorization, per-Session model selection, continuous context management, and clearer runtime diagnostics. See [0.3.0 notes](docs/releases/0.3.0.md), [model configuration](docs/Configuration.md) and the [manual upgrade procedure](docs/Upgrade.md).
 
 ## What 0.3.0 includes
 
-- Session discovery and history reading, approved text/image messaging, and recursive child Sessions with independent approvals.
+- Multi-agent orchestration through task delegation, recursive child Sessions, Session discovery/history reading, approved text/image messaging, and Web parent/child status and navigation.
 - API-key or ChatGPT model connections, separate Agent defaults, and per-Session model/effort selection.
 - Context compaction before inference and between tool turns, live Main/auxiliary usage, and persistent run failures.
 - First-class Web and [Textual](https://github.com/Textualize/textual) TUI clients backed by the same application and runtime.
@@ -24,7 +24,7 @@ InvestOrch Agent is a local-first, human-in-the-loop investment orchestration ag
 - Web image conversations and Workspace image reading.
 - Web Setup, persistent Settings, MCP Integrations, System Status, offline diagnostics, and backup create/verify.
 
-Broker/account mirroring, a QMT gateway, live trading, a unified investment data layer, and Multi-Agent orchestration remain future work. See the [0.3.0 notes](docs/releases/0.3.0.md) and [Product Roadmap](docs/InvestOrch_Agent_Product_Roadmap.md).
+Broker/account mirroring, a QMT gateway, live trading and a unified investment data layer remain future work. See the [0.3.0 notes](docs/releases/0.3.0.md) and [Product Roadmap](docs/InvestOrch_Agent_Product_Roadmap.md).
 
 ## Compatibility
 

@@ -83,9 +83,9 @@ A unified, traceable investment data capability is a long-term direction for res
 
 CNEquity remains an optional backend. Broader reliance on it is deferred until upstream behavior is sufficiently stable, while the core data contract remains backend-neutral.
 
-## Confirmed direction: Multi-Agent
+## Completed in 0.3.0: Multi-Agent orchestration
 
-Multi-Agent is a long-term direction. Session access, approved messaging and child Sessions provide its current building blocks. Specialist roles, routing model, handoff topology, and further scheduling remain open. Agent boundaries will be designed only after real responsibilities prove that separation reduces complexity.
+0.3.0 delivers the main multi-agent orchestration capabilities: Agents can delegate tasks to recursive child Sessions, discover and read Sessions, exchange approved text/images, and inspect results for integration. Child Sessions share Tools and Skills, retain independent histories and approvals, and run under a common concurrency limit. Web shows parent/child relationships, task status and navigation, with confirmed descendant scopes for Delete/Clear.
 
 ## 0.3.0 model connections and ChatGPT
 

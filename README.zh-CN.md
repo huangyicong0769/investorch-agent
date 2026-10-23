@@ -4,11 +4,11 @@
 
 InvestOrch Agent 是面向个人投资者的本地优先、human-in-the-loop 投资编排 Agent。长期目标是支持从研究、策略开发和回测，到组合决策、交易、持仓监控与复盘的完整流程。
 
-**0.3.0** 增加 Session 协作、可复用模型连接与 ChatGPT 授权、按 Session 选模、持续上下文管理和更清晰的运行诊断。详见 [0.3.0 说明](docs/releases/0.3.0.zh-CN.md)、[模型配置](docs/Configuration.zh-CN.md)和[手动升级步骤](docs/Upgrade.zh-CN.md)。
+**0.3.0** 增加多代理编排、可复用模型连接与 ChatGPT 授权、按 Session 选模、持续上下文管理和更清晰的运行诊断。详见 [0.3.0 说明](docs/releases/0.3.0.zh-CN.md)、[模型配置](docs/Configuration.zh-CN.md)和[手动升级步骤](docs/Upgrade.zh-CN.md)。
 
 ## 0.3.0 包含
 
-- Session 查找与历史读取、经审批的文字/图片消息，以及拥有独立审批的递归子 Session。
+- 多代理编排：任务委派、递归子 Session、Session 查找与历史读取、经审批的文字/图片消息，以及 Web 父子任务状态与导航。
 - API Key 或 ChatGPT 模型连接、独立 Agent 默认值，以及按 Session 选择模型与推理强度。
 - 推理前与工具调用间的上下文压缩、实时 Main/辅助角色用量，以及持久化失败原因。
 - 基于同一 Application 与 Runtime 的 Web 和 [Textual](https://github.com/Textualize/textual) TUI 两个一级界面。
@@ -24,7 +24,7 @@ InvestOrch Agent 是面向个人投资者的本地优先、human-in-the-loop 投
 - Web 图片对话与 Workspace 读图。
 - Web Setup、持久 Settings、MCP Integrations、System Status、离线诊断与备份创建/验证。
 
-券商账户镜像、QMT Gateway、实盘交易、统一投资数据层和 Multi-Agent 编排属于后续工作。详见 [0.3.0 说明](docs/releases/0.3.0.zh-CN.md)和[产品路线图](docs/InvestOrch_Agent_Product_Roadmap.zh-CN.md)。
+券商账户镜像、QMT Gateway、实盘交易和统一投资数据层属于后续工作。详见 [0.3.0 说明](docs/releases/0.3.0.zh-CN.md)和[产品路线图](docs/InvestOrch_Agent_Product_Roadmap.zh-CN.md)。
 
 ## 兼容性
 

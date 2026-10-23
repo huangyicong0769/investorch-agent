@@ -83,9 +83,9 @@ Web Settings 与首次 Setup 使用 Python Schema 配置，Skill 管理复用现
 
 CNEquity 仍是可选后端。更广泛的依赖要等待上游行为足够稳定，核心数据接口保持后端中立。
 
-## 已确认方向：Multi-Agent
+## 0.3.0 已完成：多代理编排
 
-Multi-Agent 是长期方向；Session 访问、经审批的消息与子 Session 提供当前基础能力。Specialist 角色、路由模型、Handoff 拓扑及后续排期仍待决定。只有真实职责证明拆分能降低复杂度后，才设计 Agent 边界。
+0.3.0 已具备多代理编排的主要能力：Agent 可将任务委派给可递归派生的子 Session，查找与读取 Session，经审批交换文字/图片，并读取结果进行整合。子 Session 共用工具与 Skill，拥有独立历史和审批，受统一并发上限管理。Web 展示父子关系、任务状态与导航，Delete/Clear 需要确认完整后代范围。
 
 ## 0.3.0 模型连接与 ChatGPT
 
