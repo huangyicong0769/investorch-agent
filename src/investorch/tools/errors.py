@@ -16,6 +16,8 @@ from investorch.portfolio.schema import PortfolioStorageError
 def format_tool_error(context: RunContextWrapper[AgentContext], error: Exception) -> str:
     """Expose corrective errors without SDK validation inputs or credentials."""
     # Application initialization imports the Agent's tools before its services.
+    from rqalpha.utils.exception import CustomException
+
     from investorch.application.messaging import MessageSendError
     from investorch.application.portfolios import PortfolioOperationError
     from investorch.application.session_queries import SessionReadError
@@ -30,6 +32,11 @@ def format_tool_error(context: RunContextWrapper[AgentContext], error: Exception
         message = f"Invalid JSON input: {details}"
     elif isinstance(error, ModelBehaviorError):
         message = str(error).split(":", 1)[0]
+    elif isinstance(error, CustomException) and isinstance(error.error.exc_val, Exception):
+        # The wrapper's repr includes strategy source and locals. Pass through
+        # the original exception instead, keeping its type and message intact.
+        cause = error.error.exc_val
+        message = f"{type(cause).__name__}: {cause}"
     elif isinstance(
         error,
         (
