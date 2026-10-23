@@ -147,21 +147,24 @@ async def summarize_history(
         raise ValueError("Compaction instructions and output reserve exceed the compact model context budget")
 
     async def summarize(items: list[TResponseInputItem]) -> str:
-        try:
-            result = await run_with_usage(
-                selected,
-                items,
-                max_turns=1,
-                run_config=RunConfig(call_model_input_filter=portable_history_filter(items)),
-                usage_handler=record_usage,
-            )
-        except Exception as error:
-            error.add_note("Context compaction failed.")
-            raise
-        summary = str(result.final_output).strip()
-        if not summary:
-            raise ValueError("Compaction agent returned an empty summary.")
-        return summary
+        for attempt in range(2):
+            try:
+                result = await run_with_usage(
+                    selected,
+                    items,
+                    max_turns=1,
+                    run_config=RunConfig(call_model_input_filter=portable_history_filter(items)),
+                    usage_handler=record_usage,
+                )
+            except Exception as error:
+                error.add_note("Context compaction failed.")
+                raise
+            summary = str(result.final_output).strip()
+            if summary:
+                return summary
+            if attempt == 0:
+                logger.warning("Compaction returned an empty summary; retrying the same request once")
+        raise ValueError("Compaction agent returned an empty summary.")
 
     filtered = portable_history_filter(history)(
         CallModelData(agent=agent, context=None, model_data=ModelInputData(input=history, instructions=instructions))

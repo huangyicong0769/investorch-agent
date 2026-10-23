@@ -130,25 +130,48 @@ async def test_compactor_splits_large_unicode_item_within_its_own_budget_and_cou
     assert all(estimate_context_tokens(call.input) < budget for call in model.calls)
 
 
-async def test_empty_compaction_summary_still_records_reported_usage(tmp_path: Path):
+@pytest.mark.parametrize("second_text", ["Recovered continuation summary", ""])
+async def test_empty_compaction_retries_once_with_full_usage_and_preserves_history_on_failure(
+    tmp_path: Path, second_text: str
+):
+    from investorch.agents.compact import compact_session
+
     config = make_test_config(tmp_path)
     model = ScriptedModel(
-        (
+        tuple(
             ModelStep(
-                output=(assistant_message(""),),
+                output=(assistant_message(text),),
                 usage=Usage(requests=1, input_tokens=8, output_tokens=1, total_tokens=9),
-            ),
+            )
+            for text in ("", second_text)
         )
     )
     recorded = []
-    with pytest.raises(ValueError, match="empty summary"):
-        await summarize_history(
-            Agent(name="Compact", model=model),
-            [{"role": "user", "content": "History"}],
-            config,
-            usage_handler=recorded.append,
-        )
-    assert sum(value.total_tokens for value in recorded) == 9
+    create_session(config.sessions_db, "empty-retry")
+    session = SQLiteSession("empty-retry", config.sessions_db)
+    history = [{"role": "user", "content": "Important prior work"}]
+    await session.add_items(history)
+    try:
+        if second_text:
+            result = await compact_session(
+                Agent(name="Compact", model=model), session, config, usage_handler=recorded.append
+            )
+            assert result.usage.total_tokens == 18
+            assert await session.get_items() == [
+                {"role": "assistant", "content": COMPACTED_CONTEXT_PREFIX + second_text}
+            ]
+        else:
+            with pytest.raises(ValueError, match="empty summary"):
+                await compact_session(
+                    Agent(name="Compact", model=model), session, config, usage_handler=recorded.append
+                )
+            assert await session.get_items() == history
+        assert len(model.calls) == 2
+        assert model.calls[0].input == model.calls[1].input
+        assert sum(value.total_tokens for value in recorded) == 18
+        model.assert_complete()
+    finally:
+        session.close()
 
 
 @pytest.mark.parametrize("size,blocked", [(3600, False), (6000, True)])

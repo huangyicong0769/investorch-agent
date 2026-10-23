@@ -201,7 +201,7 @@ async def test_switching_to_smaller_window_compacts_before_main_or_fails_closed(
     history = [{"role": "user", "content": "Old history " * 1000}]
     await session.add_items(history)
     main_model = ScriptedModel(((assistant_message("Main answer"),),))
-    compact_model = ScriptedModel(((assistant_message(summary),),))
+    compact_model = ScriptedModel(((assistant_message(summary),),) * (2 if not summary else 1))
     main = Agent(name="Main", model=main_model)
     compact = Agent(name="Compact", model=compact_model)
     cleared_context = []

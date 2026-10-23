@@ -108,7 +108,7 @@ async def test_compaction_receives_portable_history_and_does_not_mutate_it_when_
         },
     ]
     await session.add_items(history)
-    model = ScriptedModel(((assistant_message(""),),))
+    model = ScriptedModel(((assistant_message(""),), (assistant_message(""),)))
     try:
         with pytest.raises(ValueError, match="empty summary"):
             await compact_session(Agent(name="Compact", model=model), session, config)
