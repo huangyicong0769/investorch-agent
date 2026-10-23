@@ -19,7 +19,17 @@ from investorch.context import AgentContext
 logger = logging.getLogger(__name__)
 
 
+def _error_leaves(error: BaseException):
+    if isinstance(error, BaseExceptionGroup):
+        for nested in error.exceptions:
+            yield from _error_leaves(nested)
+    else:
+        yield error
+
+
 def _connection_failure(error: Exception) -> bool:
+    if isinstance(error, ExceptionGroup):
+        return all(_connection_failure(nested) for nested in error.exceptions)
     if isinstance(error, MCPError):
         return error.code in {CONNECTION_CLOSED, REQUEST_TIMEOUT}
     if isinstance(
@@ -64,7 +74,7 @@ class _FailureIsolation:
     def _failed(self, operation: str, error: Exception) -> str:
         from investorch.mcp import _redact_url
 
-        detail = f"{type(error).__name__}: {error}"
+        detail = "; ".join(f"{type(nested).__name__}: {nested}" for nested in _error_leaves(error))
         for secret in sorted(self._diagnostic_secrets, key=len, reverse=True):
             if secret:
                 detail = detail.replace(secret, "<redacted>")
@@ -84,8 +94,7 @@ class _FailureIsolation:
         try:
             await super().connect()
         except Exception as error:
-            if _connection_failure(error):
-                self._failed("connect", error)
+            self._failed("connect", error)
             raise
         self.runtime_status = "connected"
         self.runtime_error = None

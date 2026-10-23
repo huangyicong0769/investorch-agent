@@ -46,6 +46,14 @@ async def mcp_peer():
             return Response(status_code=202)
         if method == "initialize":
             if name == "broken" and state.get("fail_initialize"):
+                if state["fail_initialize"] == "rpc":
+                    return JSONResponse(
+                        {
+                            "jsonrpc": "2.0",
+                            "id": data["id"],
+                            "error": {"code": -32603, "message": "initialization failed"},
+                        }
+                    )
                 return Response(status_code=503)
             result = {
                 "protocolVersion": data["params"]["protocolVersion"],
@@ -198,14 +206,15 @@ async def test_failed_mcp_call_reports_the_uncertain_outcome_and_keeps_the_run_a
     model.assert_complete()
 
 
-async def test_failed_initial_connection_leaves_the_other_tools_available(tmp_path: Path):
+@pytest.mark.parametrize("failure", ["http", "rpc"])
+async def test_failed_initial_connection_leaves_the_other_tools_available(tmp_path: Path, failure: str):
     model = ScriptedModel(((assistant_message("Available work completed"),),))
     async with mcp_peer() as (url, peer):
-        peer["fail_initialize"] = True
+        peer["fail_initialize"] = failure
         async with agent_with_mcp(tmp_path, url, model) as (run, _, _, servers):
             assert (await run("first")).output == "Available work completed"
             assert servers[0].runtime_error["operation"] == "connect"
-            assert "503" in servers[0].runtime_error["message"]
+            assert ("503" if failure == "http" else "initialization failed") in servers[0].runtime_error["message"]
             assert "mcp_healthy__lookup" in {tool.name for tool in model.calls[0].tools}
     model.assert_complete()
 

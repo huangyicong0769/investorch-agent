@@ -132,7 +132,7 @@ def _run_model_input_filter(
     projection: ContextProjection | None = None,
     context_window_tokens: int = 0,
 ) -> CallModelInputFilter:
-    """Make prior history portable and add live Todo data only to each model request."""
+    """Budget portable history and current Run Todo/MCP state for each request."""
     portable_filter = portable_history_filter(history)
 
     async def filter_input(data: CallModelData[AgentContext]) -> ModelInputData:
