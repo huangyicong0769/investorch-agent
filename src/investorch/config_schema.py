@@ -283,6 +283,7 @@ class BacktestConfig(BacktestRuntimeConfig):
     artifact_dir: NonEmptyString = hot("backtests")
     default_initial_cash: PositiveNumber = hot(1000000.0)
     inspect_max_symbols: PositiveInt = hot(1000)
+    max_log_preview_chars: PositiveInt = hot(32768)
 
 
 class ExecutionConfig(ConfigSection):

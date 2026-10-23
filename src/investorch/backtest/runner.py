@@ -1,5 +1,6 @@
 import math
 import re
+from contextlib import nullcontext
 from datetime import date
 from pathlib import Path
 from threading import Lock
@@ -12,6 +13,7 @@ from investorch.config_schema import BacktestRuntimeConfig
 
 from .bundle import validate_rqalpha_bundle
 from .errors import BacktestDataError, BacktestStrategyError
+from .execution_log import NativeExecutionLog
 from .parameters import resolve_backtest_parameters
 
 _COVERED_DATASETS = ("daily_bars", "adj_factors")
@@ -100,6 +102,7 @@ def _build_rqalpha_config(
     use_cnequity: bool,
 ) -> dict:
     return {
+        "extra": {"log_file": None},
         "base": {
             "data_bundle_path": str(rqalpha_bundle_path),
             "start_date": start_date,
@@ -159,6 +162,8 @@ def run_backtest(
     initial_cash: float,
     benchmark: str | None,
     runtime: BacktestRuntimeConfig | None = None,
+    *,
+    execution_log: NativeExecutionLog | None = None,
 ) -> dict:
     config = config.snapshot()
     if runtime is None:
@@ -170,7 +175,7 @@ def run_backtest(
     validate_rqalpha_bundle(rqalpha_bundle_path, start_date, end_date)
     if use_cnequity:
         _validate_cnequity_data(cnequity_config_path, start_date, end_date)
-    with _RQALPHA_LOCK:
+    with _RQALPHA_LOCK, execution_log.capture() if execution_log is not None else nullcontext():
         try:
             return run_file(
                 str(strategy_file),

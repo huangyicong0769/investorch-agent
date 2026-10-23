@@ -55,7 +55,10 @@ def format_tool_error(context: RunContextWrapper[AgentContext], error: Exception
     ) or (isinstance(error, RuntimeError) and str(error) == "exec_command is currently supported on macOS only"):
         message = str(error)
     else:
-        return "Error: The tool failed unexpectedly. Check System Status before retrying."
+        message = "The tool failed unexpectedly. Check System Status before retrying."
+    for note in getattr(error, "__notes__", ()):
+        if note.startswith("Backtest artifacts: "):
+            message += "\n" + note
     for secret in sorted(context.context.config.secret_values(), key=len, reverse=True):
         if secret:
             message = message.replace(secret, "<redacted>")

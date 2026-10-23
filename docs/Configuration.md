@@ -176,4 +176,9 @@ text characters. Complete records, explicit omission metadata and continuation c
 existing meaning. File/search budgets remain under `explore.*`, and native inspection uses
 `backtest.inspect_max_symbols`. Existing explicit overrides remain effective.
 
+`backtest.max_log_preview_chars` is a positive integer (default `32768`) limiting the native warning/error
+preview returned by each backtest tool call. It hot-applies to the next call; `preview_truncated` signals
+omitted preview text. The complete run log remains in `artifacts.execution_log`, and the same diagnostics
+are saved in `artifacts.diagnostics`. Failed runs retain their inputs and log paths in error feedback.
+
 Doctor and upgrade checks are offline. They validate structure and credential presence, not current token validity or a successful model request. Managed Skill updates still require explicit `investorch --update` followed by restart.

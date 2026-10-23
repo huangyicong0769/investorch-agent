@@ -184,7 +184,8 @@ async def test_strategy_failure_with_overrides_preserves_application_defaults(tm
     )
     assert isinstance(output, str) and "Strategy error at round_trip.py:2" in output
     assert "fixture failure" in output
-    assert not config.backtest_artifact_dir.exists()
+    artifacts = json.loads(output.split("Backtest artifacts: ", 1)[1])
+    assert json.loads((config.workspace_dir / artifacts["diagnostics"]).read_text())["status"] == "failed"
     assert config.public() == before
     assert config.public(saved=True) == saved
     assert config.root_config_path.read_bytes() == disk

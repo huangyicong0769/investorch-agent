@@ -17,6 +17,14 @@ from tests.behavior.test_workspace_capabilities import make_tool_context
 from tests.support.rqalpha import write_native_bundle
 
 
+def failed_artifacts(config, result: str) -> dict:
+    artifacts = json.loads(result.split("Backtest artifacts: ", 1)[1])
+    diagnostics = json.loads((config.workspace_dir / artifacts["diagnostics"]).read_text())
+    assert diagnostics["status"] == "failed"
+    assert (config.workspace_dir / artifacts["execution_log"]).is_file()
+    return artifacts
+
+
 @pytest.mark.parametrize(
     ("path_kind", "expected"),
     [
@@ -118,7 +126,7 @@ async def test_strategy_bar_error_reports_the_source_location_and_cause(tmp_path
     assert "ValueError: no field of name is_suspended" in result
     assert "local-variable-canary" not in result and "confidential_local" not in result
     assert str(tmp_path) not in result
-    assert not config.backtest_artifact_dir.exists()
+    failed_artifacts(config, result)
 
 
 @pytest.mark.parametrize(
@@ -148,7 +156,9 @@ async def test_strategy_exception_feedback_hides_credentials_and_host_paths(tmp_
     assert "configured_credential_canary" not in result
     assert "private folder" not in result and "research.csv" not in result and "provider.json" not in result
     assert str(tmp_path) not in result
-    assert "\n" not in result and len(result) < 1100
+    error_message = result.split("\nBacktest artifacts: ", 1)[0]
+    assert "\n" not in error_message and len(error_message) < 1100
+    failed_artifacts(config, result)
 
 
 async def test_strategy_syntax_error_reports_the_workspace_source_without_code(tmp_path: Path) -> None:
@@ -191,7 +201,8 @@ async def test_engine_initialization_failure_passes_through_its_cause(tmp_path: 
     )
 
     assert isinstance(result, str)
-    assert result == expected
+    assert result.split("\nBacktest artifacts: ", 1)[0] == expected
+    failed_artifacts(config, result)
     assert "Strategy error" not in result and "configured_credential_canary" not in result
 
 
@@ -238,7 +249,7 @@ async def test_share_transformation_failure_passes_through_the_engine_error(
         json.dumps({"strategy_path": "strategy.py", "start_date": "2024-05-06", "end_date": "2024-05-10"}),
     )
 
-    assert result == f"Error: {type(cause).__name__}: {cause}"
+    assert result.split("\nBacktest artifacts: ", 1)[0] == f"Error: {type(cause).__name__}: {cause}"
     assert "local-variable-canary" not in result and "confidential_local" not in result
     assert str(tmp_path) not in result
-    assert not config.backtest_artifact_dir.exists()
+    failed_artifacts(config, result)

@@ -20,6 +20,7 @@ from investorch.backtest import (
     run_backtest as run_rqalpha_backtest,
 )
 from investorch.backtest.errors import BacktestDataError
+from investorch.backtest.execution_log import NativeExecutionLog
 from investorch.backtest.parameters import BacktestOverrides, resolve_backtest_parameters
 from investorch.config import AppConfig
 from investorch.context import AgentContext
@@ -77,7 +78,7 @@ def run_backtest(
     """
     Run a Workspace RQAlpha Python strategy through the configured approval policy.
 
-    The strategy path must be Workspace-relative and dates must use ISO YYYY-MM-DD. An optional benchmark must use its canonical RQAlpha order-book ID. The return contains a compact analyser summary and Workspace-relative result artifact paths. Missing data from the configured backtest source, or a missing required RQAlpha bundle, is reported and is never repaired automatically.
+    The strategy path must be Workspace-relative and dates must use ISO YYYY-MM-DD. An optional benchmark must use its canonical RQAlpha order-book ID. Native execution logs, including original order-rejection reasons, are saved per run. Failed runs retain their request, strategy and log paths in the error feedback. Missing data from the configured backtest source, or a missing required RQAlpha bundle, is reported and is never repaired automatically.
 
     Args:
         strategy_path: Workspace-relative path to an existing RQAlpha .py strategy.
@@ -93,7 +94,7 @@ def run_backtest(
         parameters: Single-run simulation and cost overrides. Omitted or null fields inherit application defaults; false and 0 override them. Use these for experiments, and update configuration only when the user asks to change defaults.
 
     Returns:
-        Engine metadata, effective runtime parameters, scalar summary, and Workspace-relative artifact paths.
+        Engine metadata, effective runtime parameters, summary and Workspace-relative artifacts. diagnostics contains execution status, warning_count, error_count and a native warning/error preview bounded by backtest.max_log_preview_chars; preview_truncated signals more content in artifacts.execution_log. Execution completion alone does not establish strategy correctness. Inspect the log by date or instrument when holdings or fills differ from targets.
     """
     return _run_backtest(
         config=context.context.config,
@@ -127,31 +128,6 @@ def _run_backtest(
 
     source = strategy_file.read_bytes()
     strategy_sha256 = hashlib.sha256(source).hexdigest()
-    raw_result = run_rqalpha_backtest(
-        config=config,
-        strategy_file=strategy_file,
-        start_date=start,
-        end_date=end,
-        initial_cash=cash,
-        benchmark=benchmark,
-        runtime=runtime,
-    )
-
-    analyser = raw_result.get("sys_analyser")
-    if not isinstance(analyser, Mapping):
-        raise RuntimeError("RQAlpha result is missing sys_analyser output")
-    raw_summary = analyser.get("summary")
-    if not isinstance(raw_summary, Mapping):
-        raise RuntimeError("RQAlpha analyser result is missing summary output")
-
-    summary = _normalize_json(raw_summary)
-    if not isinstance(summary, dict):
-        raise TypeError("RQAlpha analyser summary must be a mapping")
-    # RQAlpha emits an absolute strategy_file path; this is the sole summary-field
-    # rewrite needed to keep every model-facing path Workspace-relative.
-    if "strategy_file" in summary:
-        summary["strategy_file"] = relative_strategy
-
     run_id = uuid.uuid4().hex
     engine_version = version("rqalpha")
     request = {
@@ -168,15 +144,61 @@ def _run_backtest(
         "benchmark": benchmark,
         "runtime": runtime.model_dump(),
     }
-    artifacts = _write_backtest_artifacts(
-        workspace=workspace,
-        artifact_dir=config.backtest_artifact_dir,
-        run_id=run_id,
-        request=request,
-        source=source,
-        summary=summary,
-        analyser=analyser,
+    result_dir = config.backtest_artifact_dir / run_id
+    result_dir.mkdir(parents=True, exist_ok=False)
+    artifacts = {
+        "result_dir": result_dir.relative_to(workspace).as_posix(),
+        **{
+            key: (result_dir / name).relative_to(workspace).as_posix()
+            for key, name in {
+                "request": "request.json",
+                "strategy": "strategy.py",
+                "execution_log": "execution.log",
+                "diagnostics": "diagnostics.json",
+            }.items()
+        },
+    }
+    _write_json(result_dir / "request.json", request)
+    (result_dir / "strategy.py").write_bytes(source)
+    (result_dir / "execution.log").touch()
+    execution_log = NativeExecutionLog(
+        result_dir / "execution.log",
+        secrets=config.secret_values(),
+        preview_chars=config["backtest.max_log_preview_chars"],
     )
+    status = "failed"
+    try:
+        raw_result = run_rqalpha_backtest(
+            config=config,
+            strategy_file=strategy_file,
+            start_date=start,
+            end_date=end,
+            initial_cash=cash,
+            benchmark=benchmark,
+            runtime=runtime,
+            execution_log=execution_log,
+        )
+        analyser = raw_result.get("sys_analyser")
+        if not isinstance(analyser, Mapping):
+            raise RuntimeError("RQAlpha result is missing sys_analyser output")
+        raw_summary = analyser.get("summary")
+        if not isinstance(raw_summary, Mapping):
+            raise RuntimeError("RQAlpha analyser result is missing summary output")
+        summary = _normalize_json(raw_summary)
+        if not isinstance(summary, dict):
+            raise TypeError("RQAlpha analyser summary must be a mapping")
+        # RQAlpha's absolute strategy_file is presented relative to the Workspace.
+        if "strategy_file" in summary:
+            summary["strategy_file"] = relative_strategy
+        artifacts.update(
+            _write_backtest_artifacts(workspace=workspace, result_dir=result_dir, summary=summary, analyser=analyser)
+        )
+        status = "completed"
+    except Exception as error:
+        error.add_note("Backtest artifacts: " + json.dumps({"run_id": run_id, **artifacts}, ensure_ascii=False))
+        raise
+    finally:
+        _write_json(result_dir / "diagnostics.json", execution_log.diagnostics(status))
 
     return {
         "run_id": run_id,
@@ -185,31 +207,20 @@ def _run_backtest(
         "runtime": runtime.model_dump(),
         "summary": summary,
         "artifacts": artifacts,
+        "diagnostics": execution_log.diagnostics(status),
     }
 
 
 def _write_backtest_artifacts(
     workspace: Path,
-    artifact_dir: Path,
-    run_id: str,
-    request: dict[str, Any],
-    source: bytes,
+    result_dir: Path,
     summary: dict[str, Any],
     analyser: Mapping[str, Any],
 ) -> dict[str, str]:
     root = workspace.expanduser().resolve()
-    result_dir = artifact_dir / run_id
-    result_dir.mkdir(parents=True, exist_ok=False)
-
-    relative_dir = result_dir.relative_to(root)
-    artifacts = {"result_dir": relative_dir.as_posix()}
     files = {
-        "request": result_dir / "request.json",
-        "strategy": result_dir / "strategy.py",
         "summary": result_dir / "summary.json",
     }
-    _write_json(files["request"], request)
-    files["strategy"].write_bytes(source)
     _write_json(files["summary"], summary)
 
     for name in _TABULAR_RESULTS:
@@ -223,10 +234,7 @@ def _write_backtest_artifacts(
         to_csv(path, index=True)
         files[name] = path
 
-    for name, path in files.items():
-        artifacts[name] = path.relative_to(root).as_posix()
-
-    return artifacts
+    return {name: path.relative_to(root).as_posix() for name, path in files.items()}
 
 
 def _write_json(path: Path, value: Any) -> None:

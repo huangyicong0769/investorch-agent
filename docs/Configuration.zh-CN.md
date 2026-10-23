@@ -175,3 +175,7 @@ max_ledger_limit = 1000
 Session 总预算按包含转义的序列化字符计量，字段预算按原文字符计量。完整记录、显式省略元数据和续读游标
 保留原有语义。文件/搜索设置继续位于 `explore.*`，原生标的检查使用 `backtest.inspect_max_symbols`。
 已有显式覆盖继续生效。
+
+`backtest.max_log_preview_chars` 为正整数，默认 `32768`，限制每次回测工具返回的原生警告/错误摘要字符数，
+下一次调用热生效。`preview_truncated` 表示摘要尚有省略；完整日志保存在 `artifacts.execution_log`，
+同一份诊断信息保存在 `artifacts.diagnostics`。失败运行也保留输入和日志，错误反馈会给出对应工件路径。
