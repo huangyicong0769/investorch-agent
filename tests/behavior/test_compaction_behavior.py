@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -249,7 +250,7 @@ async def test_switching_to_smaller_window_compacts_before_main_or_fails_closed(
             result = await run()
             assert result.output == "Main answer"
             assert len(compact_model.calls) == 1
-            assert compact_model.calls[0].input == history
+            assert [json.loads(item["content"].split("\n", 1)[1]) for item in compact_model.calls[0].input] == history
             incoming = main_model.calls[0].input
             assert incoming[0]["content"] == COMPACTED_CONTEXT_PREFIX + summary
             assert incoming[1]["content"] == [{"type": "input_text", "text": "New request"}]

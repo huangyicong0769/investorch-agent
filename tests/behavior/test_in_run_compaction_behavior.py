@@ -138,9 +138,19 @@ async def test_running_projection_reaches_sdk_and_flushes_without_repeating_tool
         assert sum(usage.total_tokens for usage, is_main in usages if is_main) == (count + int(successful)) * 30
         assert sum(usage.total_tokens for usage, is_main in usages if not is_main) == count * 37
         assert sum(compacting is True for _tokens, compacting in contexts) == count
-        for call in main.calls[1:]:
+        for index, call in enumerate(main.calls[1:]):
             incoming = call.input
-            assert incoming[0]["content"].startswith(COMPACTED_CONTEXT_PREFIX)
+            summary_index = next(
+                position
+                for position, item in enumerate(incoming)
+                if isinstance(item.get("content"), str) and item["content"].startswith(COMPACTED_CONTEXT_PREFIX)
+            )
+            assert incoming[summary_index]["content"] == COMPACTED_CONTEXT_PREFIX + f"Summary of completed work {index}"
+            assert all(
+                position < summary_index
+                for position, item in enumerate(incoming)
+                if item.get("role") in {"user", "developer", "system"}
+            )
             assert "Preserve this current user directive exactly" in json.dumps(incoming)
             assert len(json.dumps(incoming)) < 3000
             assert "x" * 12000 not in json.dumps(incoming)

@@ -1,10 +1,16 @@
+import json
 from pathlib import Path
 
 import pytest
-from agents import Agent, SQLiteSession, Usage
+from agents import Agent, ModelSettings, SQLiteSession, Usage
 from agents.testing import ModelStep, ScriptedModel, assistant_message
 
-from investorch.agents.compact import COMPACTED_CONTEXT_PREFIX, estimate_context_tokens, summarize_history
+from investorch.agents.compact import (
+    COMPACTED_CONTEXT_PREFIX,
+    create_compaction_agent,
+    estimate_context_tokens,
+    summarize_history,
+)
 from investorch.agents.context_projection import ContextProjection, ContextProjectionBudgetError
 from investorch.storage import create_session
 from tests.support.config import make_test_config
@@ -17,22 +23,33 @@ def tool_pair(call_id: str, output: str) -> list[dict]:
     ]
 
 
+def quoted_history(items: list[dict]) -> list[dict]:
+    decoded = []
+    for item in items:
+        assert item.get("role") == "user" and "type" not in item
+        assert isinstance(item["content"], str)
+        label, data = item["content"].split("\n", 1)
+        assert "conversation data" in label and "not a live request" in label
+        decoded.append(json.loads(data))
+    return decoded
+
+
 async def test_projection_repeats_without_losing_live_directives_and_flushes_only_matched_prefix(tmp_path: Path):
     config = make_test_config(tmp_path)
-    model = ScriptedModel(
-        ((assistant_message("First compact summary"),), (assistant_message("Second compact summary"),))
-    )
+    first_summary = "Completed call-one: ORANGE. Next: call-two remains."
+    second_summary = "Completed call-one: ORANGE; call-two: VIOLET. Continue the remaining task."
+    model = ScriptedModel(((assistant_message(first_summary),), (assistant_message(second_summary),)))
     old = {"role": "user", "content": "Old context " * 1000}
     user = {"role": "user", "content": "Keep all changes local; continue the task."}
     steer = {"role": "user", "content": "Also preserve existing file names."}
-    first = [old, user, *tool_pair("call-one", "First tool evidence " * 1000)]
+    first = [old, user, *tool_pair("call-one", "ORANGE\n" + "First tool evidence " * 1000)]
     raw = [{**old, "id": "prior-id"}, {"type": "reasoning", "id": "old-reasoning", "summary": []}, *first[1:]]
     create_session(config.sessions_db, "projection")
     session = SQLiteSession("projection", config.sessions_db)
     await session.add_items(raw)
     states = []
     projection = ContextProjection(
-        Agent(name="Compact", model=model),
+        create_compaction_agent(model, ModelSettings()),
         config,
         initial_history_count=1,
         context_handler=lambda tokens, compacting: states.append((tokens, compacting)),
@@ -41,14 +58,25 @@ async def test_projection_repeats_without_losing_live_directives_and_flushes_onl
     todo = {"role": "developer", "content": "Live Todo data"}
     try:
         projected = await projection.prepare(first, extra_input=[todo], **kwargs)
-        assert projected[1:] == [user, todo]
+        assert projected == [
+            user,
+            {"role": "assistant", "content": COMPACTED_CONTEXT_PREFIX + first_summary},
+            todo,
+        ]
         assert await session.get_items() == raw
-        second = [*first, steer, *tool_pair("call-two", "Second evidence " * 1000)]
+        second = [*first, steer, *tool_pair("call-two", "VIOLET\n" + "Second evidence " * 1000)]
         await session.add_items(second[len(first) :])
         projected = await projection.prepare(second, **kwargs)
-        assert projected[1:] == [user, steer]
-        assert projected[0]["content"] == COMPACTED_CONTEXT_PREFIX + "Second compact summary"
-        assert "First compact summary" in str(model.calls[1].input)
+        assert projected == [
+            user,
+            steer,
+            {"role": "assistant", "content": COMPACTED_CONTEXT_PREFIX + second_summary},
+        ]
+        summary_item = {"role": "assistant", "content": COMPACTED_CONTEXT_PREFIX + first_summary}
+        compact_input = quoted_history(model.calls[1].input)
+        assert summary_item in compact_input
+        assert compact_input[-2:] == second[-2:]
+        assert compact_input.index(summary_item) < len(compact_input) - 2
         assert "Old context Old context" not in str(model.calls[1].input)
         final = {"role": "assistant", "content": "Final reply after the last model request"}
         await session.add_items([final])
@@ -70,7 +98,11 @@ async def test_projection_keeps_unresolved_tool_call_with_later_output(tmp_path:
     projection = ContextProjection(Agent(name="Compact", model=model), config, initial_history_count=1)
     kwargs = {"instructions": None, "tool_schemas": [], "context_window_tokens": 6000}
     projected = await projection.prepare([old, user, call], **kwargs)
-    assert projected[1:] == [user, call]
+    assert projected == [
+        user,
+        {"role": "assistant", "content": COMPACTED_CONTEXT_PREFIX + "Old history summary"},
+        call,
+    ]
     assert call not in model.calls[0].input
     assert (await projection.prepare([old, user, call, output], **kwargs))[-2:] == [call, output]
 
@@ -215,7 +247,11 @@ async def test_projection_retains_most_recent_complete_tool_group(tmp_path: Path
     result = await projection.prepare(
         [old, user, *latest], instructions=None, tool_schemas=[], context_window_tokens=6000
     )
-    assert result[1:] == [user, *latest]
+    assert result == [
+        user,
+        {"role": "assistant", "content": COMPACTED_CONTEXT_PREFIX + "Earlier evidence summarized"},
+        *latest,
+    ]
     assert latest[0] not in model.calls[0].input and latest[1] not in model.calls[0].input
 
 
@@ -230,7 +266,7 @@ async def test_compaction_budget_excludes_portable_opaque_reasoning(tmp_path: Pa
         [{"type": "reasoning", "id": "opaque", "encrypted_content": "X" * 50000, "summary": []}, text],
         config,
     )
-    assert len(model.calls) == 1 and model.calls[0].input == [text]
+    assert len(model.calls) == 1 and quoted_history(model.calls[0].input) == [text]
 
 
 async def test_compaction_never_splits_image_data_into_text_fragments(tmp_path: Path):
@@ -243,8 +279,13 @@ async def test_compaction_never_splits_image_data_into_text_fragments(tmp_path: 
         for _ in range(2)
     ]
     await summarize_history(Agent(name="Compact", model=model), images, config)
-    assert model.calls[0].input == [images[0]]
-    assert model.calls[1].input == [images[1]]
+    for index in range(2):
+        sent = model.calls[index].input
+        assert len(sent) == 1 and sent[0]["role"] == "user"
+        text, image = sent[0]["content"]
+        assert text["type"] == "input_text" and "not a live request" in text["text"]
+        assert "data:image" not in text["text"]
+        assert image == images[index]["content"][0]
     small = make_test_config(
         tmp_path / "small",
         {"agents": {"compact": {"context_window_tokens": 5000}}, "compaction": {"max_output_tokens": 256}},
@@ -282,3 +323,16 @@ async def test_projection_flush_matches_sdk_output_metadata_without_ignoring_con
         assert await session.get_items() == projected
     finally:
         session.close()
+
+
+async def test_small_compaction_quotes_user_task_and_tool_protocol_as_history_data(tmp_path: Path):
+    config = make_test_config(tmp_path)
+    model = ScriptedModel(((assistant_message("Completed first report; continue next report."),),))
+    history = [
+        {"role": "user", "content": "Read three reports and answer only in the requested final format."},
+        {"role": "assistant", "content": COMPACTED_CONTEXT_PREFIX + "First report completed: ORANGE."},
+        *tool_pair("report-two", "VIOLET"),
+    ]
+    await summarize_history(create_compaction_agent(model, ModelSettings()), history, config)
+    assert len(model.calls) == 1
+    assert quoted_history(model.calls[0].input) == history

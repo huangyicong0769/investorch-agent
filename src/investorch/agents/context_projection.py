@@ -148,9 +148,11 @@ class ContextProjection:
                 summary, _usage = await summarize_history(
                     self._agent, source, self._config, usage_handler=self._usage_handler
                 )
+                # Keep completed progress after the instructions that produced it;
+                # replaying those instructions last can make the model restart the task.
                 replacement: list[TResponseInputItem] = [
-                    {"role": "assistant", "content": COMPACTED_CONTEXT_PREFIX + summary},
                     *deepcopy(pinned),
+                    {"role": "assistant", "content": COMPACTED_CONTEXT_PREFIX + summary},
                 ]
                 candidate = [*replacement, *items[prefix_length:]]
                 compressed_estimate = estimate_context_tokens(candidate) + overhead

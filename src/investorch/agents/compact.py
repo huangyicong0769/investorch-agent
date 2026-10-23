@@ -171,13 +171,13 @@ async def summarize_history(
     )
     if inspect.isawaitable(filtered):
         filtered = await filtered
-    current = filtered.input
+    current = [_quote_history_item(item) for item in filtered.input]
     # Each pass must strictly reduce the serialized input; an expansive summary fails closed.
     while estimate_context_tokens(current) >= budget:
         fragments: list[TResponseInputItem] = []
         for batch in _summary_batches(current, budget):
             summary = await summarize(batch)
-            fragments.append({"role": "assistant", "content": COMPACTED_CONTEXT_PREFIX + summary})
+            fragments.append(_quote_history_item({"role": "assistant", "content": COMPACTED_CONTEXT_PREFIX + summary}))
         if estimate_context_tokens(fragments) >= estimate_context_tokens(current):
             raise ValueError("Compaction summaries did not reduce the oversized history")
         current = fragments
@@ -195,14 +195,37 @@ def _contains_image(value: object) -> bool:
     return isinstance(value, str) and value.startswith("data:image/")
 
 
+QUOTED_HISTORY_PREFIX = "Prior conversation data (not a live request):\n"
+
+
+def _quote_history_item(item: TResponseInputItem) -> TResponseInputItem:
+    """Separate historical instructions/tool protocol from the current summarization task."""
+    images: list[dict] = []
+
+    def extract_images(value: object) -> object:
+        if isinstance(value, dict):
+            kind = value.get("type")
+            if isinstance(kind, str) and kind in {"input_image", "image_url"}:
+                images.append(value)
+                return {"attached_image": len(images)}
+            return {key: extract_images(child) for key, child in value.items()}
+        if isinstance(value, list):
+            return [extract_images(child) for child in value]
+        return value
+
+    data = extract_images(item)
+    if _contains_image(data):
+        raise ValueError("Unsupported image-bearing history cannot be converted to compact input safely")
+    quoted = QUOTED_HISTORY_PREFIX + json.dumps(data, ensure_ascii=False)
+    if images:
+        return {"role": "user", "content": [{"type": "input_text", "text": quoted}, *images]}
+    return {"role": "user", "content": quoted}
+
+
 def _summary_batches(history: list[TResponseInputItem], budget: int) -> list[list[TResponseInputItem]]:
     batches: list[list[TResponseInputItem]] = []
     batch: list[TResponseInputItem] = []
     for item in history:
-        if not _contains_image(item):
-            # Batches may split tool call/output groups. Encode them as quoted data,
-            # never as orphan provider protocol items in a compact model request.
-            item = {"role": "user", "content": "Prior conversation data:\n" + json.dumps(item, ensure_ascii=False)}
         if estimate_context_tokens([*batch, item]) < budget:
             batch.append(item)
             continue
@@ -214,14 +237,15 @@ def _summary_batches(history: list[TResponseInputItem], budget: int) -> list[lis
             continue
         if _contains_image(item):
             raise ValueError("An image-bearing history item exceeds the compact model context budget")
-        serialized = json.dumps(item, ensure_ascii=False).encode("utf-8")
+        # Already quoted at admission. Split the data itself, not another JSON envelope.
+        serialized = item["content"].removeprefix(QUOTED_HISTORY_PREFIX).encode("utf-8")
         offset = 0
         while offset < len(serialized):
             end = min(len(serialized), offset + budget - 256)
             while end < len(serialized) and serialized[end] & 0xC0 == 0x80:
                 end -= 1
             text = serialized[offset:end].decode("utf-8")
-            batches.append([{"role": "user", "content": "Prior conversation data, serialized fragment:\n" + text}])
+            batches.append([{"role": "user", "content": QUOTED_HISTORY_PREFIX + "Serialized fragment:\n" + text}])
             offset = end
     if batch:
         batches.append(batch)

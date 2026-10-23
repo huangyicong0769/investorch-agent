@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 from agents import Agent, SQLiteSession, function_tool
@@ -112,7 +113,9 @@ async def test_compaction_receives_portable_history_and_does_not_mutate_it_when_
     try:
         with pytest.raises(ValueError, match="empty summary"):
             await compact_session(Agent(name="Compact", model=model), session, config)
-        assert model.calls[0].input == [{key: value for key, value in history[1].items() if key != "id"}]
+        assert [json.loads(item["content"].split("\n", 1)[1]) for item in model.calls[0].input] == [
+            {key: value for key, value in history[1].items() if key != "id"}
+        ]
         assert await session.get_items() == history
     finally:
         session.close()
