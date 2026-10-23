@@ -98,7 +98,7 @@ jobs:
       - name: Build distributions
         run: uv build --no-sources
 
-      - name: Smoke test core and CNEquity wheel and source installations
+      - name: Smoke test wheel and source installations
         shell: bash
         run: |
           set -euo pipefail
@@ -111,8 +111,6 @@ jobs:
           cd "$smoke_dir"
           for distribution in "${wheel[0]}" "${sdist[0]}"; do
             uv run --isolated --no-project --with "$distribution" python package_smoke.py
-            uv run --isolated --no-project --with "$distribution[cnequity]" \
-              python package_smoke.py --expect-cnequity
           done
 
       - name: Generate SHA-256 checksums

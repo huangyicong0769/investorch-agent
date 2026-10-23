@@ -27,7 +27,7 @@ and [Trusted Publishing](https://docs.pypi.org/trusted-publishers/using-a-publis
 ## Review and release
 
 1. Complete and review the release branch, its dependency changes, real
-   application checks and the core/CNEquity wheel and source installation checks.
+   application checks and the wheel and source installation checks.
    Keep `pyproject.toml` and `frontend/package.json` versions aligned, include
    both language release notes under `docs/releases/`, and run
    `uv run --no-project python scripts/check_release.py --tag v0.3.0`.
@@ -42,7 +42,7 @@ and [Trusted Publishing](https://docs.pypi.org/trusted-publishers/using-a-publis
    a workflow's `GITHUB_TOKEN` do not trigger another workflow.
 5. The `Publish to PyPI` workflow reacts to a stable release's `published` event.
    It validates the tag/version/notes and membership in `main`, builds the wheel
-   and source distribution, and checks fresh core and CNEquity installations
+   and source distribution, and checks fresh installations
    outside the checkout. It transfers those exact qualified files to a separate
    publishing job. Approve that job in the protected `pypi` environment after
    reviewing its build result. Only that job receives OIDC permission; it checks

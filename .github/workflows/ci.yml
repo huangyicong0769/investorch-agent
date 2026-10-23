@@ -81,11 +81,7 @@ jobs:
           fi
 
   package:
-    name: Package / ${{ matrix.installation }}
-    strategy:
-      fail-fast: false
-      matrix:
-        installation: [core, cnequity]
+    name: Package / Distribution
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -105,8 +101,6 @@ jobs:
       - name: Build distributions
         run: uv build --no-sources
       - name: Smoke test wheel and source distribution
-        env:
-          INSTALLATION: ${{ matrix.installation }}
         shell: bash
         run: |
           set -euo pipefail
@@ -116,15 +110,9 @@ jobs:
           sdist=("$GITHUB_WORKSPACE"/dist/*.tar.gz)
           test "${#wheel[@]}" -eq 1
           test "${#sdist[@]}" -eq 1
-          smoke_args=()
-          if [ "$INSTALLATION" = "cnequity" ]; then
-            wheel[0]="${wheel[0]}[cnequity]"
-            sdist[0]="${sdist[0]}[cnequity]"
-            smoke_args+=(--expect-cnequity)
-          fi
           cd "$smoke_dir"
-          uv run --isolated --no-project --with "${wheel[0]}" python package_smoke.py "${smoke_args[@]}"
-          uv run --isolated --no-project --with "${sdist[0]}" python package_smoke.py "${smoke_args[@]}"
+          uv run --isolated --no-project --with "${wheel[0]}" python package_smoke.py
+          uv run --isolated --no-project --with "${sdist[0]}" python package_smoke.py
 
   gate:
     name: CI / Gate

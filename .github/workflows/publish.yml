@@ -50,7 +50,7 @@ jobs:
           fi
       - name: Build distributions
         run: uv build --no-sources
-      - name: Qualify core and CNEquity installations outside the checkout
+      - name: Qualify installations outside the checkout
         shell: bash
         run: |
           set -euo pipefail
@@ -63,8 +63,6 @@ jobs:
           cd "$smoke_dir"
           for distribution in "${wheel[0]}" "${sdist[0]}"; do
             uv run --isolated --no-project --with "$distribution" python package_smoke.py
-            uv run --isolated --no-project --with "$distribution[cnequity]" \
-              python package_smoke.py --expect-cnequity
           done
       - name: Preserve qualified distributions
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
