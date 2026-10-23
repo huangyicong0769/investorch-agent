@@ -115,15 +115,25 @@ def _run_model_input_filter(history: list[TResponseInputItem]) -> CallModelInput
         filtered = portable_filter(data)
         if inspect.isawaitable(filtered):
             filtered = await filtered
-        if data.context is None or not data.context.turn.todos:
+        if data.context is None:
             return filtered
-        todo_context = (
-            "Current Run Todo snapshot (state data). Apply the Todo workflow from your instructions "
-            "when transitioning stages and finalizing verified results:\n"
-            + json.dumps(data.context.turn.todos, ensure_ascii=False)
-        )
+        notes = []
+        if data.context.turn.todos:
+            notes.append(
+                "Current Run Todo snapshot (state data). Apply the Todo workflow from your instructions "
+                "when transitioning stages and finalizing verified results:\n"
+                + json.dumps(data.context.turn.todos, ensure_ascii=False)
+            )
+        if data.context.turn.mcp_errors:
+            notes.append(
+                "Current Run MCP connection failures (state data). Work using available tools can continue. "
+                "Explain a missing capability when it affects the requested task:\n"
+                + json.dumps(data.context.turn.mcp_errors, ensure_ascii=False)
+            )
+        if not notes:
+            return filtered
         return ModelInputData(
-            input=[*filtered.input, {"role": "developer", "content": todo_context}],
+            input=[*filtered.input, *({"role": "developer", "content": note} for note in notes)],
             instructions=filtered.instructions,
         )
 

@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from functools import partial
 from zoneinfo import ZoneInfo
 
-from agents.mcp import MCPServer, MCPServerManager, MCPServerStdio
+from agents.mcp import MCPServer, MCPServerManager
 
 from investorch.agents import (
     AgentLoop,
@@ -29,6 +29,7 @@ from investorch.journal import SessionJournal
 from investorch.llm.clients import ModelConnectionClients
 from investorch.llm.oauth import ChatGPTAuth
 from investorch.mcp import load_mcp_servers as load_configured_mcp_servers
+from investorch.mcp_runtime import IsolatedMCPServerStdio
 from investorch.output import AssistantMessageUpdate
 from investorch.runtime import (
     AgentRuntime,
@@ -114,6 +115,7 @@ class ApplicationHost:
     activity: ActivityCoordinator | None
     presentation_state: SessionPresentationStore
     initial_session_id: str | None
+    mcp_servers: tuple[MCPServer, ...] = ()
 
     @property
     def session_models(self):
@@ -129,7 +131,7 @@ def _load_agent_mcp_servers(config: AppConfig) -> list[MCPServer]:
     if not config["backtest.use_cnequity"]:
         return servers
 
-    cnequity_server = MCPServerStdio(
+    cnequity_server = IsolatedMCPServerStdio(
         name="cnequity",
         params={
             "command": sys.executable,
@@ -279,7 +281,7 @@ async def open_application_host(
                     model=main_model,
                     model_settings=main_model_settings,
                     config=config,
-                    mcp_servers=mcp_manager.active_servers,
+                    mcp_servers=mcp_servers,
                     skill_catalog=skill_catalog,
                 )
                 agent_loop = AgentLoop(
@@ -382,6 +384,7 @@ async def open_application_host(
                     activity=activity,
                     presentation_state=presentation_state,
                     initial_session_id=initial_session_id,
+                    mcp_servers=tuple(mcp_servers),
                 )
             finally:
                 try:

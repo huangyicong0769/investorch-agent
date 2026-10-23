@@ -87,6 +87,7 @@ export interface McpServer {
   timeout?: number
   valid: boolean
   runtime_status: string
+  runtime_error?: { operation: string; message: string } | null
 }
 
 export interface McpChanges {

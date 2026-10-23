@@ -44,6 +44,8 @@ The plain console reaches the same application host as a sequential diagnostic i
 
 The host owns process-lifetime resources. A Run never owns the workspace, MCP manager, or managed background processes.
 
+MCP connection failures are isolated per server. Failed tool discovery omits that server's tools and supplies the Agent with a Run-local diagnostic; built-in Tools and other servers remain available. A transport failure during a tool call returns an error result with an unknown remote outcome, without replaying the call. Cancellation still cancels the Run. Integrations exposes each server's latest observed runtime status, failure stage and credential-redacted cause.
+
 ## Presentation layer
 
 ### Web

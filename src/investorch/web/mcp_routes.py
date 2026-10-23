@@ -38,8 +38,12 @@ class CreateMCPRequest(UpdateMCPRequest):
     name: StrictStr
 
 
-def _public_server(server: dict[str, Any]) -> dict[str, Any]:
-    return {**public_mcp_server_config(server), "valid": True, "runtime_status": "unknown"}
+def _public_server(server: dict[str, Any], runtime=None) -> dict[str, Any]:
+    result = {**public_mcp_server_config(server), "valid": True, "runtime_status": "unknown"}
+    if runtime is not None:
+        result["runtime_status"] = runtime.runtime_status
+        result["runtime_error"] = runtime.runtime_error
+    return result
 
 
 def _raise_mcp_error(error: Exception) -> NoReturn:
@@ -61,8 +65,12 @@ def _raise_mcp_error(error: Exception) -> NoReturn:
 @router.get("")
 def list_servers(host: Host) -> dict[str, Any]:
     try:
+        runtime = {server.name: server for server in host.mcp_servers}
         return {
-            "servers": [_public_server(server) for server in read_mcp_server_configs(host.config.mcp_config_path)],
+            "servers": [
+                _public_server(server, runtime.get(server["name"]))
+                for server in read_mcp_server_configs(host.config.mcp_config_path)
+            ],
             "supported_transports": list(SUPPORTED_MCP_TRANSPORTS),
         }
     except (OSError, ValueError, TypeError, NotImplementedError) as error:

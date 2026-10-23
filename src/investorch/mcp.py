@@ -9,9 +9,10 @@ from typing import Any, Literal
 from urllib.parse import parse_qsl, quote_plus, urlsplit, urlunsplit
 
 import tomlkit
-from agents.mcp import MCPServer, MCPServerStreamableHttp
+from agents.mcp import MCPServer
 
 from investorch.config import REDACTED
+from investorch.mcp_runtime import IsolatedMCPServerStreamableHttp
 
 _SECRET_PLACEHOLDER_PATTERN = re.compile(r"\$\{[A-Za-z_][A-Za-z0-9_]*\}")
 
@@ -218,7 +219,7 @@ def load_mcp_servers(
             params["timeout"] = server["timeout"]
 
         servers.append(
-            MCPServerStreamableHttp(
+            IsolatedMCPServerStreamableHttp(
                 name=server["name"],
                 params=params,
                 cache_tools_list=server.get(
@@ -226,6 +227,11 @@ def load_mcp_servers(
                     False,
                 ),
                 client_session_timeout_seconds=server.get("timeout", default_timeout_seconds),
+                diagnostic_secrets=tuple(
+                    [*(variables or {}).values(), *server.get("headers", {}).values()]
+                    + [value for _, value in parse_qsl(urlsplit(server["url"]).query, keep_blank_values=True)]
+                    + [value[7:] for value in server.get("headers", {}).values() if value.lower().startswith("bearer ")]
+                ),
             )
         )
 
