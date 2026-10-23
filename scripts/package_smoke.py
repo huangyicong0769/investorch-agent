@@ -172,7 +172,7 @@ def main() -> None:
         requirement for requirement in package_distribution.requires or [] if requirement.lower().startswith("cnequity")
     ]
     assert len(cnequity_requirements) == 1
-    assert "cnequity==0.18.0" in cnequity_requirements[0]
+    assert "cnequity==0.7.3" in cnequity_requirements[0]
     assert "extra ==" in cnequity_requirements[0]
     cnequity_version = None
     try:
@@ -182,7 +182,7 @@ def main() -> None:
     else:
         assert options.expect_cnequity, "CNEquity must not be installed by default"
         cnequity_version = cnequity_distribution.version
-        assert cnequity_version == "0.18.0", "Explicit CNEquity extra must install version 0.18.0"
+        assert cnequity_version == "0.7.3", "Explicit CNEquity extra must install version 0.7.3"
     assert not (Path.cwd() / "pyproject.toml").exists()
     assert not (Path.cwd() / "src").exists()
 
