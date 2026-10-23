@@ -85,8 +85,13 @@ A single field name returns a one-dimensional NumPy array of that field's values
 
 ```python
 bars = history_bars(
-    stock, 60, "1d", ["datetime", "high", "low", "volume"],
-    skip_suspended=False, include_now=False, adjust_type="pre",
+    stock,
+    60,
+    "1d",
+    ["datetime", "high", "low", "volume"],
+    skip_suspended=False,
+    include_now=False,
+    adjust_type="pre",
 )
 if len(bars) < 60:
     return  # Apply the strategy's specified insufficient-history policy.
