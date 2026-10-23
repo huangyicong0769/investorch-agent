@@ -41,13 +41,13 @@ def inspect_rqalpha_data(
     symbols: list[str] | None = None,
 ) -> dict[str, Any]:
     """
-    Inspect the local native RQAlpha bundle without reading market prices or modifying data.
+    Inspect native RQAlpha metadata, bar coverage and share-conversion references without modifying data.
 
     Args:
-        symbols: Canonical RQAlpha order-book IDs up to the configured inspection limit. Omit for overall stock metadata.
+        symbols: Canonical RQAlpha order-book IDs up to the configured inspection limit. Omit for overall stock metadata and all share conversions. A missing ID also matches conversions that reference it.
 
     Returns:
-        Bundle availability and overall or per-instrument metadata with observed daily-bar ranges.
+        Bundle availability, metadata and observed daily-bar ranges. share_transformations preserves source records and reports whether predecessor/successor instrument metadata exists; these flags describe references, not execution validity.
     """
     return _inspect_rqalpha_data(context.context.config, symbols)
 
