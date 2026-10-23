@@ -6,7 +6,6 @@ from typing import Literal, Protocol
 from agents import FunctionTool
 from pydantic import StrictBool, StrictInt
 
-from investorch.application.session_queries import DEFAULT_PAGE_SIZE
 from investorch.tools.errors import tool
 
 
@@ -35,7 +34,7 @@ def make_session_tools(*, list_query: ListSessionsQuery, read_query: ReadSession
     async def list_sessions(
         query: str | None = None,
         include_archived: StrictBool = False,
-        limit: StrictInt = DEFAULT_PAGE_SIZE,
+        limit: StrictInt = 200,
         offset: StrictInt = 0,
     ) -> dict[str, object]:
         """List current Root Sessions with title-only filtering, current status, and offset pagination.
@@ -57,7 +56,7 @@ def make_session_tools(*, list_query: ListSessionsQuery, read_query: ReadSession
         view: Literal["conversation", "events"] = "conversation",
         before_seq: StrictInt | None = None,
         snapshot_seq: StrictInt | None = None,
-        limit: StrictInt = DEFAULT_PAGE_SIZE,
+        limit: StrictInt = 200,
     ) -> dict[str, object]:
         """Read exact-ID history, including self/archived; page backwards with returned snapshot_seq and next_before_seq.
 

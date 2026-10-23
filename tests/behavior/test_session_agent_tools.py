@@ -172,13 +172,13 @@ async def test_sdk_output_stays_bounded_when_python_representation_expands_quote
     harness = make_runtime_harness(tmp_path)
     create_session(harness.config.sessions_db, "a")
     for _ in range(3):
-        await harness.journal.record_user_message("a", "'" * 10000 + '"')
+        await harness.journal.record_user_message("a", "'" * 120000 + '"')
     read_query = partial(read_session_query, sessions_db=harness.config.sessions_db, journal=harness.journal)
 
     result = await read_query("a")
 
-    assert len(json.dumps(result)) <= 32000
-    assert len(str(result)) <= 32000
+    assert len(json.dumps(result)) <= 262144
+    assert len(str(result)) <= 262144
     assert result["has_older"] is True
     assert [record["seq"] for record in result["records"]] == [3]
     await harness.runtime.aclose()
