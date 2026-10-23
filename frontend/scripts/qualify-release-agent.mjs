@@ -72,7 +72,7 @@ try {
   await page.goto(base)
   const config = await get('/api/config')
   assert.equal(config.values.paths.root, root, 'Never mutate a real user instance')
-  assert.equal((await get('/api/bootstrap')).version, '0.2.0')
+  assert.equal((await get('/api/bootstrap')).version, '0.3.0')
   await page.getByRole('button', { name: 'New', exact: true }).click()
   await page.waitForURL('**/c/*')
   const id = new URL(page.url()).pathname.split('/').at(-1)
@@ -132,13 +132,39 @@ try {
   assertShapes(records)
   checks.push('Durable image history survived stable-head fork, archive/restore and real-model compaction/continuation.')
 
+  const beforeSpawn = new Set((await get('/api/sessions')).sessions.map((session) => session.session_id))
+  records = await send('I authorize creating one disposable child Agent for this release test. Use spawn_agent exactly once with task "Use calculate to evaluate 20 + 22, then reply exactly CHILD_CALC_42. Use no other tools." and title "Release child". After receiving the receipt, reply DELEGATED. Do not poll the child.', (approval) => {
+    const args = JSON.parse(approval.arguments)
+    return approval.tool_name === 'spawn_agent' && args.title === 'Release child' && args.task === 'Use calculate to evaluate 20 + 22, then reply exactly CHILD_CALC_42. Use no other tools.'
+  })
+  assert(records.some((record) => record.type === 'tool_called' && record.name === 'spawn_agent'))
+  const children = (await get('/api/sessions')).sessions.filter((session) => !beforeSpawn.has(session.session_id))
+  assert.equal(children.length, 1)
+  const childId = children[0].session_id
+  const childRecords = await finish(childId)
+  assert(childRecords.some((record) => record.type === 'tool_called' && record.name === 'calculate'))
+  assert(assistantText(childRecords).includes('CHILD_CALC_42'))
+
+  records = await send(`I authorize sending a follow-up to disposable child Session ${childId}. Use send_message exactly once with target_session_id "${childId}" and text "Reply exactly CHILD_FOLLOWUP_OK. Use no tools.". After receiving the receipt, reply FOLLOWUP_SENT. Use no other tools.`, (approval) => {
+    const args = JSON.parse(approval.arguments)
+    return approval.tool_name === 'send_message' && args.target_session_id === childId && args.text === 'Reply exactly CHILD_FOLLOWUP_OK. Use no tools.'
+  })
+  assert(records.some((record) => record.type === 'tool_called' && record.name === 'send_message'))
+  assert(assistantText(await finish(childId)).includes('CHILD_FOLLOWUP_OK'))
+  records = await send(`Use list_sessions to find the disposable child Session ${childId}, then read_session to read its latest history. Verify that it answered CHILD_CALC_42 and CHILD_FOLLOWUP_OK, and reply exactly COLLABORATION_VERIFIED. Use no other tools.`)
+  for (const name of ['list_sessions', 'read_session']) {
+    assert(records.some((record) => record.type === 'tool_called' && record.name === name))
+  }
+  assert(assistantText(records).includes('COLLABORATION_VERIFIED'))
+  checks.push('Real-model delegation, child tool execution, approved follow-up messaging and history-based result verification completed in separate Sessions.')
+
   await page.setViewportSize({ width: 390, height: 844 })
   assert(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth))
   await page.screenshot({ path: `${outputDir}/real-image-mobile.png` })
   await page.reload()
   await page.getByRole('button', { name: 'Enlarge release-shapes.png' }).waitFor()
   assert.deepEqual(errors, [])
-  await writeFile(`${outputDir}/evidence.json`, JSON.stringify({ status: 'passed', version: '0.2.0', simulatedProvider: false, realTransport: 'production CLI HTTP/WebSocket + Edge + configured model', checks, shapeAnswers, browserErrors: errors, sessionId: id, forkId }, null, 2))
+  await writeFile(`${outputDir}/evidence.json`, JSON.stringify({ status: 'passed', version: '0.3.0', simulatedProvider: false, realTransport: 'production CLI HTTP/WebSocket + Edge + configured model', checks, shapeAnswers, browserErrors: errors, sessionId: id, forkId, childId }, null, 2))
   console.log(JSON.stringify({ status: 'passed', checks }))
 } catch (error) {
   await page.screenshot({ path: `${outputDir}/failure.png`, fullPage: true })
