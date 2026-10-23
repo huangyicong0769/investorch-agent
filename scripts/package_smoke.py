@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import os
 import shutil
 import socket
 import subprocess
+import sys
 import tempfile
 import time
 from contextlib import contextmanager
@@ -13,6 +15,9 @@ from importlib.metadata import PackageNotFoundError, distribution
 from pathlib import Path
 from urllib.error import URLError
 from urllib.request import ProxyHandler, Request, build_opener
+
+import tomlkit
+from agents.mcp import MCPServerStdio
 
 import investorch
 from investorch.config import load_config
@@ -101,6 +106,38 @@ def complete_neutral_setup(origin: str) -> None:
     assert request(origin, "/api/setup/complete", method="POST")["status"] == "ready"
 
 
+async def check_cnequity_mcp(temp: Path, home: Path) -> dict:
+    """Check the installed optional backend through its native read-only MCP."""
+    import polars as pl
+    from cnequity.domain.schemas import DAILY_BARS_SCHEMA
+
+    # The native CLI requires a curated Parquet file before serving MCP.
+    # A schema-only dataset satisfies that contract without inventing market data.
+    bars = temp / "lake" / "curated" / "daily_bars"
+    bars.mkdir(parents=True)
+    pl.DataFrame(schema=DAILY_BARS_SCHEMA).write_parquet(bars / "smoke.parquet")
+    config_path = temp / "cnequity.toml"
+    config_path.write_text(
+        tomlkit.dumps({"data": {"root": str(temp / "lake")}, "on_demand": {"enabled": False}}),
+        encoding="utf-8",
+    )
+    async with MCPServerStdio(
+        params={
+            "command": sys.executable,
+            "args": ["-m", "cnequity", "mcp", "--config", str(config_path)],
+            "cwd": str(temp),
+            "env": {**os.environ, "HOME": str(home)},
+        }
+    ) as server:
+        result = await server.call_tool("run_sql", {"sql": "SELECT 42 AS answer"})
+        content = "\n".join(item.text for item in result.content if item.type == "text")
+        assert not result.is_error, f"CNEquity MCP SQL failed: {content}"
+        payload = json.loads(content)
+        assert payload["columns"] == ["answer"] and payload["rows"] == [[42]], payload
+        assert payload["returned"] == payload["total"] == 1 and not payload["truncated"], payload
+    return {"transport": "stdio", "read_only_sql": "passed"}
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Smoke-test an installed InvestOrch distribution in disposable state.")
     parser.add_argument(
@@ -135,7 +172,7 @@ def main() -> None:
         requirement for requirement in package_distribution.requires or [] if requirement.lower().startswith("cnequity")
     ]
     assert len(cnequity_requirements) == 1
-    assert "cnequity==0.7.3" in cnequity_requirements[0]
+    assert "cnequity==0.18.0" in cnequity_requirements[0]
     assert "extra ==" in cnequity_requirements[0]
     cnequity_version = None
     try:
@@ -145,7 +182,7 @@ def main() -> None:
     else:
         assert options.expect_cnequity, "CNEquity must not be installed by default"
         cnequity_version = cnequity_distribution.version
-        assert cnequity_version == "0.7.3", "Explicit CNEquity extra must remain at version 0.7.3"
+        assert cnequity_version == "0.18.0", "Explicit CNEquity extra must install version 0.18.0"
     assert not (Path.cwd() / "pyproject.toml").exists()
     assert not (Path.cwd() / "src").exists()
 
@@ -172,6 +209,7 @@ def main() -> None:
         home = temp / "home"
         home.mkdir()
         root = home / ".investorch"
+        cnequity_mcp = asyncio.run(check_cnequity_mcp(temp, home)) if options.expect_cnequity else None
         with running_web(executable, home) as (process, origin):
             pid = process.pid
             assert request(origin, "/api/setup/state")["status"] == "setup_required"
@@ -222,6 +260,7 @@ def main() -> None:
                     "expected": options.expect_cnequity,
                     "installed": cnequity_version is not None,
                     "version": cnequity_version,
+                    "mcp": cnequity_mcp,
                 },
             }
         )
