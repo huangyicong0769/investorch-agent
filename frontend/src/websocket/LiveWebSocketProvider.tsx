@@ -189,7 +189,8 @@ function outputEvent(value: unknown): OutputEvent | null {
     }
     case 'reasoning': {
       const text = stringField(value, 'text')
-      return text === null ? null : { type: 'reasoning', text }
+      const summary = stringField(value, 'summary')
+      return text === null ? null : { type: 'reasoning', text, ...(summary ? { summary } : {}) }
     }
     case 'tool_called': {
       const name = stringField(value, 'name')

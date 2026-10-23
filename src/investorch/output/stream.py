@@ -52,9 +52,13 @@ class _PendingReasoning:
     summary: dict[int, list[str]] = field(default_factory=dict)
 
     @property
-    def display_text(self) -> str:
+    def summary_text(self) -> str:
         summary = "\n\n".join("".join(self.summary[index]) for index in sorted(self.summary))
-        return summary if summary.strip() else "".join(self.text)
+        return summary if summary.strip() else ""
+
+    @property
+    def display_text(self) -> str:
+        return "".join(self.text) or self.summary_text
 
 
 async def consume_run_events(
@@ -71,7 +75,7 @@ async def consume_run_events(
     async def flush_reasoning() -> None:
         for item_id, pending in pending_reasoning.items():
             if pending.display_text:
-                await output_handler(Reasoning(text=pending.display_text))
+                await output_handler(Reasoning(text=pending.display_text, summary=pending.summary_text or None))
                 emitted_reasoning.add(item_id)
         pending_reasoning.clear()
 

@@ -8,7 +8,7 @@ import type {
   TimelineToolViewModel,
   TimelineUnmatchedToolOutputViewModel,
 } from '../../lib/timeline/project'
-import { formatJsonValue } from '../../lib/timeline/project'
+import { formatJsonValue, reasoningTitle } from '../../lib/timeline/project'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { MessageImages } from '../images/MessageImages'
 import { CopyButton } from '../ui/CopyButton'
@@ -78,7 +78,7 @@ function ApprovalActivity({ item }: { item: TimelineApprovalViewModel }) {
 }
 
 function activityTitle(item: TimelineActivityViewModel): string {
-  if (item.type === 'reasoning') return 'Reasoning'
+  if (item.type === 'reasoning') return reasoningTitle(item)
   if (item.type === 'tool') return item.label ?? item.name
   if (item.type === 'unmatched_tool_output') return 'Unmatched tool output'
   const automatic = item.source === 'permission'

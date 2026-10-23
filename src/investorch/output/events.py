@@ -12,6 +12,7 @@ class AgentChanged:
 @dataclass(frozen=True, slots=True)
 class Reasoning:
     text: str
+    summary: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

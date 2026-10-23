@@ -18,9 +18,9 @@ from investorch.output import Reasoning, consume_run_events
 
 
 @pytest.mark.parametrize(
-    "mode", ["summary_deltas", "delta_only", "summary_done", "sdk_item", "text_only", "empty_summary"]
+    "mode", ["summary_deltas", "delta_only", "summary_done", "sdk_item", "summary_only", "text_only", "empty_summary"]
 )
-async def test_reasoning_prefers_summary_and_persists_once_across_tool_turns(tmp_path, mode):
+async def test_reasoning_preserves_summary_and_body_once_across_tool_turns(tmp_path, mode):
     journal = SessionJournal(tmp_path, ZoneInfo("UTC"))
     captured = []
 
@@ -38,7 +38,9 @@ async def test_reasoning_prefers_summary_and_persists_once_across_tool_turns(tmp
                 summary=[{"type": "summary_text", "text": text} for text in summary]
                 if has_summary and mode != "delta_only"
                 else [],
-                content=[{"type": "reasoning_text", "text": f"Full reasoning {number}."}],
+                content=None
+                if mode == "summary_only"
+                else [{"type": "reasoning_text", "text": f"Full reasoning {number}."}],
             )
             output = [
                 reasoning,
@@ -58,7 +60,7 @@ async def test_reasoning_prefers_summary_and_persists_once_across_tool_turns(tmp
             yield ResponseCreatedEvent(
                 type="response.created", response=response.model_copy(update={"output": []}), sequence_number=0
             )
-            if mode != "sdk_item":
+            if mode not in ("sdk_item", "summary_only"):
                 yield ResponseReasoningTextDeltaEvent(
                     type="response.reasoning_text.delta",
                     item_id=reasoning.id,
@@ -100,13 +102,14 @@ async def test_reasoning_prefers_summary_and_persists_once_across_tool_turns(tmp
         run_config=RunConfig(tracing_disabled=True),
     )
     await consume_run_events(result, capture, "Main")
-    expected = [
-        f"Checking inputs {n}.\n\nComparing results {n}."
-        if mode not in ("text_only", "empty_summary")
-        else f"Full reasoning {n}."
+    expected_summary = [
+        f"Checking inputs {n}.\n\nComparing results {n}." if mode not in ("text_only", "empty_summary") else None
         for n in (1, 2)
     ]
-    assert [event.text for event in captured if isinstance(event, Reasoning)] == expected
-    assert [
-        record["text"] for record in read_session_journal(tmp_path, "session") if record["type"] == "reasoning"
-    ] == expected
+    expected_text = expected_summary if mode == "summary_only" else [f"Full reasoning {n}." for n in (1, 2)]
+    reasoning_events = [event for event in captured if isinstance(event, Reasoning)]
+    assert [event.text for event in reasoning_events] == expected_text
+    assert [event.summary for event in reasoning_events] == expected_summary
+    records = [record for record in read_session_journal(tmp_path, "session") if record["type"] == "reasoning"]
+    assert [record["text"] for record in records] == expected_text
+    assert [record.get("summary") for record in records] == expected_summary

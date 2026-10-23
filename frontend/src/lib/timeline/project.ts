@@ -40,6 +40,7 @@ export interface TimelineAssistantMessageViewModel {
 }
 
 export interface TimelineReasoningViewModel {
+  summary?: string
   type: 'reasoning'
   id: string
   seq: number
@@ -179,6 +180,14 @@ function canonicalRecords(records: readonly JournalRecord[]): JournalRecord[] {
   return [...bySequence.values()].sort((left, right) => left.seq - right.seq)
 }
 
+export function reasoningTitle(item: TimelineReasoningViewModel): string {
+  const heading = item.summary?.split(/\r?\n/).find((line) => line.trim())?.trim()
+  return heading
+    ?.replace(/^#{1,6}\s+/, '')
+    .replace(/^\*\*(.*)\*\*$/, '$1')
+    .replace(/^__(.*)__$/, '$1') || 'Reasoning'
+}
+
 function activityTitle(group: TimelineActivityGroupViewModel): string {
   const latestTool = [...group.items].reverse().find((item): item is TimelineToolViewModel => item.type === 'tool')
   if (latestTool?.label) {
@@ -208,7 +217,8 @@ function activityTitle(group: TimelineActivityGroupViewModel): string {
     return `${outcome} · ${latestApproval.toolName}`
   }
 
-  return 'Reasoning'
+  const latestReasoning = [...group.items].reverse().find((item): item is TimelineReasoningViewModel => item.type === 'reasoning')
+  return latestReasoning ? reasoningTitle(latestReasoning) : 'Reasoning'
 }
 
 function refreshActivityTitle(group: TimelineActivityGroupViewModel): void {
@@ -261,6 +271,7 @@ function appendReasoning(activeTurn: MutableAssistantTurn, record: Extract<Journ
   group.items.push({
     type: 'reasoning',
     id: `reasoning-${record.seq}`,
+    summary: record.summary,
     seq: record.seq,
     timestamp: record.timestamp,
     text: record.text,

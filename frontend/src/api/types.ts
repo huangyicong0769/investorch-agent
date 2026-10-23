@@ -294,6 +294,7 @@ export interface OutputEventAgentChanged {
 export interface OutputEventReasoning {
   type: 'reasoning'
   text: string
+  summary?: string
 }
 
 export interface OutputEventToolCalled {
