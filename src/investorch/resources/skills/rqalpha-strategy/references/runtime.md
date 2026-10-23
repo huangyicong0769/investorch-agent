@@ -83,6 +83,8 @@ Build signals in `before_trading` from completed historical bars by default:
 
 These 21 completed closes support a 20-exchange-trading-day return, `closes[-1] / closes[0] - 1`, ending at the previous session. For momentum over L exchange trading days, request L+1 bars with `skip_suspended=False` and check the returned length. The default `skip_suspended=True` instead counts non-suspended observations; label that different horizon explicitly when intended.
 
+Historical warm-up uses data available before the configured backtest start. On the first simulation day, `history_bars` can already return the completed pre-start bars supplied by the configured source. Establish the first valid signal from actual coverage, returned dates and length, and verify the first observed rebalance in the run artifacts.
+
 In the pinned daily runtime, `history_bars` called during `handle_bar` includes the current daily bar even with `include_now=False`; the flag alone does not establish prior-bar timing. Compute prior-day signals in `before_trading` and use them in `handle_bar`. If intentionally using the current close, state that information/execution assumption explicitly. RQAlpha does not prevent every logical look-ahead error.
 
 Use `bar_dict[stock]` for the current daily `open`, `high`, `low`, `close`, `volume`, and `total_turnover`. A missing normal bar from the configured backtest source is an error; it is not a zero-volume observation. Do not infer minute paths, auction detail, or tick behavior from a daily bar.

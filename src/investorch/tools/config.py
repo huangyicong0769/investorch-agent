@@ -39,7 +39,7 @@ def update_config(
     """
     Update an application configuration value.
 
-    This operation always requires user approval.
+    This operation uses the configured approval policy.
 
     Args:
         key:

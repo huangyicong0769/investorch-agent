@@ -75,7 +75,7 @@ def run_backtest(
     parameters: BacktestOverrides | None = None,
 ) -> dict[str, Any]:
     """
-    Run a Workspace RQAlpha Python strategy after user approval.
+    Run a Workspace RQAlpha Python strategy through the configured approval policy.
 
     The strategy path must be Workspace-relative and dates must use ISO YYYY-MM-DD. An optional benchmark must use its canonical RQAlpha order-book ID. The return contains a compact analyser summary and Workspace-relative result artifact paths. Missing data from the configured backtest source, or a missing required RQAlpha bundle, is reported and is never repaired automatically.
 
