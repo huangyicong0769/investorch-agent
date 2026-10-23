@@ -9,6 +9,7 @@ from typing import Literal
 from agents import Agent
 
 from investorch.agents import ApprovalOutcome, PermissionDecision, PermissionReview, TokenUsage, review_permission
+from investorch.agents.usage import SessionUsageHandler
 from investorch.config import AppConfig
 from investorch.journal import SessionJournal
 from investorch.runtime import ApprovalRequest
@@ -50,8 +51,10 @@ class ApprovalCoordinator:
         manual_handler: ManualApprovalHandler,
         resolved_handler: ApprovalResolvedHandler = _ignore_approval_resolved,
         skills: SkillOperations | None = None,
+        usage_handler: SessionUsageHandler | None = None,
     ) -> None:
         self._skills = skills
+        self._usage_handler = usage_handler
         self._config = config
         self._permission_agent = permission_agent
         self._journal = journal
@@ -61,6 +64,13 @@ class ApprovalCoordinator:
 
     async def handle(self, request: ApprovalRequest) -> ApprovalOutcome:
         review_usage = TokenUsage()
+
+        def record_usage(usage: TokenUsage) -> None:
+            nonlocal review_usage
+            review_usage += usage
+            if self._usage_handler is not None:
+                self._usage_handler(request.session_id, usage)
+
         review_decision: PermissionDecision | None = None
         review_reason = None
         install_arguments = None
@@ -72,9 +82,8 @@ class ApprovalCoordinator:
                 install_arguments = json.loads(request.arguments or "{}")
                 self._skills.validate_install(**install_arguments)
                 result = await self._skills.review_candidate(
-                    install_arguments["candidate_path"], install_arguments["source_type"]
+                    install_arguments["candidate_path"], install_arguments["source_type"], usage_handler=record_usage
                 )
-                review_usage += result.usage
                 skill_decision = result.review.decision
                 review_reason = result.review.reason
             except Exception as exc:
@@ -92,8 +101,9 @@ class ApprovalCoordinator:
             source: ApprovalSource = "user"
         else:
             try:
-                prepared = await self._review_context.prepare(request.session_id, request.instruction_head_seq)
-                review_usage += prepared.usage
+                prepared = await self._review_context.prepare(
+                    request.session_id, request.instruction_head_seq, usage_handler=record_usage
+                )
                 if prepared.instruction_count:
                     review_result = await review_permission(
                         self._permission_agent,
@@ -101,8 +111,8 @@ class ApprovalCoordinator:
                         prepared.text,
                         request.tool_name,
                         request.arguments,
+                        usage_handler=record_usage,
                     )
-                    review_usage += review_result.usage
                     review = review_result.review
                 else:
                     review = PermissionReview(

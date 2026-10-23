@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from agents import Agent, Model, RunConfig, RunContextWrapper, Runner, SQLiteSession, TResponseInputItem, UserError
+from agents.items import ModelResponse
 from agents.lifecycle import RunHooksBase
 from agents.run_config import CallModelData, CallModelInputFilter, ModelInputData
 from agents.tool import FunctionTool, Tool
@@ -24,7 +25,7 @@ from investorch.output.stream import assistant_message_from_result
 from .compact import CompactionResult, compact_session, session_history_restore_failed
 from .continuation import portable_history_filter
 from .title import ensure_session_title
-from .usage import TokenUsage
+from .usage import TokenUsage, UsageTracker
 
 if TYPE_CHECKING:
     from investorch.application.portfolios import PortfolioOperations
@@ -74,10 +75,20 @@ class _SuccessfulToolHooks(RunHooksBase[AgentContext, Agent[AgentContext]]):
         session_id: str,
         run_id: str,
         handler: SuccessfulToolHandler,
+        usage_tracker: UsageTracker,
     ) -> None:
         self._session_id = session_id
         self._run_id = run_id
         self._handler = handler
+        self._usage_tracker = usage_tracker
+
+    async def on_llm_end(
+        self,
+        context: RunContextWrapper[AgentContext],
+        _agent: Agent[AgentContext],
+        _response: ModelResponse,
+    ) -> None:
+        self._usage_tracker.record(context.usage)
 
     async def on_tool_end(
         self,
@@ -152,6 +163,8 @@ class AgentLoop:
         successful_tool_handler: SuccessfulToolHandler = _ignore_successful_tool,
         skills: SkillOperations | None = None,
         preflight_compaction_handler: Callable[[str, CompactionResult], None] | None = None,
+        usage_handler: Callable[[str, TokenUsage, AgentModelConfig | None], None] | None = None,
+        context_handler: Callable[..., None] | None = None,
     ) -> None:
         self._agent = agent
         self._model_factory = model_factory
@@ -162,6 +175,8 @@ class AgentLoop:
         self._skills = skills
         self._successful_tool_handler = successful_tool_handler
         self._preflight_compaction_handler = preflight_compaction_handler
+        self._usage_handler = usage_handler
+        self._context_handler = context_handler
 
     async def run(
         self,
@@ -195,10 +210,26 @@ class AgentLoop:
         if isinstance(run_agent.model, ChatGPTResponsesModel):
             all_tools = await run_agent.get_all_tools(RunContextWrapper(agent_context))
             run_agent = run_agent.clone(tools=chatgpt_tools(all_tools), mcp_servers=[])
+
+        def record_main_usage(usage: TokenUsage) -> None:
+            if self._usage_handler is not None:
+                self._usage_handler(session_id, usage, model_config)
+
+        def record_auxiliary_usage(usage: TokenUsage) -> None:
+            if self._usage_handler is not None:
+                self._usage_handler(session_id, usage, None)
+
+        def record_preflight_usage(usage: TokenUsage) -> None:
+            record_auxiliary_usage(usage)
+            if preflight_usage_handler is not None:
+                preflight_usage_handler(usage)
+
+        main_usage_tracker = UsageTracker(record_main_usage)
         hooks = _SuccessfulToolHooks(
             session_id=session_id,
             run_id=run_id,
             handler=self._successful_tool_handler,
+            usage_tracker=main_usage_tracker,
         )
         # Application-started workflows contain only developer instructions.
         if isinstance(user_input, str):
@@ -219,7 +250,7 @@ class AgentLoop:
             agent_context,
             model_input,
             model_config.context_window_tokens,
-            preflight_usage_handler,
+            record_preflight_usage,
         )
         run_config = RunConfig(call_model_input_filter=_run_model_input_filter(await session.get_items()))
         result = Runner.run_streamed(
@@ -247,6 +278,7 @@ class AgentLoop:
             try:
                 current_agent_name = await consume_run_events(result, stream_output, current_agent_name)
             finally:
+                main_usage_tracker.record(result.context_wrapper.usage)
                 run_control.unbind_stream(result)
 
             sdk_state = result.to_state() if result.interruptions else None
@@ -319,7 +351,9 @@ class AgentLoop:
             # Image generation results are separate SDK items; keep them without
             # repeating the final text already delivered by message_output_created.
             await output_handler(AssistantMessage(text="", images=message.images))
-        title_usage = await ensure_session_title(self._title_agent, session, self._config.sessions_db)
+        title_usage = await ensure_session_title(
+            self._title_agent, session, self._config.sessions_db, usage_handler=record_auxiliary_usage
+        )
         auto_compaction, auto_compaction_failed, consistency_uncertain = await self._auto_compact(
             session, main_usage, model_config.context_window_tokens
         )
@@ -382,7 +416,14 @@ class AgentLoop:
         return result
 
     async def compact(self, session: SQLiteSession) -> CompactionResult:
-        return await compact_session(self._compaction_agent, session, self._config)
+        return await compact_session(
+            self._compaction_agent,
+            session,
+            self._config,
+            usage_handler=(lambda usage: self._usage_handler(session.session_id, usage, None))
+            if self._usage_handler is not None
+            else None,
+        )
 
     async def _auto_compact(
         self, session: SQLiteSession, main_usage: TokenUsage, context_window_tokens: int

@@ -6,6 +6,7 @@ from investorch.application import (
     ApprovalResolvedEvent,
     PortfolioToolSucceededEvent,
 )
+from investorch.application.presentation_state import SessionPresentationState
 from investorch.inputs import UserInput
 from investorch.output import AssistantMessageUpdate
 from investorch.presentation import (
@@ -17,6 +18,7 @@ from investorch.presentation import (
     serialize_run_ended,
     serialize_runtime_output,
     serialize_runtime_snapshot,
+    serialize_session_presentation_state,
 )
 from investorch.runtime import (
     ApprovalRequest,
@@ -39,6 +41,7 @@ class WebEventBridge:
             handle_follow_up=self.handle_follow_up,
             handle_run_ended=self.handle_run_ended,
             handle_runtime_state=self.handle_runtime_state,
+            handle_presentation_state=self.handle_presentation_state,
             handle_user_input_committed=self.handle_user_input_committed,
             handle_approval_resolved=self.handle_approval_resolved,
             handle_activity_label=self.handle_activity_label,
@@ -63,6 +66,15 @@ class WebEventBridge:
 
     def handle_runtime_state(self, snapshot: RuntimeSessionSnapshot) -> None:
         self._connections.publish(serialize_runtime_snapshot(snapshot))
+
+    def handle_presentation_state(self, session_id: str, state: SessionPresentationState) -> None:
+        self._connections.publish(
+            {
+                "kind": "presentation_state",
+                "session_id": session_id,
+                "presentation": serialize_session_presentation_state(state),
+            }
+        )
 
     async def handle_approval_resolved(self, event: ApprovalResolvedEvent) -> None:
         request = event.request

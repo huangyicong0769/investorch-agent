@@ -53,7 +53,7 @@ from .portfolio_context import (
 )
 from .portfolio_sessions import PortfolioSessionWorkflows
 from .portfolios import PortfolioOperations
-from .presentation_state import SessionPresentationStore
+from .presentation_state import PresentationStateHandler, SessionPresentationState, SessionPresentationStore
 from .sessions import SessionOperations
 from .skill_sessions import SkillSessionWorkflows
 from .skills import SkillOperations
@@ -83,6 +83,10 @@ def _ignore_runtime_state(_snapshot: RuntimeSessionSnapshot) -> None:
     pass
 
 
+def _ignore_presentation_state(_session_id: str, _state: SessionPresentationState) -> None:
+    pass
+
+
 async def _ignore_user_input_committed(_session_id: str, _user_input: UserInput, _journal_seq: int) -> None:
     pass
 
@@ -93,6 +97,7 @@ class ApplicationCallbacks:
     handle_follow_up: ApplicationFollowUpHandler = _ignore_follow_up
     handle_run_ended: ApplicationRunEndedHandler = _ignore_run_ended
     handle_runtime_state: ApplicationRuntimeStateHandler = _ignore_runtime_state
+    handle_presentation_state: PresentationStateHandler = _ignore_presentation_state
     handle_user_input_committed: ApplicationUserInputCommittedHandler = _ignore_user_input_committed
     handle_approval_resolved: ApprovalResolvedHandler = _ignore_approval_resolved
     handle_activity_label: ActivityLabelHandler = _ignore_activity_label
@@ -175,7 +180,7 @@ async def open_application_host(
 ) -> AsyncIterator[ApplicationHost]:
     callbacks = callbacks or ApplicationCallbacks()
     journal = SessionJournal(config.session_journal_dir, ZoneInfo(config["runtime.default_timezone"]))
-    presentation_state = SessionPresentationStore()
+    presentation_state = SessionPresentationStore(callbacks.handle_presentation_state)
     await _discard_legacy_unused_sessions(config, journal)
 
     selected_session_id = uuid.uuid4().hex
@@ -243,7 +248,6 @@ async def open_application_host(
                 event.session_id,
                 event.run_id,
             )
-        presentation_state.observe_run_ended(event)
         await callbacks.handle_run_ended(event)
 
     def handle_runtime_state(snapshot: RuntimeSessionSnapshot) -> None:
@@ -251,7 +255,6 @@ async def open_application_host(
         callbacks.handle_runtime_state(snapshot)
 
     async def handle_activity_label(event: ActivityLabelEvent) -> None:
-        presentation_state.add_usage(event.session_id, event.usage)
         await callbacks.handle_activity_label(event)
 
     runtime: AgentRuntime | None = None
@@ -293,7 +296,8 @@ async def open_application_host(
                     model_factory=model_clients.resolve,
                     successful_tool_handler=portfolio_context.observe_successful_tool,
                     skills=skills,
-                    preflight_compaction_handler=presentation_state.observe_preflight_compaction,
+                    usage_handler=presentation_state.add_usage,
+                    context_handler=presentation_state.observe_context,
                 )
                 approvals = ApprovalCoordinator(
                     config=config,
@@ -305,6 +309,7 @@ async def open_application_host(
                     journal=journal,
                     manual_handler=manual_approval_handler,
                     resolved_handler=callbacks.handle_approval_resolved,
+                    usage_handler=presentation_state.add_usage,
                     skills=skills,
                 )
                 runtime = AgentRuntime(
@@ -348,6 +353,7 @@ async def open_application_host(
                         journal=journal,
                         runtime=runtime,
                         label_handler=handle_activity_label,
+                        usage_handler=presentation_state.add_usage,
                     )
                 sessions = SessionOperations(
                     config=config,

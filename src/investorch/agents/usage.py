@@ -1,8 +1,10 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections.abc import Callable
+from dataclasses import dataclass, fields
+from typing import Any
 
-from agents import Usage
+from agents import Agent, ModelResponse, RunContextWrapper, RunHooks, Runner, RunResult, Usage
 
 
 @dataclass(frozen=True, slots=True)
@@ -18,7 +20,8 @@ class TokenUsage:
 
     @classmethod
     def from_sdk(cls, usage: Usage) -> TokenUsage:
-        last_request = usage.request_usage_entries[-1] if usage.request_usage_entries else None
+        # SDK retry entries may contain no reported tokens; they are not a zero-sized context.
+        last_request = next((entry for entry in reversed(usage.request_usage_entries) if entry.total_tokens > 0), None)
         return cls(
             requests=usage.requests,
             input_tokens=usage.input_tokens,
@@ -45,3 +48,49 @@ class TokenUsage:
                 else self.last_request_total_tokens
             ),
         )
+
+
+UsageHandler = Callable[[TokenUsage], None]
+SessionUsageHandler = Callable[[str, TokenUsage], None]
+_USAGE_COUNTERS = tuple(field.name for field in fields(TokenUsage) if field.name != "last_request_total_tokens")
+
+
+class UsageTracker(RunHooks):
+    """Publish each completed request once, reconciling cumulative SDK usage on exit."""
+
+    def __init__(self, handler: UsageHandler | None = None) -> None:
+        self._handler = handler
+        self.usage = TokenUsage()
+        self._request_entries = 0
+
+    def record(self, usage: Usage) -> None:
+        current = TokenUsage.from_sdk(usage)
+        counters = {name: max(0, getattr(current, name) - getattr(self.usage, name)) for name in _USAGE_COUNTERS}
+        new_entries = usage.request_usage_entries[self._request_entries :]
+        self._request_entries = max(self._request_entries, len(usage.request_usage_entries))
+        if not any(counters.values()):
+            return
+        last_request = next((entry for entry in reversed(new_entries) if entry.total_tokens > 0), None)
+        delta = TokenUsage(
+            **counters, last_request_total_tokens=last_request.total_tokens if last_request is not None else None
+        )
+        self.usage += delta
+        if self._handler is not None:
+            self._handler(delta)
+
+    async def on_llm_end(self, context: RunContextWrapper, agent: Agent, response: ModelResponse) -> None:
+        self.record(context.usage)
+
+
+async def run_with_usage(
+    agent: Agent, input: Any, *, usage_handler: UsageHandler | None = None, **kwargs: Any
+) -> RunResult:
+    """Retain usage even when response validation fails before the SDK's end hook."""
+    context = kwargs.pop("context", None)
+    if not isinstance(context, RunContextWrapper):
+        context = RunContextWrapper(context=context)
+    tracker = UsageTracker(usage_handler)
+    try:
+        return await Runner.run(agent, input, context=context, hooks=tracker, **kwargs)
+    finally:
+        tracker.record(context.usage)

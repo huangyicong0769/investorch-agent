@@ -182,6 +182,14 @@ def serialize_queue_item(item: QueuedInput) -> dict[str, object]:
 def serialize_session_presentation_state(state: SessionPresentationState) -> dict[str, object]:
     return {
         "usage": serialize_token_usage(state.usage),
+        "main_usage": serialize_token_usage(state.main_usage),
+        "auxiliary_usage": serialize_token_usage(state.auxiliary_usage),
+        "context_window_tokens": state.context_window_tokens,
+        "context_model": state.context_model,
+        "context_kind": state.context_kind,
+        "compacting": state.compacting,
+        "epoch": state.epoch,
+        "revision": state.revision,
         "main_context_tokens": state.main_context_tokens,
         "last_todo_run_id": state.last_todo_run_id,
         "last_todos": [{"content": todo["content"], "status": todo["status"]} for todo in state.last_todos],

@@ -1,11 +1,11 @@
 from dataclasses import dataclass
 from typing import Literal
 
-from agents import Agent, ModelSettings, Runner
+from agents import Agent, ModelSettings
 from pydantic import BaseModel
 
 from .prompts import SKILL_REVIEW_INSTRUCTIONS
-from .usage import TokenUsage
+from .usage import TokenUsage, UsageHandler, run_with_usage
 
 
 class SkillSafetyReview(BaseModel):
@@ -31,8 +31,10 @@ def create_skill_review_agent(model, model_settings: ModelSettings) -> Agent:
     )
 
 
-async def review_skill(agent: Agent, candidate_input: str) -> SkillReviewResult:
-    result = await Runner.run(agent, candidate_input)
+async def review_skill(
+    agent: Agent, candidate_input: str, *, usage_handler: UsageHandler | None = None
+) -> SkillReviewResult:
+    result = await run_with_usage(agent, candidate_input, usage_handler=usage_handler)
     review = result.final_output
     if not isinstance(review, SkillSafetyReview):
         raise ValueError("Skill Review Agent returned invalid structured output")

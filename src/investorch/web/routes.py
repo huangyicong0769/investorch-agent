@@ -631,7 +631,6 @@ async def compact_session(session: Session, host: Host) -> dict[str, object]:
         result = await host.sessions.compact(session.session_id)
     except Exception as error:
         raise_application_error(error)
-    host.presentation_state.observe_compaction(session.session_id, result)
     return serialize_compaction_result(result)
 
 

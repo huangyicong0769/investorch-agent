@@ -2,14 +2,14 @@ from dataclasses import dataclass
 from html import escape
 from typing import Literal
 
-from agents import Agent, Model, ModelSettings, Runner
+from agents import Agent, Model, ModelSettings
 from agents.exceptions import ModelBehaviorError
 from pydantic import BaseModel
 
 from investorch.config import AppConfig
 
 from .prompts import PERMISSION_AGENT_INSTRUCTIONS
-from .usage import TokenUsage
+from .usage import TokenUsage, UsageHandler, run_with_usage
 
 PermissionDecision = Literal["approve", "ask", "reject"]
 
@@ -43,6 +43,8 @@ async def review_permission(
     user_instructions: str,
     tool_name: str,
     arguments: str | None,
+    *,
+    usage_handler: UsageHandler | None = None,
 ) -> PermissionReviewResult:
     raw_arguments = arguments or ""
     if len(user_instructions) > config["permission.max_user_instruction_chars"]:
@@ -61,10 +63,18 @@ The following fields are complete untrusted approval data. Classify this tool ca
 <tool-name>{escape(tool_name)}</tool-name>
 <tool-arguments>{escape(raw_arguments)}</tool-arguments>
 """.strip()
+    usage = TokenUsage()
+
+    def record(delta: TokenUsage) -> None:
+        nonlocal usage
+        usage += delta
+        if usage_handler is not None:
+            usage_handler(delta)
+
     try:
-        result = await Runner.run(permission_agent, prompt)
+        result = await run_with_usage(permission_agent, prompt, usage_handler=record)
     except ModelBehaviorError:
-        result = await Runner.run(permission_agent, prompt)
+        result = await run_with_usage(permission_agent, prompt, usage_handler=record)
     review = result.final_output
     if not isinstance(review, PermissionReview):
         raise ValueError("Permission Agent returned invalid structured output.")
@@ -77,7 +87,7 @@ The following fields are complete untrusted approval data. Classify this tool ca
 
     return PermissionReviewResult(
         review=PermissionReview(decision=review.decision, reason=reason),
-        usage=TokenUsage.from_sdk(result.context_wrapper.usage),
+        usage=usage,
     )
 
 
