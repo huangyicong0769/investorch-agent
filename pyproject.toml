@@ -41,10 +41,10 @@ Documentation = "https://github.com/huangyicong0769/investorch-agent#readme"
 Issues = "https://github.com/huangyicong0769/investorch-agent/issues"
 Repository = "https://github.com/huangyicong0769/investorch-agent.git"
 
-[project.optional-dependencies]
-cnequity = [
-    "cnequity==0.18.0",
-]
+# [project.optional-dependencies]
+# cnequity = [
+#     "cnequity==0.7.3",
+# ]
 
 [project.scripts]
 investorch = "investorch.__main__:entrypoint"
