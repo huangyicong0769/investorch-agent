@@ -788,6 +788,10 @@ export function LiveWebSocketProvider({ children }: PropsWithChildren) {
     if (event.session_id === selectedSessionRef.current) {
       if (event.kind === 'output' && event.event.type === 'assistant_message_update') {
         const message = event.event
+        if (!message.text) {
+          setStreamingState((current) => current?.message.message_id === message.message_id ? null : current)
+          return
+        }
         setStreamingState((current) => ({
           sessionId: event.session_id,
           runId: event.run_id,

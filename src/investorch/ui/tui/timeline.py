@@ -253,6 +253,11 @@ class ChatTimeline(VerticalScroll):
             return
         follow_output = self.is_vertical_scroll_end
         message = self._streaming_messages.get(message_id)
+        if not text:
+            if message is not None:
+                self._streaming_messages.pop(message_id)
+                await message.remove()
+            return
         if message is None:
             turn = await self._ensure_assistant_turn()
             self._finish_activity()

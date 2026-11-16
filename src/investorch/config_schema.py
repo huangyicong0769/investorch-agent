@@ -13,6 +13,7 @@ from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, field_valida
 ReasoningEffort = Literal["none", "minimal", "low", "medium", "high", "xhigh", "max"]
 PermissionMode = Literal["manual", "review"]
 FollowUpBehavior = Literal["steer", "queue"]
+SafetyLevel = Literal["low", "high"]
 REQUIRED_AGENT_ROLES = ("main", "activity", "permission", "compact")
 REASONING_EFFORTS = get_args(ReasoningEffort)
 PERMISSION_MODES = get_args(PermissionMode)
@@ -125,6 +126,7 @@ class AgentModelSchema(ConfigSection):
     web_search: bool = restart(True)
     read_url: bool = restart(True)
     auto_title: bool = restart(True)
+    safety_check: SafetyLevel | None = restart(None)
 
 
 class OAuthRotationSchema(ConfigSection):

@@ -8,6 +8,7 @@ from collections.abc import Iterable
 from openai import APIConnectionError, APIStatusError, APITimeoutError
 
 from investorch.agents import ContextBudgetError
+from investorch.llm.deepseek import DeepSeekResponseError
 from investorch.llm.models import ChatGPTInferenceError
 from investorch.llm.oauth import ChatGPTAuthError
 
@@ -15,7 +16,7 @@ from investorch.llm.oauth import ChatGPTAuthError
 def format_run_error(error: Exception, *, secrets: Iterable[str] = ()) -> str:
     """Select public exception information; never serialize requests or tracebacks."""
     name = type(error).__name__
-    if isinstance(error, (ContextBudgetError, ChatGPTInferenceError, ChatGPTAuthError)):
+    if isinstance(error, (ContextBudgetError, ChatGPTInferenceError, ChatGPTAuthError, DeepSeekResponseError)):
         message = str(error)
     elif isinstance(error, APITimeoutError):
         message = "APITimeoutError: The model request timed out."

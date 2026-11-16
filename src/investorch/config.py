@@ -28,6 +28,7 @@ from investorch.config_schema import (
 from investorch.config_schema import (
     AppConfigSchema,
     OAuthCredentialSchema,
+    SafetyLevel,
     config_field_metadata,
     is_deepseek_connection,
     resolve_under_root,
@@ -58,6 +59,7 @@ class AgentModelConfig:
     web_search: bool = True
     read_url: bool = True
     auto_title: bool = True
+    safety_check: SafetyLevel | None = None
 
     def __post_init__(self) -> None:
         if not self.model or not self.name or self.reasoning_effort not in REASONING_EFFORTS:
@@ -235,6 +237,7 @@ class AppConfig:
             web_search=base.web_search if web_search is None else web_search,
             read_url=base.read_url if read_url is None else read_url,
             auto_title=base.auto_title if auto_title is None else auto_title,
+            safety_check=base.safety_check,
         )
 
     def secret(self, name: str) -> str:

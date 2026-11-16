@@ -23,6 +23,7 @@ from openai.types.responses import (
 )
 
 from investorch.images import ImageContent, detect_image_media_type
+from investorch.llm.deepseek import response_error
 
 from .events import (
     AgentChanged,
@@ -115,12 +116,33 @@ async def consume_run_events(
     completed_messages: Counter[tuple[str, str]] = Counter()
     pending_web_calls: dict[str, ResponseFunctionWebSearch] = {}
     completed_web_calls: set[str] = set()
+    response_confirmed = not deepseek
+    pending_response_output: list[AssistantMessage | Reasoning] = []
     loop = asyncio.get_running_loop()
+
+    async def emit_response_output(event: AssistantMessage | Reasoning) -> None:
+        if response_confirmed:
+            await output_handler(event)
+        else:
+            pending_response_output.append(event)
+
+    async def discard_response_output() -> None:
+        message_ids = {message.message_id for message in pending_messages.values()}
+        message_ids.update(
+            event.message_id
+            for event in pending_response_output
+            if isinstance(event, AssistantMessage) and event.message_id is not None
+        )
+        pending_messages.clear()
+        pending_reasoning.clear()
+        pending_response_output.clear()
+        for message_id in message_ids:
+            await output_handler(AssistantMessageUpdate(message_id, ""))
 
     async def flush_reasoning() -> None:
         for item_id, pending in pending_reasoning.items():
             if pending.display_text:
-                await output_handler(Reasoning(text=pending.display_text, summary=pending.summary_text or None))
+                await emit_response_output(Reasoning(text=pending.display_text, summary=pending.summary_text or None))
                 emitted_reasoning.add(item_id)
         pending_reasoning.clear()
 
@@ -208,6 +230,7 @@ async def consume_run_events(
                     await flush_messages()
                     completed_messages.clear()
                     completed_web_calls.clear()
+                    response_confirmed = not deepseek
                 elif (
                     deepseek
                     and isinstance(event.data, ResponseOutputItemAddedEvent)
@@ -221,6 +244,13 @@ async def consume_run_events(
                         await response_handler(event.data.response)
                     for item in event.data.response.output or ():
                         await record_web_call(item)
+                    if (failure := response_error(event.data.response)) is not None:
+                        await discard_response_output()
+                        raise failure
+                    response_confirmed = True
+                    for output in pending_response_output:
+                        await output_handler(output)
+                    pending_response_output.clear()
                 elif isinstance(event.data, ResponseTextDeltaEvent):
                     await flush_reasoning()
                     delta = event.data
@@ -250,7 +280,7 @@ async def consume_run_events(
                     text = _message_text(item)
                     pending = pending_messages.pop(event.data.output_index, None)
                     completed_messages[item.id, text] += 1
-                    await output_handler((pending or _PendingMessage(item.id)).finish(item, deepseek=deepseek))
+                    await emit_response_output((pending or _PendingMessage(item.id)).finish(item, deepseek=deepseek))
                 continue
 
             if event.type != "run_item_stream_event":
@@ -299,7 +329,10 @@ async def consume_run_events(
             await asyncio.gather(next_event, return_exceptions=True)
         for call in list(pending_web_calls.values()):
             await record_web_call(call, incomplete=True)
-        await flush_messages()
+        if response_confirmed:
+            await flush_messages()
+        else:
+            await discard_response_output()
 
     await flush_reasoning()
     return current_agent_name

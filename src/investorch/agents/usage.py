@@ -6,6 +6,8 @@ from typing import Any
 
 from agents import Agent, ModelResponse, RunContextWrapper, RunHooks, Runner, RunResult, Usage
 
+from investorch.llm.deepseek import DeepSeekResponseError
+
 
 @dataclass(frozen=True, slots=True)
 class TokenUsage:
@@ -129,5 +131,9 @@ async def run_with_usage(
     tracker = UsageTracker(usage_handler)
     try:
         return await Runner.run(agent, input, context=context, hooks=tracker, **kwargs)
+    except DeepSeekResponseError as error:
+        if isinstance(error.usage, dict) and usage_handler is not None:
+            usage_handler(TokenUsage.from_deepseek(error.usage, include_tokens=True))
+        raise
     finally:
         tracker.record(context.usage)

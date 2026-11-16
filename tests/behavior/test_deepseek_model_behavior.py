@@ -10,6 +10,7 @@ from openai import AsyncOpenAI
 from investorch.application import ApplicationCallbacks, open_application_host
 from investorch.journal import read_session_journal
 from investorch.llm.clients import ModelConnectionClients
+from investorch.llm.deepseek import DeepSeekResponseError
 from investorch.output import consume_run_events, serialize_output_event
 from investorch.storage import get_session_title
 from tests.support.config import make_test_config
@@ -78,6 +79,100 @@ def install_deepseek_http(monkeypatch, handle):
 
 async def approve(*_):
     return True
+
+
+@pytest.mark.parametrize("completed_with_refusal", [False, True])
+async def test_safety_refusal_discards_the_streamed_answer_and_accounts_usage(
+    tmp_path, monkeypatch, completed_with_refusal
+):
+    config = make_test_config(
+        tmp_path,
+        {
+            "models": {"test": {"type": "deepseek"}},
+            "agents": {"main": {"name": "deepseek-flash", "safety_check": "high"}},
+        },
+    )
+    pending = message("unreviewed draft")
+    refusal = {**pending, "content": [{"type": "refusal", "refusal": "private-review-detail"}]}
+    payload = (
+        response([refusal], title="A blocked title")
+        if completed_with_refusal
+        else response([], status="incomplete", incomplete_details={"reason": "content_filter"})
+    )
+    payload["usage"]["output_tokens_details"]["safety_tokens"] = 5
+    payload["usage"]["server_tool_use"] = {"tool_search": 1}
+
+    def handle(request):
+        assert json.loads(request.content)["safety_check"] == {"level": "high"}
+        return sse(
+            payload,
+            {
+                "type": "response.output_text.delta",
+                "item_id": pending["id"],
+                "output_index": 0,
+                "content_index": 0,
+                "delta": "unreviewed draft",
+                "logprobs": [],
+            },
+            {"type": "response.output_item.done", "output_index": 0, "item": pending},
+        )
+
+    install_deepseek_http(monkeypatch, handle)
+    async with open_application_host(config, manual_approval_handler=approve, enable_activity=False) as host:
+        session_id = await host.sessions.create()
+        with pytest.raises(DeepSeekResponseError, match="withheld the answer"):
+            await host.runtime.start_run(session_id, "Review this request", run_options()).task
+        assert not get_session_title(config.sessions_db, session_id)
+        records = read_session_journal(config.session_journal_dir, session_id)
+        (ended,) = [record for record in records if record["type"] == "run_ended"]
+        assert ended["status"] == "failed"
+        assert ended["main_usage"]["tool_search"] == 1
+        assert ended["main_usage"]["safety_output_tokens"] == 5
+        assert ended["main_usage"]["total_tokens"] == 18
+        assert "unreviewed draft" not in repr(records)
+        assert "private-review-detail" not in repr(records)
+
+
+async def test_nonstream_title_and_input_safety_are_handled_by_the_model(tmp_path):
+    config = make_test_config(
+        tmp_path,
+        {
+            "models": {"test": {"type": "deepseek"}},
+            "agents": {"main": {"name": "deepseek-flash", "safety_check": "low"}},
+        },
+    )
+    rejected = False
+
+    def handle(request):
+        body = json.loads(request.content)
+        assert body["safety_check"] == {"level": "low"}
+        assert body["title"] == {"enabled": True}
+        if rejected:
+            return httpx2.Response(400, json={"error": {"message": "Content Exists Risk: private-review-detail"}})
+        return httpx2.Response(200, json=response([message()], title="Non-streamed title"))
+
+    clients = ModelConnectionClients(
+        config,
+        None,
+        client_factory=lambda **kwargs: AsyncOpenAI(
+            **kwargs,
+            http_client=httpx2.AsyncClient(transport=httpx2.MockTransport(handle)),
+        ),
+    )
+    try:
+        agent = Agent(
+            name="Main",
+            model=clients.resolve(config.agent_model("main")),
+            model_settings=ModelSettings(extra_body={"title": {"enabled": True}}),
+        )
+        result = await Runner.run(agent, "Hello", run_config={"tracing_disabled": True})
+        assert result.raw_responses[-1].title == "Non-streamed title"
+        rejected = True
+        with pytest.raises(DeepSeekResponseError, match="input safety review") as error:
+            await Runner.run(agent, "Reject this", run_config={"tracing_disabled": True})
+        assert "private-review-detail" not in str(error.value)
+    finally:
+        await clients.close()
 
 
 @pytest.mark.parametrize("cancel_run", [False, True])

@@ -20,7 +20,7 @@ from investorch.config import AgentModelConfig, AppConfig
 from investorch.config_schema import DEEPSEEK_FLASH_MODELS
 from investorch.context import AgentContext, ExecutionState, TodoUpdateHandler
 from investorch.inputs import UserInput
-from investorch.llm.deepseek import DeepSeekResponsesModel, response_title
+from investorch.llm.deepseek import DeepSeekResponseError, DeepSeekResponsesModel, response_title
 from investorch.llm.models import ChatGPTResponsesModel, chatgpt_tools
 from investorch.output import AssistantMessage, OutputEvent, OutputHandler, consume_run_events
 from investorch.output.stream import assistant_message_from_result
@@ -284,9 +284,11 @@ class AgentLoop:
         provider_usage = TokenUsage()
         title_requested = False
         native_title = None
+        terminal_failure_observed = False
 
         async def observe_response(response: Response) -> None:
-            nonlocal provider_usage, native_title
+            nonlocal provider_usage, native_title, terminal_failure_observed
+            terminal_failure_observed = response.status in {"failed", "incomplete"}
             if response.usage is not None:
                 delta = TokenUsage.from_deepseek(
                     response.usage.model_dump(mode="json", exclude_unset=True),
@@ -408,6 +410,10 @@ class AgentLoop:
                     current_agent_name = await consume_run_events(
                         result, stream_output, current_agent_name, deepseek=deepseek, response_handler=observe_response
                     )
+                except DeepSeekResponseError as error:
+                    if isinstance(error.usage, dict) and not terminal_failure_observed:
+                        record_main_usage(TokenUsage.from_deepseek(error.usage, include_tokens=True))
+                    raise
                 finally:
                     main_usage_tracker.record(result.context_wrapper.usage)
                     run_control.unbind_stream(result)
