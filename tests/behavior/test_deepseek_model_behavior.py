@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import json
 from dataclasses import replace
 
@@ -253,6 +254,50 @@ async def test_native_title_does_not_overwrite_a_manual_rename(tmp_path, monkeyp
             release.set()
         await run.task
         assert get_session_title(config.sessions_db, session_id) == "Manual title"
+
+
+async def test_flash_continues_a_session_after_a_local_tool_returns_an_image(tmp_path, monkeypatch):
+    config = make_test_config(
+        tmp_path, {"models": {"test": {"type": "deepseek"}}, "agents": {"main": {"name": "deepseek-flash"}}}
+    )
+    image = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aX1cAAAAASUVORK5CYII="
+    (config.workspace_dir / "fixture.png").write_bytes(base64.b64decode(image))
+    call = {
+        "id": "fc_explore",
+        "call_id": "call_explore",
+        "type": "function_call",
+        "name": "explore",
+        "arguments": '{"operation":"read","path":"fixture.png","query":"","start_line":0,"end_line":0}',
+        "status": "completed",
+    }
+    native_web = {"deepseek_web_search", "deepseek_read_url"}
+    image_data = f"data:image/png;base64,{image}"
+    requests_with_image = 0
+
+    def handle(request):
+        nonlocal requests_with_image
+        body = json.loads(request.content)
+        tools = {tool["type"] for tool in body["tools"]}
+        if not any(item.get("call_id") == "call_explore" for item in body["input"]):
+            assert native_web <= tools
+            assert body["title"] == {"enabled": True}
+            return sse(response([call]))
+        output = next(item for item in body["input"] if item.get("type") == "function_call_output")
+        assert any(part.get("image_url") == image_data for part in output["output"])
+        requests_with_image += 1
+        if native_web & tools or "title" in body:
+            return httpx2.Response(400, json={"error": {"message": "Only text is supported in function_call_output."}})
+        payload = response([message()])
+        return sse(payload) if body.get("stream") else httpx2.Response(200, json=payload)
+
+    install_deepseek_http(monkeypatch, handle)
+    async with open_application_host(config, manual_approval_handler=approve, enable_activity=False) as host:
+        session_id = await host.sessions.create()
+        first = await host.runtime.start_run(session_id, "Read fixture.png", run_options()).task
+        assert first.output == "完成"
+        follow_up = await host.runtime.start_run(session_id, "Continue with the image", run_options()).task
+        assert follow_up.output == "完成"
+        assert requests_with_image >= 2
 
 
 async def test_streamed_citations_are_positioned_by_code_point_and_kept_once(tmp_path):

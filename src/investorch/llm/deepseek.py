@@ -23,6 +23,18 @@ def response_title(response: Response) -> str | None:
     return (title.strip() or None) if isinstance(title, str) else None
 
 
+def _has_tool_image(items: list[TResponseInputItem]) -> bool:
+    for item in items:
+        if item.get("type") not in {"function_call_output", "custom_tool_call_output"}:
+            continue
+        parts = item.get("output")
+        if isinstance(parts, list) and any(
+            isinstance(part, dict) and part.get("type") == "input_image" for part in parts
+        ):
+            return True
+    return False
+
+
 @dataclass
 class DeepSeekModelResponse(ModelResponse):
     title: str | None = None
@@ -100,10 +112,18 @@ class DeepSeekResponsesModel(OpenAIResponsesModel):
             extra.pop("safety_check", None)
             request["extra_body"] = extra or None
             return request
-        if self._session_title_requested:
-            extra["title"] = {"enabled": True}
         if self._selected.safety_check is not None:
             extra["safety_check"] = {"level": self._selected.safety_check}
+        if _has_tool_image(request["input"]):
+            # The hosted extensions require text-only tool results. Keep ordinary user attachments distinct.
+            safety = extra.get("safety_check")
+            if isinstance(safety, dict) and safety.get("level") == "high":
+                raise DeepSeekResponseError("DeepSeek high content safety review requires text-only tool results.")
+            extra.pop("title", None)
+            request["extra_body"] = extra or None
+            return request
+        if self._session_title_requested:
+            extra["title"] = {"enabled": True}
         hosted = []
         if self._selected.web_search:
             hosted.append({"type": "deepseek_web_search"})
