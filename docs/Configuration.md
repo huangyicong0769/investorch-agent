@@ -89,6 +89,8 @@ Copying Main settings in **Agent Defaults** preserves the auxiliary roles’ web
 
 With thinking off, a Run with client tools omits native web search, URL reading, native title requests and explicit safety review. Enabling thinking lets Flash use these features alongside local tools. A request without client tools can use non-thinking search. Structured-output requests use the standard Responses format.
 
+When a Flash request contains an image returned by a local tool, including one replayed from Session history, InvestOrch keeps the image and local tools and defers native web search, URL reading and titles. User attachments can still use native web. High content safety review requires text-only local tool results.
+
 Web and TUI use the returned events to update each tool call. The `kind` field distinguishes Flash search, page reading and image search. Usage shows billed operations and reported safety tokens. The provider decides when to search and may charge for tools used before a failure. [DeepSeek Web Tools](https://api-docs.deepseek.com/guides/web_tools) · [Models and pricing](https://api-docs.deepseek.com/quick_start/pricing/)
 
 Main continuation with DeepSeek Responses reuses the original web calls with their IDs, `kind` and `signature`. When a signed web round exists, Compact retains the latest one. The Title Agent receives portable conversation history with DeepSeek-specific web items and reasoning removed.
