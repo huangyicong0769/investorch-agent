@@ -209,13 +209,15 @@ function outputEvent(value: unknown): OutputEvent | null {
     }
     case 'assistant_message': {
       const text = stringField(value, 'text')
+      const displayText = stringField(value, 'display_text')
       const messageId = stringField(value, 'message_id')
-      return text === null ? null : { type: 'assistant_message', text, images: imageContents(value.images), ...(messageId ? { message_id: messageId } : {}) }
+      return text === null ? null : { type: 'assistant_message', text, images: imageContents(value.images), ...(messageId ? { message_id: messageId } : {}), ...(displayText ? { display_text: displayText } : {}) }
     }
     case 'assistant_message_update': {
       const text = stringField(value, 'text')
+      const displayText = stringField(value, 'display_text')
       const messageId = stringField(value, 'message_id')
-      return text === null || !messageId ? null : { type: 'assistant_message_update', text, message_id: messageId }
+      return text === null || !messageId ? null : { type: 'assistant_message_update', text, message_id: messageId, ...(displayText ? { display_text: displayText } : {}) }
     }
     default:
       return null
@@ -789,6 +791,7 @@ export function LiveWebSocketProvider({ children }: PropsWithChildren) {
           runId: event.run_id,
           message: {
             ...message,
+            text: message.display_text ?? message.text,
             timestamp: current?.message.message_id === message.message_id ? current.message.timestamp : receivedAt(),
           },
         }))

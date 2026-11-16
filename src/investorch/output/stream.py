@@ -3,13 +3,14 @@ import base64
 import binascii
 import uuid
 from collections import Counter
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from agents import ToolOutputImage, ToolOutputText
 from openai.types.responses import (
     ResponseCreatedEvent,
     ResponseOutputItemDoneEvent,
     ResponseOutputMessage,
+    ResponseOutputTextAnnotationAddedEvent,
     ResponseReasoningItem,
     ResponseReasoningSummaryTextDeltaEvent,
     ResponseReasoningTextDeltaEvent,
@@ -26,6 +27,7 @@ from .events import (
     Reasoning,
     ToolCalled,
     ToolOutput,
+    UrlCitation,
 )
 
 
@@ -34,12 +36,45 @@ class _PendingMessage:
     provider_id: str
     message_id: str = field(default_factory=lambda: uuid.uuid4().hex)
     parts: dict[int, list[str]] = field(default_factory=dict)
+    annotations: dict[int, dict[tuple[int, int, str], UrlCitation]] = field(default_factory=dict)
     next_update_at: float = 0
     dirty: bool = False
 
     @property
     def text(self) -> str:
         return "".join(part for index in sorted(self.parts) for part in self.parts[index])
+
+    def add_annotation(self, index: int, annotation: object) -> None:
+        if (citation := UrlCitation.from_annotation(annotation)) is not None:
+            key = (citation.start_index, citation.end_index, citation.url)
+            self.annotations.setdefault(index, {})[key] = citation
+            self.dirty = True
+
+    @property
+    def citations(self) -> tuple[UrlCitation, ...]:
+        citations = []
+        offset = 0
+        for index, chunks in sorted(self.parts.items()):
+            count = sum(map(len, chunks))
+            citations.extend(
+                replace(citation, start_index=offset + citation.start_index, end_index=offset + citation.end_index)
+                for citation in self.annotations.get(index, {}).values()
+                if citation.end_index <= count
+            )
+            offset += count
+        return tuple(citations)
+
+    def finish(self, item: ResponseOutputMessage, *, deepseek: bool) -> AssistantMessage:
+        self.parts = {index: [part.text] for index, part in enumerate(item.content) if part.type == "output_text"}
+        if deepseek:
+            for index, part in enumerate(item.content):
+                if part.type == "output_text":
+                    for annotation in part.annotations or ():
+                        self.add_annotation(index, annotation)
+        return self.message()
+
+    def message(self) -> AssistantMessage:
+        return AssistantMessage(text=self.text, message_id=self.message_id, citations=self.citations)
 
 
 def _message_text(message: ResponseOutputMessage) -> str:
@@ -65,6 +100,8 @@ async def consume_run_events(
     result,
     output_handler: OutputHandler,
     current_agent_name: str,
+    *,
+    deepseek: bool = False,
 ) -> str:
     pending_reasoning: dict[str, _PendingReasoning] = {}
     emitted_reasoning: set[str] = set()
@@ -92,7 +129,7 @@ async def consume_run_events(
     async def flush_updates() -> None:
         for pending in pending_messages.values():
             if pending.dirty and loop.time() >= pending.next_update_at:
-                await output_handler(AssistantMessageUpdate(message_id=pending.message_id, text=pending.text))
+                await output_handler(AssistantMessageUpdate(pending.message_id, pending.text, pending.citations))
                 pending.dirty = False
                 pending.next_update_at = loop.time() + 0.05
 
@@ -102,7 +139,7 @@ async def consume_run_events(
         for index in list(pending_messages):
             pending = pending_messages.pop(index)
             if pending.text:
-                await output_handler(AssistantMessage(text=pending.text, message_id=pending.message_id))
+                await output_handler(pending.message())
 
     stream = result.stream_events().__aiter__()
     next_event = None
@@ -155,6 +192,13 @@ async def consume_run_events(
                     pending.parts.setdefault(delta.content_index, []).append(delta.delta)
                     pending.dirty = True
                     await flush_updates()
+                elif deepseek and isinstance(event.data, ResponseOutputTextAnnotationAddedEvent):
+                    annotation = event.data
+                    if annotation.output_index not in pending_messages:
+                        pending_messages[annotation.output_index] = _PendingMessage(annotation.item_id)
+                    pending_messages[annotation.output_index].add_annotation(
+                        annotation.content_index, annotation.annotation
+                    )
                 elif isinstance(event.data, ResponseOutputItemDoneEvent) and isinstance(
                     event.data.item, ResponseReasoningItem
                 ):
@@ -168,9 +212,7 @@ async def consume_run_events(
                     text = _message_text(item)
                     pending = pending_messages.pop(event.data.output_index, None)
                     completed_messages[item.id, text] += 1
-                    await output_handler(
-                        AssistantMessage(text=text, message_id=pending.message_id if pending else uuid.uuid4().hex)
-                    )
+                    await output_handler((pending or _PendingMessage(item.id)).finish(item, deepseek=deepseek))
                 continue
 
             if event.type != "run_item_stream_event":
@@ -209,10 +251,7 @@ async def consume_run_events(
                         index: message for index, message in pending_messages.items() if message is not pending
                     }
                 await output_handler(
-                    AssistantMessage(
-                        text=text,
-                        message_id=pending.message_id if pending else uuid.uuid4().hex,
-                    )
+                    (pending or _PendingMessage(item.raw_item.id)).finish(item.raw_item, deepseek=deepseek)
                 )
     finally:
         if next_event is not None:

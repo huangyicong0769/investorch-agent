@@ -1,3 +1,5 @@
+from dataclasses import asdict
+
 from investorch.images import serialize_images
 
 from .events import (
@@ -8,7 +10,17 @@ from .events import (
     Reasoning,
     ToolCalled,
     ToolOutput,
+    render_citations,
 )
+
+
+def _citation_fields(event: AssistantMessage | AssistantMessageUpdate) -> dict[str, object]:
+    if not event.citations:
+        return {}
+    return {
+        "citations": [asdict(citation) for citation in event.citations],
+        "display_text": render_citations(event.text, event.citations),
+    }
 
 
 def serialize_output_event(event: OutputEvent) -> dict[str, object]:
@@ -28,10 +40,16 @@ def serialize_output_event(event: OutputEvent) -> dict[str, object]:
         return {
             "type": "assistant_message",
             "text": event.text,
+            **_citation_fields(event),
             **({"message_id": event.message_id} if event.message_id is not None else {}),
             **({"images": serialize_images(event.images)} if event.images else {}),
         }
     if isinstance(event, AssistantMessageUpdate):
-        return {"type": "assistant_message_update", "message_id": event.message_id, "text": event.text}
+        return {
+            "type": "assistant_message_update",
+            "message_id": event.message_id,
+            "text": event.text,
+            **_citation_fields(event),
+        }
 
     raise TypeError(f"Unsupported output event: {type(event).__name__}")

@@ -369,7 +369,9 @@ class AgentLoop:
             while True:
                 run_control.bind_stream(result)
                 try:
-                    current_agent_name = await consume_run_events(result, stream_output, current_agent_name)
+                    current_agent_name = await consume_run_events(
+                        result, stream_output, current_agent_name, deepseek=deepseek
+                    )
                 finally:
                     main_usage_tracker.record(result.context_wrapper.usage)
                     run_control.unbind_stream(result)

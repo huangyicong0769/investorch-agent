@@ -459,7 +459,7 @@ export function projectTimeline(records: readonly JournalRecord[]): TimelineView
         id: `assistant-message-${record.message_id ?? record.seq}`,
         seq: record.seq,
         timestamp: record.timestamp,
-        text: record.text,
+        text: record.display_text ?? record.text,
         images: record.images ?? [],
       }
       activeTurn.view.content.push(message)

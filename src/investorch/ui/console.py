@@ -10,6 +10,7 @@ from investorch.output import (
     ToolCalled,
     ToolOutput,
 )
+from investorch.output.events import render_citations
 
 
 class ConsoleUI:
@@ -85,7 +86,7 @@ class ConsoleRenderer:
                 "observation", "\n".join([event.output, *(image_summary(image) for image in event.images)]).strip()
             )
         elif isinstance(event, AssistantMessage):
-            self._ui.write(f"Agent: {event.text}")
+            self._ui.write(f"Agent: {render_citations(event.text, event.citations)}")
             for image in event.images:
                 self._ui.write(image_summary(image))
 

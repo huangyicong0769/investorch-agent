@@ -8,6 +8,7 @@ from openai import AsyncOpenAI
 
 from investorch.application import open_application_host
 from investorch.llm.clients import ModelConnectionClients
+from investorch.output import consume_run_events, serialize_output_event
 from tests.support.config import make_test_config
 from tests.support.runtime import run_options
 
@@ -57,6 +58,60 @@ def sse(payload, *events):
             f"data: {json.dumps({**event, 'sequence_number': index})}\n\n" for index, event in enumerate(records)
         ),
     )
+
+
+async def test_streamed_citations_are_positioned_by_code_point_and_kept_once(tmp_path):
+    config = make_test_config(tmp_path, {"models": {"test": {"type": "deepseek"}}})
+    text = "研究🙂值得关注。"
+    citation = {
+        "type": "url_citation",
+        "start_index": 0,
+        "end_index": 3,
+        "url": "https://example.org/results",
+        "title": "Results",
+    }
+    answer = message(text, annotations=[citation])
+    position = {"output_index": 0, "content_index": 0, "item_id": answer["id"]}
+
+    def handle(_):
+        return sse(
+            response([answer]),
+            {"type": "response.output_text.delta", "delta": text, "logprobs": [], **position},
+            {
+                "type": "response.output_text.annotation.added",
+                "annotation": citation,
+                "annotation_index": 0,
+                **position,
+            },
+            {"type": "response.output_item.done", "output_index": 0, "item": answer},
+        )
+
+    clients = ModelConnectionClients(
+        config,
+        None,
+        client_factory=lambda **kwargs: AsyncOpenAI(
+            **kwargs, http_client=httpx2.AsyncClient(transport=httpx2.MockTransport(handle))
+        ),
+    )
+    output = []
+
+    async def capture(event):
+        output.append(serialize_output_event(event))
+
+    try:
+        result = Runner.run_streamed(
+            Agent(name="Main", model=clients.resolve(config.agent_model("main"))),
+            "Search",
+            run_config={"tracing_disabled": True},
+        )
+        await consume_run_events(result, capture, "Main", deepseek=True)
+    finally:
+        await clients.close()
+
+    (final,) = [event for event in output if event["type"] == "assistant_message"]
+    assert final["text"] == text
+    assert final["display_text"] == "研究🙂 [1](<https://example.org/results>)值得关注。"
+    assert final["citations"] == [{key: value for key, value in citation.items() if key != "type"}]
 
 
 async def test_host_replays_signed_web_item_after_compact_fork_and_reopening(tmp_path, monkeypatch):

@@ -18,6 +18,7 @@ from investorch.output import (
     ToolCalled,
     ToolOutput,
 )
+from investorch.output.events import render_citations
 from investorch.presentation import input_author_label
 
 logger = logging.getLogger(__name__)
@@ -366,9 +367,10 @@ class ChatTimeline(VerticalScroll):
         elif isinstance(event, ToolOutput):
             return await self.add_tool_output(_with_images(event.output, event.images))
         elif isinstance(event, AssistantMessage):
-            await self.add_assistant_message(_with_images(event.text, event.images), message_id=event.message_id)
+            text = render_citations(event.text, event.citations)
+            await self.add_assistant_message(_with_images(text, event.images), message_id=event.message_id)
         elif isinstance(event, AssistantMessageUpdate):
-            await self.update_assistant_message(event.message_id, event.text)
+            await self.update_assistant_message(event.message_id, render_citations(event.text, event.citations))
         return None
 
     def register_activity_step(self, step: ActivityStep, target_seq: int) -> None:
@@ -424,7 +426,8 @@ class ChatTimeline(VerticalScroll):
             elif event_type == "assistant_message" and isinstance(record.get("text"), str):
                 message_id = record.get("message_id")
                 await self.add_assistant_message(
-                    _record_text(record, "text"), message_id=message_id if isinstance(message_id, str) else None
+                    _record_text(record, "display_text" if isinstance(record.get("display_text"), str) else "text"),
+                    message_id=message_id if isinstance(message_id, str) else None,
                 )
             elif event_type == "agent_changed" and isinstance(record.get("name"), str):
                 await self.add_agent_changed(record["name"])

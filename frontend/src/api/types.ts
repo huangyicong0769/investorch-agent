@@ -322,12 +322,14 @@ export interface OutputEventAssistantMessage {
   images?: ImageContent[]
   type: 'assistant_message'
   text: string
+  display_text?: string
 }
 
 export interface OutputEventAssistantMessageUpdate {
   type: 'assistant_message_update'
   message_id: string
   text: string
+  display_text?: string
 }
 
 export type OutputEvent =
