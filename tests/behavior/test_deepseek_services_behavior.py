@@ -143,14 +143,22 @@ async def test_asr_uploads_pcm16_and_validates_format_and_duration(tmp_path: Pat
             await client.transcribe(sample)
 
 
-@pytest.mark.parametrize("format", ["wav", "pcm"])
-async def test_tts_returns_binary_audio_and_rejects_a_truncated_body(format):
+@pytest.mark.parametrize(
+    ("format", "sizes"), [("wav", "finite"), ("wav", "streaming"), ("wav", "mixed"), ("pcm", None)]
+)
+async def test_tts_returns_binary_audio_and_rejects_a_truncated_body(format, sizes):
     pcm = b"\x01\x02" * 16
     wav_file = BytesIO()
     with wave.open(wav_file, "wb") as wav:
         wav.setparams((1, 2, 24000, 0, "NONE", "not compressed"))
         wav.writeframes(pcm)
     result = wav_file.getvalue() if format == "wav" else pcm
+    if sizes in {"streaming", "mixed"}:
+        result = result[:4] + b"\xff" * 4 + result[8:]
+    if sizes == "streaming":
+        offset = result.index(b"data", 12) + 4
+        result = result[:offset] + b"\xff" * 4 + result[offset + 4 :]
+    missing_bytes = 2 if sizes == "mixed" else 1
     truncate = False
 
     def handle(request):
@@ -165,7 +173,7 @@ async def test_tts_returns_binary_audio_and_rejects_a_truncated_body(format):
         return httpx.Response(
             200,
             headers={"content-type": media_type, "x-request-id": "tts-1"},
-            content=result[:-1] if truncate else result,
+            content=result[:-missing_bytes] if truncate else result,
         )
 
     async with DeepSeekServiceClient(

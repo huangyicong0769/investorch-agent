@@ -110,13 +110,26 @@ def _valid_wav(audio: bytes) -> bool:
     if not audio.startswith(b"RIFF") or audio[8:12] != b"WAVE":
         return False
     size = int.from_bytes(audio[4:8], "little")
-    if size != 0xFFFFFFFF and size + 8 > len(audio):
+    end = len(audio) if size == 0xFFFFFFFF else size + 8
+    if end > len(audio):
         return False
-    try:
-        with wave.open(BytesIO(audio), "rb") as wav:
-            return wav.getnframes() > 0 and bool(wav.readframes(1))
-    except (EOFError, wave.Error):
-        return False
+    offset = 12
+    while offset + 8 <= end:
+        chunk = audio[offset : offset + 4]
+        chunk_size = int.from_bytes(audio[offset + 4 : offset + 8], "little")
+        offset += 8
+        if chunk == b"data":
+            # DeepSeek streams both RIFF and data sizes as unknown for WAV output.
+            payload_size = end - offset if chunk_size == 0xFFFFFFFF else chunk_size
+            if not 0 < payload_size <= end - offset:
+                return False
+            try:
+                with wave.open(BytesIO(audio), "rb") as wav:
+                    return payload_size % (wav.getnchannels() * wav.getsampwidth()) == 0
+            except (EOFError, wave.Error):
+                return False
+        offset += chunk_size + chunk_size % 2
+    return False
 
 
 def _opus_duration(audio: bytes) -> float | None:
