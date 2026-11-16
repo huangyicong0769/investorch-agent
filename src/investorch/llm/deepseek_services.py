@@ -1,8 +1,11 @@
 """Direct DeepSeek service APIs using the configured API-key connection."""
 
+import asyncio
+import json
 import os
 import re
 import wave
+from collections.abc import AsyncIterable, AsyncIterator
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
@@ -384,3 +387,84 @@ class DeepSeekServiceClient:
         if not valid or not (media_type.startswith("audio/") or media_type == "application/octet-stream"):
             raise DeepSeekServiceError("TTS", "incomplete_audio", request_id=response.headers.get("x-request-id"))
         return SpeechAudio(audio, format, response.headers.get("x-request-id"))
+
+    async def stream_speech(
+        self,
+        chunks: AsyncIterable[str],
+        *,
+        voice_id: Voice = "stella",
+        format: Literal["pcm", "opus"] = "pcm",
+        filter_markdown: bool = True,
+    ) -> AsyncIterator[bytes]:
+        """Yield audio frames until the server confirms completion."""
+        from websockets.asyncio.client import connect
+        from websockets.exceptions import ConnectionClosed, InvalidHandshake, InvalidStatus
+
+        if voice_id not in get_args(Voice) or format not in {"pcm", "opus"}:
+            raise ValueError("Streaming TTS requires a supported voice and PCM or Opus format.")
+        endpoint = self._client.base_url.join("v1/tools/tts")
+        url = endpoint.copy_with(scheme="wss" if endpoint.scheme == "https" else "ws").copy_merge_params(
+            {"voice_id": voice_id, "format": format, "filter_markdown": filter_markdown}
+        )
+        headers = {"Authorization": self._client.headers["Authorization"]}
+        try:
+            async with connect(str(url), additional_headers=headers, open_timeout=30, close_timeout=5) as socket:
+                sent_finish = False
+
+                async def send_text() -> None:
+                    nonlocal sent_finish
+                    try:
+                        async for chunk in chunks:
+                            if chunk:
+                                await socket.send(json.dumps({"event": "text", "text": chunk}, ensure_ascii=False))
+                        await socket.send('{"event":"finish_text"}')
+                        sent_finish = True
+                    except Exception:
+                        await socket.close()
+                        raise
+
+                sender = asyncio.create_task(send_text())
+                audio_size = 0
+                try:
+                    while True:
+                        frame = await asyncio.wait_for(socket.recv(), timeout=90)
+                        if isinstance(frame, bytes):
+                            audio_size += len(frame)
+                            yield frame
+                            continue
+                        try:
+                            event = json.loads(frame)
+                        except ValueError:
+                            raise DeepSeekServiceError("TTS", "invalid_response") from None
+                        if not isinstance(event, dict) or event.get("event") != "finish":
+                            continue
+                        code = event.get("code")
+                        if code != "success":
+                            known = {"invalid_input", "content_filter", "input_timeout", "service_error"}
+                            raise DeepSeekServiceError(
+                                "TTS", code if isinstance(code, str) and code in known else "service_error"
+                            )
+                        if not sent_finish or not audio_size or (format == "pcm" and audio_size % 2):
+                            raise DeepSeekServiceError("TTS", "incomplete_audio")
+                        return
+                except ConnectionClosed:
+                    if sender.done() and not sender.cancelled():
+                        sender.result()
+                    raise
+                finally:
+                    sender.cancel()
+                    await asyncio.gather(sender, return_exceptions=True)
+        except InvalidStatus as error:
+            status = error.response.status_code
+            raise DeepSeekServiceError(
+                "TTS",
+                _ERROR_BY_STATUS.get(status, "service_error"),
+                status=status,
+                request_id=error.response.headers.get("x-request-id"),
+            ) from None
+        except ConnectionClosed:
+            raise DeepSeekServiceError("TTS", "incomplete_audio") from None
+        except TimeoutError:
+            raise DeepSeekServiceError("TTS", "timeout") from None
+        except (OSError, InvalidHandshake):
+            raise DeepSeekServiceError("TTS", "connection_failed") from None

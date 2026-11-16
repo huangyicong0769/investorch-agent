@@ -1,10 +1,13 @@
+import asyncio
 import json
 import wave
+from contextlib import aclosing
 from io import BytesIO
 from pathlib import Path
 
 import httpx
 import pytest
+from websockets.asyncio.server import serve
 
 from investorch.llm.deepseek_services import DeepSeekServiceClient, DeepSeekServiceError, input_file
 from tests.support.config import make_test_config
@@ -173,3 +176,39 @@ async def test_tts_returns_binary_audio_and_rejects_a_truncated_body(format):
         truncate = True
         with pytest.raises(DeepSeekServiceError, match="incomplete_audio"):
             await client.synthesize("**Hello**", voice_id="tide", format=format, filter_markdown=False)
+
+
+@pytest.mark.parametrize("terminal", ["success", "content_filter", "disconnect"])
+async def test_tts_websocket_streams_before_finish_and_requires_terminal_ack(terminal, monkeypatch):
+    monkeypatch.setenv("no_proxy", "127.0.0.1")
+    send_more = asyncio.Event()
+
+    async def chunks():
+        yield "Hello "
+        await send_more.wait()
+        yield "world"
+
+    async def peer(socket):
+        assert socket.request.path == "/v1/tools/tts?voice_id=stella&format=pcm&filter_markdown=true"
+        assert socket.request.headers["Authorization"] == "Bearer fixture"
+        assert json.loads(await socket.recv()) == {"event": "text", "text": "Hello "}
+        await socket.send(b"\x01\x02")
+        assert json.loads(await socket.recv()) == {"event": "text", "text": "world"}
+        assert json.loads(await socket.recv()) == {"event": "finish_text"}
+        if terminal != "disconnect":
+            await socket.send(json.dumps({"event": "finish", "code": terminal, "message": "provider detail"}))
+
+    async with asyncio.timeout(5), serve(peer, "127.0.0.1", 0) as server:
+        port = server.sockets[0].getsockname()[1]
+        async with (
+            DeepSeekServiceClient(f"http://127.0.0.1:{port}", "fixture") as client,
+            aclosing(client.stream_speech(chunks())) as audio,
+        ):
+            assert await anext(audio) == b"\x01\x02"
+            send_more.set()
+            if terminal == "success":
+                assert [frame async for frame in audio] == []
+            else:
+                code = "incomplete_audio" if terminal == "disconnect" else "content_filter"
+                with pytest.raises(DeepSeekServiceError, match=code):
+                    await anext(audio)
