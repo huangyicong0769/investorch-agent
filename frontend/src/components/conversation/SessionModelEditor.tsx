@@ -164,6 +164,7 @@ export function SessionModelEditor({ sessionId }: { sessionId: string }) {
         {deepSeekWeb ? DEEPSEEK_WEB_CAPABILITIES.map(([key, label]) => <label className="flex items-center justify-between gap-2 px-2.5 py-2 text-sm" key={key}>
           {label}<input checked={selected[key] !== false} disabled={!ready || busy} onChange={(event) => save.mutate({ [key]: event.target.checked })} type="checkbox" />
         </label>) : null}
+        {deepSeekWeb && selected.reasoning_effort === 'none' ? <p className="px-2.5 pb-2 text-xs text-muted-foreground">Enable thinking to use DeepSeek web tools with local tools.</p> : null}
         <div className="my-1 border-t" />
         {model.data?.active ? <p className="px-2.5 py-1 text-[11px] text-muted-foreground">Applies to your next message</p> : null}
         <Link className="block rounded-md px-2.5 py-2 text-xs text-muted-foreground hover:bg-accent hover:text-foreground" onClick={(event) => { if (busy) event.preventDefault(); else setOpen(false) }} to="/settings?section=models">Manage models</Link>

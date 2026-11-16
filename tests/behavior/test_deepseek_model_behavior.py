@@ -394,17 +394,18 @@ async def test_host_replays_signed_web_item_after_compact_fork_and_reopening(tmp
 
 
 @pytest.mark.parametrize(
-    ("provider", "name", "switches", "effort", "hosted"),
+    ("provider", "name", "switches", "effort", "local", "hosted"),
     [
-        ("deepseek", "deepseek-flash", {}, "high", ["deepseek_web_search", "deepseek_read_url"]),
-        ("deepseek", "deepseek-v4-flash", {"web_search": False}, "none", ["deepseek_read_url"]),
-        ("deepseek", "deepseek-flash", {"web_search": False, "read_url": False}, "high", []),
-        ("deepseek", "deepseek-v4-pro", {}, "high", []),
-        ("openai_compatible", "deepseek-flash", {}, "high", []),
+        ("deepseek", "deepseek-flash", {}, "high", True, ["deepseek_web_search", "deepseek_read_url"]),
+        ("deepseek", "deepseek-v4-flash", {"web_search": False}, "none", False, ["deepseek_read_url"]),
+        ("deepseek", "deepseek-flash", {"safety_check": "high"}, "none", True, []),
+        ("deepseek", "deepseek-flash", {"web_search": False, "read_url": False}, "high", True, []),
+        ("deepseek", "deepseek-v4-pro", {}, "high", True, []),
+        ("openai_compatible", "deepseek-flash", {}, "high", True, []),
     ],
 )
 async def test_responses_declares_native_tools_alongside_local_tools(
-    tmp_path, provider, name, switches, effort, hosted
+    tmp_path, provider, name, switches, effort, local, hosted
 ):
     config = make_test_config(tmp_path, {"models": {"test": {"type": provider}}})
     requests = []
@@ -430,8 +431,10 @@ async def test_responses_declares_native_tools_alongside_local_tools(
         agent = Agent(
             name="Main",
             model=clients.resolve(selected),
-            tools=[lookup],
-            model_settings=ModelSettings(reasoning={"effort": effort}),
+            tools=[lookup] if local else [],
+            model_settings=ModelSettings(
+                reasoning={"effort": effort}, extra_body={"title": {"enabled": True}} if effort == "none" else None
+            ),
         )
         result = await Runner.run(agent, "Test", run_config={"tracing_disabled": True})
     finally:
@@ -442,6 +445,10 @@ async def test_responses_declares_native_tools_alongside_local_tools(
     assert request["model"] == name
     assert request["reasoning"]["effort"] == effort
     assert request.get("tool_choice") != "none"
-    assert [tool["type"] for tool in request["tools"]] == ["function", *hosted]
-    assert request["tools"][0]["name"] == "lookup"
+    assert [tool["type"] for tool in request["tools"]] == (["function"] if local else []) + hosted
+    if local:
+        assert request["tools"][0]["name"] == "lookup"
+    if effort == "none":
+        assert ("title" in request) is not local
+        assert "safety_check" not in request
     assert "previous_response_id" not in request

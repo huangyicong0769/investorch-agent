@@ -88,6 +88,14 @@ class DeepSeekResponsesModel(OpenAIResponsesModel):
         if self.model not in DEEPSEEK_FLASH_MODELS or (output_schema is not None and not output_schema.is_plain_text()):
             return request
         extra = dict(request["extra_body"] or {})
+        reasoning = request["reasoning"]
+        effort = reasoning.get("effort") if isinstance(reasoning, dict) else getattr(reasoning, "effort", None)
+        if effort == "none" and any(tool["type"] in {"function", "custom"} for tool in request["tools"]):
+            # DeepSeek rejects client tools with native chatbot features in non-thinking mode.
+            extra.pop("title", None)
+            extra.pop("safety_check", None)
+            request["extra_body"] = extra or None
+            return request
         if self._selected.safety_check is not None:
             extra["safety_check"] = {"level": self._selected.safety_check}
         hosted = []

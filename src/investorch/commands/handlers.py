@@ -260,6 +260,8 @@ async def dispatch_command(
                     runtime.session_models.update(session_id, web_search=enabled, read_url=enabled)
                 except (ConfigError, KeyError) as error:
                     return CommandResult(str(error))
+                if enabled and selected.reasoning_effort == "none":
+                    return CommandResult("Web settings updated. Enable thinking to use them with local tools.")
                 return CommandResult(f"DeepSeek web search and URL reading: {command.args[1]} for the next Run.")
             if command.args and command.args[0] in {"login", "logout"}:
                 if len(command.args) > 2:
