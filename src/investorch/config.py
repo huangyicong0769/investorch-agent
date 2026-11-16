@@ -254,8 +254,9 @@ class AppConfig:
     def readiness(self, *, saved: bool = False) -> list[str]:
         data = self._saved_data if saved else self._data
         missing = []
-        for role in REQUIRED_AGENT_ROLES:
-            agent = data["agents"][role]
+        for role, agent in data["agents"].items():
+            if role not in REQUIRED_AGENT_ROLES and not (agent["model"] or agent["name"]):
+                continue
             for field in ("model", "name"):
                 if not agent[field]:
                     missing.append(f"agents.{role}.{field}")
