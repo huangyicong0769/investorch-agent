@@ -2,12 +2,14 @@
 
 [简体中文](Configuration.zh-CN.md)
 
-This guide describes the 0.3.1 configuration. Follow [Upgrade](Upgrade.md) when moving an existing installation.
+This guide describes the 0.3.1 configuration.
 
 ## Two configuration layers
 
 - `models.<id>` registers a named API-key or ChatGPT connection.
-- `agents.<role>` selects the connection, model ID, reasoning effort and context window. The roles are `main`, `activity`, `permission` and `compact`. Skill Review uses `permission`. Spawn inherits its parent Run’s settings.
+- `agents.<role>` selects the connection, model ID, reasoning effort and context window. The roles are `main`, `title`, `activity`, `permission` and `compact`. Skill Review uses `permission`. Spawn inherits its parent Run’s settings.
+
+The optional `[agents.title]` model generates a title for a Session still unnamed after its Main answer completes. When that role is unset, the Title Agent uses the model selected for the Run. A title returned by the Main model is saved immediately and skips the auxiliary request.
 
 Connection IDs use letters, digits, `_` and `-`. Reasoning effort accepts `none`, `minimal`, `low`, `medium`, `high`, `xhigh` and `max`; the chosen model must support the requested level. API-compatible connections allow manual model IDs. ChatGPT choices come from the selected account's catalog, and requests use its model slug.
 
@@ -81,11 +83,11 @@ DEEPSEEK_API_KEY = "replace-locally-with-your-api-key"
 | Capability | Configuration and availability |
 | --- | --- |
 | Web search and URL reading | Flash text requests use `web_search = true` and `read_url = true` by default. Change them in **Agent Defaults** or a Session’s model menu. In TUI/plain, `/model web off` disables both for the next Run. A Session draft takes effect when the next Run starts. |
-| Auto title | `auto_title = true` lets Flash name an empty Session when the first valid turn title arrives. Set `auto_title = false` under `[agents.main]` to disable it. |
+| Auto title | `auto_title = true` lets Flash name an empty Session when the first valid turn title arrives. Set `auto_title = false` under `[agents.main]` to disable automatic naming. |
 | Content safety | `safety_check = "high"` enables DeepSeek input and output review for Flash text requests. `"low"` selects the API’s default checks. |
 | Pro and other connections | `deepseek-v4-pro` continues with standard Responses support. Flash features also recognize the legacy Flash aliases on a direct DeepSeek connection. |
 
-With thinking off, a Run with client tools omits web search, URL reading, title generation and explicit safety review. Enabling thinking lets Flash use these features alongside local tools. A request without client tools can use non-thinking search. Structured-output requests use the standard Responses format.
+With thinking off, a Run with client tools omits native web search, URL reading, native title requests and explicit safety review. Enabling thinking lets Flash use these features alongside local tools. A request without client tools can use non-thinking search. Structured-output requests use the standard Responses format.
 
 Usage shows billed searches, page reads and image searches reported by DeepSeek and any reported safety tokens. The provider decides when to search and may charge for tools used before a failure. Web/TUI switches control future requests. [DeepSeek Web Tools](https://api-docs.deepseek.com/guides/web_tools) · [Models and pricing](https://api-docs.deepseek.com/quick_start/pricing/)
 

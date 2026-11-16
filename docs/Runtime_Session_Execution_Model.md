@@ -113,7 +113,7 @@ Todo is transient Run state projected to clients. It is not stored in SDK contin
 - Archive preserves continuation, journal, title, lineage and model selection. Model Draft edits remain allowed, but execution waits for restoration.
 - Unarchive restores normal operations.
 - Delete removes the explicit Session and all recursive Spawn descendants. Clear uses that same deletion contract, then creates a fresh ordinary replacement without inherited lineage.
-- Compact summarizes SDK continuation and keeps the latest signed DeepSeek web round when available. The journal remains complete.
+- Compact summarizes SDK continuation. The journal remains complete.
 - Fork clones the source's last stable committed head into a new independent Session.
 
 Fork copies SDK continuation, the journal when present, title with a suffix, direct parent lineage and persisted model metadata. A source Draft becomes a target Draft, retaining its process-local semantics. It does not copy active Runs, permission/follow-up overrides, Steer/Queue state, Todos, approvals, archive state, jobs, usage, caches, or UI state. It is stable-head cloning, not historical-turn branching.
@@ -152,7 +152,7 @@ No client owns a second copy of execution truth.
 
 ## Usage and compaction
 
-Main and auxiliary model usage is accumulated separately per Session for the current process. Each completed model request updates the shared presentation snapshot immediately; SDK cumulative usage is reconciled at exit so later failure or cancellation does not discard earlier requests. Auxiliary usage includes Activity, Permission, Skill Review and Compact Agents, including failed output validation. A request that never reports usage cannot supply a known token count. HTTP, WebSocket and TUI consume the same process epoch and monotonic snapshot revision.
+Main and auxiliary model usage is accumulated separately per Session for the current process. Each completed model request updates the shared presentation snapshot immediately; SDK cumulative usage is reconciled at exit so later failure or cancellation does not discard earlier requests. Auxiliary usage includes Title, Activity, Permission, Skill Review and Compact Agents, including failed output validation. A request that never reports usage cannot supply a known token count. HTTP, WebSocket and TUI consume the same process epoch and monotonic snapshot revision.
 
 Main-context occupancy is labeled measured after a physical Main response (input plus output usage) and estimated before a request or after compaction. Estimates include the portable request history, instructions, tool schemas and live Todo; auxiliary tokens never contribute. The model name and context-window denominator travel with the snapshot.
 
@@ -162,7 +162,7 @@ Every model request is checked again after tool results and activated Steers arr
 
 Post-answer automatic compaction uses the active Run window and last Main request usage; failure does not discard an already completed answer. Manual and automatic compaction change SDK continuation only, preserve the complete Journal and charge Compact requests to auxiliary totals as they complete. Successful compaction immediately publishes a new context estimate. The compact model's own input budget is checked and oversized text is summarized in bounded batches.
 
-Each new Run removes opaque reasoning and most provider response-item IDs from the input copy. Messages and function `call_id` links remain. DeepSeek Responses receives its original web call objects, including their IDs, `kind` and `signature`. Other providers omit DeepSeek-specific web calls. SQLite and Journal originals remain unchanged, and reasoning generated within the Run remains available to continuation.
+Each new Run copies earlier messages and function `call_id` links into the input. It strips opaque reasoning and handles tool records according to the target provider's protocol. For DeepSeek Responses, it passes back the original web calls with their IDs, `kind` and `signature`. Compaction retains the latest signed web round when one is available.
 
 ## Background jobs
 
@@ -190,7 +190,7 @@ Spawn inherits the parent Active Run model, never its newer Session Draft. Same-
 
 The tool-call identity yields a stable child ID. Existing workflow acceptance, Runtime and Journal facts prevent duplicate initial submission. Proven capacity/shutdown refusal rolls back an unstarted child; uncertain acceptance retains its identity for diagnosis. Receipts confirm submission, not completion or restart recovery. Recursive children use the same tools; no stop/wait/status Tool, completion registry or automatic reply is added. Observe state through `list_sessions` and completion facts through `read_session(view="events")`.
 
-All new top-level Runs share the synchronous admission gate in `AgentRuntime._start_run()`. `runtime.max_concurrent_runs` defaults to 3 and accepts strict positive integers. Settings or local TOML may hot-apply it; reducing the limit leaves existing Runs untouched and rejects new admission with `capacity_exceeded` (Web HTTP 429). Parents, ordinary input, messaging, Spawn and follow-up promotion use the same slots. Waiting Approval and Stopping continue to occupy slots until removal. Auxiliary Permission/Activity/Compact calls consume no additional slots. The policy is separate from frozen `RunOptions`.
+All new top-level Runs share the synchronous admission gate in `AgentRuntime._start_run()`. `runtime.max_concurrent_runs` defaults to 3 and accepts strict positive integers. Settings or local TOML may hot-apply it; reducing the limit leaves existing Runs untouched and rejects new admission with `capacity_exceeded` (Web HTTP 429). Parents, ordinary input, messaging, Spawn and follow-up promotion use the same slots. Waiting Approval and Stopping continue to occupy slots until removal. Auxiliary Title/Permission/Activity/Compact calls consume no additional slots. The policy is separate from frozen `RunOptions`.
 
 Capacity refusal restores and pauses the original Queue head with its captured options before journaling. Explicit Resume reports the capacity error and retains the paused queue. Durable terminal Steer fallback keeps its original seq and retries through existing promotion when another Run or reservation ends. Synchronous registration before promotion awaits prevents duplicate consumption. Neither refusal changes an already completed Run into failure; no global queue or timer is added.
 

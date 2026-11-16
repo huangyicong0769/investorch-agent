@@ -90,7 +90,7 @@ Context budgets use the latest completed main-model response's reported token to
 
 The Main Agent is cloned with captured model settings for each Run. Support agents have narrow responsibilities:
 
-- DeepSeek Flash can name a Session in the Main response.
+- Title Agent names a Session when the Main answer completes with the Session still unnamed.
 - Activity Agent creates presentation-only labels for Tool calls.
 - Permission Agent may return approve, reject, or ask in review mode.
 - Compact Agent replaces SDK continuation history with a marked summary.
@@ -290,4 +290,4 @@ Portfolio migration stays in the existing Portfolio migration module, including 
 
 For charts in answer text, the Agent uses Markdown such as `![NAV curve](figures/nav.png)`. Workspace-relative image references render in place, while tool observations remain collapsed. The read-only `/api/workspace/image` endpoint serves JPEG, PNG, GIF and WebP within the Workspace and the configured per-image byte limit. These references display the current file, not a Session snapshot: overwriting or removing the file changes what an older message can display. Attached inline images retain their existing history persistence.
 
-Main and Compact use image-bearing SDK history. ReviewContext accepts image-only instruction markers; Activity uses text/count summaries. Permission does not infer authorization from an unseen image. Canonical durable copies are SDK SQLite history and JSONL Journal, without an asset subsystem.
+Main, Title and Compact use image-bearing SDK history. ReviewContext accepts image-only instruction markers; Activity uses text/count summaries. Permission does not infer authorization from an unseen image. Canonical durable copies are SDK SQLite history and JSONL Journal, without an asset subsystem.

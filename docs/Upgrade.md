@@ -2,15 +2,7 @@
 
 [简体中文](Upgrade.zh-CN.md)
 
-Installation methods are in the [README](../README.md#installation).
-
-## 0.3.0 → 0.3.1 DeepSeek configuration
-
-1. Stop InvestOrch and make a private copy of Local TOML, normally `~/.investorch/investorch.toml`.
-2. Run `investorch upgrade check` with the new version. The new version ignores the legacy `[agents.title]` table.
-3. For direct DeepSeek connections, use `deepseek-flash` as the model `name` in any `[agents.*]` table using the legacy `deepseek-v4-flash` name. The alias still works during the provider's transition. Inspect the effective and saved Session models with `/model` or the Web model selector and change each selected Session explicitly if desired.
-
-Titles and model selections already saved in SQLite stay with their Sessions. For a rollback to 0.3.0, restore the backed-up TOML and prior package. [DeepSeek configuration](Configuration.md#deepseek-flash)
+This guide covers the 0.3.0 model configuration transition and retains the earlier 0.2.0 upgrade procedure. Installation methods are in the [README](../README.md#installation); changes are in the [0.3.0 release notes](releases/0.3.0.md).
 
 ## 0.2.0 → 0.3.0 model configuration
 

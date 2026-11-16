@@ -115,7 +115,7 @@ Todo 是投影到客户端的瞬时 Run state，不写入 SDK continuation、JSO
 - Archive 保留 continuation、Journal、title、lineage 与模型选择；仍可编辑模型 Draft，但恢复前不能执行。
 - Unarchive 恢复普通操作。
 - Delete 删除显式 Session 及其全部递归 Spawn 后代；Clear 使用同一删除契约，再创建不继承来源关系的普通新 Session。
-- Compact 将 SDK continuation 压缩为摘要，有签名的 DeepSeek 联网轮次时保留最近一轮。Journal 保持完整。
+- Compact 使用带标记的摘要压缩 SDK continuation。Journal 保持完整。
 - Fork 把来源 Session 最后稳定提交头部 clone 为新的独立 Session。
 
 Fork 复制 SDK continuation、存在时的 Journal、带后缀 title、直接 parent lineage 与持久模型元数据。来源 Draft 作为目标 Draft 复制，仍只存在于进程内。它不复制 active Run、permission/follow-up 覆盖、Steer/Queue、Todo、approval、archive state、job、usage、cache 或 UI state。它是 stable-head cloning，不是 historical-turn branching。
@@ -154,13 +154,13 @@ Web 与 TUI 是同一 Application state 的一级 projection。
 
 ## Usage 与 compaction
 
-Main 与 auxiliary model usage 在当前进程中按 Session 累积。Auxiliary usage 包含 Activity、Permission 和 Compact Agents。显示的 Main context occupancy 使用最后一次 physical Main request，而不是累计 Session totals。
+Main 与 auxiliary model usage 在当前进程中按 Session 累积。Auxiliary usage 包含 Title、Activity、Permission 和 Compact Agents。显示的 Main context occupancy 使用最后一次 physical Main request，而不是累计 Session totals。
 
 前置检查按本 Run 的窗口估算 continuation、指示、Tool schema 和新输入，并保守预留协议及输出预算。需要压缩时复用当前 Run 排他权，不再次申请同 Session maintenance lock。失败、空摘要或仍超预算均阻止 Main；替换失败尝试恢复原历史。即使关闭回答后的 `compaction.auto_enabled`，这项前置保护仍生效。
 
 后置自动压缩使用 Active Run 窗口与最后一次 Main 请求用量，失败不丢弃已经完成的答案。手动与自动压缩只改变 SDK continuation，保留完整 Journal，Compact 用量记入 Aux；成功后清空旧 Main 占用。
 
-每次新 Run 发送的旧历史副本会剔除不透明 reasoning 和大部分 Provider response-item ID，保留消息及函数 `call_id`。DeepSeek Responses 收到原始联网调用对象，包括 ID、`kind` 和 `signature`。切换到其他 Provider 时省略 DeepSeek 专用联网调用。SQLite/Journal 原件不变，本 Run 新生成的 reasoning 保留用于后续请求。
+每次新 Run 将已有消息和函数 `call_id` 放入输入副本。副本去除不透明 reasoning，并按目标 Provider 的协议处理工具记录。使用 DeepSeek Responses 时，回传包含 ID、`kind` 和 `signature` 的原始联网调用。Compact 在存在带签名的联网轮次时保留最近一轮。
 
 ## 后台 Job
 
@@ -188,7 +188,7 @@ Spawn 默认继承 parent Active Run 模型，不读取 parent 新的 Session Dr
 
 工具调用身份生成稳定 child ID。已有 workflow 接受标记、Runtime 和 Journal 事实防止初始任务重复投递。确定因容量/关闭拒绝时只回收未启动 child；接受状态不确定时保留身份供诊断。回执只确认提交，不证明完成或重启恢复。递归子 Session 使用相同 Tools；不新增 stop/wait/status Tool、完成 registry 或自动回复。通过 `list_sessions` 观察当前状态，通过 `read_session(view="events")` 读取完成事实。
 
-所有新顶层 Run 共享 `AgentRuntime._start_run()` 的同步准入门槛。`runtime.max_concurrent_runs` 默认 3，仅接受严格正整数，可在 Settings 或本地 TOML 热应用。下调不停止现有 Run，仅拒绝新准入并报告 `capacity_exceeded`（Web HTTP 429）。父 Run、普通输入、消息、Spawn 和 follow-up 晋升公平共用名额；Waiting Approval 与 Stopping 直到摘除仍占位。Permission/Activity/Compact 辅助调用不额外占位。容量策略不属于冻结的 `RunOptions`。
+所有新顶层 Run 共享 `AgentRuntime._start_run()` 的同步准入门槛。`runtime.max_concurrent_runs` 默认 3，仅接受严格正整数，可在 Settings 或本地 TOML 热应用。下调不停止现有 Run，仅拒绝新准入并报告 `capacity_exceeded`（Web HTTP 429）。父 Run、普通输入、消息、Spawn 和 follow-up 晋升公平共用名额；Waiting Approval 与 Stopping 直到摘除仍占位。Title/Permission/Activity/Compact 辅助调用不额外占位。容量策略不属于冻结的 `RunOptions`。
 
 容量拒绝会在 journal 前恢复并暂停原 Queue 队首，保留捕获的 options；显式 Resume 报容量错误并保留暂停队列。已持久接受的 terminal Steer fallback 保留原 seq，在其他 Run 或 reservation 结束时沿既有晋升路径重试。晋升首次 await 前已同步登记 Run，因此不会重复消费。拒绝不会把已完成 Run 改成 failed，也不新增全局队列或定时器。
 

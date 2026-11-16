@@ -4,11 +4,11 @@
 
 ## 0.3.1（待发布）
 
-- 新 DeepSeek 连接默认使用 `deepseek-flash`，支持按 Session 开关搜索与 URL 阅读、点击引用以及查看服务端计费次数。
-- 未命名 Session 收到首个原生标题时立即保存。移除独立 Title Agent 及 `[agents.title]` 配置。
-- 新增 Files、文档解析、OCR、ASR、HTTP 与 WebSocket TTS 的 Python 接口。支持可选内容审核，并记录拒绝响应的服务端用量。
+- 接入 DeepSeek 应用 API 套件，支持原生搜索、网页读取、内容审核、Files、文档解析、OCR、ASR 和 HTTP 与 WebSocket TTS。
+- 新 DeepSeek 连接默认使用 `deepseek-flash`，支持按 Session 控制联网、点击引用和查看服务端计费次数。
+- 未命名 Session 收到主模型返回的标题时立即保存。主回答完成后仍无标题时，由 Title Agent 命名。
 
-详见 [0.3.1 发行说明](docs/releases/0.3.1.zh-CN.md)和[升级步骤](docs/Upgrade.zh-CN.md#030--031-deepseek-配置)。
+详见 [0.3.1 发行说明](docs/releases/0.3.1.zh-CN.md)。
 
 ## 0.3.0
 
