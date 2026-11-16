@@ -56,7 +56,7 @@ async def qualify() -> None:
         data["secrets"] = source.secrets
         data["paths"]["root"] = directory
         data["backtest"]["use_cnequity"] = False
-        if any(connection["type"] != "openai_compatible" for connection in data["models"].values()):
+        if any(connection["type"] == "chatgpt" for connection in data["models"].values()):
             raise ValueError(
                 "Sign in separately in an isolated Root for ChatGPT qualification; do not copy rotating tokens"
             )

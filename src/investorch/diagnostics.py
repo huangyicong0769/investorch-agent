@@ -12,7 +12,7 @@ from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any
 
-from investorch.config import AppConfig, ConfigError, load_config
+from investorch.config import REQUIRED_AGENT_ROLES, AppConfig, ConfigError, load_config
 from investorch.mcp import read_mcp_server_configs
 from investorch.portfolio.migration import migrate_portfolio
 from investorch.portfolio.schema import PortfolioStorageError
@@ -76,9 +76,8 @@ def doctor_checks(root: Path | None = None, upgrade: bool = False) -> list[dict[
             "Required model settings are incomplete." if missing else "Schema validation passed.",
             "Run investorch web to complete Setup." if missing else "",
         )
-        roles = ("main", "title", "activity", "permission", "compact")
         configured = {}
-        for role in roles:
+        for role in REQUIRED_AGENT_ROLES:
             connection_id = config[f"agents.{role}.model"]
             connection = config.public()["models"].get(connection_id)
             reference = (
