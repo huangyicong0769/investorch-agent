@@ -9,7 +9,7 @@ from agents.run_config import CallModelData, ModelInputData
 
 from investorch.config import AppConfig
 
-from .continuation import portable_history_filter
+from .continuation import latest_deepseek_web_round, portable_history_filter
 from .prompts import COMPACTION_AGENT_INSTRUCTIONS
 from .usage import TokenUsage, run_with_usage
 
@@ -90,12 +90,22 @@ async def compact_session(
     history = await session.get_items()
     source_items = len(history)
 
-    if not history or (source_items == 1 and _is_compacted_summary(history[0])):
+    web_round = latest_deepseek_web_round(history)
+    retained: list[TResponseInputItem] = []
+    source = history
+    if web_round is not None:
+        start, end = web_round
+        retained = history[start:end]
+        source = [*history[:start], *history[end:]]
+    if not source or (len(source) == 1 and _is_compacted_summary(source[0])):
         return CompactionResult(changed=False, usage=TokenUsage(), source_items=source_items, summary_chars=0)
 
-    summary, usage = await summarize_history(agent, history, config, usage_handler=usage_handler)
+    summary, usage = await summarize_history(agent, source, config, usage_handler=usage_handler)
 
-    replacement: list[TResponseInputItem] = [{"role": "assistant", "content": COMPACTED_CONTEXT_PREFIX + summary}]
+    replacement: list[TResponseInputItem] = [
+        {"role": "assistant", "content": COMPACTED_CONTEXT_PREFIX + summary},
+        *retained,
+    ]
     await _replace_session_history(session, history, replacement)
     logger.info(
         "Compacted session %s: source_items=%d summary_chars=%d", session.session_id, source_items, len(summary)

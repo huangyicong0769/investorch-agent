@@ -14,6 +14,7 @@ from agents import Agent, ModelResponse, SQLiteSession, TResponseInputItem
 from investorch.config import AppConfig
 
 from .compact import COMPACTED_CONTEXT_PREFIX, _replace_session_history, estimate_context_tokens, summarize_history
+from .continuation import latest_deepseek_web_round
 from .usage import TokenUsage
 
 logger = logging.getLogger(__name__)
@@ -233,7 +234,13 @@ class ContextProjection:
             group = items[start:end]
             if any(item.get("role") == "assistant" or str(item.get("type", "")).endswith("_call") for item in group):
                 recent_start = start
-        prefixes = list(dict.fromkeys([recent_start, full_prefix]))
+        prefixes = [recent_start, full_prefix]
+        if (web_round := latest_deepseek_web_round(items)) is not None:
+            start, end = web_round
+            # Keep the newest web round when it fits. Never replay half of it.
+            prefixes = [max(length for length in boundaries if length <= start), *prefixes]
+            prefixes = [length for length in prefixes if not start < length < end]
+        prefixes = list(dict.fromkeys(prefixes))
         if self._context_handler is not None:
             self._context_handler(estimate, True)
         try:

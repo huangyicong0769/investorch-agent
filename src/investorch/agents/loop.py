@@ -18,13 +18,14 @@ from agents.tool import FunctionTool, Tool
 from investorch.config import AgentModelConfig, AppConfig
 from investorch.context import AgentContext, ExecutionState, TodoUpdateHandler
 from investorch.inputs import UserInput
+from investorch.llm.deepseek import DeepSeekResponsesModel
 from investorch.llm.models import ChatGPTResponsesModel, chatgpt_tools
 from investorch.output import AssistantMessage, OutputEvent, OutputHandler, consume_run_events
 from investorch.output.stream import assistant_message_from_result
 
 from .compact import CompactionResult, compact_session, session_history_restore_failed
 from .context_projection import ContextBudget, ContextProjection, ContextProjectionBudgetError
-from .continuation import portable_history_filter
+from .continuation import is_deepseek_web_call, portable_history_filter
 from .title import ensure_session_title
 from .usage import TokenUsage, UsageTracker
 
@@ -136,9 +137,10 @@ def _run_model_input_filter(
     *,
     projection: ContextProjection | None = None,
     context_window_tokens: int = 0,
+    deepseek: bool = False,
 ) -> CallModelInputFilter:
     """Budget portable history and current Run state for each request."""
-    portable_filter = portable_history_filter(history)
+    portable_filter = portable_history_filter(history, deepseek=deepseek)
 
     async def filter_input(data: CallModelData[AgentContext]) -> ModelInputData:
         filtered = portable_filter(data)
@@ -256,6 +258,7 @@ class AgentLoop:
     ) -> AgentRunResult:
         settings = self._agent.model_settings.resolve({"reasoning": {"effort": model_config.reasoning_effort}})
         run_agent = self._agent.clone(model=self._model_factory(model_config), model_settings=settings)
+        deepseek = isinstance(run_agent.model, DeepSeekResponsesModel)
         agent_context = AgentContext(
             config=self._config,
             execution=execution,
@@ -327,14 +330,19 @@ class AgentLoop:
         projection = ContextProjection(
             self._compaction_agent,
             self._config,
-            initial_history_count=sum(item.get("type") != "reasoning" for item in history),
+            initial_history_count=sum(
+                item.get("type") != "reasoning" and (deepseek or not is_deepseek_web_call(item)) for item in history
+            ),
             usage_handler=record_auxiliary_usage,
             context_handler=record_context,
             context_budget=context_budget,
         )
         run_config = RunConfig(
             call_model_input_filter=_run_model_input_filter(
-                history, projection=projection, context_window_tokens=model_config.context_window_tokens
+                history,
+                projection=projection,
+                context_window_tokens=model_config.context_window_tokens,
+                deepseek=deepseek,
             )
         )
         result = Runner.run_streamed(
@@ -448,7 +456,7 @@ class AgentLoop:
             flushed = await projection.flush(session)
             if projection.changed and not flushed and self._context_handler is not None:
                 retained = await session.get_items()
-                portable = await _run_model_input_filter(retained)(
+                portable = await _run_model_input_filter(retained, deepseek=deepseek)(
                     CallModelData(
                         model_data=ModelInputData(input=retained, instructions=None), agent=run_agent, context=None
                     )
@@ -506,7 +514,7 @@ class AgentLoop:
 
         async def estimate():
             history = await session.get_items()
-            portable = portable_history_filter(history)(
+            portable = portable_history_filter(history, deepseek=isinstance(agent.model, DeepSeekResponsesModel))(
                 CallModelData(model_data=ModelInputData(input=history, instructions=None), agent=agent, context=None)
             )
             return context_budget.estimate(
