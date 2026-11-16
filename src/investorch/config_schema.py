@@ -125,8 +125,8 @@ class AgentModelSchema(ConfigSection):
     name: NonEmptyString | None = restart(None)
     reasoning_effort: ReasoningEffort = restart("high")
     context_window_tokens: PositiveInt | None = restart(None)
-    web_search: bool = restart(True)
-    read_url: bool = restart(True)
+    web_search: bool = restart(False)
+    read_url: bool = restart(False)
     auto_title: bool = restart(True)
     safety_check: SafetyLevel | None = restart(None)
 
@@ -386,7 +386,7 @@ class AppConfigSchema(ConfigSection):
     )
     agents: dict[AgentRole, AgentModelSchema] = Field(
         default={
-            "main": AgentModelSchema(reasoning_effort="max"),
+            "main": AgentModelSchema(reasoning_effort="max", web_search=True, read_url=True),
             "title": AgentModelSchema(reasoning_effort="none"),
             "activity": AgentModelSchema(reasoning_effort="none"),
             "permission": AgentModelSchema(reasoning_effort="high"),
@@ -423,7 +423,9 @@ class AppConfigSchema(ConfigSection):
         for role in REQUIRED_AGENT_ROLES:
             if role not in value:
                 raise ValueError(f"Missing required Agent role: {role}")
-        return value
+        main = value["main"]
+        defaults = {field: True for field in ("web_search", "read_url") if field not in main.model_fields_set}
+        return {**value, "main": main.model_copy(update=defaults)}
 
     @model_validator(mode="after")
     def validate_model_references(self) -> Self:

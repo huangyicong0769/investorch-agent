@@ -66,7 +66,14 @@ export function ModelConfiguration({ connections, agents, savedConnections, onCh
     <section className="space-y-5 rounded-xl border border-border bg-card p-5">
       <div><h2 className="font-semibold">Agent Defaults</h2><p className="mt-2 text-sm text-muted-foreground">Choose a connection and actual model for each built-in role. Existing Sessions keep their own model selection.</p></div>
       {AGENT_ROLES.map((role) => <fieldset className="rounded-lg border border-border p-4" key={role}><legend className="px-2 text-sm font-medium">{role === 'permission' ? 'Permission / Skill Review' : role === 'title' ? 'Title (optional)' : role[0].toUpperCase() + role.slice(1)}</legend><ModelFields connections={connections} disabled={disabled} errors={errors} onChange={(field, next) => onChange(`agents.${role}.${field}`, next)} prefix={`agents.${role}.`} role={role} value={objectValue(agents[role])} /></fieldset>)}
-      <Button disabled={disabled} onClick={() => { for (const role of AGENT_ROLES) if (role !== 'main') onChange(`agents.${role}`, { ...objectValue(agents.main) }) }} type="button" variant="outline">Copy Main settings to auxiliary roles</Button>
+      <Button disabled={disabled} onClick={() => {
+        const main = objectValue(agents.main)
+        for (const role of AGENT_ROLES) {
+          if (role === 'main') continue
+          const auxiliary = objectValue(agents[role])
+          onChange(`agents.${role}`, { ...main, web_search: auxiliary.web_search ?? false, read_url: auxiliary.read_url ?? false })
+        }
+      }} type="button" variant="outline">Copy Main settings to auxiliary roles</Button>
       <p className="text-xs text-muted-foreground">Connection and Agent default changes require restart. Enter a positive context window; changing the model clears the previous window.</p>
     </section>
   </>

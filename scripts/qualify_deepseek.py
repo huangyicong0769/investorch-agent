@@ -103,15 +103,7 @@ def smoke_config(root: Path, key: str) -> AppConfig:
         {
             "paths": {"root": str(root)},
             "models": {"test": {"type": "deepseek"}},
-            "agents": {
-                role: {
-                    "model": "test",
-                    "reasoning_effort": "low",
-                    "web_search": role == "main",
-                    "read_url": role == "main",
-                }
-                for role in REQUIRED_AGENT_ROLES
-            },
+            "agents": {role: {"model": "test", "reasoning_effort": "low"} for role in REQUIRED_AGENT_ROLES},
             "secrets": {"DEEPSEEK_API_KEY": key},
             "runtime": {"max_turns": 8},
             "permission": {"mode": "manual"},
