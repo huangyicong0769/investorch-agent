@@ -80,7 +80,7 @@ async def approve(*_):
     return True
 
 
-async def test_first_deepseek_run_uses_last_native_title_without_auxiliary_request(tmp_path, monkeypatch):
+async def test_first_deepseek_run_uses_first_native_title_without_auxiliary_request(tmp_path, monkeypatch):
     config = make_test_config(
         tmp_path, {"models": {"test": {"type": "deepseek"}}, "agents": {"main": {"name": "deepseek-flash"}}}
     )
@@ -111,7 +111,7 @@ async def test_first_deepseek_run_uses_last_native_title_without_auxiliary_reque
         assert all(body.get("title") == {"enabled": True} for body in requests)
         assert any(item.get("type") == "function_call_output" for item in requests[1]["input"])
         assert result.auxiliary_usage.requests == 0
-        assert get_session_title(config.sessions_db, session_id) == "Final title"
+        assert get_session_title(config.sessions_db, session_id) == "Intermediate title"
         await host.runtime.start_run(session_id, "Thanks", run_options()).task
         assert "title" not in requests[-1]
 

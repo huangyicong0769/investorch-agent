@@ -286,7 +286,7 @@ class AgentLoop:
 
         def observe_response(response: Response) -> None:
             nonlocal provider_usage, native_title
-            if title_requested:
+            if title_requested and native_title is None:
                 native_title = response_title(response)
             if response.usage is not None:
                 delta = TokenUsage.from_deepseek(
