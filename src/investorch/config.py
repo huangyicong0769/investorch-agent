@@ -484,10 +484,8 @@ def _read_toml_bytes(source: bytes, path: Path) -> dict[str, Any]:
 
 def _local_data(source: bytes, path: Path) -> dict[str, Any]:
     data = _read_toml_bytes(source, path)
-    if isinstance(data.get("agents"), dict) and "title" in data["agents"]:
-        raise ConfigError(
-            "Remove [agents.title] from Local TOML for InvestOrch 0.3.1. Existing Session titles are kept."
-        )
+    if isinstance(agents := data.get("agents"), dict):
+        agents.pop("title", None)
     if isinstance(data.get("models"), dict) and any(
         isinstance(value, dict) and set(value) & {"name", "reasoning_effort", "context_window_tokens"}
         for value in data["models"].values()

@@ -5,7 +5,7 @@
 ## 0.3.1 (unreleased)
 
 - Default new DeepSeek connections to `deepseek-flash`. Add per-Session web search and URL reading switches, clickable citations, and billed tool counts.
-- Save the first native title when it arrives in an unnamed Session. Remove the separate Title Agent and its `[agents.title]` configuration.
+- Save the first native title when it arrives in an unnamed Session. Remove the separate Title Agent and ignore legacy `[agents.title]` TOML tables.
 - Add Python APIs for Files, document parsing, OCR, ASR, and HTTP and WebSocket TTS. Support the optional content safety review and account for billed usage on refused Runs.
 
 See the [0.3.1 release notes](docs/releases/0.3.1.md) and [upgrade steps](docs/Upgrade.md#030--031-deepseek-configuration).
