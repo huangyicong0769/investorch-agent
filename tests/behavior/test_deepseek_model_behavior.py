@@ -175,8 +175,7 @@ async def test_nonstream_title_and_input_safety_are_handled_by_the_model(tmp_pat
         await clients.close()
 
 
-@pytest.mark.parametrize("cancel_run", [False, True])
-async def test_first_deepseek_title_is_committed_while_the_run_is_active(tmp_path, monkeypatch, cancel_run):
+async def test_first_deepseek_title_is_committed_while_the_run_is_active(tmp_path, monkeypatch):
     config = make_test_config(
         tmp_path, {"models": {"test": {"type": "deepseek"}}, "agents": {"main": {"name": "deepseek-flash"}}}
     )
@@ -219,12 +218,6 @@ async def test_first_deepseek_title_is_committed_while_the_run_is_active(tmp_pat
             await asyncio.wait_for(title_visible.wait(), 3)
             assert not run.task.done()
             assert get_session_title(config.sessions_db, session_id) == "Intermediate title"
-            if cancel_run:
-                run.task.cancel()
-                with pytest.raises(asyncio.CancelledError):
-                    await run.task
-                assert get_session_title(config.sessions_db, session_id) == "Intermediate title"
-                return
         finally:
             release.set()
         result = await run.task

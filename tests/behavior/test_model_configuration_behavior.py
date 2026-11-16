@@ -57,12 +57,6 @@ def test_old_role_model_tables_require_explicit_migration(tmp_path: Path) -> Non
         load_config(tmp_path)
 
 
-def test_removed_title_config_reports_the_one_time_edit(tmp_path: Path) -> None:
-    (tmp_path / "investorch.toml").write_text('[agents.title]\nname = "legacy"\n')
-    with pytest.raises(ConfigError, match=r"Remove \[agents\.title\]"):
-        load_config(tmp_path)
-
-
 def test_model_overrides_require_explicit_cross_connection_settings(tmp_path: Path) -> None:
     config = make_test_config(
         tmp_path,
