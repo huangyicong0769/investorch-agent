@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 
 from investorch.config import AgentModelConfig, AppConfig
 from investorch.storage.sessions import get_session_model, session_exists, set_session_model
@@ -32,16 +32,22 @@ class SessionModelStore:
         self.on_change: Callable[[str], None] = lambda _: None
 
     def view(self, session_id: str, *, active: AgentModelConfig | None = None) -> SessionModelView:
+        main = self._config.agent_model("main")
         saved = get_session_model(self._config.sessions_db, session_id)
-        persisted = AgentModelConfig(**saved) if saved is not None else None
+        persisted = None
+        if saved is not None:
+            legacy_defaults = {
+                key: getattr(main, key) for key in ("web_search", "read_url", "auto_title", "safety_check")
+            }
+            persisted = AgentModelConfig(**(legacy_defaults | saved))
         snapshot = self._drafts.get(session_id)
         draft = snapshot.model if snapshot is not None else None
-        effective = draft or persisted or self._config.agent_model("main")
+        effective = replace(draft or persisted or main, safety_check=main.safety_check)
         return SessionModelView(persisted, draft, effective, active)
 
     def snapshot(self, session_id: str) -> SessionModelSnapshot:
         draft = self._drafts.get(session_id)
-        selected = draft.model if draft else self.view(session_id).effective
+        selected = self.view(session_id).effective
         return SessionModelSnapshot(self._config.resolve_model(selected), draft.revision if draft else None)
 
     def update(
