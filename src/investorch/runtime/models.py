@@ -148,7 +148,6 @@ class RuntimeRunEnded:
     partial_auxiliary_usage: TokenUsage = field(default_factory=TokenUsage)
     error: str | None = None
     partial_main_usage: TokenUsage = field(default_factory=TokenUsage)
-    session_title: str | None = None
 
     @property
     def main_usage(self) -> TokenUsage:

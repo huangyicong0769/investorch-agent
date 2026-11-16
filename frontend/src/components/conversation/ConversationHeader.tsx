@@ -7,16 +7,17 @@ import { SessionMenu } from './SessionMenu'
 interface ConversationHeaderProps {
   session: SessionRecord
   context?: ReactNode
+  savedTitle?: string | null
 }
 
-export function ConversationHeader({ session, context }: ConversationHeaderProps) {
+export function ConversationHeader({ session, context, savedTitle }: ConversationHeaderProps) {
   const archived = session.archived_at !== null
   const connectionStatus = useWebSocketStatus()
 
   return (
     <header className="flex min-h-16 shrink-0 items-center justify-between gap-4 border-b border-border py-2 pl-14 pr-4 sm:pr-6 md:pl-6">
       <div className="min-w-0">
-        <h1 className="truncate text-sm font-semibold">{sessionTitle(session)}</h1>
+        <h1 className="truncate text-sm font-semibold">{sessionTitle(session, savedTitle)}</h1>
         <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
           {session.branch_from_session_id ? (
             <span title={session.branch_from_session_id}>Forked from {shortSessionId(session.branch_from_session_id)}</span>

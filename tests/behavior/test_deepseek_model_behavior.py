@@ -7,7 +7,7 @@ import pytest
 from agents import Agent, ModelSettings, Runner, function_tool
 from openai import AsyncOpenAI
 
-from investorch.application import open_application_host
+from investorch.application import ApplicationCallbacks, open_application_host
 from investorch.journal import read_session_journal
 from investorch.llm.clients import ModelConnectionClients
 from investorch.output import consume_run_events, serialize_output_event
@@ -80,11 +80,13 @@ async def approve(*_):
     return True
 
 
-async def test_first_deepseek_run_uses_first_native_title_without_auxiliary_request(tmp_path, monkeypatch):
+@pytest.mark.parametrize("cancel_run", [False, True])
+async def test_first_deepseek_title_is_committed_while_the_run_is_active(tmp_path, monkeypatch, cancel_run):
     config = make_test_config(
         tmp_path, {"models": {"test": {"type": "deepseek"}}, "agents": {"main": {"name": "deepseek-flash"}}}
     )
     requests = []
+    title_visible, release = asyncio.Event(), asyncio.Event()
     call = {
         "id": "fc_calc",
         "call_id": "call_calc",
@@ -94,19 +96,43 @@ async def test_first_deepseek_run_uses_first_native_title_without_auxiliary_requ
         "status": "completed",
     }
 
-    def handle(request):
+    async def handle(request):
         body = json.loads(request.content)
         requests.append(body)
         if len(requests) == 1:
             payload = response([call], title="Intermediate title")
         else:
+            await release.wait()
             payload = response([message()], title="Final title")
         return sse(payload) if body.get("stream") else httpx2.Response(200, json=payload)
 
     install_deepseek_http(monkeypatch, handle)
-    async with open_application_host(config, manual_approval_handler=approve, enable_activity=False) as host:
+
+    def present(_session_id, presentation):
+        if presentation.session_title == "Intermediate title":
+            title_visible.set()
+
+    async with open_application_host(
+        config,
+        manual_approval_handler=approve,
+        enable_activity=False,
+        callbacks=ApplicationCallbacks(handle_presentation_state=present),
+    ) as host:
         session_id = await host.sessions.create()
-        result = await host.runtime.start_run(session_id, "Calculate 2 + 2", run_options()).task
+        run = host.runtime.start_run(session_id, "Calculate 2 + 2", run_options())
+        try:
+            await asyncio.wait_for(title_visible.wait(), 3)
+            assert not run.task.done()
+            assert get_session_title(config.sessions_db, session_id) == "Intermediate title"
+            if cancel_run:
+                run.task.cancel()
+                with pytest.raises(asyncio.CancelledError):
+                    await run.task
+                assert get_session_title(config.sessions_db, session_id) == "Intermediate title"
+                return
+        finally:
+            release.set()
+        result = await run.task
         assert len(requests) == 2
         assert all(body.get("title") == {"enabled": True} for body in requests)
         assert any(item.get("type") == "function_call_output" for item in requests[1]["input"])

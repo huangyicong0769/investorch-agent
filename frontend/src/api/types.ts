@@ -83,6 +83,7 @@ export interface SessionPresentationState {
   main_context_tokens: number | null
   context_window_tokens: number | null
   context_model: string | null
+  session_title?: string | null
   context_kind: 'unknown' | 'measured' | 'estimated'
   compacting: boolean
   revision: number

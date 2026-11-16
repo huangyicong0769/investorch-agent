@@ -8,8 +8,8 @@ export function shortSessionId(sessionId: string): string {
   return `${sessionId.slice(0, 8)}…${sessionId.slice(-4)}`
 }
 
-export function sessionTitle(session: SessionRecord): string {
-  return session.title?.trim() || shortSessionId(session.session_id)
+export function sessionTitle(session: SessionRecord, savedTitle?: string | null): string {
+  return session.title?.trim() || savedTitle?.trim() || shortSessionId(session.session_id)
 }
 
 export function sessionPath(sessionId: string): string {

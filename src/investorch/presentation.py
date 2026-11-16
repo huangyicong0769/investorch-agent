@@ -198,6 +198,7 @@ def serialize_session_presentation_state(state: SessionPresentationState) -> dic
         "revision": state.revision,
         "main_context_tokens": state.main_context_tokens,
         "last_todo_run_id": state.last_todo_run_id,
+        "session_title": state.session_title,
         "last_todos": [{"content": todo["content"], "status": todo["status"]} for todo in state.last_todos],
     }
 

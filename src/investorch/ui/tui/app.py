@@ -697,6 +697,8 @@ class InvestOrchAgentTUI(App[None]):
         if current is not None and current.epoch == presentation.epoch and current.revision >= presentation.revision:
             return
         self._presentations[session_id] = presentation
+        if self.is_running and presentation.session_title != (current.session_title if current else None):
+            self.call_later(self.refresh_sessions)
         if self.is_running and session_id == self.state.selected_session_id:
             self.query_one("#usage-status", Static).update(self._format_usage_status())
 

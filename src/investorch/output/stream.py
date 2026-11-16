@@ -4,7 +4,7 @@ import binascii
 import json
 import uuid
 from collections import Counter
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field, replace
 
 from agents import ToolOutputImage, ToolOutputText
@@ -107,7 +107,7 @@ async def consume_run_events(
     current_agent_name: str,
     *,
     deepseek: bool = False,
-    response_handler: Callable[[Response], None] | None = None,
+    response_handler: Callable[[Response], Awaitable[None]] | None = None,
 ) -> str:
     pending_reasoning: dict[str, _PendingReasoning] = {}
     emitted_reasoning: set[str] = set()
@@ -218,7 +218,7 @@ async def consume_run_events(
                     continue
                 elif deepseek and event.data.type in {"response.completed", "response.failed", "response.incomplete"}:
                     if response_handler is not None:
-                        response_handler(event.data.response)
+                        await response_handler(event.data.response)
                     for item in event.data.response.output or ():
                         await record_web_call(item)
                 elif isinstance(event.data, ResponseTextDeltaEvent):

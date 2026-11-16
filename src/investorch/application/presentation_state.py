@@ -27,6 +27,7 @@ class SessionPresentationState:
     revision: int = 0
     last_todo_run_id: str | None = None
     last_todos: tuple[TodoItem, ...] = ()
+    session_title: str | None = None
 
     @property
     def usage(self) -> TokenUsage:
@@ -73,6 +74,9 @@ class SessionPresentationStore:
                     last_todos=tuple(dict(todo) for todo in snapshot.todos),
                 ),
             )
+
+    def set_session_title(self, session_id: str, title: str) -> None:
+        self._put(session_id, replace(self.get(session_id), session_title=title))
 
     def add_usage(self, session_id: str, usage: TokenUsage, model: AgentModelConfig | None = None) -> None:
         state = self.get(session_id)

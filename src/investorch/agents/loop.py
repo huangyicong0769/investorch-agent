@@ -124,7 +124,6 @@ class AgentRunResult:
     auto_compaction: CompactionResult | None = None
     auto_compaction_failed: bool = False
     auto_compaction_consistency_uncertain: bool = False
-    session_title: str | None = None
 
 
 def should_auto_compact(
@@ -219,6 +218,7 @@ class AgentLoop:
         preflight_compaction_handler: Callable[[str, CompactionResult], None] | None = None,
         usage_handler: Callable[[str, TokenUsage, AgentModelConfig | None], None] | None = None,
         context_handler: Callable[..., None] | None = None,
+        session_title_handler: Callable[[str, str], Awaitable[None]] | None = None,
     ) -> None:
         self._agent = agent
         self._model_factory = model_factory
@@ -230,6 +230,7 @@ class AgentLoop:
         self._preflight_compaction_handler = preflight_compaction_handler
         self._usage_handler = usage_handler
         self._context_handler = context_handler
+        self._session_title_handler = session_title_handler
         self._context_budgets: dict[str, tuple[AgentModelConfig, ContextBudget]] = {}
 
     def _context_budget(self, session_id: str, model: AgentModelConfig) -> ContextBudget:
@@ -284,10 +285,8 @@ class AgentLoop:
         title_requested = False
         native_title = None
 
-        def observe_response(response: Response) -> None:
+        async def observe_response(response: Response) -> None:
             nonlocal provider_usage, native_title
-            if title_requested and native_title is None:
-                native_title = response_title(response)
             if response.usage is not None:
                 delta = TokenUsage.from_deepseek(
                     response.usage.model_dump(mode="json", exclude_unset=True),
@@ -296,6 +295,10 @@ class AgentLoop:
                 if delta != TokenUsage():
                     provider_usage += delta
                     record_main_usage(delta)
+            if title_requested and native_title is None:
+                native_title = response_title(response)
+                if native_title is not None and self._session_title_handler is not None:
+                    await self._session_title_handler(session_id, native_title)
 
         observed_auxiliary_usage = TokenUsage()
 
@@ -390,7 +393,6 @@ class AgentLoop:
 
         current_agent_name = run_agent.name
         approval_usage = TokenUsage()
-        approval_rejected = False
         last_message: AssistantMessage | None = None
 
         async def stream_output(event: OutputEvent) -> None:
@@ -431,7 +433,6 @@ class AgentLoop:
                             if feedback:
                                 agent_context.turn.review_feedback.append(feedback)
                         else:
-                            approval_rejected = True
                             sdk_state.reject(
                                 interruption,
                                 always_reject=False,
@@ -527,7 +528,6 @@ class AgentLoop:
             auto_compaction=auto_compaction,
             auto_compaction_failed=auto_compaction_failed,
             auto_compaction_consistency_uncertain=consistency_uncertain,
-            session_title=native_title if not approval_rejected else None,
         )
 
     async def _preflight_compact(

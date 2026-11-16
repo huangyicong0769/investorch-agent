@@ -127,7 +127,6 @@ class SessionJournal:
         discarded_user_steer_seqs: tuple[int, ...] = (),
         error: str | None = None,
         main_usage: dict[str, object] | None = None,
-        session_title: str | None = None,
     ) -> int:
         if status not in {"completed", "cancelled", "failed"}:
             raise ValueError("run-ended status must be completed, cancelled, or failed")
@@ -157,8 +156,6 @@ class SessionJournal:
             record["discarded_user_steer_seqs"] = list(discarded_user_steer_seqs)
         if main_usage is not None:
             record["main_usage"] = main_usage
-        if session_title is not None:
-            record["session_title"] = session_title
         if error is not None:
             if status != "failed" or not isinstance(error, str) or not error.strip():
                 raise ValueError("Only failed Runs may include a non-empty error")
@@ -167,6 +164,9 @@ class SessionJournal:
             session_id,
             record,
         )
+
+    async def record_session_title(self, session_id: str, title: str) -> int:
+        return await self._record(session_id, {"type": "session_title", "title": title})
 
     async def record_output(self, session_id: str, event: OutputEvent) -> int:
         return await self._record(session_id, serialize_output_event(event))

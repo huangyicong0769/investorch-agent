@@ -316,6 +316,7 @@ function presentationSnapshot(value: unknown): SessionPresentationState | null {
     usage: value.usage, main_usage: value.main_usage, auxiliary_usage: value.auxiliary_usage,
     main_context_tokens: contextTokens, context_window_tokens: capacity, context_model: contextModel,
     context_kind: value.context_kind as SessionPresentationState['context_kind'], compacting: value.compacting,
+    session_title: nullableStringField(value, 'session_title') ?? null,
     revision: value.revision, epoch: value.epoch, last_todo_run_id: lastTodoRunId, last_todos: todos,
   }
 }

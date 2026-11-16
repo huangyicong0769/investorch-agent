@@ -39,6 +39,7 @@ from investorch.runtime import (
 )
 from investorch.runtime.errors import format_run_error
 from investorch.storage import create_session, delete_unused_session, list_sessions
+from investorch.storage.sessions import set_session_title_if_empty
 from investorch.tools import close_execution, make_messaging_tools, make_session_tools, start_execution
 
 from . import session_queries
@@ -241,7 +242,6 @@ async def open_application_host(
                 discarded_user_steer_seqs=event.discarded_steer_seqs,
                 error=event.error,
                 main_usage=asdict(event.main_usage) if event.main_usage.requests else None,
-                session_title=event.session_title,
             )
         except Exception:
             logger.exception(
@@ -250,6 +250,22 @@ async def open_application_host(
                 event.run_id,
             )
         await callbacks.handle_run_ended(event)
+
+    async def handle_session_title(session_id: str, title: str) -> None:
+        async def save() -> None:
+            try:
+                if await asyncio.to_thread(set_session_title_if_empty, config.sessions_db, session_id, title):
+                    presentation_state.set_session_title(session_id, title)
+                    await journal.record_session_title(session_id, title)
+            except Exception:
+                logger.exception("Failed to record native title for session %s", session_id)
+
+        task = asyncio.create_task(save())
+        try:
+            await asyncio.shield(task)
+        except asyncio.CancelledError:
+            await task
+            raise
 
     def handle_runtime_state(snapshot: RuntimeSessionSnapshot) -> None:
         presentation_state.observe_runtime(snapshot)
@@ -300,6 +316,7 @@ async def open_application_host(
                     skills=skills,
                     usage_handler=presentation_state.add_usage,
                     context_handler=presentation_state.observe_context,
+                    session_title_handler=handle_session_title,
                 )
                 approvals = ApprovalCoordinator(
                     config=config,
