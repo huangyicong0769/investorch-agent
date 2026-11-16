@@ -55,7 +55,7 @@ OPENAI_API_KEY = "replace-locally-with-your-api-key"
 
 ## DeepSeek Flash
 
-Choose **DeepSeek API key** in Web Setup or Settings. Selecting this connection for a new Agent defaults to `deepseek-flash` and a context window of 1,048,576 tokens. This TOML is sufficient for an installation using one DeepSeek account.
+Choose **DeepSeek API key** in Web Setup or Settings. The Responses adapter recognizes `type = "deepseek"` and existing OpenAI-compatible connections to `https://api.deepseek.com` or `https://api.deepseek.com/v1`. A new Agent on this connection defaults to `deepseek-flash` and a context window of 1,048,576 tokens.
 
 ```toml
 [models.deepseek]
@@ -73,8 +73,6 @@ model = "deepseek"
 
 [agents.compact]
 model = "deepseek"
-web_search = false
-read_url = false
 
 [secrets]
 DEEPSEEK_API_KEY = "replace-locally-with-your-api-key"
@@ -82,16 +80,18 @@ DEEPSEEK_API_KEY = "replace-locally-with-your-api-key"
 
 | Capability | Configuration and availability |
 | --- | --- |
-| Web search and URL reading | Flash text requests use `web_search = true` and `read_url = true` by default. Change them in **Agent Defaults** or a Session’s model menu. In TUI/plain, `/model web off` disables both for the next Run. A Session draft takes effect when the next Run starts. |
-| Auto title | `auto_title = true` lets Flash name an empty Session when the first valid turn title arrives. Set `auto_title = false` under `[agents.main]` to disable automatic naming. |
+| Web search and URL reading | Main Flash text requests enable `web_search` and `read_url` by default. Both are off for auxiliary Agents by default. Set them per supported role in **Agent Defaults** or for the next Run through the Session model menu. In TUI/plain, `/model web off` disables both for the next Run. |
+| Auto title | Flash can return a title in the Main response to a user Run in an unnamed Session. InvestOrch saves the first usable title immediately. Set `auto_title = false` under `[agents.main]` to disable automatic naming. |
 | Content safety | `safety_check = "high"` enables DeepSeek input and output review for Flash text requests. `"low"` selects the API’s default checks. |
-| Pro and other connections | `deepseek-v4-pro` continues with standard Responses support. Flash features also recognize the legacy Flash aliases on a direct DeepSeek connection. |
+| Pro and legacy models | `deepseek-v4-pro` uses standard Responses, including standard search events for explicitly supplied `web_search` tools. Flash extensions also apply to the legacy Flash aliases on a direct DeepSeek connection. |
+
+Copying Main settings in **Agent Defaults** preserves the auxiliary roles’ web switches. The Title Agent names Sessions from conversation history and omits web tools from its requests.
 
 With thinking off, a Run with client tools omits native web search, URL reading, native title requests and explicit safety review. Enabling thinking lets Flash use these features alongside local tools. A request without client tools can use non-thinking search. Structured-output requests use the standard Responses format.
 
-Usage shows billed searches, page reads and image searches reported by DeepSeek and any reported safety tokens. The provider decides when to search and may charge for tools used before a failure. Web/TUI switches control future requests. [DeepSeek Web Tools](https://api-docs.deepseek.com/guides/web_tools) · [Models and pricing](https://api-docs.deepseek.com/quick_start/pricing/)
+Web and TUI use the returned events to update each tool call. The `kind` field distinguishes Flash search, page reading and image search. Usage shows billed operations and reported safety tokens. The provider decides when to search and may charge for tools used before a failure. [DeepSeek Web Tools](https://api-docs.deepseek.com/guides/web_tools) · [Models and pricing](https://api-docs.deepseek.com/quick_start/pricing/)
 
-DeepSeek Responses continuation reuses the original web calls with their IDs, `kind` and `signature`. When a signed web round exists, Compact retains the latest one.
+Main continuation with DeepSeek Responses reuses the original web calls with their IDs, `kind` and `signature`. When a signed web round exists, Compact retains the latest one. The Title Agent receives portable conversation history with DeepSeek-specific web items and reasoning removed.
 
 Files, OCR, ASR and TTS can be called through `DeepSeekServiceClient.from_config(config, "deepseek")` as an async context manager. Use `upload_file`, `list_files`, `get_file` and `delete_file` to manage files. `input_file(file_id)` creates the Responses content part for text and parsed documents. Use `ocr`, `transcribe`, `synthesize` and `stream_speech` for the standalone services. Uploads default to a one-hour expiry. `stream_speech` accepts an async iterable of text chunks and yields audio frames.
 

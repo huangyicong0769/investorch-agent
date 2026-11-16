@@ -55,7 +55,7 @@ OPENAI_API_KEY = "replace-locally-with-your-api-key"
 
 ## DeepSeek Flash
 
-在 Web Setup 或 Settings 选择 **DeepSeek API key**。新 Agent 选择这个连接时，默认模型为 `deepseek-flash`，上下文窗口为 1,048,576 tokens。单个 DeepSeek 账号的完整配置如下。
+在 Web Setup 或 Settings 选择 **DeepSeek API key**。Responses 适配器识别 `type = "deepseek"`，也识别 API 地址为 `https://api.deepseek.com` 或 `https://api.deepseek.com/v1` 的既有 OpenAI-compatible 连接。新 Agent 选择直连 DeepSeek 时，默认模型为 `deepseek-flash`，上下文窗口为 1,048,576 tokens。
 
 ```toml
 [models.deepseek]
@@ -73,8 +73,6 @@ model = "deepseek"
 
 [agents.compact]
 model = "deepseek"
-web_search = false
-read_url = false
 
 [secrets]
 DEEPSEEK_API_KEY = "replace-locally-with-your-api-key"
@@ -82,16 +80,18 @@ DEEPSEEK_API_KEY = "replace-locally-with-your-api-key"
 
 | 能力 | 配置和可用性 |
 | --- | --- |
-| 原生搜索和 URL 阅读 | Flash 文本请求默认启用 `web_search` 和 `read_url`。可在 **Agent Defaults** 或 Session 的模型菜单分别开关。TUI/plain 执行 `/model web off` 为下一次 Run 关闭两项。Session 草稿在下一次 Run 开始时生效。 |
-| 自动标题 | `auto_title = true` 时，为空标题的 Session 保存首个有效标题。可在 `[agents.main]` 下设 `auto_title = false` 关闭自动命名。 |
+| 原生搜索和 URL 阅读 | Main 的 Flash 文本请求默认启用 `web_search` 和 `read_url`。所有辅助 Agent 默认关闭两项。可在 **Agent Defaults** 按角色设置。Session 模型菜单的改动在下一次 Run 生效，TUI/plain 可用 `/model web off` 为下一次 Run 关闭两项。 |
+| 自动标题 | 未命名 Session 的 Flash 用户 Run 可在 Main 请求中获取标题。首个有效标题立即保存。可在 `[agents.main]` 下设 `auto_title = false` 关闭自动命名。 |
 | 内容审核 | `safety_check = "high"` 启用 Flash 文本请求的输入与输出审核。`"low"` 使用 API 默认检查。 |
-| Pro 与旧模型 | `deepseek-v4-pro` 继续走标准 Responses。直连 DeepSeek 时，Flash 的旧别名也可使用 Flash 扩展。 |
+| Pro 与旧模型 | `deepseek-v4-pro` 使用标准 Responses。声明 `web_search` 时，服务端通过标准搜索事件报告进度。直连 DeepSeek 时，Flash 的旧别名也可使用 Flash 扩展。 |
+
+在 **Agent Defaults** 复制主模型设置时，各辅助角色保留自己的联网开关。Title Agent 始终使用会话历史生成标题，请求省略联网工具。
 
 思考关闭且请求包含本地工具时，请求会省略原生联网、原生标题及显式安全审核参数。开启思考后可将这些 Flash 能力与本地工具一起使用。没有本地工具的请求支持非思考搜索。结构化输出使用标准 Responses 格式。
 
-用量面板显示 DeepSeek 返回的计费搜索、页面读取、图片搜索和审核 Token。是否联网由 DeepSeek 决定。失败前执行的操作也可能计费。可在 Web/TUI 关闭后续请求的联网。 [DeepSeek 联网文档](https://api-docs.deepseek.com/guides/web_tools) · [官方定价](https://api-docs.deepseek.com/quick_start/pricing/)
+Web 和 TUI 根据返回的事件更新同一条工具调用的状态，并用 `kind` 区分 Flash 的搜索、网页读取和图片搜索。用量面板显示 DeepSeek 返回的计费次数和审核 Token。是否联网由 DeepSeek 决定，失败前执行的操作也可能计费。 [DeepSeek 联网文档](https://api-docs.deepseek.com/guides/web_tools) · [官方定价](https://api-docs.deepseek.com/quick_start/pricing/)
 
-DeepSeek Responses 续接会回传原始联网调用及其 ID、`kind` 和 `signature`。存在带签名的联网轮次时，Compact 保留最近一轮。
+DeepSeek Responses 的 Main 续接会回传原始联网调用及其 ID、`kind` 和 `signature`。存在带签名的联网轮次时，Compact 保留最近一轮。Title Agent 的输入先转换为可移植会话历史，去除 DeepSeek 专用联网条目和推理记录。
 
 在 Python 中以异步上下文管理器调用 `DeepSeekServiceClient.from_config(config, "deepseek")`。文件接口为 `upload_file`、`list_files`、`get_file` 和 `delete_file`，上传默认一小时过期。文本文件或已解析文档用 `input_file(file_id)` 构造 Responses 内容项。独立服务接口为 `ocr`、`transcribe`、`synthesize` 和 `stream_speech`。`stream_speech` 接收异步文本分块，返回音频帧。
 
