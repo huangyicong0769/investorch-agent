@@ -110,8 +110,9 @@ class DeepSeekResponsesModel(OpenAIResponsesModel):
         if self._selected.read_url:
             hosted.append({"type": "deepseek_read_url"})
         if hosted:
-            # extra_body replaces the tools array. Keep the SDK's converted Function Tools and handoffs.
-            extra["tools"] = [*request["tools"], *hosted]
+            # Keep the SDK's converted functions and handoffs. DeepSeek rejects mixing the two web APIs.
+            base_tools = [tool for tool in request["tools"] if tool["type"] != "web_search"]
+            extra["tools"] = base_tools + hosted
         if hosted or extra.get("title") or self._selected.safety_check == "high":
             request.pop("top_logprobs", None)
         request["extra_body"] = extra or None

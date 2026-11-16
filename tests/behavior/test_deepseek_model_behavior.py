@@ -4,7 +4,7 @@ from dataclasses import replace
 
 import httpx2
 import pytest
-from agents import Agent, ModelSettings, Runner, function_tool
+from agents import Agent, ModelSettings, Runner, WebSearchTool, function_tool
 from openai import AsyncOpenAI
 
 from investorch.application import ApplicationCallbacks, open_application_host
@@ -411,18 +411,25 @@ async def test_host_replays_signed_web_item_after_compact_fork_and_reopening(tmp
 
 
 @pytest.mark.parametrize(
-    ("provider", "name", "switches", "effort", "local", "hosted"),
+    ("provider", "name", "switches", "effort", "sdk_tools", "wire_tools"),
     [
-        ("deepseek", "deepseek-flash", {}, "high", True, ["deepseek_web_search", "deepseek_read_url"]),
-        ("deepseek", "deepseek-v4-flash", {"web_search": False}, "none", False, ["deepseek_read_url"]),
-        ("deepseek", "deepseek-flash", {"safety_check": "high"}, "none", True, []),
-        ("deepseek", "deepseek-flash", {"web_search": False, "read_url": False}, "high", True, []),
-        ("deepseek", "deepseek-v4-pro", {}, "high", True, []),
-        ("openai_compatible", "deepseek-flash", {}, "high", True, []),
+        (
+            "deepseek",
+            "deepseek-flash",
+            {},
+            "high",
+            ["function", "web_search"],
+            ["function", "deepseek_web_search", "deepseek_read_url"],
+        ),
+        ("deepseek", "deepseek-v4-flash", {"web_search": False}, "none", [], ["deepseek_read_url"]),
+        ("deepseek", "deepseek-flash", {"safety_check": "high"}, "none", ["function"], ["function"]),
+        ("deepseek", "deepseek-flash", {"web_search": False, "read_url": False}, "high", ["function"], ["function"]),
+        ("deepseek", "deepseek-v4-pro", {}, "high", ["function", "web_search"], ["function", "web_search"]),
+        ("openai_compatible", "deepseek-flash", {}, "high", ["function"], ["function"]),
     ],
 )
 async def test_responses_declares_native_tools_alongside_local_tools(
-    tmp_path, provider, name, switches, effort, local, hosted
+    tmp_path, provider, name, switches, effort, sdk_tools, wire_tools
 ):
     config = make_test_config(tmp_path, {"models": {"test": {"type": provider}}})
     requests = []
@@ -444,11 +451,12 @@ async def test_responses_declares_native_tools_alongside_local_tools(
         ),
     )
     selected = replace(config.agent_model("main"), name=name, reasoning_effort=effort, **switches)
+    tools = {"function": lookup, "web_search": WebSearchTool()}
     try:
         agent = Agent(
             name="Main",
             model=clients.resolve(selected),
-            tools=[lookup] if local else [],
+            tools=[tools[tool] for tool in sdk_tools],
             model_settings=ModelSettings(
                 reasoning={"effort": effort}, extra_body={"title": {"enabled": True}} if effort == "none" else None
             ),
@@ -462,7 +470,8 @@ async def test_responses_declares_native_tools_alongside_local_tools(
     assert request["model"] == name
     assert request["reasoning"]["effort"] == effort
     assert request.get("tool_choice") != "none"
-    assert [tool["type"] for tool in request["tools"]] == (["function"] if local else []) + hosted
+    assert [tool["type"] for tool in request["tools"]] == wire_tools
+    local = "function" in sdk_tools
     if local:
         assert request["tools"][0]["name"] == "lookup"
     if effort == "none":
