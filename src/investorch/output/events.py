@@ -21,6 +21,7 @@ class ToolCalled:
     name: str
     arguments: str | None = None
     hosted_status: str | None = None
+    hosted_call_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

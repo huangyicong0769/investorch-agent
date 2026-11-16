@@ -315,6 +315,7 @@ export interface OutputEventToolCalled {
   name: string
   arguments: string | null
   hosted_status?: string
+  hosted_call_id?: string
 }
 
 export interface OutputEventToolOutput {

@@ -51,6 +51,7 @@ export interface TimelineReasoningViewModel {
 export interface TimelineToolViewModel {
   images: ImageContent[]
   type: 'tool'
+  hostedStatus?: string
   id: string
   seq: number
   timestamp: string
@@ -188,10 +189,14 @@ export function reasoningTitle(item: TimelineReasoningViewModel): string {
     .replace(/^__(.*)__$/, '$1') || 'Reasoning'
 }
 
+export function toolTitle(item: TimelineToolViewModel): string {
+  return item.hostedStatus ? `${item.name} · ${item.hostedStatus.replaceAll('_', ' ')}` : item.label ?? item.name
+}
+
 function activityTitle(group: TimelineActivityGroupViewModel): string {
   const latestTool = [...group.items].reverse().find((item): item is TimelineToolViewModel => item.type === 'tool')
-  if (latestTool?.label) {
-    return latestTool.label
+  if (latestTool?.label || latestTool?.hostedStatus) {
+    return toolTitle(latestTool)
   }
   if (latestTool) {
     return `Tool · ${latestTool.name}`
@@ -294,8 +299,9 @@ function appendTool(
     arguments: record.arguments,
     label: labels.get(record.seq) ?? null,
     images: [],
-    observation: record.hosted_status ?? null,
+    observation: null,
     observationSeq: null,
+    hostedStatus: record.hosted_status,
   }
   group.items.push(step)
   refreshActivityTitle(group)
@@ -360,6 +366,7 @@ export function projectTimeline(records: readonly JournalRecord[]): TimelineView
 
   const timeline: TimelineViewModel[] = []
   const pendingTools: TimelineToolViewModel[] = []
+  const hostedTools = new Map<string, { step: TimelineToolViewModel; group: TimelineActivityGroupViewModel }>()
   let activeTurn: MutableAssistantTurn | null = null
   let lastAgentChangedName: string | null = null
 
@@ -475,8 +482,17 @@ export function projectTimeline(records: readonly JournalRecord[]): TimelineView
     }
 
     if (record.type === 'tool_called') {
+      const hosted = record.hosted_call_id ? hostedTools.get(record.hosted_call_id) : undefined
+      if (hosted) {
+        hosted.step.name = record.name
+        hosted.step.arguments = record.arguments
+        hosted.step.hostedStatus = record.hosted_status
+        refreshActivityTitle(hosted.group)
+        continue
+      }
       activeTurn = ensureAssistantTurn(activeTurn, record)
       const step = appendTool(activeTurn, record, labels)
+      if (record.hosted_call_id && activeTurn.activity) hostedTools.set(record.hosted_call_id, { step, group: activeTurn.activity })
       if (record.hosted_status === undefined) pendingTools.push(step)
       continue
     }

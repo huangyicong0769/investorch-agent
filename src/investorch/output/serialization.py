@@ -34,6 +34,7 @@ def serialize_output_event(event: OutputEvent) -> dict[str, object]:
             "name": event.name,
             "arguments": event.arguments,
             **({"hosted_status": event.hosted_status} if event.hosted_status is not None else {}),
+            **({"hosted_call_id": event.hosted_call_id} if event.hosted_call_id is not None else {}),
         }
     if isinstance(event, ToolOutput):
         return {

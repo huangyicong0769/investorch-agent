@@ -36,6 +36,12 @@ from .events import (
     UrlCitation,
 )
 
+_WEB_PROGRESS = {
+    "response.web_search_call.in_progress": "in_progress",
+    "response.web_search_call.searching": "searching",
+    "response.web_search_call.completed": "completed",
+}
+
 
 @dataclass
 class _PendingMessage:
@@ -114,8 +120,8 @@ async def consume_run_events(
     emitted_reasoning: set[str] = set()
     pending_messages: dict[int, _PendingMessage] = {}
     completed_messages: Counter[tuple[str, str]] = Counter()
-    pending_web_calls: dict[str, ResponseFunctionWebSearch] = {}
-    completed_web_calls: set[str] = set()
+    pending_web_calls: dict[int, ResponseFunctionWebSearch] = {}
+    reported_web_calls: dict[str, ToolCalled] = {}
     response_confirmed = not deepseek
     pending_response_output: list[AssistantMessage | Reasoning] = []
     loop = asyncio.get_running_loop()
@@ -171,20 +177,20 @@ async def consume_run_events(
             if pending.text:
                 await output_handler(pending.message())
 
-    async def record_web_call(item: object, *, incomplete: bool = False) -> bool:
-        if not deepseek or not isinstance(item, ResponseFunctionWebSearch) or not getattr(item, "kind", None):
+    async def record_web_call(item: object, *, status: str | None = None) -> bool:
+        if not isinstance(item, ResponseFunctionWebSearch):
             return False
-        if item.id in completed_web_calls:
-            return True
-        completed_web_calls.add(item.id)
-        pending_web_calls.pop(item.id, None)
-        name = {"read_link": "URL reading", "image_search": "image search", "deep_image_search": "image search"}.get(
-            item.kind, "web search"
+        kind = getattr(item, "kind", None)
+        name = {"read_link": "URL reading", "image_search": "Image search", "deep_image_search": "Image search"}.get(
+            kind, "Web search"
         )
         raw = item.model_dump(mode="json", exclude_unset=True)
-        arguments = json.dumps({"kind": item.kind, "action": raw.get("action")}, ensure_ascii=False)
-        await flush_reasoning()
-        await output_handler(ToolCalled(f"DeepSeek {name}", arguments, "incomplete" if incomplete else item.status))
+        arguments = json.dumps({**({"kind": kind} if kind else {}), "action": raw.get("action")}, ensure_ascii=False)
+        record = ToolCalled(name, arguments, status or item.status, item.id)
+        if reported_web_calls.get(item.id) != record:
+            reported_web_calls[item.id] = record
+            await flush_reasoning()
+            await output_handler(record)
         return True
 
     stream = result.stream_events().__aiter__()
@@ -229,21 +235,27 @@ async def consume_run_events(
                     emitted_reasoning.clear()
                     await flush_messages()
                     completed_messages.clear()
-                    completed_web_calls.clear()
+                    pending_web_calls.clear()
+                    reported_web_calls.clear()
                     response_confirmed = not deepseek
-                elif (
-                    deepseek
-                    and isinstance(event.data, ResponseOutputItemAddedEvent)
-                    and isinstance(event.data.item, ResponseFunctionWebSearch)
+                elif isinstance(event.data, ResponseOutputItemAddedEvent) and isinstance(
+                    event.data.item, ResponseFunctionWebSearch
                 ):
-                    pending_web_calls[event.data.item.id] = event.data.item
+                    pending_web_calls[event.data.output_index] = event.data.item
+                    await record_web_call(event.data.item)
+                elif event.data.type in _WEB_PROGRESS:
+                    if (call := pending_web_calls.get(event.data.output_index)) is not None:
+                        await record_web_call(call, status=_WEB_PROGRESS[event.data.type])
                 elif isinstance(event.data, ResponseOutputItemDoneEvent) and await record_web_call(event.data.item):
+                    pending_web_calls.pop(event.data.output_index, None)
                     continue
-                elif deepseek and event.data.type in {"response.completed", "response.failed", "response.incomplete"}:
-                    if response_handler is not None:
-                        await response_handler(event.data.response)
+                elif event.data.type in {"response.completed", "response.failed", "response.incomplete"}:
                     for item in event.data.response.output or ():
                         await record_web_call(item)
+                    if not deepseek:
+                        continue
+                    if response_handler is not None:
+                        await response_handler(event.data.response)
                     if (failure := response_error(event.data.response)) is not None:
                         await discard_response_output()
                         raise failure
@@ -327,8 +339,9 @@ async def consume_run_events(
         if next_event is not None:
             next_event.cancel()
             await asyncio.gather(next_event, return_exceptions=True)
-        for call in list(pending_web_calls.values()):
-            await record_web_call(call, incomplete=True)
+        for call in pending_web_calls.values():
+            if reported_web_calls[call.id].hosted_status in {"in_progress", "searching"}:
+                await record_web_call(call, status="incomplete")
         if response_confirmed:
             await flush_messages()
         else:
