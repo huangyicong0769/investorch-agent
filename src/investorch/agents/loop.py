@@ -13,7 +13,7 @@ from agents import Agent, Model, RunConfig, RunContextWrapper, Runner, SQLiteSes
 from agents.items import ModelResponse
 from agents.lifecycle import RunHooksBase
 from agents.run_config import CallModelData, CallModelInputFilter, ModelInputData
-from agents.tool import FunctionTool, Tool
+from agents.tool import FunctionTool, Tool, WebSearchTool
 from openai.types.responses import Response
 
 from investorch.config import AgentModelConfig, AppConfig
@@ -276,6 +276,8 @@ class AgentLoop:
         )
         if isinstance(run_agent.model, ChatGPTResponsesModel):
             all_tools = await run_agent.get_all_tools(RunContextWrapper(agent_context))
+            if model_config.web_search:
+                all_tools = [*all_tools, WebSearchTool()]
             run_agent = run_agent.clone(tools=chatgpt_tools(all_tools), mcp_servers=[])
 
         def record_main_usage(usage: TokenUsage) -> None:

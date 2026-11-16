@@ -8,7 +8,7 @@ import { queryKeys } from '../../api/queries'
 import type { AgentModelConfig, JsonObject, ReasoningEffort } from '../../api/types'
 import { errorMessage } from '../../lib/errors'
 import { RUN_DEFAULTS_MUTATION_KEY } from '../composer/RunControlsPopover'
-import { DEEPSEEK_WEB_CAPABILITIES, supportsDeepSeekWeb } from '../management/ModelFields'
+import { modelWebCapabilities, supportsDeepSeekWeb } from '../management/ModelFields'
 import { objectValue } from '../management/schema'
 import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
@@ -57,8 +57,10 @@ export function SessionModelEditor({ sessionId }: { sessionId: string }) {
   const model = useQuery({ ...sessionModelQueryOptions(sessionId), enabled: Boolean(sessionId) })
   const config = useQuery({ ...configQueryOptions(), enabled: Boolean(sessionId) })
   const selected = model.data?.effective
-  const connections = Object.entries(objectValue(config.data?.values.models))
-  const deepSeekWeb = selected && supportsDeepSeekWeb(objectValue(objectValue(config.data?.values.models)[selected.model]), selected.name)
+  const configuredConnections = objectValue(config.data?.values.models)
+  const connections = Object.entries(configuredConnections)
+  const selectedConnection = objectValue(configuredConnections[selected?.model ?? ''])
+  const deepSeekWeb = selected && supportsDeepSeekWeb(selectedConnection, selected.name)
   const agents = objectValue(config.data?.values.agents)
   const chatGPTConnections = connections.filter(([, value]) => objectValue(value).type === 'chatgpt')
   const catalogs = useQueries({ queries: chatGPTConnections.map(([id]) => ({
@@ -176,7 +178,7 @@ export function SessionModelEditor({ sessionId }: { sessionId: string }) {
         <Button className={rowClass} disabled={!ready || busy} onClick={() => {
           if (selected) { save.reset(); setPanel({ kind: 'window', choice: { connection: selected.model, name: selected.name, label: displayName(selected.model, selected.name) }, value: String(selected.context_window_tokens), changingModel: false }) }
         }} type="button" variant="ghost">Context window<ChevronRight aria-hidden="true" className="size-3.5 text-muted-foreground" /></Button>
-        {deepSeekWeb ? DEEPSEEK_WEB_CAPABILITIES.map(([key, label]) => <label className="flex items-center justify-between gap-2 px-2.5 py-2 text-sm" key={key}>
+        {selected ? modelWebCapabilities(selectedConnection, selected.name).map(([key, label]) => <label className="flex items-center justify-between gap-2 px-2.5 py-2 text-sm" key={key}>
           {label}<input checked={selected[key] !== false} disabled={!ready || busy} onChange={(event) => save.mutate({ [key]: event.target.checked })} type="checkbox" />
         </label>) : null}
         {deepSeekWeb && selected.reasoning_effort === 'none' ? <p className="px-2.5 pb-2 text-xs text-muted-foreground">Enable thinking to use DeepSeek web tools with local tools.</p> : null}

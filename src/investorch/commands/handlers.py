@@ -252,11 +252,12 @@ async def dispatch_command(
                 enabled = command.args[1] == "on"
                 try:
                     selected = runtime.session_models.view(session_id).effective
-                    if (
-                        not state.config.model_connection(selected.model).is_deepseek
-                        or selected.name not in DEEPSEEK_FLASH_MODELS
-                    ):
-                        return CommandResult("Web search and URL reading are available on DeepSeek Flash.")
+                    connection = state.config.model_connection(selected.model)
+                    if connection.type == "chatgpt":
+                        runtime.session_models.update(session_id, web_search=enabled)
+                        return CommandResult(f"Web search: {command.args[1]} for the next Run.")
+                    if not connection.is_deepseek or selected.name not in DEEPSEEK_FLASH_MODELS:
+                        return CommandResult("Web search is available on ChatGPT connections and DeepSeek Flash.")
                     runtime.session_models.update(session_id, web_search=enabled, read_url=enabled)
                 except (ConfigError, KeyError) as error:
                     return CommandResult(str(error))

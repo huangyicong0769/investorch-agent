@@ -76,13 +76,12 @@ class _PendingMessage:
             offset += count
         return tuple(citations)
 
-    def finish(self, item: ResponseOutputMessage, *, deepseek: bool) -> AssistantMessage:
+    def finish(self, item: ResponseOutputMessage) -> AssistantMessage:
         self.parts = {index: [part.text] for index, part in enumerate(item.content) if part.type == "output_text"}
-        if deepseek:
-            for index, part in enumerate(item.content):
-                if part.type == "output_text":
-                    for annotation in part.annotations or ():
-                        self.add_annotation(index, annotation)
+        for index, part in enumerate(item.content):
+            if part.type == "output_text":
+                for annotation in part.annotations or ():
+                    self.add_annotation(index, annotation)
         return self.message()
 
     def message(self) -> AssistantMessage:
@@ -276,7 +275,7 @@ async def consume_run_events(
                     pending.parts.setdefault(delta.content_index, []).append(delta.delta)
                     pending.dirty = True
                     await flush_updates()
-                elif deepseek and isinstance(event.data, ResponseOutputTextAnnotationAddedEvent):
+                elif isinstance(event.data, ResponseOutputTextAnnotationAddedEvent):
                     annotation = event.data
                     if annotation.output_index not in pending_messages:
                         pending_messages[annotation.output_index] = _PendingMessage(annotation.item_id)
@@ -296,7 +295,7 @@ async def consume_run_events(
                     text = _message_text(item)
                     pending = pending_messages.pop(event.data.output_index, None)
                     completed_messages[item.id, text] += 1
-                    await emit_response_output((pending or _PendingMessage(item.id)).finish(item, deepseek=deepseek))
+                    await emit_response_output((pending or _PendingMessage(item.id)).finish(item))
                 continue
 
             if event.type != "run_item_stream_event":
@@ -336,9 +335,7 @@ async def consume_run_events(
                     pending_messages = {
                         index: message for index, message in pending_messages.items() if message is not pending
                     }
-                await output_handler(
-                    (pending or _PendingMessage(item.raw_item.id)).finish(item.raw_item, deepseek=deepseek)
-                )
+                await output_handler((pending or _PendingMessage(item.raw_item.id)).finish(item.raw_item))
     finally:
         if next_event is not None:
             next_event.cancel()
