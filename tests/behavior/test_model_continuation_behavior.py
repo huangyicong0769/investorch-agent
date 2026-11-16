@@ -40,7 +40,7 @@ async def test_prior_run_opaque_history_is_portable_but_current_run_reasoning_su
 
     main = Agent(name="Main", model=model, tools=[report])
     unused = Agent(name="Unused", model=ScriptedModel())
-    loop = AgentLoop(main, unused, unused, config, PortfolioOperations(config=config), lambda _: model)
+    loop = AgentLoop(main, unused, config, PortfolioOperations(config=config), lambda _: model)
     approvals = []
 
     async def approve(*args):
@@ -79,9 +79,7 @@ async def test_prior_run_opaque_history_is_portable_but_current_run_reasoning_su
         session.close()
         session = SQLiteSession("session", config.sessions_db)
         restarted_model = ScriptedModel(((assistant_message("after restart"),),))
-        restarted_loop = AgentLoop(
-            main, unused, unused, config, PortfolioOperations(config=config), lambda _: restarted_model
-        )
+        restarted_loop = AgentLoop(main, unused, config, PortfolioOperations(config=config), lambda _: restarted_model)
         assert (await run(restarted_loop, "after-restart")).output == "after restart"
         assert not any(item.get("type") == "reasoning" or "id" in item for item in restarted_model.calls[0].input)
         persisted = await session.get_items()

@@ -89,7 +89,7 @@ def complete_neutral_setup(origin: str) -> None:
             "api_key_secret": "PACKAGE_SMOKE_KEY",
         },
     }
-    for role in ("main", "title", "activity", "permission", "compact"):
+    for role in ("main", "activity", "permission", "compact"):
         changes.update(
             {
                 f"agents.{role}.model": "primary",

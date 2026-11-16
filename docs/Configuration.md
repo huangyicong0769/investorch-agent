@@ -29,12 +29,6 @@ name = "replace-with-provider-model-id"
 reasoning_effort = "high"
 context_window_tokens = 128000
 
-[agents.title]
-model = "openai_api"
-name = "replace-with-provider-model-id"
-reasoning_effort = "none"
-context_window_tokens = 128000
-
 [agents.activity]
 model = "openai_api"
 name = "replace-with-provider-model-id"
@@ -81,12 +75,6 @@ name = "select-personal-account-catalog-slug"
 reasoning_effort = "high"
 context_window_tokens = 128000
 
-[agents.title]
-model = "api"
-name = "replace-with-provider-model-id"
-reasoning_effort = "none"
-context_window_tokens = 128000
-
 [agents.activity]
 model = "api"
 name = "replace-with-provider-model-id"
@@ -109,7 +97,7 @@ context_window_tokens = 128000
 API_KEY = "replace-locally-with-your-api-key"
 ```
 
-For a ChatGPT-only installation, choose an authorized ChatGPT connection for all five roles; an API key is unnecessary. Different credentials represent separate account/Workspace authorizations. Connections deliberately sharing a credential share its refresh lock and token rotation. ChatGPT connections use the official endpoint; they do not accept a custom `base_url` or API-key reference.
+For a ChatGPT-only installation, choose an authorized ChatGPT connection for all four roles; an API key is unnecessary. Different credentials represent separate account/Workspace authorizations. Connections deliberately sharing a credential share its refresh lock and token rotation. ChatGPT connections use the official endpoint; they do not accept a custom `base_url` or API-key reference.
 
 ## Setup and Settings
 

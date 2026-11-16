@@ -6,10 +6,16 @@ from agents.handoffs import Handoff
 from agents.items import TResponseInputItem
 from agents.tool import Tool
 from openai import AsyncOpenAI
+from openai.types.responses import Response
 from openai.types.responses.response_prompt_param import ResponsePromptParam
 
 from investorch.config import AgentModelConfig
 from investorch.config_schema import DEEPSEEK_FLASH_MODELS
+
+
+def response_title(response: Response) -> str | None:
+    title = getattr(response, "title", None)
+    return (title.strip() or None) if response.status == "completed" and isinstance(title, str) else None
 
 
 class DeepSeekResponsesModel(OpenAIResponsesModel):

@@ -6,7 +6,7 @@ import { fieldClass } from './SchemaField'
 import { objectValue } from './schema'
 
 export const EFFORTS = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const
-export const AGENT_ROLES = ['main', 'title', 'activity', 'permission', 'compact'] as const
+export const AGENT_ROLES = ['main', 'activity', 'permission', 'compact'] as const
 
 export function isDeepSeekConnection(connection: JsonObject) {
   return connection.type === 'deepseek' || (connection.type === 'openai_compatible'

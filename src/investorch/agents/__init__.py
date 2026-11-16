@@ -20,7 +20,6 @@ from .review_compact import (
     compact_review_instructions,
     create_review_instruction_compactor,
 )
-from .title import create_title_agent
 from .usage import TokenUsage
 
 __all__ = (
@@ -44,7 +43,6 @@ __all__ = (
     "create_compaction_agent",
     "create_permission_agent",
     "create_review_instruction_compactor",
-    "create_title_agent",
     "generate_activity_label",
     "review_permission",
     "session_history_restore_failed",

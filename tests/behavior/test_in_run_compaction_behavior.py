@@ -93,7 +93,6 @@ async def test_running_projection_reaches_sdk_and_flushes_without_repeating_tool
     agent = Agent(name="Main", model=main, tools=[large_result])
     loop = AgentLoop(
         agent,
-        agent,
         Agent(name="Compact", model=compact),
         config,
         PortfolioOperations(config=config),
@@ -210,7 +209,6 @@ async def test_measured_responses_anchor_only_new_content_within_and_between_run
     compact = ScriptedModel()
     agent = Agent(name="Main", instructions="Established instructions. " * 140, model=main, tools=[read_evidence])
     loop = AgentLoop(
-        agent,
         agent,
         Agent(name="Compact", model=compact),
         config,

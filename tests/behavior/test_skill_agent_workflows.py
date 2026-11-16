@@ -127,7 +127,6 @@ async def test_main_agent_creates_or_acquires_reviews_and_installs_a_skill(tmp_p
     loop = AgentLoop(
         main,
         unused,
-        unused,
         config,
         PortfolioOperations(config=config),
         skills=skills,

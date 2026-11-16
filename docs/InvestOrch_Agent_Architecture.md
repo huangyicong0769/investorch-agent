@@ -90,7 +90,7 @@ Context budgets use the latest completed main-model response's reported token to
 
 The Main Agent is cloned with captured model settings for each Run. Support agents have narrow responsibilities:
 
-- Title Agent generates a Session title.
+- DeepSeek Flash can name a Session in the Main response.
 - Activity Agent creates presentation-only labels for Tool calls.
 - Permission Agent may return approve, reject, or ask in review mode.
 - Compact Agent replaces SDK continuation history with a marked summary.

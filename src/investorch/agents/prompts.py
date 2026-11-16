@@ -62,14 +62,6 @@ For tasks that require multiple distinct steps:
 7. Use todos for substantive work stages. Answer simple questions and single-step tasks directly.
 """
 
-TITLE_AGENT_INSTRUCTIONS = """
-You are a session title generator.
-
-Return one concise, descriptive title capturing the conversation's main topic or goal.
-Consider the user's intent and the assistant's response. Use the conversation's language.
-The complete output is the title on one plain-text line, without quotation marks.
-"""
-
 COMPACTION_AGENT_INSTRUCTIONS = """
 You are the context compaction agent for InvestOrch Agent.
 

@@ -1,3 +1,4 @@
+import asyncio
 import json
 from dataclasses import replace
 
@@ -10,6 +11,7 @@ from investorch.application import open_application_host
 from investorch.journal import read_session_journal
 from investorch.llm.clients import ModelConnectionClients
 from investorch.output import consume_run_events, serialize_output_event
+from investorch.storage import get_session_title
 from tests.support.config import make_test_config
 from tests.support.runtime import run_options
 
@@ -59,6 +61,83 @@ def sse(payload, *events):
             f"data: {json.dumps({**event, 'sequence_number': index})}\n\n" for index, event in enumerate(records)
         ),
     )
+
+
+def install_deepseek_http(monkeypatch, handle):
+    def clients(app_config, auth):
+        return ModelConnectionClients(
+            app_config,
+            auth,
+            client_factory=lambda **kwargs: AsyncOpenAI(
+                **kwargs, http_client=httpx2.AsyncClient(transport=httpx2.MockTransport(handle))
+            ),
+        )
+
+    monkeypatch.setattr("investorch.application.host.ModelConnectionClients", clients)
+
+
+async def approve(*_):
+    return True
+
+
+async def test_first_deepseek_run_uses_last_native_title_without_auxiliary_request(tmp_path, monkeypatch):
+    config = make_test_config(
+        tmp_path, {"models": {"test": {"type": "deepseek"}}, "agents": {"main": {"name": "deepseek-flash"}}}
+    )
+    requests = []
+    call = {
+        "id": "fc_calc",
+        "call_id": "call_calc",
+        "type": "function_call",
+        "name": "calculate",
+        "arguments": '{"expression":"2 + 2"}',
+        "status": "completed",
+    }
+
+    def handle(request):
+        body = json.loads(request.content)
+        requests.append(body)
+        if len(requests) == 1:
+            payload = response([call], title="Intermediate title")
+        else:
+            payload = response([message()], title="Final title")
+        return sse(payload) if body.get("stream") else httpx2.Response(200, json=payload)
+
+    install_deepseek_http(monkeypatch, handle)
+    async with open_application_host(config, manual_approval_handler=approve, enable_activity=False) as host:
+        session_id = await host.sessions.create()
+        result = await host.runtime.start_run(session_id, "Calculate 2 + 2", run_options()).task
+        assert len(requests) == 2
+        assert all(body.get("title") == {"enabled": True} for body in requests)
+        assert any(item.get("type") == "function_call_output" for item in requests[1]["input"])
+        assert result.auxiliary_usage.requests == 0
+        assert get_session_title(config.sessions_db, session_id) == "Final title"
+        await host.runtime.start_run(session_id, "Thanks", run_options()).task
+        assert "title" not in requests[-1]
+
+
+async def test_native_title_does_not_overwrite_a_manual_rename(tmp_path, monkeypatch):
+    config = make_test_config(
+        tmp_path, {"models": {"test": {"type": "deepseek"}}, "agents": {"main": {"name": "deepseek-flash"}}}
+    )
+    started, release = asyncio.Event(), asyncio.Event()
+
+    async def handle(_request):
+        started.set()
+        await release.wait()
+        return sse(response([message()], title="Automatic title"))
+
+    install_deepseek_http(monkeypatch, handle)
+    async with open_application_host(config, manual_approval_handler=approve, enable_activity=False) as host:
+        session_id = await host.sessions.create()
+        run = host.runtime.start_run(session_id, "Start", run_options())
+        try:
+            await asyncio.wait_for(started.wait(), 2)
+            await host.sessions.set_title(session_id, "Manual title")
+        finally:
+            release.set()
+        await run.task
+        assert get_session_title(config.sessions_db, session_id) == "Manual title"
 
 
 async def test_streamed_citations_are_positioned_by_code_point_and_kept_once(tmp_path):
@@ -167,19 +246,7 @@ async def test_host_replays_signed_web_item_after_compact_fork_and_reopening(tmp
             payload = response([message()])
         return sse(payload) if body.get("stream") else httpx2.Response(200, json=payload)
 
-    def clients(app_config, auth):
-        return ModelConnectionClients(
-            app_config,
-            auth,
-            client_factory=lambda **kwargs: AsyncOpenAI(
-                **kwargs, http_client=httpx2.AsyncClient(transport=httpx2.MockTransport(handle))
-            ),
-        )
-
-    async def approve(*_):
-        return True
-
-    monkeypatch.setattr("investorch.application.host.ModelConnectionClients", clients)
+    install_deepseek_http(monkeypatch, handle)
     async with open_application_host(config, manual_approval_handler=approve, enable_activity=False) as host:
         session_id = await host.sessions.create()
         await host.sessions.set_title(session_id, "Web test")

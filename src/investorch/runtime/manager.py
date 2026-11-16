@@ -25,6 +25,7 @@ from investorch.inputs import UserInput, input_summary
 from investorch.llm.models import ChatGPTInferenceError
 from investorch.llm.oauth import ChatGPTAuthError
 from investorch.output import AssistantMessage, OutputEvent
+from investorch.storage.sessions import set_session_title_if_empty
 
 from .control import RunControl
 from .errors import format_run_error
@@ -557,6 +558,7 @@ class AgentRuntime:
         partial_auxiliary_usage = TokenUsage()
         partial_main_usage = TokenUsage()
         failure: str | None = None
+        applied_session_title: str | None = None
 
         def record_preflight_usage(usage: TokenUsage) -> None:
             nonlocal partial_auxiliary_usage
@@ -664,6 +666,17 @@ class AgentRuntime:
                 run_usage_handler=record_run_usage,
             )
             status = "completed"
+            if result.session_title is not None:
+                try:
+                    written, _ = await _await_journal_write(
+                        asyncio.to_thread(
+                            set_session_title_if_empty, self._sessions_db, session_id, result.session_title
+                        )
+                    )
+                    if written:
+                        applied_session_title = result.session_title
+                except Exception:
+                    logger.exception("Failed to save native title for session %s", session_id)
             logger.info("Completed Agent run session=%s run=%s", session_id, run_id)
             return result
         except asyncio.CancelledError as error:
@@ -748,6 +761,7 @@ class AgentRuntime:
                         partial_auxiliary_usage=partial_auxiliary_usage,
                         partial_main_usage=partial_main_usage,
                         error=failure,
+                        session_title=applied_session_title,
                     )
                 )
                 await self._promote_follow_ups(session_id)

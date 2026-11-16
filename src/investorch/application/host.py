@@ -19,7 +19,6 @@ from investorch.agents import (
     create_compaction_agent,
     create_permission_agent,
     create_review_instruction_compactor,
-    create_title_agent,
 )
 from investorch.agents.skill_review import create_skill_review_agent
 from investorch.config import AppConfig
@@ -242,6 +241,7 @@ async def open_application_host(
                 discarded_user_steer_seqs=event.discarded_steer_seqs,
                 error=event.error,
                 main_usage=asdict(event.main_usage) if event.main_usage.requests else None,
+                session_title=event.session_title,
             )
         except Exception:
             logger.exception(
@@ -276,7 +276,6 @@ async def open_application_host(
                     server.record_connection_result(errors.get(server))
                 logger.info("MCP server manager started with %d active servers", len(mcp_manager.active_servers))
                 main_model, main_model_settings = model_clients.for_agent("main")
-                title_model, title_model_settings = model_clients.for_agent("title")
                 compact_model, compact_model_settings = model_clients.for_agent("compact")
                 permission_model, permission_model_settings = model_clients.for_agent("permission")
                 skills.review_agent = create_skill_review_agent(permission_model, permission_model_settings)
@@ -293,7 +292,6 @@ async def open_application_host(
                 )
                 agent_loop = AgentLoop(
                     agent,
-                    create_title_agent(title_model, title_model_settings),
                     create_compaction_agent(compact_model, compact_model_settings),
                     config,
                     portfolios,

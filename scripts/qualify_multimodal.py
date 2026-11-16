@@ -22,7 +22,6 @@ from investorch.agents import (
     TokenUsage,
     create_agent,
     create_compaction_agent,
-    create_title_agent,
 )
 from investorch.application import PortfolioOperations
 from investorch.config import AppConfig, load_config
@@ -72,11 +71,8 @@ async def qualify() -> None:
             clients = ModelConnectionClients(config, auth)
             stack.push_async_callback(clients.close)
             main = create_agent(*clients.for_agent("main"), config)
-            title = create_title_agent(*clients.for_agent("title"))
             compact = create_compaction_agent(*clients.for_agent("compact"))
-            loop = AgentLoop(
-                main, title, compact, config, PortfolioOperations(config=config), model_factory=clients.resolve
-            )
+            loop = AgentLoop(main, compact, config, PortfolioOperations(config=config), model_factory=clients.resolve)
             execution = ExecutionState(workspace_root=config.workspace_dir)
             report = {"model": config.agent_model("main").name, "checks": {}}
 

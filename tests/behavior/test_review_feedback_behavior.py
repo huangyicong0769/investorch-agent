@@ -68,7 +68,7 @@ async def test_main_receives_review_reason_and_final_decision_after_approval(
     )
     main = Agent(name="Main", model=model, tools=[edit_candidate, inspect_candidate])
     unused = Agent(name="Unused", model=ScriptedModel())
-    loop = AgentLoop(main, unused, unused, config, PortfolioOperations(config=config), lambda _: model)
+    loop = AgentLoop(main, unused, config, PortfolioOperations(config=config), lambda _: model)
 
     approval_count = 0
 

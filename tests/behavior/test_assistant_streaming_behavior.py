@@ -492,49 +492,6 @@ async def test_unpublished_tail_is_preserved_and_no_snapshot_arrives_after_inter
             await asyncio.gather(task, return_exceptions=True)
 
 
-async def test_complete_response_is_visible_while_title_generation_is_still_waiting(tmp_path: Path, monkeypatch):
-    config = make_test_config(tmp_path, {"backtest": {"use_cnequity": False}, "compaction": {"auto_enabled": False}})
-    create_session(config.sessions_db, "session")
-    title_started, release_title = asyncio.Event(), asyncio.Event()
-    events = []
-
-    async def title(_call):
-        title_started.set()
-        await release_title.wait()
-        return (assistant_message("A title"),)
-
-    main = ScriptedModel(((assistant_message("Visible answer"),),))
-    title_model = ScriptedModel((ModelStep.respond(title),))
-    install_host_models(
-        monkeypatch,
-        lambda _config, role: (
-            main if role == "main" else title_model if role == "title" else ScriptedModel(),
-            ModelSettings(),
-        ),
-    )
-
-    async def capture(output, _seq):
-        events.append(output.event)
-
-    async with open_application_host(
-        config,
-        manual_approval_handler=approve,
-        callbacks=ApplicationCallbacks(handle_output=capture),
-        create_initial_session=False,
-        enable_activity=False,
-    ) as host:
-        run = host.runtime.start_run("session", "Start", run_options())
-        try:
-            await asyncio.wait_for(title_started.wait(), 3)
-            assert not run.task.done()
-            assert [event.text for event in events if isinstance(event, AssistantMessage)] == ["Visible answer"]
-            release_title.set()
-            await asyncio.wait_for(run.task, 3)
-            assert [event.text for event in events if isinstance(event, AssistantMessage)] == ["Visible answer"]
-        finally:
-            release_title.set()
-
-
 async def test_generated_image_is_preserved_without_repeating_streamed_caption(tmp_path: Path, monkeypatch):
     config = streaming_config(tmp_path)
     events = []

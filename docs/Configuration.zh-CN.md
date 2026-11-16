@@ -7,7 +7,7 @@
 ## 两层配置
 
 - `models.<id>` 是可自由命名的**连接**：OpenAI-compatible Endpoint 与 API key 引用，或 ChatGPT 授权引用。
-- `agents.<role>` 选择连接、真实模型 ID、推理强度与上下文窗口。内置角色固定为 `main/title/activity/permission/compact`；Skill Review 共用 `permission`，Spawn 默认继承父 Run，不增加角色。
+- `agents.<role>` 选择连接、真实模型 ID、推理强度与上下文窗口。内置角色固定为 `main/activity/permission/compact`；Skill Review 共用 `permission`，Spawn 默认继承父 Run，不增加角色。
 
 连接 ID 只使用字母、数字、下划线和连字符。推理强度支持 `none/minimal/low/medium/high/xhigh/max`，具体模型也必须支持所选等级。API 连接允许手填真实模型 ID；ChatGPT 从所选账号目录选择，请求使用目录 slug。
 
@@ -27,12 +27,6 @@ api_key_secret = "OPENAI_API_KEY"
 model = "openai_api"
 name = "replace-with-provider-model-id"
 reasoning_effort = "high"
-context_window_tokens = 128000
-
-[agents.title]
-model = "openai_api"
-name = "replace-with-provider-model-id"
-reasoning_effort = "none"
 context_window_tokens = 128000
 
 [agents.activity]
@@ -81,12 +75,6 @@ name = "select-personal-account-catalog-slug"
 reasoning_effort = "high"
 context_window_tokens = 128000
 
-[agents.title]
-model = "api"
-name = "replace-with-provider-model-id"
-reasoning_effort = "none"
-context_window_tokens = 128000
-
 [agents.activity]
 model = "api"
 name = "replace-with-provider-model-id"
@@ -109,7 +97,7 @@ context_window_tokens = 128000
 API_KEY = "replace-locally-with-your-api-key"
 ```
 
-仅使用 ChatGPT 时，五个角色均选择已授权的 ChatGPT 连接即可，无需 API key。不同 credential 对应不同账号/Workspace 授权；明确共享同一 credential 的连接共用刷新锁与 Token 轮换。ChatGPT 使用官方 Endpoint，不接受自定义 `base_url` 或 API key 引用。
+仅使用 ChatGPT 时，四个角色均选择已授权的 ChatGPT 连接即可，无需 API key。不同 credential 对应不同账号/Workspace 授权；明确共享同一 credential 的连接共用刷新锁与 Token 轮换。ChatGPT 使用官方 Endpoint，不接受自定义 `base_url` 或 API key 引用。
 
 ## Setup 与 Settings
 

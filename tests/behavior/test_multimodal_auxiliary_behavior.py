@@ -27,19 +27,15 @@ IMAGE_INPUT = UserInput("", (ImageContent("data:image/png;base64,iVBORw0KGgo="),
 
 
 @pytest.mark.asyncio
-async def test_title_vision_failure_does_not_fail_main_image_run(tmp_path: Path) -> None:
+async def test_image_run_on_generic_provider_keeps_placeholder_title(tmp_path: Path) -> None:
     config = make_test_config(tmp_path)
     create_session(config.sessions_db, "session")
     session = SQLiteSession("session", config.sessions_db)
     outputs = []
 
-    def reject_vision(call):
-        assert user_input_to_response_item(IMAGE_INPUT) in call.input
-        raise RuntimeError("Provider does not accept image input")
-
     main = Agent(name="Main", model=ScriptedModel(((assistant_message("Main completed"),),)))
-    title = Agent(name="Title", model=ScriptedModel((ModelStep.respond(reject_vision),)))
-    loop = AgentLoop(main, title, title, config, PortfolioOperations(config=config), model_factory=lambda _: main.model)
+    compact = Agent(name="Compact", model=ScriptedModel())
+    loop = AgentLoop(main, compact, config, PortfolioOperations(config=config), model_factory=lambda _: main.model)
 
     async def approve(*_args):
         return ApprovalOutcome(approved=True, usage=TokenUsage())

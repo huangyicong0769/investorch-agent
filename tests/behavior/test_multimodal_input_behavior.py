@@ -198,7 +198,6 @@ async def test_image_steer_reaches_sdk_continuation_or_fallback(tmp_path: Path, 
     loop = AgentLoop(
         Agent(name="Main", model=model, tools=[read_status]),
         unused,
-        unused,
         config,
         PortfolioOperations(config=config),
         model_factory=lambda _: model,

@@ -114,6 +114,7 @@ class UpdateSessionModelRequest(BaseModel):
     context_window_tokens: int | None = Field(default=None, gt=0)
     web_search: bool | None = None
     read_url: bool | None = None
+    auto_title: bool | None = None
 
 
 class ResolveApprovalRequest(BaseModel):

@@ -154,7 +154,7 @@ Web 与 TUI 是同一 Application state 的一级 projection。
 
 ## Usage 与 compaction
 
-Main 与 auxiliary model usage 在当前进程中按 Session 累积。Auxiliary usage 包含 Title、Activity、Permission 和 Compact Agents。显示的 Main context occupancy 使用最后一次 physical Main request，而不是累计 Session totals。
+Main 与 auxiliary model usage 在当前进程中按 Session 累积。Auxiliary usage 包含 Activity、Permission 和 Compact Agents。显示的 Main context occupancy 使用最后一次 physical Main request，而不是累计 Session totals。
 
 前置检查按本 Run 的窗口估算 continuation、指示、Tool schema 和新输入，并保守预留协议及输出预算。需要压缩时复用当前 Run 排他权，不再次申请同 Session maintenance lock。失败、空摘要或仍超预算均阻止 Main；替换失败尝试恢复原历史。即使关闭回答后的 `compaction.auto_enabled`，这项前置保护仍生效。
 
@@ -188,7 +188,7 @@ Spawn 默认继承 parent Active Run 模型，不读取 parent 新的 Session Dr
 
 工具调用身份生成稳定 child ID。已有 workflow 接受标记、Runtime 和 Journal 事实防止初始任务重复投递。确定因容量/关闭拒绝时只回收未启动 child；接受状态不确定时保留身份供诊断。回执只确认提交，不证明完成或重启恢复。递归子 Session 使用相同 Tools；不新增 stop/wait/status Tool、完成 registry 或自动回复。通过 `list_sessions` 观察当前状态，通过 `read_session(view="events")` 读取完成事实。
 
-所有新顶层 Run 共享 `AgentRuntime._start_run()` 的同步准入门槛。`runtime.max_concurrent_runs` 默认 3，仅接受严格正整数，可在 Settings 或本地 TOML 热应用。下调不停止现有 Run，仅拒绝新准入并报告 `capacity_exceeded`（Web HTTP 429）。父 Run、普通输入、消息、Spawn 和 follow-up 晋升公平共用名额；Waiting Approval 与 Stopping 直到摘除仍占位。Title/Permission/Activity/Compact 辅助调用不额外占位。容量策略不属于冻结的 `RunOptions`。
+所有新顶层 Run 共享 `AgentRuntime._start_run()` 的同步准入门槛。`runtime.max_concurrent_runs` 默认 3，仅接受严格正整数，可在 Settings 或本地 TOML 热应用。下调不停止现有 Run，仅拒绝新准入并报告 `capacity_exceeded`（Web HTTP 429）。父 Run、普通输入、消息、Spawn 和 follow-up 晋升公平共用名额；Waiting Approval 与 Stopping 直到摘除仍占位。Permission/Activity/Compact 辅助调用不额外占位。容量策略不属于冻结的 `RunOptions`。
 
 容量拒绝会在 journal 前恢复并暂停原 Queue 队首，保留捕获的 options；显式 Resume 报容量错误并保留暂停队列。已持久接受的 terminal Steer fallback 保留原 seq，在其他 Run 或 reservation 结束时沿既有晋升路径重试。晋升首次 await 前已同步登记 Run，因此不会重复消费。拒绝不会把已完成 Run 改成 failed，也不新增全局队列或定时器。
 

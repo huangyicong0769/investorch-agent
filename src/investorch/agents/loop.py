@@ -17,17 +17,18 @@ from agents.tool import FunctionTool, Tool
 from openai.types.responses import Response
 
 from investorch.config import AgentModelConfig, AppConfig
+from investorch.config_schema import DEEPSEEK_FLASH_MODELS
 from investorch.context import AgentContext, ExecutionState, TodoUpdateHandler
 from investorch.inputs import UserInput
-from investorch.llm.deepseek import DeepSeekResponsesModel
+from investorch.llm.deepseek import DeepSeekResponsesModel, response_title
 from investorch.llm.models import ChatGPTResponsesModel, chatgpt_tools
 from investorch.output import AssistantMessage, OutputEvent, OutputHandler, consume_run_events
 from investorch.output.stream import assistant_message_from_result
+from investorch.storage.sessions import get_session_title
 
 from .compact import CompactionResult, compact_session, session_history_restore_failed
 from .context_projection import ContextBudget, ContextProjection, ContextProjectionBudgetError
 from .continuation import is_deepseek_web_call, portable_history_filter
-from .title import ensure_session_title
 from .usage import TokenUsage, UsageTracker
 
 if TYPE_CHECKING:
@@ -123,6 +124,7 @@ class AgentRunResult:
     auto_compaction: CompactionResult | None = None
     auto_compaction_failed: bool = False
     auto_compaction_consistency_uncertain: bool = False
+    session_title: str | None = None
 
 
 def should_auto_compact(
@@ -208,7 +210,6 @@ class AgentLoop:
     def __init__(
         self,
         agent: Agent[AgentContext],
-        title_agent: Agent,
         compaction_agent: Agent,
         config: AppConfig,
         portfolios: PortfolioOperations,
@@ -221,7 +222,6 @@ class AgentLoop:
     ) -> None:
         self._agent = agent
         self._model_factory = model_factory
-        self._title_agent = title_agent
         self._compaction_agent = compaction_agent
         self._config = config
         self._portfolios = portfolios
@@ -281,9 +281,13 @@ class AgentLoop:
                 run_usage_handler(usage)
 
         provider_usage = TokenUsage()
+        title_requested = False
+        native_title = None
 
         def observe_response(response: Response) -> None:
-            nonlocal provider_usage
+            nonlocal provider_usage, native_title
+            if title_requested:
+                native_title = response_title(response)
             if response.usage is not None:
                 delta = TokenUsage.from_deepseek(
                     response.usage.model_dump(mode="json", exclude_unset=True),
@@ -326,6 +330,18 @@ class AgentLoop:
             model_input.append({"role": "developer", "content": application_instruction})
         if user_input is not None:
             model_input.append(user_input_to_response_item(user_input))
+            if (
+                deepseek
+                and user_input.origin.kind == "user"
+                and model_config.auto_title
+                and model_config.name in DEEPSEEK_FLASH_MODELS
+            ):
+                existing = await asyncio.to_thread(get_session_title, self._config.sessions_db, session_id)
+                if not existing or not existing.strip():
+                    title_requested = True
+                    run_agent = run_agent.clone(
+                        model_settings=settings.resolve({"extra_body": {"title": {"enabled": True}}})
+                    )
         if not model_input:
             raise ValueError("Run requires user input or an application instruction")
 
@@ -374,6 +390,7 @@ class AgentLoop:
 
         current_agent_name = run_agent.name
         approval_usage = TokenUsage()
+        approval_rejected = False
         last_message: AssistantMessage | None = None
 
         async def stream_output(event: OutputEvent) -> None:
@@ -414,6 +431,7 @@ class AgentLoop:
                             if feedback:
                                 agent_context.turn.review_feedback.append(feedback)
                         else:
+                            approval_rejected = True
                             sdk_state.reject(
                                 interruption,
                                 always_reject=False,
@@ -497,9 +515,6 @@ class AgentLoop:
             # Image generation results are separate SDK items; keep them without
             # repeating the final text already delivered by message_output_created.
             await output_handler(AssistantMessage(text="", images=message.images))
-        await ensure_session_title(
-            self._title_agent, session, self._config.sessions_db, usage_handler=record_auxiliary_usage
-        )
         auto_compaction, auto_compaction_failed, consistency_uncertain = await self._auto_compact(
             session, main_usage, model_config, agent_context, record_auxiliary_usage
         )
@@ -512,6 +527,7 @@ class AgentLoop:
             auto_compaction=auto_compaction,
             auto_compaction_failed=auto_compaction_failed,
             auto_compaction_consistency_uncertain=consistency_uncertain,
+            session_title=native_title if not approval_rejected else None,
         )
 
     async def _preflight_compact(

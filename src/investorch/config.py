@@ -57,6 +57,7 @@ class AgentModelConfig:
     context_window_tokens: int
     web_search: bool = True
     read_url: bool = True
+    auto_title: bool = True
 
     def __post_init__(self) -> None:
         if not self.model or not self.name or self.reasoning_effort not in REASONING_EFFORTS:
@@ -210,6 +211,7 @@ class AppConfig:
         context_window_tokens: int | None = None,
         web_search: bool | None = None,
         read_url: bool | None = None,
+        auto_title: bool | None = None,
     ) -> AgentModelConfig:
         connection_id = base.model if model is None else model
         self.model_connection(connection_id)
@@ -232,6 +234,7 @@ class AppConfig:
             else context_window_tokens,
             web_search=base.web_search if web_search is None else web_search,
             read_url=base.read_url if read_url is None else read_url,
+            auto_title=base.auto_title if auto_title is None else auto_title,
         )
 
     def secret(self, name: str) -> str:
@@ -478,6 +481,10 @@ def _read_toml_bytes(source: bytes, path: Path) -> dict[str, Any]:
 
 def _local_data(source: bytes, path: Path) -> dict[str, Any]:
     data = _read_toml_bytes(source, path)
+    if isinstance(data.get("agents"), dict) and "title" in data["agents"]:
+        raise ConfigError(
+            "Remove [agents.title] from Local TOML for InvestOrch 0.3.1. Existing Session titles are kept."
+        )
     if isinstance(data.get("models"), dict) and any(
         isinstance(value, dict) and set(value) & {"name", "reasoning_effort", "context_window_tokens"}
         for value in data["models"].values()

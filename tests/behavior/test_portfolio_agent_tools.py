@@ -739,7 +739,6 @@ async def test_run_created_agent_context_uses_host_portfolio_state(
         portfolio = await harness.host.portfolios.create(name="Core", base_currency="CNY")
         agent_loop = AgentLoop(
             Agent(name="Main", instructions="test"),
-            Agent(name="Title", instructions="test"),
             Agent(name="Compaction", instructions="test"),
             harness.host.config,
             harness.host.portfolios,

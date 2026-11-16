@@ -13,7 +13,7 @@ from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, field_valida
 ReasoningEffort = Literal["none", "minimal", "low", "medium", "high", "xhigh", "max"]
 PermissionMode = Literal["manual", "review"]
 FollowUpBehavior = Literal["steer", "queue"]
-REQUIRED_AGENT_ROLES = ("main", "title", "activity", "permission", "compact")
+REQUIRED_AGENT_ROLES = ("main", "activity", "permission", "compact")
 REASONING_EFFORTS = get_args(ReasoningEffort)
 PERMISSION_MODES = get_args(PermissionMode)
 FOLLOW_UP_BEHAVIORS = get_args(FollowUpBehavior)
@@ -124,6 +124,7 @@ class AgentModelSchema(ConfigSection):
     context_window_tokens: PositiveInt | None = restart(None)
     web_search: bool = restart(True)
     read_url: bool = restart(True)
+    auto_title: bool = restart(True)
 
 
 class OAuthRotationSchema(ConfigSection):
@@ -379,10 +380,9 @@ class AppConfigSchema(ConfigSection):
         default_factory=dict,
         json_schema_extra={"apply_mode": "restart_required"},
     )
-    agents: dict[Literal["main", "title", "activity", "permission", "compact"], AgentModelSchema] = Field(
+    agents: dict[Literal["main", "activity", "permission", "compact"], AgentModelSchema] = Field(
         default={
             "main": AgentModelSchema(reasoning_effort="max"),
-            "title": AgentModelSchema(reasoning_effort="none"),
             "activity": AgentModelSchema(reasoning_effort="none"),
             "permission": AgentModelSchema(reasoning_effort="high"),
             "compact": AgentModelSchema(reasoning_effort="high"),

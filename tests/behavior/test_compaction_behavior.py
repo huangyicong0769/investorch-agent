@@ -208,7 +208,6 @@ async def test_switching_to_smaller_window_compacts_before_main_or_fails_closed(
     cleared_context = []
     loop = AgentLoop(
         main,
-        main,
         compact,
         config,
         PortfolioOperations(config=config),
@@ -279,7 +278,7 @@ async def test_preflight_handles_the_real_main_agent_tool_schemas(tmp_path: Path
     compact_model = ScriptedModel(((assistant_message("Old work summarized"),),))
     agent = create_agent(model, ModelSettings(), config)
     compact = Agent(name="Compact", model=compact_model)
-    loop = AgentLoop(agent, compact, compact, config, PortfolioOperations(config=config), lambda _: model)
+    loop = AgentLoop(agent, compact, config, PortfolioOperations(config=config), lambda _: model)
 
     async def approve(*_):
         return ApprovalOutcome(True, TokenUsage())

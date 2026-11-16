@@ -84,7 +84,7 @@ InvestOrch 使用 OpenAI Agents SDK，不自行实现 Agent loop 或 Tool-call p
 
 Main Agent 会为每个 Run 使用已捕获 model settings 进行 clone。辅助 Agent 职责狭窄：
 
-- Title Agent 生成 Session 标题。
+- DeepSeek Flash 可在 Main 响应中返回 Session 标题。
 - Activity Agent 为 Tool call 生成只用于展示的 label。
 - Permission Agent 在 review 模式下可以返回 approve、reject 或 ask。
 - Compact Agent 用带标记的 summary 替换 SDK continuation history。
