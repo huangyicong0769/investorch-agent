@@ -13,6 +13,7 @@ from investorch.config import AppConfig, ConfigError
 from investorch.images import detect_image_media_type
 
 FilePurpose = Literal["user_data", "text_recognition", "rich_layout_recognition"]
+OCRPurpose = Literal["text_recognition", "rich_layout_recognition"]
 _MIB = 1024 * 1024
 _ERROR_BY_STATUS = {
     401: "authentication_failed",
@@ -69,6 +70,20 @@ class FilePage(_ServiceResult):
 class FileDeletion(_ServiceResult):
     id: str
     deleted: bool
+
+
+class OCRPage(_ServiceResult):
+    index: int
+    text: str
+    finish_reason: str
+
+
+class OCRResult(_ServiceResult):
+    id: str
+    purpose: str
+    page_count: int
+    pages: list[OCRPage]
+    usage: dict[str, Any] | None = None
 
 
 def _file_id(value: str) -> str:
@@ -220,3 +235,21 @@ class DeepSeekServiceClient:
 
     async def delete_file(self, file_id: str) -> FileDeletion:
         return await self._json("file deletion", FileDeletion, "DELETE", f"files/{_file_id(file_id)}")
+
+    async def ocr(self, path: str | Path, *, purpose: OCRPurpose = "text_recognition") -> OCRResult:
+        if purpose not in get_args(OCRPurpose):
+            raise ValueError("Unsupported DeepSeek OCR purpose.")
+        path = Path(path)
+        with path.open("rb") as file:
+            if os.fstat(file.fileno()).st_size > 100 * _MIB:
+                raise DeepSeekServiceError("OCR", "file_too_large")
+            return await self._json(
+                "OCR",
+                OCRResult,
+                "POST",
+                "v1/tools/ocr",
+                data={"purpose": purpose},
+                files={"file": (path.name, file)},
+                timeout=httpx.Timeout(185, connect=30, write=30),
+                invalid="recognition_failed",
+            )

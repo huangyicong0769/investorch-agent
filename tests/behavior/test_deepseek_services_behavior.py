@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import httpx
@@ -67,3 +68,43 @@ async def test_upload_errors_expose_category_without_payload(tmp_path: Path, sta
             await client.upload_file(document, purpose="text_recognition")
     assert (error.value.status, error.value.code, error.value.request_id) == (status, code, "req-1")
     assert "provider private data" not in str(error.value)
+
+
+async def test_ocr_accepts_keepalives_and_retains_raw_page_text(tmp_path: Path):
+    sample = tmp_path / "fixture.pdf"
+    sample.write_bytes(b"fixture")
+    pages = [
+        {"index": 0, "finish_reason": "stop", "text": "<|ref|>行<|/ref|><|det|>[[1,2,3,4]]<|/det|>"},
+        {"index": 1, "finish_reason": "length", "text": "truncated"},
+    ]
+    payload = {
+        "id": "ocr-1",
+        "purpose": "rich_layout_recognition",
+        "page_count": 2,
+        "pages": pages,
+        "usage": {"input_tokens": 11, "output_tokens": 7},
+    }
+
+    def handle(request):
+        assert request.url.path == "/v1/tools/ocr" and request.method == "POST"
+        assert b'name="purpose"' in request.content and b"rich_layout_recognition" in request.content
+        return httpx.Response(200, content=b"\n\n" + json.dumps(payload).encode())
+
+    async with DeepSeekServiceClient(
+        "https://api.deepseek.com", "fixture", transport=httpx.MockTransport(handle)
+    ) as client:
+        result = await client.ocr(sample, purpose="rich_layout_recognition")
+        assert result.page_count == 2
+        assert [page.model_dump() for page in result.pages] == pages
+        assert result.usage == payload["usage"]
+
+
+async def test_ocr_distinguishes_error_envelopes_after_starting_http_200(tmp_path: Path):
+    sample = tmp_path / "fixture.png"
+    sample.write_bytes(b"fixture")
+    raw = b'\n\n{"error":{"code":"gateway_timeout_error","message":"private detail"}}'
+    transport = httpx.MockTransport(lambda _: httpx.Response(200, content=raw))
+    async with DeepSeekServiceClient("https://api.deepseek.com", "fixture", transport=transport) as client:
+        with pytest.raises(DeepSeekServiceError) as error:
+            await client.ocr(sample)
+    assert (error.value.code, error.value.status) == ("upstream_timeout", 200)
