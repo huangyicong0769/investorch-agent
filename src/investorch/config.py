@@ -29,6 +29,7 @@ from investorch.config_schema import (
     AppConfigSchema,
     OAuthCredentialSchema,
     config_field_metadata,
+    is_deepseek_connection,
     resolve_under_root,
 )
 
@@ -42,6 +43,10 @@ class ModelConnectionConfig:
     base_url: str | None = None
     api_key_secret: str | None = None
     credentials: str | None = None
+
+    @property
+    def is_deepseek(self) -> bool:
+        return is_deepseek_connection(self.type, self.base_url)
 
 
 @dataclass(frozen=True, slots=True)
@@ -170,7 +175,7 @@ class AppConfig:
 
     def model_connection(self, connection_id: str) -> ModelConnectionConfig:
         raw = self[f"models.{connection_id}"]
-        required = ("base_url", "api_key_secret") if raw["type"] == "openai_compatible" else ("credentials",)
+        required = ("credentials",) if raw["type"] == "chatgpt" else ("base_url", "api_key_secret")
         if any(not raw[field] for field in required):
             raise ConfigError(f"models.{connection_id} is incomplete; run investorch web to complete Setup")
         return ModelConnectionConfig(**raw)
@@ -245,9 +250,9 @@ class AppConfig:
             connection = data["models"].get(agent["model"])
             if connection is None:
                 continue
-            fields = ("base_url", "api_key_secret") if connection["type"] == "openai_compatible" else ("credentials",)
+            fields = ("credentials",) if connection["type"] == "chatgpt" else ("base_url", "api_key_secret")
             missing.extend(f"models.{agent['model']}.{field}" for field in fields if not connection[field])
-            if connection["type"] == "openai_compatible":
+            if connection["type"] != "chatgpt":
                 name = connection["api_key_secret"]
                 if name and not data["secrets"].get(name, "").strip():
                     missing.append(f"secrets.{name}")

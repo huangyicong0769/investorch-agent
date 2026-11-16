@@ -17,6 +17,17 @@ REQUIRED_AGENT_ROLES = ("main", "title", "activity", "permission", "compact")
 REASONING_EFFORTS = get_args(ReasoningEffort)
 PERMISSION_MODES = get_args(PermissionMode)
 FOLLOW_UP_BEHAVIORS = get_args(FollowUpBehavior)
+DEEPSEEK_BASE_URL = "https://api.deepseek.com"
+DEEPSEEK_DEFAULT_MODEL = "deepseek-flash"
+DEEPSEEK_CONTEXT_WINDOW = 1048576
+
+
+def is_deepseek_connection(connection_type: str, base_url: str | None) -> bool:
+    return connection_type == "deepseek" or (
+        connection_type == "openai_compatible"
+        and (base_url or "").rstrip("/") in {DEEPSEEK_BASE_URL, f"{DEEPSEEK_BASE_URL}/v1"}
+    )
+
 
 NonEmptyString = Annotated[str, Field(min_length=1, pattern=r"\S")]
 EntryName = Annotated[str, Field(min_length=1, pattern=r"^[^.]+$")]
@@ -72,7 +83,7 @@ class PathsConfig(ConfigSection):
 
 
 class ModelConnectionSchema(ConfigSection):
-    type: Literal["openai_compatible", "chatgpt"] = restart("openai_compatible")
+    type: Literal["openai_compatible", "chatgpt", "deepseek"] = restart("openai_compatible")
     base_url: NonEmptyString | None = restart(None)
     api_key_secret: NonEmptyString | None = restart(None)
     credentials: ConnectionName | None = restart(None)
@@ -97,8 +108,11 @@ class ModelConnectionSchema(ConfigSection):
     def validate_authentication(self) -> Self:
         if self.type == "chatgpt" and (self.base_url is not None or self.api_key_secret is not None):
             raise ValueError("ChatGPT connections use the official endpoint and OAuth credentials only")
-        if self.type == "openai_compatible" and self.credentials is not None:
-            raise ValueError("OpenAI-compatible connections use an API key reference")
+        if self.type != "chatgpt" and self.credentials is not None:
+            raise ValueError("API key connections use an API key reference")
+        if self.type == "deepseek":
+            self.base_url = self.base_url or DEEPSEEK_BASE_URL
+            self.api_key_secret = self.api_key_secret or "DEEPSEEK_API_KEY"
         return self
 
 
@@ -408,6 +422,10 @@ class AppConfigSchema(ConfigSection):
         for role, agent in self.agents.items():
             if agent.model is not None and agent.model not in self.models:
                 raise ValueError(f"agents.{role}.model references an unregistered connection")
+            connection = self.models.get(agent.model) if agent.model is not None else None
+            if agent.name is None and connection and is_deepseek_connection(connection.type, connection.base_url):
+                agent.name = DEEPSEEK_DEFAULT_MODEL
+                agent.context_window_tokens = agent.context_window_tokens or DEEPSEEK_CONTEXT_WINDOW
         for connection in self.models.values():
             if connection.api_key_secret in self.secrets and not isinstance(
                 self.secrets[connection.api_key_secret], str

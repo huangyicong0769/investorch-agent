@@ -56,7 +56,7 @@ function SetupForm({ saved }: { saved: SavedConfig }) {
       {notice ? <p className="text-sm" role="status">{notice}</p> : null}
       <div className="flex flex-wrap gap-3">
         <Button disabled={busy || !dirty} onClick={() => { setChanges({}); setKeys({}); save.reset(); probe.reset() }} type="button" variant="ghost">Discard changes</Button>
-        {connection.type === 'openai_compatible' ? <Button disabled={busy || !key || !main.name} onClick={() => probe.mutate()} type="button" variant="outline">{probe.isPending ? 'Testing…' : 'Test Main connection'}</Button> : null}
+        {connection.type === 'openai_compatible' || connection.type === 'deepseek' ? <Button disabled={busy || !key || !main.name} onClick={() => probe.mutate()} type="button" variant="outline">{probe.isPending ? 'Testing…' : 'Test Main connection'}</Button> : null}
         <Button disabled={busy || !dirty} onClick={() => save.mutate(false)} type="button" variant="outline">Save configuration</Button>
         <Button disabled={busy} onClick={() => save.mutate(true)} type="button">{save.isPending ? 'Saving…' : 'Save and open InvestOrch'}</Button>
       </div>

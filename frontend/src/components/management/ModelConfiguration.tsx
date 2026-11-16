@@ -47,7 +47,12 @@ export function ModelConfiguration({ connections, agents, savedConnections, onCh
         const chatgpt = connection.type === 'chatgpt'
         return <fieldset className="space-y-4 rounded-lg border border-border p-4" key={id}>
           <legend className="px-2 text-sm font-medium">{id}</legend>
-          <label className="block text-sm">Connection type<select className={`${fieldClass} mt-2`} disabled={disabled} onChange={(e) => onChange(`models.${id}`, e.target.value === 'chatgpt' ? { type: 'chatgpt', credentials: id } : { type: 'openai_compatible', base_url: 'https://api.openai.com/v1', api_key_secret: `${id}_KEY` })} value={String(connection.type ?? 'openai_compatible')}><option value="openai_compatible">OpenAI-compatible API key</option><option value="chatgpt">ChatGPT plan usage</option></select></label>
+          <label className="block text-sm">Connection type<select className={`${fieldClass} mt-2`} disabled={disabled} onChange={(e) => {
+            const type = e.target.value
+            if (type === 'chatgpt') onChange(`models.${id}`, { type, credentials: id })
+            else if (type === 'deepseek') onChange(`models.${id}`, { type, base_url: 'https://api.deepseek.com', api_key_secret: 'DEEPSEEK_API_KEY' })
+            else onChange(`models.${id}`, { type, base_url: 'https://api.openai.com/v1', api_key_secret: `${id}_KEY` })
+          }} value={String(connection.type ?? 'openai_compatible')}><option value="openai_compatible">OpenAI-compatible API key</option><option value="deepseek">DeepSeek API key</option><option value="chatgpt">ChatGPT plan usage</option></select></label>
           {(chatgpt ? ['credentials'] : ['base_url', 'api_key_secret']).map((key) => <label className="block text-sm" key={key}>{key === 'base_url' ? 'API endpoint' : key === 'credentials' ? 'Credential reference' : 'API key reference'}<input className={`${fieldClass} mt-2`} disabled={disabled} onChange={(e) => onChange(`models.${id}.${key}`, e.target.value)} value={String(connection[key] ?? '')} />{errors[`models.${id}.${key}`] ? <span className="mt-1 block text-xs text-destructive" role="alert">{errors[`models.${id}.${key}`]}</span> : null}</label>)}
           <p className="text-xs text-muted-foreground">Used by {Object.values(agents).filter((agent) => objectValue(agent).model === id).length} Agent defaults. Session references are checked before deletion.</p>
           {chatgpt ? objectValue(savedConnections[id]).type === 'chatgpt' && objectValue(savedConnections[id]).credentials === connection.credentials ? <ChatGPTConnection connection={id} disabled={disabled} /> : <p className="text-sm text-muted-foreground">Save this connection before signing in with ChatGPT.</p> : null}

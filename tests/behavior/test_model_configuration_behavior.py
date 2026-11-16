@@ -8,6 +8,26 @@ from investorch.config import ConfigError, load_config
 from tests.support.config import make_test_config
 
 
+def test_deepseek_connection_supplies_flash_default_without_changing_explicit_models(tmp_path: Path) -> None:
+    (tmp_path / "investorch.toml").write_text(
+        '[models.deepseek]\ntype = "deepseek"\n'
+        '[agents.main]\nmodel = "deepseek"\n'
+        '[agents.permission]\nmodel = "deepseek"\nname = "deepseek-v4-pro"\ncontext_window_tokens = 500000\n'
+        '[secrets]\nDEEPSEEK_API_KEY = "fixture-key"\n'
+    )
+
+    config = load_config(tmp_path)
+
+    assert config.model_connection("deepseek").base_url == "https://api.deepseek.com"
+    assert config.model_connection("deepseek").api_key_secret == "DEEPSEEK_API_KEY"
+    main = config.agent_model("main")
+    assert (main.name, main.context_window_tokens) == ("deepseek-flash", 1048576)
+    assert config.agent_model("permission").name == "deepseek-v4-pro"
+    assert config.resolve_model(main, name="deepseek-v4-flash", context_window_tokens=1048576).name == (
+        "deepseek-v4-flash"
+    )
+
+
 def test_one_connection_can_supply_distinct_agent_models(tmp_path: Path) -> None:
     (tmp_path / "investorch.toml").write_text(
         '[models.shared]\ntype = "openai_compatible"\n'
