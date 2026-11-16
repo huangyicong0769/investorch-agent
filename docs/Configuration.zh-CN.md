@@ -89,7 +89,7 @@ DEEPSEEK_API_KEY = "replace-locally-with-your-api-key"
 
 思考关闭且请求包含本地工具时，请求会省略原生联网、原生标题及显式安全审核参数。开启思考后可将这些 Flash 能力与本地工具一起使用。没有本地工具的请求支持非思考搜索。结构化输出使用标准 Responses 格式。
 
-Flash 请求带有本地工具返回的图片时，InvestOrch 保留图片和本地工具，暂时省略原生搜索、URL 阅读和原生标题。Session 历史里的工具图片也会触发这项处理。用户直接附图仍可使用原生联网。高等级内容审核要求本地工具结果为纯文本。
+DeepSeek Responses 是无状态接口，每次请求都携带上下文。InvestOrch 回传本地工具结果时保留原始图片。只要实际发送的上下文仍含工具图片，即使模型已经读过，Flash 也会暂时省略原生搜索、URL 阅读和原生标题。后续请求不再包含工具图片时，原生联网会在模型设置允许的情况下自动恢复。用户直接附图仍可使用原生联网。高等级内容审核要求本地工具结果为纯文本。
 
 Web 和 TUI 根据返回的事件更新同一条工具调用的状态，并用 `kind` 区分 Flash 的搜索、网页读取和图片搜索。用量面板显示 DeepSeek 返回的计费次数和审核 Token。是否联网由 DeepSeek 决定，失败前执行的操作也可能计费。 [DeepSeek 联网文档](https://api-docs.deepseek.com/guides/web_tools) · [官方定价](https://api-docs.deepseek.com/quick_start/pricing/)
 
