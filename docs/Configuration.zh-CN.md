@@ -145,6 +145,8 @@ API_KEY = "replace-locally-with-your-api-key"
 
 仅使用 ChatGPT 时，四个角色均选择已授权的 ChatGPT 连接即可，无需 API key。不同 credential 对应不同账号/Workspace 授权；明确共享同一 credential 的连接共用刷新锁与 Token 轮换。ChatGPT 使用官方 Endpoint，不接受自定义 `base_url` 或 API key 引用。
 
+所选 ChatGPT 模型和账号支持时，Main 可调用原生 **Web search**。Main 沿用默认开启的 `web_search` 设置，辅助 Agent 默认关闭联网。在 **Agent Defaults** 可修改 Main 的默认值。若要调整下一次 Run，可用 Session 模型菜单中的 **Web search** 开关，或在 TUI 和普通终端输入 `/model web on|off`。工具调用的进度和来源链接会显示在会话中。 [OpenAI 预览版限制](https://developers.openai.com/siwc/token-sharing-open-source/preview-limitations)
+
 ## Setup 与 Settings
 
 1. 启动 `investorch web`，在 **Model Connections** 新建并保存连接。此时 Agent Host 可以尚未启动。

@@ -145,6 +145,8 @@ API_KEY = "replace-locally-with-your-api-key"
 
 For a ChatGPT-only installation, choose an authorized ChatGPT connection for all four roles; an API key is unnecessary. Different credentials represent separate account/Workspace authorizations. Connections deliberately sharing a credential share its refresh lock and token rotation. ChatGPT connections use the official endpoint; they do not accept a custom `base_url` or API-key reference.
 
+Main can use native **Web search** when the selected ChatGPT model and account support it. It uses the existing `web_search` setting, which defaults to on for Main. Auxiliary Agents default to web off. Set the Main default in **Agent Defaults**. For the next Run, use **Web search** in the Session model menu or `/model web on|off` in TUI and plain. The conversation shows search progress and source links when the model uses the tool. [OpenAI preview limitations](https://developers.openai.com/siwc/token-sharing-open-source/preview-limitations)
+
 ## Setup and Settings
 
 1. Open `investorch web`. In **Model Connections**, add a connection and save it. Setup runs before the Agent Host starts.
