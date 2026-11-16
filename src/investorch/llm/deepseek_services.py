@@ -2,6 +2,8 @@
 
 import os
 import re
+import wave
+from io import BytesIO
 from pathlib import Path
 from typing import Any, Literal, Self, get_args
 
@@ -84,6 +86,57 @@ class OCRResult(_ServiceResult):
     page_count: int
     pages: list[OCRPage]
     usage: dict[str, Any] | None = None
+
+
+class ASRResult(_ServiceResult):
+    request_id: str
+    text: str
+    duration_ms: int
+
+
+def _opus_duration(audio: bytes) -> float | None:
+    """Read completed Opus streams' 48 kHz granule positions, accounting for pre-skip."""
+    offset = samples = 0
+    pre_skip: dict[bytes, int] = {}
+    while offset < len(audio):
+        header = audio[offset : offset + 27]
+        if len(header) < 27 or not header.startswith(b"OggS\x00"):
+            return None
+        flags, serial = header[5], header[14:18]
+        payload = offset + 27 + header[26]
+        end = payload + sum(audio[offset + 27 : payload])
+        if end > len(audio):
+            return None
+        if flags & 2:
+            opus_header = audio[payload : min(end, payload + 19)]
+            if len(opus_header) != 19 or not opus_header.startswith(b"OpusHead") or opus_header[9] not in {1, 2}:
+                return None
+            pre_skip[serial] = int.from_bytes(opus_header[10:12], "little")
+        if serial not in pre_skip:
+            return None
+        if flags & 4:
+            granule = int.from_bytes(header[6:14], "little", signed=True)
+            samples += max(0, granule - pre_skip.pop(serial))
+        offset = end
+    return samples / 48000 if samples and not pre_skip else None
+
+
+def _audio_duration(audio: bytes) -> float | None:
+    if audio.startswith(b"OggS"):
+        return _opus_duration(audio)
+    try:
+        with wave.open(BytesIO(audio), "rb") as wav:
+            rate = wav.getframerate()
+            if (
+                wav.getsampwidth() == 2
+                and wav.getnchannels() in {1, 2}
+                and rate in {8000, 16000, 22050, 24000, 32000, 44100, 48000}
+                and wav.getnframes() > 0
+            ):
+                return wav.getnframes() / rate
+    except (EOFError, wave.Error):
+        pass
+    return None
 
 
 def _file_id(value: str) -> str:
@@ -253,3 +306,24 @@ class DeepSeekServiceClient:
                 timeout=httpx.Timeout(185, connect=30, write=30),
                 invalid="recognition_failed",
             )
+
+    async def transcribe(self, path: str | Path) -> ASRResult:
+        path = Path(path)
+        with path.open("rb") as file:
+            audio = file.read(8 * _MIB + 1)
+        if len(audio) > 8 * _MIB:
+            raise DeepSeekServiceError("ASR", "file_too_large")
+        duration = _audio_duration(audio)
+        if duration is None:
+            raise DeepSeekServiceError("ASR", "invalid_audio")
+        if duration > 120:
+            raise DeepSeekServiceError("ASR", "audio_too_long")
+        return await self._json(
+            "ASR",
+            ASRResult,
+            "POST",
+            "v1/tools/asr",
+            files={"file": (path.name, audio)},
+            timeout=httpx.Timeout(600, connect=30),
+            invalid="invalid_audio",
+        )

@@ -1,4 +1,5 @@
 import json
+import wave
 from pathlib import Path
 
 import httpx
@@ -108,3 +109,31 @@ async def test_ocr_distinguishes_error_envelopes_after_starting_http_200(tmp_pat
         with pytest.raises(DeepSeekServiceError) as error:
             await client.ocr(sample)
     assert (error.value.code, error.value.status) == ("upstream_timeout", 200)
+
+
+async def test_asr_uploads_pcm16_and_validates_format_and_duration(tmp_path: Path):
+    sample = tmp_path / "fixture.wav"
+
+    def write_wav(frames: int) -> None:
+        with wave.open(str(sample), "wb") as wav:
+            wav.setparams((1, 2, 8000, 0, "NONE", "not compressed"))
+            wav.writeframes(b"\x00\x00" * frames)
+
+    def handle(request):
+        assert request.url.path == "/v1/tools/asr"
+        assert b'name="file"; filename="fixture.wav"' in request.content
+        assert b"RIFF" in request.content
+        return httpx.Response(200, json={"request_id": "asr-1", "text": "Example", "duration_ms": 1000})
+
+    async with DeepSeekServiceClient(
+        "https://api.deepseek.com", "fixture", transport=httpx.MockTransport(handle)
+    ) as client:
+        write_wav(8000)
+        result = await client.transcribe(sample)
+        assert (result.request_id, result.text, result.duration_ms) == ("asr-1", "Example", 1000)
+        write_wav(8000 * 120 + 1)
+        with pytest.raises(DeepSeekServiceError, match="audio_too_long"):
+            await client.transcribe(sample)
+        sample.write_bytes(b"not an audio file")
+        with pytest.raises(DeepSeekServiceError, match="invalid_audio"):
+            await client.transcribe(sample)
