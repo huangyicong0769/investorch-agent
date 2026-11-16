@@ -2,7 +2,15 @@
 
 [English](Upgrade.md)
 
-本文说明 0.3.0 模型配置迁移，并保留早期 0.2.0 升级流程。安装方式见 [README](../README.zh-CN.md#安装)，版本范围见 [0.3.0 发行说明](releases/0.3.0.zh-CN.md)。
+安装方式见 [README](../README.zh-CN.md#安装)。
+
+## 0.3.0 → 0.3.1 DeepSeek 配置
+
+1. 停止 InvestOrch，备份本地 TOML。默认路径为 `~/.investorch/investorch.toml`，备份含凭据，请妥善保存。
+2. 删除整个 `[agents.title]` 表。编辑完成后用新版执行 `investorch upgrade check`。
+3. 对直连 DeepSeek 的 Agent，将旧的 `name = "deepseek-v4-flash"` 改为 `name = "deepseek-flash"`。服务端过渡期仍接受旧别名。在 Web 模型选择器或 `/model` 中检查已有 Session 的生效和已保存模型，按需显式切换。
+
+现有标题及 Session 模型选择保存在 SQLite 中。回退到 0.3.0 时恢复备份的 TOML 和旧版软件包。 [DeepSeek 配置](Configuration.zh-CN.md#deepseek-flash)
 
 ## 0.2.0 → 0.3.0 模型配置
 

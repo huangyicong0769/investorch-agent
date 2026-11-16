@@ -2,16 +2,16 @@
 
 [简体中文](Configuration.zh-CN.md)
 
-This guide describes the **unreleased 0.3.0** configuration. Released 0.2.0 installations must follow [Upgrade](Upgrade.md) before using it.
+This guide describes the 0.3.1 configuration. Follow [Upgrade](Upgrade.md) when moving an existing installation.
 
 ## Two configuration layers
 
-- `models.<id>` registers a freely named **connection**: an OpenAI-compatible endpoint and API-key reference, or a ChatGPT authorization reference.
-- `agents.<role>` selects that connection, the actual model ID, reasoning effort and context window. The built-in roles are `main`, `title`, `activity`, `permission` and `compact`. Skill Review shares `permission`; Spawn inherits its parent Run instead of using another role.
+- `models.<id>` registers a named API-key or ChatGPT connection.
+- `agents.<role>` selects the connection, model ID, reasoning effort and context window. The roles are `main`, `activity`, `permission` and `compact`. Skill Review uses `permission`. Spawn inherits its parent Run’s settings.
 
 Connection IDs use letters, digits, `_` and `-`. Reasoning effort accepts `none`, `minimal`, `low`, `medium`, `high`, `xhigh` and `max`; the chosen model must support the requested level. API-compatible connections allow manual model IDs. ChatGPT choices come from the selected account's catalog, and requests use its model slug.
 
-The effective context window is always a positive integer. Main needs an explicit window. An auxiliary role may omit it only when its connection and actual model match Main. A Session or Spawn override may inherit an unchanged model's window; changing the model name requires a new explicit window. Changing the connection requires the name, effort and window together. Obtain the window from the model's documentation or account catalog; the application does not guess it from the name.
+The effective context window is a positive integer. Supply an explicit window when setting an explicit Main model ID. An auxiliary role on the same connection and model can inherit Main’s window. Changing a Session’s model ID requires its window. Changing the connection also requires the name and effort. Use the window from the provider’s documentation or catalog.
 
 ## API-key example
 
@@ -50,6 +50,46 @@ context_window_tokens = 128000
 [secrets]
 OPENAI_API_KEY = "replace-locally-with-your-api-key"
 ```
+
+## DeepSeek Flash
+
+Choose **DeepSeek API key** in Web Setup or Settings. Selecting this connection for a new Agent defaults to `deepseek-flash` and a context window of 1,048,576 tokens. This TOML is sufficient for an installation using one DeepSeek account.
+
+```toml
+[models.deepseek]
+type = "deepseek"
+
+[agents.main]
+model = "deepseek"
+reasoning_effort = "high"
+
+[agents.activity]
+model = "deepseek"
+
+[agents.permission]
+model = "deepseek"
+
+[agents.compact]
+model = "deepseek"
+web_search = false
+read_url = false
+
+[secrets]
+DEEPSEEK_API_KEY = "replace-locally-with-your-api-key"
+```
+
+| Capability | Configuration and availability |
+| --- | --- |
+| Web search and URL reading | Flash text requests use `web_search = true` and `read_url = true` by default. Change them in **Agent Defaults** or a Session’s model menu. In TUI/plain, `/model web off` disables both for the next Run. A Session draft takes effect when the next Run starts. |
+| Auto title | `auto_title = true` lets Flash name an empty Session when the first valid turn title arrives. Set `auto_title = false` under `[agents.main]` to disable it. |
+| Content safety | `safety_check = "high"` enables DeepSeek input and output review for Flash text requests. `"low"` selects the API’s default checks. |
+| Pro and other connections | `deepseek-v4-pro` continues with standard Responses support. Flash features also recognize the legacy Flash aliases on a direct DeepSeek connection. |
+
+With thinking off, a Run with client tools omits web search, URL reading, title generation and explicit safety review. Enabling thinking lets Flash use these features alongside local tools. A request without client tools can use non-thinking search. Structured-output requests use the standard Responses format.
+
+Usage shows billed searches, page reads and image searches reported by DeepSeek and any reported safety tokens. The provider decides when to search and may charge for tools used before a failure. Web/TUI switches control future requests. [DeepSeek Web Tools](https://api-docs.deepseek.com/guides/web_tools) · [Models and pricing](https://api-docs.deepseek.com/quick_start/pricing/)
+
+Files, OCR, ASR and TTS can be called through `DeepSeekServiceClient.from_config(config, "deepseek")` as an async context manager. Use `upload_file`, `list_files`, `get_file` and `delete_file` to manage files. `input_file(file_id)` creates the Responses content part for text and parsed documents. Use `ocr`, `transcribe`, `synthesize` and `stream_speech` for the standalone services. Uploads default to a one-hour expiry. `stream_speech` accepts an async iterable of text chunks and yields audio frames.
 
 ## ChatGPT accounts and multiple connections
 

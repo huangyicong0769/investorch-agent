@@ -2,11 +2,11 @@
 
 [English](Configuration.md)
 
-本文适用于**尚未发布的 0.3.0**。0.2.0 实例应先阅读[升级说明](Upgrade.zh-CN.md)，再使用新配置。
+本文适用于 0.3.1。已有实例请参照[升级说明](Upgrade.zh-CN.md)。
 
 ## 两层配置
 
-- `models.<id>` 是可自由命名的**连接**：OpenAI-compatible Endpoint 与 API key 引用，或 ChatGPT 授权引用。
+- `models.<id>` 注册命名的 API key 或 ChatGPT 连接。
 - `agents.<role>` 选择连接、真实模型 ID、推理强度与上下文窗口。内置角色固定为 `main/activity/permission/compact`；Skill Review 共用 `permission`，Spawn 默认继承父 Run，不增加角色。
 
 连接 ID 只使用字母、数字、下划线和连字符。推理强度支持 `none/minimal/low/medium/high/xhigh/max`，具体模型也必须支持所选等级。API 连接允许手填真实模型 ID；ChatGPT 从所选账号目录选择，请求使用目录 slug。
@@ -50,6 +50,46 @@ context_window_tokens = 128000
 [secrets]
 OPENAI_API_KEY = "replace-locally-with-your-api-key"
 ```
+
+## DeepSeek Flash
+
+在 Web Setup 或 Settings 选择 **DeepSeek API key**。新 Agent 选择这个连接时，默认模型为 `deepseek-flash`，上下文窗口为 1,048,576 tokens。单个 DeepSeek 账号的完整配置如下。
+
+```toml
+[models.deepseek]
+type = "deepseek"
+
+[agents.main]
+model = "deepseek"
+reasoning_effort = "high"
+
+[agents.activity]
+model = "deepseek"
+
+[agents.permission]
+model = "deepseek"
+
+[agents.compact]
+model = "deepseek"
+web_search = false
+read_url = false
+
+[secrets]
+DEEPSEEK_API_KEY = "replace-locally-with-your-api-key"
+```
+
+| 能力 | 配置和可用性 |
+| --- | --- |
+| 原生搜索和 URL 阅读 | Flash 文本请求默认启用 `web_search` 和 `read_url`。可在 **Agent Defaults** 或 Session 的模型菜单分别开关。TUI/plain 执行 `/model web off` 为下一次 Run 关闭两项。Session 草稿在下一次 Run 开始时生效。 |
+| 自动标题 | `auto_title = true` 时，为空标题的 Session 保存首个有效标题。可在 `[agents.main]` 下设 `auto_title = false`。 |
+| 内容审核 | `safety_check = "high"` 启用 Flash 文本请求的输入与输出审核。`"low"` 使用 API 默认检查。 |
+| Pro 与旧模型 | `deepseek-v4-pro` 继续走标准 Responses。直连 DeepSeek 时，Flash 的旧别名也可使用 Flash 扩展。 |
+
+思考关闭且请求包含本地工具时，请求会省略原生联网、标题及显式安全审核参数。开启思考后可将这些 Flash 能力与本地工具一起使用。没有本地工具的请求支持非思考搜索。结构化输出使用标准 Responses 格式。
+
+用量面板显示 DeepSeek 返回的计费搜索、页面读取、图片搜索和审核 Token。是否联网由 DeepSeek 决定。失败前执行的操作也可能计费。可在 Web/TUI 关闭后续请求的联网。 [DeepSeek 联网文档](https://api-docs.deepseek.com/guides/web_tools) · [官方定价](https://api-docs.deepseek.com/quick_start/pricing/)
+
+在 Python 中以异步上下文管理器调用 `DeepSeekServiceClient.from_config(config, "deepseek")`。文件接口为 `upload_file`、`list_files`、`get_file` 和 `delete_file`，上传默认一小时过期。文本文件或已解析文档用 `input_file(file_id)` 构造 Responses 内容项。独立服务接口为 `ocr`、`transcribe`、`synthesize` 和 `stream_speech`。`stream_speech` 接收异步文本分块，返回音频帧。
 
 ## ChatGPT 多账号与混合连接
 
