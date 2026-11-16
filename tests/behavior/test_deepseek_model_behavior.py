@@ -359,6 +359,8 @@ async def test_host_replays_signed_web_item_after_compact_fork_and_reopening(tmp
                 {"type": "response.web_search_call.completed", "output_index": 0, "item_id": call["id"]},
                 {"type": "response.output_item.done", "output_index": 0, "item": call},
             )
+        elif last.get("content") == [{"type": "input_text", "text": "What did it say?"}]:
+            payload = response([{**failed_search, "id": "ws_later_failed_search", "kind": "deep_search"}, message()])
         else:
             payload = response([message()])
         return sse(payload) if body.get("stream") else httpx2.Response(200, json=payload)
@@ -384,8 +386,12 @@ async def test_host_replays_signed_web_item_after_compact_fork_and_reopening(tmp
 
     async with open_application_host(config, manual_approval_handler=approve, enable_activity=False) as host:
         await host.runtime.start_run(fork, "Read it again", run_options()).task
-        assert call in requests[-1]["input"]
-        assert failed_search in requests[-1]["input"]
+        replay = requests[-1]["input"]
+        summary_index = next(
+            i for i, item in enumerate(replay) if str(item.get("content")).endswith("Earlier conversation summary")
+        )
+        assert replay.index(call) < summary_index
+        assert failed_search in replay
         web_steps = [
             record for record in read_session_journal(config.session_journal_dir, fork) if record.get("hosted_status")
         ]
@@ -396,9 +402,11 @@ async def test_host_replays_signed_web_item_after_compact_fork_and_reopening(tmp
             ("URL reading", "searching"),
             ("Web search", "failed"),
             ("URL reading", "completed"),
+            ("Web search", "failed"),
         ]
-        assert [record["hosted_call_id"] for record in web_steps if record["name"] == "URL reading"] == [call["id"]] * 3
-        assert json.loads(web_steps[-1]["arguments"]) == {"kind": "read_link", "action": call["action"]}
+        read_steps = [record for record in web_steps if record["name"] == "URL reading"]
+        assert [record["hosted_call_id"] for record in read_steps] == [call["id"]] * 3
+        assert json.loads(read_steps[-1]["arguments"]) == {"kind": "read_link", "action": call["action"]}
 
 
 @pytest.mark.parametrize(

@@ -113,7 +113,7 @@ Todo is transient Run state projected to clients. It is not stored in SDK contin
 - Archive preserves continuation, journal, title, lineage and model selection. Model Draft edits remain allowed, but execution waits for restoration.
 - Unarchive restores normal operations.
 - Delete removes the explicit Session and all recursive Spawn descendants. Clear uses that same deletion contract, then creates a fresh ordinary replacement without inherited lineage.
-- Compact replaces SDK continuation with a marked assistant summary; the journal remains complete.
+- Compact summarizes SDK continuation and keeps the latest signed DeepSeek web round when available. The journal remains complete.
 - Fork clones the source's last stable committed head into a new independent Session.
 
 Fork copies SDK continuation, the journal when present, title with a suffix, direct parent lineage and persisted model metadata. A source Draft becomes a target Draft, retaining its process-local semantics. It does not copy active Runs, permission/follow-up overrides, Steer/Queue state, Todos, approvals, archive state, jobs, usage, caches, or UI state. It is stable-head cloning, not historical-turn branching.
@@ -162,7 +162,7 @@ Every model request is checked again after tool results and activated Steers arr
 
 Post-answer automatic compaction uses the active Run window and last Main request usage; failure does not discard an already completed answer. Manual and automatic compaction change SDK continuation only, preserve the complete Journal and charge Compact requests to auxiliary totals as they complete. Successful compaction immediately publishes a new context estimate. The compact model's own input budget is checked and oversized text is summarized in bounded batches.
 
-Each new Run sends a copy of pre-existing history with opaque reasoning and provider response-item IDs removed, preserving messages and function `call_id` links. SQLite and Journal originals remain unchanged, and reasoning generated within the Run remains available to continuation. This applies to same-connection Runs too: opaque reasoning is not reused across Runs, with possible continuity/cache costs.
+Each new Run removes opaque reasoning and most provider response-item IDs from the input copy. Messages and function `call_id` links remain. DeepSeek Responses receives its original web call objects, including their IDs, `kind` and `signature`. Other providers omit DeepSeek-specific web calls. SQLite and Journal originals remain unchanged, and reasoning generated within the Run remains available to continuation.
 
 ## Background jobs
 

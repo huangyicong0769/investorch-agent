@@ -102,10 +102,12 @@ async def compact_session(
 
     summary, usage = await summarize_history(agent, source, config, usage_handler=usage_handler)
 
-    replacement: list[TResponseInputItem] = [
-        {"role": "assistant", "content": COMPACTED_CONTEXT_PREFIX + summary},
-        *retained,
-    ]
+    summary_item: TResponseInputItem = {"role": "assistant", "content": COMPACTED_CONTEXT_PREFIX + summary}
+    # When the summary covers later instructions, replay it after the preserved round.
+    if web_round is not None and web_round[1] < source_items:
+        replacement = [*retained, summary_item]
+    else:
+        replacement = [summary_item, *retained]
     await _replace_session_history(session, history, replacement)
     logger.info(
         "Compacted session %s: source_items=%d summary_chars=%d", session.session_id, source_items, len(summary)

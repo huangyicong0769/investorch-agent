@@ -2,6 +2,7 @@
 
 import json
 from collections import Counter
+from itertools import chain
 
 from agents import TResponseInputItem
 from agents.run_config import CallModelData, CallModelInputFilter, ModelInputData
@@ -12,18 +13,22 @@ def is_deepseek_web_call(item: TResponseInputItem) -> bool:
 
 
 def latest_deepseek_web_round(items: list[TResponseInputItem]) -> tuple[int, int] | None:
-    """Find the newest user round with hosted web output and its restoring input."""
-    last = None
+    """Prefer the newest round that can replay a signed page exactly."""
+    last_web_round = last_signed_round = None
     start = 0
-    has_web = False
-    for index, item in enumerate(items):
+    has_web = has_signature = False
+    for end, item in enumerate(chain(items, ({"role": "user"},))):
         if item.get("role") == "user":
             if has_web:
-                last = (start, index)
-            start, has_web = index, False
+                last_web_round = (start, end)
+                if has_signature:
+                    last_signed_round = last_web_round
+            start = end
+            has_web = has_signature = False
         elif is_deepseek_web_call(item):
             has_web = True
-    return (start, len(items)) if has_web else last
+            has_signature = has_signature or bool(item.get("signature"))
+    return last_signed_round or last_web_round
 
 
 def portable_history_filter(history: list[TResponseInputItem], *, deepseek: bool = False) -> CallModelInputFilter:
