@@ -55,6 +55,8 @@ class AgentModelConfig:
     name: str
     reasoning_effort: str
     context_window_tokens: int
+    web_search: bool = True
+    read_url: bool = True
 
     def __post_init__(self) -> None:
         if not self.model or not self.name or self.reasoning_effort not in REASONING_EFFORTS:
@@ -206,6 +208,8 @@ class AppConfig:
         name: str | None = None,
         reasoning_effort: str | None = None,
         context_window_tokens: int | None = None,
+        web_search: bool | None = None,
+        read_url: bool | None = None,
     ) -> AgentModelConfig:
         connection_id = base.model if model is None else model
         self.model_connection(connection_id)
@@ -226,6 +230,8 @@ class AppConfig:
             context_window_tokens=base.context_window_tokens
             if context_window_tokens is None
             else context_window_tokens,
+            web_search=base.web_search if web_search is None else web_search,
+            read_url=base.read_url if read_url is None else read_url,
         )
 
     def secret(self, name: str) -> str:

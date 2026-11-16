@@ -20,6 +20,7 @@ FOLLOW_UP_BEHAVIORS = get_args(FollowUpBehavior)
 DEEPSEEK_BASE_URL = "https://api.deepseek.com"
 DEEPSEEK_DEFAULT_MODEL = "deepseek-flash"
 DEEPSEEK_CONTEXT_WINDOW = 1048576
+DEEPSEEK_FLASH_MODELS = frozenset({DEEPSEEK_DEFAULT_MODEL, "deepseek-v4-flash", "deepseek-v4-flash-vision-exp"})
 
 
 def is_deepseek_connection(connection_type: str, base_url: str | None) -> bool:
@@ -121,6 +122,8 @@ class AgentModelSchema(ConfigSection):
     name: NonEmptyString | None = restart(None)
     reasoning_effort: ReasoningEffort = restart("high")
     context_window_tokens: PositiveInt | None = restart(None)
+    web_search: bool = restart(True)
+    read_url: bool = restart(True)
 
 
 class OAuthRotationSchema(ConfigSection):

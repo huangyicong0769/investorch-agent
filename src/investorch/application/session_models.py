@@ -52,6 +52,8 @@ class SessionModelStore:
         name: str | None = None,
         reasoning_effort: str | None = None,
         context_window_tokens: int | None = None,
+        web_search: bool | None = None,
+        read_url: bool | None = None,
     ) -> AgentModelConfig:
         if not session_exists(self._config.sessions_db, session_id):
             raise KeyError(session_id)
@@ -61,6 +63,8 @@ class SessionModelStore:
             name=name,
             reasoning_effort=reasoning_effort,
             context_window_tokens=context_window_tokens,
+            web_search=web_search,
+            read_url=read_url,
         )
         self.set_draft(session_id, selected)
         return selected

@@ -46,6 +46,10 @@ class ModelConnectionClients:
             from investorch.llm.models import ChatGPTResponsesModel
 
             return ChatGPTResponsesModel(selected.name, client)
+        if connection.is_deepseek:
+            from investorch.llm.deepseek import DeepSeekResponsesModel
+
+            return DeepSeekResponsesModel(selected, client)
         return OpenAIResponsesModel(model=selected.name, openai_client=client)
 
     def for_agent(self, role: str) -> tuple[Model, ModelSettings]:
