@@ -3,6 +3,7 @@
 import os
 import re
 import wave
+from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
 from typing import Any, Literal, Self, get_args
@@ -16,6 +17,7 @@ from investorch.images import detect_image_media_type
 
 FilePurpose = Literal["user_data", "text_recognition", "rich_layout_recognition"]
 OCRPurpose = Literal["text_recognition", "rich_layout_recognition"]
+Voice = Literal["stella", "tide"]
 _MIB = 1024 * 1024
 _ERROR_BY_STATUS = {
     401: "authentication_failed",
@@ -92,6 +94,26 @@ class ASRResult(_ServiceResult):
     request_id: str
     text: str
     duration_ms: int
+
+
+@dataclass(frozen=True, slots=True)
+class SpeechAudio:
+    data: bytes
+    format: Literal["wav", "pcm"]
+    request_id: str | None
+
+
+def _valid_wav(audio: bytes) -> bool:
+    if not audio.startswith(b"RIFF") or audio[8:12] != b"WAVE":
+        return False
+    size = int.from_bytes(audio[4:8], "little")
+    if size != 0xFFFFFFFF and size + 8 > len(audio):
+        return False
+    try:
+        with wave.open(BytesIO(audio), "rb") as wav:
+            return wav.getnframes() > 0 and bool(wav.readframes(1))
+    except (EOFError, wave.Error):
+        return False
 
 
 def _opus_duration(audio: bytes) -> float | None:
@@ -327,3 +349,38 @@ class DeepSeekServiceClient:
             timeout=httpx.Timeout(600, connect=30),
             invalid="invalid_audio",
         )
+
+    async def synthesize(
+        self,
+        text: str,
+        *,
+        voice_id: Voice = "stella",
+        format: Literal["wav", "pcm"] = "wav",
+        filter_markdown: bool = True,
+    ) -> SpeechAudio:
+        if not text.strip() or voice_id not in get_args(Voice) or format not in {"wav", "pcm"}:
+            raise ValueError("TTS requires readable text, a supported voice and WAV or PCM format.")
+        try:
+            response = await self._client.post(
+                "v1/tools/tts",
+                json={"text": text, "voice_id": voice_id, "format": format, "filter_markdown": filter_markdown},
+                timeout=httpx.Timeout(90, connect=30),
+            )
+        except httpx.TimeoutException:
+            raise DeepSeekServiceError("TTS", "timeout") from None
+        except httpx.RemoteProtocolError:
+            raise DeepSeekServiceError("TTS", "incomplete_audio") from None
+        except httpx.RequestError:
+            raise DeepSeekServiceError("TTS", "connection_failed") from None
+        media_type = response.headers.get("content-type", "").split(";", 1)[0].lower()
+        if not response.is_success or media_type == "application/json":
+            try:
+                payload = response.json()
+            except ValueError:
+                payload = None
+            raise self._error("TTS", response, payload)
+        audio = response.content
+        valid = _valid_wav(audio) if format == "wav" else bool(audio) and len(audio) % 2 == 0
+        if not valid or not (media_type.startswith("audio/") or media_type == "application/octet-stream"):
+            raise DeepSeekServiceError("TTS", "incomplete_audio", request_id=response.headers.get("x-request-id"))
+        return SpeechAudio(audio, format, response.headers.get("x-request-id"))

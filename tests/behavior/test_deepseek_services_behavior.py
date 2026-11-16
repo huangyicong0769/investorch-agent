@@ -1,5 +1,6 @@
 import json
 import wave
+from io import BytesIO
 from pathlib import Path
 
 import httpx
@@ -137,3 +138,38 @@ async def test_asr_uploads_pcm16_and_validates_format_and_duration(tmp_path: Pat
         sample.write_bytes(b"not an audio file")
         with pytest.raises(DeepSeekServiceError, match="invalid_audio"):
             await client.transcribe(sample)
+
+
+@pytest.mark.parametrize("format", ["wav", "pcm"])
+async def test_tts_returns_binary_audio_and_rejects_a_truncated_body(format):
+    pcm = b"\x01\x02" * 16
+    wav_file = BytesIO()
+    with wave.open(wav_file, "wb") as wav:
+        wav.setparams((1, 2, 24000, 0, "NONE", "not compressed"))
+        wav.writeframes(pcm)
+    result = wav_file.getvalue() if format == "wav" else pcm
+    truncate = False
+
+    def handle(request):
+        assert request.method == "POST" and request.url.path == "/v1/tools/tts"
+        assert json.loads(request.content) == {
+            "text": "**Hello**",
+            "voice_id": "tide",
+            "format": format,
+            "filter_markdown": False,
+        }
+        media_type = "audio/wav" if format == "wav" else "audio/pcm"
+        return httpx.Response(
+            200,
+            headers={"content-type": media_type, "x-request-id": "tts-1"},
+            content=result[:-1] if truncate else result,
+        )
+
+    async with DeepSeekServiceClient(
+        "https://api.deepseek.com", "fixture", transport=httpx.MockTransport(handle)
+    ) as client:
+        speech = await client.synthesize("**Hello**", voice_id="tide", format=format, filter_markdown=False)
+        assert speech.data == result and speech.request_id == "tts-1"
+        truncate = True
+        with pytest.raises(DeepSeekServiceError, match="incomplete_audio"):
+            await client.synthesize("**Hello**", voice_id="tide", format=format, filter_markdown=False)
