@@ -3,39 +3,47 @@ import { useId, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { fieldClass } from './SchemaField'
 
-export function SecretFields({ configured, names, values, onChange, disabled = false, allowNew = false, errors = {} }: {
+export function SecretField({ label, configured, value, onChange, disabled, error }: {
+  label: string
+  configured: boolean
+  value: string
+  onChange: (value: string) => void
+  disabled?: boolean
+  error?: string
+}) {
+  const id = useId()
+  return <div className="min-w-0">
+    <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+      <label className="break-all text-sm font-medium" htmlFor={id}>{label}</label>
+      <span className="text-xs text-muted-foreground">{configured ? 'Configured' : 'Not configured'}</span>
+    </div>
+    <input aria-describedby={error ? `${id}-error` : undefined} aria-invalid={Boolean(error)} autoComplete="new-password" className={fieldClass} disabled={disabled} id={id} onChange={(event) => onChange(event.target.value)} placeholder={configured ? 'Leave empty to keep current key' : 'Enter API key'} type="password" value={value} />
+    {error ? <p className="mt-1 break-words text-xs text-destructive" id={`${id}-error`} role="alert">{error}</p> : null}
+  </div>
+}
+
+export function SecretFields({ configured, excludedNames, values, onChange, disabled = false, errors = {} }: {
   configured: Record<string, { configured: boolean }>
-  names: string[]
+  excludedNames: ReadonlySet<string>
   values: Record<string, string>
   onChange: (name: string, value: string) => void
   disabled?: boolean
-  allowNew?: boolean
   errors?: Record<string, string>
 }) {
   const id = useId()
   const [newName, setNewName] = useState('')
-  const newNameError = newName.includes('.') ? 'Secret names cannot contain a period (.).' : ''
+  const name = newName.trim()
+  const newNameError = name.includes('.') ? 'Secret names cannot contain a period (.).' : excludedNames.has(name) ? 'Edit this API key in its connection card.' : ''
   const [addedNames, setAddedNames] = useState<string[]>([])
-  const allNames = [...new Set([...names, ...addedNames, ...Object.keys(values)])].sort()
+  const allNames = [...new Set([...addedNames, ...Object.keys(values)])].filter((name) => !excludedNames.has(name)).sort()
   return <div className="space-y-4">
-    {allNames.map((name, index) => <div className="min-w-0" key={name}>
-      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-        <label className="break-all text-sm font-medium" htmlFor={`${id}-${index}`}>{name}</label>
-        <span className="text-xs text-muted-foreground">{configured[name]?.configured ? 'Configured' : 'Not configured'}</span>
-      </div>
-      <input aria-describedby={errors[`secrets.${name}`] ? `${id}-${index}-error` : undefined} aria-invalid={Boolean(errors[`secrets.${name}`])} autoComplete="new-password" className={fieldClass} disabled={disabled} id={`${id}-${index}`} onChange={(event) => onChange(name, event.target.value)} placeholder={configured[name]?.configured ? 'Leave empty to keep current key' : 'Enter API key'} type="password" value={values[name] ?? ''} />
-      {errors[`secrets.${name}`] ? <p className="mt-1 break-words text-xs text-destructive" id={`${id}-${index}-error`} role="alert">{errors[`secrets.${name}`]}</p> : null}
-    </div>)}
-    {!allNames.length ? <p className="text-sm text-muted-foreground">Set a key reference in the model settings to enter its API key here.</p> : null}
-    {allowNew ? <div className="flex flex-wrap items-end gap-2 border-t border-border pt-4">
+    {allNames.map((name) => <SecretField configured={configured[name]?.configured ?? false} disabled={disabled} error={errors[`secrets.${name}`]} key={name} label={name} onChange={(value) => onChange(name, value)} value={values[name] ?? ''} />)}
+    <div className="flex flex-wrap items-end gap-2">
       <div className="min-w-0 flex-1"><label className="mb-2 block text-sm font-medium" htmlFor={`${id}-new`}>New secret name</label><input aria-describedby={newNameError ? `${id}-new-error` : undefined} aria-invalid={Boolean(newNameError)} className={fieldClass} disabled={disabled} id={`${id}-new`} onChange={(event) => setNewName(event.target.value)} value={newName} />{newNameError ? <p className="mt-1 text-xs text-destructive" id={`${id}-new-error`} role="alert">{newNameError}</p> : null}</div>
-      <Button disabled={disabled || !newName.trim() || Boolean(newNameError)} onClick={() => {
-        const name = newName.trim()
-        if (!name || newNameError) return
+      <Button disabled={disabled || !name || Boolean(newNameError)} onClick={() => {
         setAddedNames((current) => current.includes(name) ? current : [...current, name])
         setNewName('')
       }} type="button" variant="outline">Add key field</Button>
-    </div> : null}
-    <p className="text-xs text-muted-foreground">Keys are write-only. Leave a field empty to keep its saved value; successful saves clear the inputs.</p>
+    </div>
   </div>
 }
