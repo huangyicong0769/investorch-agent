@@ -336,7 +336,7 @@ class AgentLoop:
         if user_input is not None:
             model_input.append(user_input_to_response_item(user_input))
             if (
-                deepseek
+                isinstance(run_agent.model, DeepSeekResponsesModel)
                 and user_input.origin.kind == "user"
                 and model_config.auto_title
                 and model_config.name in DEEPSEEK_FLASH_MODELS
@@ -344,9 +344,7 @@ class AgentLoop:
                 existing = await asyncio.to_thread(get_session_title, self._config.sessions_db, session_id)
                 if not existing or not existing.strip():
                     title_requested = True
-                    run_agent = run_agent.clone(
-                        model_settings=settings.resolve({"extra_body": {"title": {"enabled": True}}})
-                    )
+                    run_agent.model.request_session_title()
         if not model_input:
             raise ValueError("Run requires user input or an application instruction")
 

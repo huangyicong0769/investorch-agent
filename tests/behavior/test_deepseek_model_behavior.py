@@ -222,7 +222,8 @@ async def test_first_deepseek_title_is_committed_while_the_run_is_active(tmp_pat
             release.set()
         result = await run.task
         assert len(requests) == 2
-        assert all(body.get("title") == {"enabled": True} for body in requests)
+        assert requests[0].get("title") == {"enabled": True}
+        assert "title" not in requests[1]
         assert any(item.get("type") == "function_call_output" for item in requests[1]["input"])
         assert result.auxiliary_usage.requests == 0
         assert get_session_title(config.sessions_db, session_id) == "Intermediate title"

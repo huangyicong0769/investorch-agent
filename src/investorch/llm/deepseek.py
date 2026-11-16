@@ -66,6 +66,10 @@ class DeepSeekResponsesModel(OpenAIResponsesModel):
     def __init__(self, selected: AgentModelConfig, client: AsyncOpenAI) -> None:
         super().__init__(model=selected.name, openai_client=client)
         self._selected = selected
+        self._session_title_requested = False
+
+    def request_session_title(self) -> None:
+        self._session_title_requested = True
 
     def _build_response_create_kwargs(
         self,
@@ -96,6 +100,8 @@ class DeepSeekResponsesModel(OpenAIResponsesModel):
             extra.pop("safety_check", None)
             request["extra_body"] = extra or None
             return request
+        if self._session_title_requested:
+            extra["title"] = {"enabled": True}
         if self._selected.safety_check is not None:
             extra["safety_check"] = {"level": self._selected.safety_check}
         hosted = []
@@ -143,6 +149,8 @@ class DeepSeekResponsesModel(OpenAIResponsesModel):
                 elif event.type != "response.completed":
                     yield event.model_copy(update={"response": response.model_copy(update={"error": None})})
                 else:
+                    if self._session_title_requested and response_title(response) is not None:
+                        self._session_title_requested = False
                     yield event
                 return
         raise DeepSeekResponseError("DeepSeek closed the stream before returning a final response.")
@@ -177,6 +185,9 @@ class DeepSeekResponsesModel(OpenAIResponsesModel):
             raise DeepSeekResponseError.from_http(error) from None
         if (failure := response_error(result)) is not None:
             raise failure
+        title = response_title(result)
+        if title is not None:
+            self._session_title_requested = False
         raw = result.usage
         usage = (
             Usage(requests=1)
@@ -196,5 +207,5 @@ class DeepSeekResponsesModel(OpenAIResponsesModel):
             response_id=result.id,
             request_id=getattr(result, "_request_id", None),
             raw_usage=raw.model_dump(exclude_unset=True) if raw else None,
-            title=response_title(result),
+            title=title,
         )
