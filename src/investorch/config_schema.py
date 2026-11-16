@@ -14,6 +14,8 @@ ReasoningEffort = Literal["none", "minimal", "low", "medium", "high", "xhigh", "
 PermissionMode = Literal["manual", "review"]
 FollowUpBehavior = Literal["steer", "queue"]
 SafetyLevel = Literal["low", "high"]
+AgentRole = Literal["main", "title", "activity", "permission", "compact"]
+AGENT_ROLES = get_args(AgentRole)
 REQUIRED_AGENT_ROLES = ("main", "activity", "permission", "compact")
 REASONING_EFFORTS = get_args(ReasoningEffort)
 PERMISSION_MODES = get_args(PermissionMode)
@@ -382,9 +384,10 @@ class AppConfigSchema(ConfigSection):
         default_factory=dict,
         json_schema_extra={"apply_mode": "restart_required"},
     )
-    agents: dict[Literal["main", "activity", "permission", "compact"], AgentModelSchema] = Field(
+    agents: dict[AgentRole, AgentModelSchema] = Field(
         default={
             "main": AgentModelSchema(reasoning_effort="max"),
+            "title": AgentModelSchema(reasoning_effort="none"),
             "activity": AgentModelSchema(reasoning_effort="none"),
             "permission": AgentModelSchema(reasoning_effort="high"),
             "compact": AgentModelSchema(reasoning_effort="high"),

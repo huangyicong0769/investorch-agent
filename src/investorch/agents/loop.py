@@ -29,7 +29,7 @@ from investorch.storage.sessions import get_session_title
 from .compact import CompactionResult, compact_session, session_history_restore_failed
 from .context_projection import ContextBudget, ContextProjection, ContextProjectionBudgetError
 from .continuation import is_deepseek_web_call, portable_history_filter
-from .usage import TokenUsage, UsageTracker
+from .usage import TokenUsage, UsageHandler, UsageTracker
 
 if TYPE_CHECKING:
     from investorch.application.portfolios import PortfolioOperations
@@ -219,6 +219,8 @@ class AgentLoop:
         usage_handler: Callable[[str, TokenUsage, AgentModelConfig | None], None] | None = None,
         context_handler: Callable[..., None] | None = None,
         session_title_handler: Callable[[str, str], Awaitable[None]] | None = None,
+        session_title_fallback: Callable[[SQLiteSession, AgentModelConfig, UsageHandler], Awaitable[None]]
+        | None = None,
     ) -> None:
         self._agent = agent
         self._model_factory = model_factory
@@ -231,6 +233,7 @@ class AgentLoop:
         self._usage_handler = usage_handler
         self._context_handler = context_handler
         self._session_title_handler = session_title_handler
+        self._session_title_fallback = session_title_fallback
         self._context_budgets: dict[str, tuple[AgentModelConfig, ContextBudget]] = {}
 
     def _context_budget(self, session_id: str, model: AgentModelConfig) -> ContextBudget:
@@ -282,14 +285,13 @@ class AgentLoop:
                 run_usage_handler(usage)
 
         provider_usage = TokenUsage()
-        title_requested = False
         native_title = None
         terminal_failure_observed = False
 
         async def observe_response(response: Response) -> None:
             nonlocal provider_usage, native_title, terminal_failure_observed
             terminal_failure_observed = response.status in {"failed", "incomplete"}
-            if response.usage is not None:
+            if deepseek and response.usage is not None:
                 delta = TokenUsage.from_deepseek(
                     response.usage.model_dump(mode="json", exclude_unset=True),
                     include_tokens=response.status != "completed",
@@ -297,7 +299,7 @@ class AgentLoop:
                 if delta != TokenUsage():
                     provider_usage += delta
                     record_main_usage(delta)
-            if title_requested and native_title is None:
+            if model_config.auto_title and native_title is None:
                 native_title = response_title(response)
                 if native_title is not None and self._session_title_handler is not None:
                     await self._session_title_handler(session_id, native_title)
@@ -343,7 +345,6 @@ class AgentLoop:
             ):
                 existing = await asyncio.to_thread(get_session_title, self._config.sessions_db, session_id)
                 if not existing or not existing.strip():
-                    title_requested = True
                     run_agent.model.request_session_title()
         if not model_input:
             raise ValueError("Run requires user input or an application instruction")
@@ -520,6 +521,8 @@ class AgentLoop:
             # Image generation results are separate SDK items; keep them without
             # repeating the final text already delivered by message_output_created.
             await output_handler(AssistantMessage(text="", images=message.images))
+        if model_config.auto_title and native_title is None and self._session_title_fallback is not None:
+            await self._session_title_fallback(session, model_config, record_auxiliary_usage)
         auto_compaction, auto_compaction_failed, consistency_uncertain = await self._auto_compact(
             session, main_usage, model_config, agent_context, record_auxiliary_usage
         )

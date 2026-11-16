@@ -6,7 +6,7 @@ import { fieldClass } from './SchemaField'
 import { objectValue } from './schema'
 
 export const EFFORTS = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const
-export const AGENT_ROLES = ['main', 'activity', 'permission', 'compact'] as const
+export const AGENT_ROLES = ['main', 'title', 'activity', 'permission', 'compact'] as const
 
 export function isDeepSeekConnection(connection: JsonObject) {
   return connection.type === 'deepseek' || (connection.type === 'openai_compatible'
@@ -19,7 +19,7 @@ export function supportsDeepSeekWeb(connection: JsonObject, name: unknown) {
 
 export const DEEPSEEK_WEB_CAPABILITIES = [['web_search', 'Web search'], ['read_url', 'URL reading']] as const
 
-export function ModelFields({ value, connections, onChange, disabled, errors = {}, prefix = '', probe = false }: {
+export function ModelFields({ value, connections, onChange, disabled, errors = {}, prefix = '', probe = false, showWebTools = true }: {
   value: JsonObject
   connections: JsonObject
   onChange: (field: string, value: JsonValue) => void
@@ -27,6 +27,7 @@ export function ModelFields({ value, connections, onChange, disabled, errors = {
   errors?: Record<string, string>
   prefix?: string
   probe?: boolean
+  showWebTools?: boolean
 }) {
   const id = useId()
   const connectionId = String(value.model ?? '')
@@ -53,7 +54,7 @@ export function ModelFields({ value, connections, onChange, disabled, errors = {
       {EFFORTS.map((effort) => <option key={effort} value={effort}>{effort}</option>)}
     </select>)}
     {!probe && field('context_window_tokens', 'Context window (tokens)', <input className={fieldClass} disabled={disabled} id={`${id}-context_window_tokens`} min={1} onChange={(e) => onChange('context_window_tokens', e.target.value ? Number(e.target.value) : null)} placeholder="Enter the model’s documented window" step={1} type="number" value={typeof value.context_window_tokens === 'number' ? value.context_window_tokens : ''} />)}
-    {!probe && supportsDeepSeekWeb(connection, value.name) ? DEEPSEEK_WEB_CAPABILITIES.map(([key, label]) => <label className="flex items-center gap-2 text-sm" key={key}>
+    {!probe && showWebTools && supportsDeepSeekWeb(connection, value.name) ? DEEPSEEK_WEB_CAPABILITIES.map(([key, label]) => <label className="flex items-center gap-2 text-sm" key={key}>
       <input checked={value[key] !== false} disabled={disabled} onChange={(event) => onChange(key, event.target.checked)} type="checkbox" />{label}
     </label>) : null}
   </div>

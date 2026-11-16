@@ -77,9 +77,12 @@ def doctor_checks(root: Path | None = None, upgrade: bool = False) -> list[dict[
             "Run investorch web to complete Setup." if missing else "",
         )
         configured = {}
-        for role in REQUIRED_AGENT_ROLES:
-            connection_id = config[f"agents.{role}.model"]
-            connection = config.public()["models"].get(connection_id)
+        public = config.public()
+        for role, agent in public["agents"].items():
+            connection_id = agent["model"]
+            if not connection_id and role not in REQUIRED_AGENT_ROLES:
+                continue
+            connection = public["models"].get(connection_id)
             reference = (
                 connection["credentials"]
                 if connection and connection["type"] == "chatgpt"

@@ -467,7 +467,11 @@ def set_session_title(db_path: str | Path, session_id: str, title: str) -> None:
 def set_session_title_if_empty(db_path: str | Path, session_id: str, title: str) -> bool:
     with closing(sqlite3.connect(db_path)) as connection:
         cursor = connection.execute(
-            "UPDATE extra_session_metadata SET title = ? WHERE session_id = ? AND title = ''",
+            """
+            INSERT INTO extra_session_metadata (session_id, title)
+            SELECT session_id, ? FROM agent_sessions WHERE session_id = ?
+            ON CONFLICT(session_id) DO UPDATE SET title = excluded.title WHERE extra_session_metadata.title = ''
+            """,
             (title, session_id),
         )
         connection.commit()

@@ -252,10 +252,10 @@ async def consume_run_events(
                 elif event.data.type in {"response.completed", "response.failed", "response.incomplete"}:
                     for item in event.data.response.output or ():
                         await record_web_call(item)
-                    if not deepseek:
-                        continue
                     if response_handler is not None:
                         await response_handler(event.data.response)
+                    if not deepseek:
+                        continue
                     if (failure := response_error(event.data.response)) is not None:
                         await discard_response_output()
                         raise failure

@@ -10,6 +10,7 @@ from dataclasses import asdict, dataclass
 from functools import partial
 from zoneinfo import ZoneInfo
 
+from agents import SQLiteSession
 from agents.mcp import MCPServer, MCPServerManager
 
 from investorch.agents import (
@@ -19,9 +20,12 @@ from investorch.agents import (
     create_compaction_agent,
     create_permission_agent,
     create_review_instruction_compactor,
+    create_title_agent,
 )
 from investorch.agents.skill_review import create_skill_review_agent
-from investorch.config import AppConfig
+from investorch.agents.title import generate_session_title
+from investorch.agents.usage import UsageHandler
+from investorch.config import AgentModelConfig, AppConfig
 from investorch.context import AppState, ExecutionState
 from investorch.inputs import UserInput
 from investorch.journal import SessionJournal
@@ -38,7 +42,7 @@ from investorch.runtime import (
     RuntimeSessionSnapshot,
 )
 from investorch.runtime.errors import format_run_error
-from investorch.storage import create_session, delete_unused_session, list_sessions
+from investorch.storage import create_session, delete_unused_session, get_session_title, list_sessions
 from investorch.storage.sessions import set_session_title_if_empty
 from investorch.tools import close_execution, make_messaging_tools, make_session_tools, start_execution
 
@@ -258,7 +262,7 @@ async def open_application_host(
                     presentation_state.set_session_title(session_id, title)
                     await journal.record_session_title(session_id, title)
             except Exception:
-                logger.exception("Failed to record native title for session %s", session_id)
+                logger.exception("Failed to record title for session %s", session_id)
 
         task = asyncio.create_task(save())
         try:
@@ -280,6 +284,17 @@ async def open_application_host(
     chatgpt_auth = chatgpt_auth or ChatGPTAuth(config)
     state.chatgpt_auth = chatgpt_auth
     model_clients = ModelConnectionClients(config, chatgpt_auth)
+
+    async def generate_fallback_title(session: SQLiteSession, selected: AgentModelConfig, usage: UsageHandler) -> None:
+        try:
+            existing = await asyncio.to_thread(get_session_title, config.sessions_db, session.session_id)
+            if existing and existing.strip():
+                return
+            title_agent = create_title_agent(*model_clients.for_agent("title", fallback=selected))
+            title, _ = await generate_session_title(title_agent, await session.get_items(), usage_handler=usage)
+            await handle_session_title(session.session_id, title)
+        except Exception as error:
+            logger.warning("Failed to generate title for session %s (%s)", session.session_id, type(error).__name__)
 
     try:
         await start_execution(execution, config.workspace_dir)
@@ -317,6 +332,7 @@ async def open_application_host(
                     usage_handler=presentation_state.add_usage,
                     context_handler=presentation_state.observe_context,
                     session_title_handler=handle_session_title,
+                    session_title_fallback=generate_fallback_title,
                 )
                 approvals = ApprovalCoordinator(
                     config=config,

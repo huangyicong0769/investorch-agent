@@ -2,6 +2,7 @@
 
 import asyncio
 from collections.abc import Callable
+from dataclasses import replace
 from functools import partial
 
 from agents import Model, ModelSettings, OpenAIResponsesModel
@@ -51,8 +52,10 @@ class ModelConnectionClients:
             return DeepSeekResponsesModel(selected, client)
         return OpenAIResponsesModel(model=selected.name, openai_client=client)
 
-    def for_agent(self, role: str) -> tuple[Model, ModelSettings]:
-        selected = self._config.agent_model(role)
+    def for_agent(self, role: str, *, fallback: AgentModelConfig | None = None) -> tuple[Model, ModelSettings]:
+        selected = self._config.agent_model(role, fallback=fallback)
+        if role == "title":
+            selected = replace(selected, web_search=False, read_url=False)
         model = self.resolve(selected)
         return model, ModelSettings(
             reasoning={"effort": selected.reasoning_effort},

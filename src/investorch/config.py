@@ -14,6 +14,15 @@ import tomlkit
 from pydantic import ValidationError
 
 from investorch.config_schema import (
+    AGENT_ROLES,
+    AppConfigSchema,
+    OAuthCredentialSchema,
+    SafetyLevel,
+    config_field_metadata,
+    is_deepseek_connection,
+    resolve_under_root,
+)
+from investorch.config_schema import (
     FOLLOW_UP_BEHAVIORS as FOLLOW_UP_BEHAVIORS,
 )
 from investorch.config_schema import (
@@ -24,14 +33,6 @@ from investorch.config_schema import (
 )
 from investorch.config_schema import (
     REQUIRED_AGENT_ROLES as REQUIRED_AGENT_ROLES,
-)
-from investorch.config_schema import (
-    AppConfigSchema,
-    OAuthCredentialSchema,
-    SafetyLevel,
-    config_field_metadata,
-    is_deepseek_connection,
-    resolve_under_root,
 )
 
 REDACTED = "<redacted>"
@@ -185,12 +186,16 @@ class AppConfig:
             raise ConfigError(f"models.{connection_id} is incomplete; run investorch web to complete Setup")
         return ModelConnectionConfig(**raw)
 
-    def agent_model(self, role: str) -> AgentModelConfig:
+    def agent_model(self, role: str, *, fallback: AgentModelConfig | None = None) -> AgentModelConfig:
+        if role == "title":
+            title = self._data["agents"].get("title", {})
+            if not (title.get("model") or title.get("name")):
+                return fallback if fallback is not None else self._agent_model(self._data, "main")
         return self._agent_model(self._data, role)
 
     @staticmethod
     def _agent_model(data: dict[str, Any], role: str) -> AgentModelConfig:
-        if role not in REQUIRED_AGENT_ROLES:
+        if role not in AGENT_ROLES:
             raise ConfigError(f"Unknown Agent role: {role}")
         raw = dict(data["agents"][role])
         if not raw["model"] or not raw["name"]:
@@ -484,8 +489,6 @@ def _read_toml_bytes(source: bytes, path: Path) -> dict[str, Any]:
 
 def _local_data(source: bytes, path: Path) -> dict[str, Any]:
     data = _read_toml_bytes(source, path)
-    if isinstance(agents := data.get("agents"), dict):
-        agents.pop("title", None)
     if isinstance(data.get("models"), dict) and any(
         isinstance(value, dict) and set(value) & {"name", "reasoning_effort", "context_window_tokens"}
         for value in data["models"].values()

@@ -128,8 +128,9 @@ async def check_responses(config: AppConfig) -> None:
     settings = RunDefaults(permission_mode="manual", follow_up_behavior="steer")
     async with open_application_host(config, manual_approval_handler=approve, enable_activity=False) as host:
         session_id = await host.sessions.create()
-        await host.runtime.start_run(session_id, "Reply with just the word Ready.", settings).task
+        named = await host.runtime.start_run(session_id, "Reply with just the word Ready.", settings).task
         assert get_session_title(config.sessions_db, session_id), "missing native title on a plain answer"
+        assert named.auxiliary_usage.requests == 0, "native title should skip the auxiliary request"
         await host.sessions.set_title(session_id, "Manual smoke title")
 
         host.session_models.update(session_id, web_search=False, read_url=True)
