@@ -57,6 +57,10 @@ export interface TokenUsage {
   reasoning_output_tokens: number
   total_tokens: number
   last_request_total_tokens: number | null
+  safety_output_tokens?: number
+  tool_search?: number
+  tool_fetch?: number
+  tool_image_search?: number
 }
 
 export interface RuntimeSnapshot {

@@ -14,6 +14,7 @@ from agents.items import ModelResponse
 from agents.lifecycle import RunHooksBase
 from agents.run_config import CallModelData, CallModelInputFilter, ModelInputData
 from agents.tool import FunctionTool, Tool
+from openai.types.responses import Response
 
 from investorch.config import AgentModelConfig, AppConfig
 from investorch.context import AgentContext, ExecutionState, TodoUpdateHandler
@@ -255,6 +256,7 @@ class AgentLoop:
         steer_activated_handler: SteerActivatedHandler | None = None,
         application_instruction: str | None = None,
         preflight_usage_handler: Callable[[TokenUsage], None] | None = None,
+        run_usage_handler: Callable[[TokenUsage], None] | None = None,
     ) -> AgentRunResult:
         settings = self._agent.model_settings.resolve({"reasoning": {"effort": model_config.reasoning_effort}})
         run_agent = self._agent.clone(model=self._model_factory(model_config), model_settings=settings)
@@ -275,6 +277,21 @@ class AgentLoop:
         def record_main_usage(usage: TokenUsage) -> None:
             if self._usage_handler is not None:
                 self._usage_handler(session_id, usage, model_config)
+            if run_usage_handler is not None:
+                run_usage_handler(usage)
+
+        provider_usage = TokenUsage()
+
+        def observe_response(response: Response) -> None:
+            nonlocal provider_usage
+            if response.usage is not None:
+                delta = TokenUsage.from_deepseek(
+                    response.usage.model_dump(mode="json", exclude_unset=True),
+                    include_tokens=response.status != "completed",
+                )
+                if delta != TokenUsage():
+                    provider_usage += delta
+                    record_main_usage(delta)
 
         observed_auxiliary_usage = TokenUsage()
 
@@ -370,7 +387,7 @@ class AgentLoop:
                 run_control.bind_stream(result)
                 try:
                     current_agent_name = await consume_run_events(
-                        result, stream_output, current_agent_name, deepseek=deepseek
+                        result, stream_output, current_agent_name, deepseek=deepseek, response_handler=observe_response
                     )
                 finally:
                     main_usage_tracker.record(result.context_wrapper.usage)
@@ -473,7 +490,7 @@ class AgentLoop:
 
         message = assistant_message_from_result(result)
         output = message.text
-        main_usage = TokenUsage.from_sdk(result.context_wrapper.usage)
+        main_usage = TokenUsage.from_sdk(result.context_wrapper.usage) + provider_usage
         if last_message is None or last_message.text != message.text:
             await output_handler(message)
         elif message.images:

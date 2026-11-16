@@ -126,6 +126,7 @@ class SessionJournal:
         *,
         discarded_user_steer_seqs: tuple[int, ...] = (),
         error: str | None = None,
+        main_usage: dict[str, object] | None = None,
     ) -> int:
         if status not in {"completed", "cancelled", "failed"}:
             raise ValueError("run-ended status must be completed, cancelled, or failed")
@@ -153,6 +154,8 @@ class SessionJournal:
         }
         if discarded_user_steer_seqs:
             record["discarded_user_steer_seqs"] = list(discarded_user_steer_seqs)
+        if main_usage is not None:
+            record["main_usage"] = main_usage
         if error is not None:
             if status != "failed" or not isinstance(error, str) or not error.strip():
                 raise ValueError("Only failed Runs may include a non-empty error")

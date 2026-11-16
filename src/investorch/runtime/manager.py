@@ -555,11 +555,16 @@ class AgentRuntime:
         discarded_steer_count = 0
         discarded_steer_seqs: tuple[int, ...] = ()
         partial_auxiliary_usage = TokenUsage()
+        partial_main_usage = TokenUsage()
         failure: str | None = None
 
         def record_preflight_usage(usage: TokenUsage) -> None:
             nonlocal partial_auxiliary_usage
             partial_auxiliary_usage += usage
+
+        def record_run_usage(usage: TokenUsage) -> None:
+            nonlocal partial_main_usage
+            partial_main_usage += usage
 
         async def handle_output(event: OutputEvent) -> None:
             await self._output_handler(RuntimeOutput(run_id=run_id, session_id=session_id, event=event))
@@ -656,6 +661,7 @@ class AgentRuntime:
                 steer_activated_handler=handle_steers_activated,
                 application_instruction=application_instruction,
                 preflight_usage_handler=record_preflight_usage,
+                run_usage_handler=record_run_usage,
             )
             status = "completed"
             logger.info("Completed Agent run session=%s run=%s", session_id, run_id)
@@ -740,6 +746,7 @@ class AgentRuntime:
                         discarded_steer_count=discarded_steer_count,
                         discarded_steer_seqs=discarded_steer_seqs,
                         partial_auxiliary_usage=partial_auxiliary_usage,
+                        partial_main_usage=partial_main_usage,
                         error=failure,
                     )
                 )

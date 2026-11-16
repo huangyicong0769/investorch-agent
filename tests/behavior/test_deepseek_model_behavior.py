@@ -150,8 +150,10 @@ async def test_host_replays_signed_web_item_after_compact_fork_and_reopening(tmp
         if body["model"] == "compact-model":
             payload = response([message("Earlier conversation summary")])
         elif last.get("content") == [{"type": "input_text", "text": "Please read https://example.org/"}]:
+            payload = response([call, failed_search, message()])
+            payload["usage"]["server_tool_use"] = {"tool_search": 3, "tool_fetch": 1, "tool_image_search": 2}
             return sse(
-                response([call, failed_search, message()]),
+                payload,
                 {"type": "response.output_item.added", "output_index": 0, "item": {**call, "status": "in_progress"}},
                 {
                     "type": "response.output_item.added",
@@ -182,7 +184,14 @@ async def test_host_replays_signed_web_item_after_compact_fork_and_reopening(tmp
         session_id = await host.sessions.create()
         await host.sessions.set_title(session_id, "Web test")
         await host.runtime.start_run(session_id, "Warm up", run_options()).task
-        await host.runtime.start_run(session_id, "Please read https://example.org/", run_options()).task
+        used = await host.runtime.start_run(session_id, "Please read https://example.org/", run_options()).task
+        assert (used.main_usage.tool_search, used.main_usage.tool_fetch, used.main_usage.tool_image_search) == (3, 1, 2)
+        assert used.main_usage.total_tokens == 18
+        assert host.presentation_state.get(session_id).main_usage.tool_search == 3
+        assert any(
+            entry.get("run_id") and (entry.get("main_usage") or {}).get("tool_search") == 3
+            for entry in read_session_journal(config.session_journal_dir, session_id)
+        )
         await host.runtime.start_run(session_id, "What did it say?", run_options()).task
         assert call in requests[-1]["input"]
         assert "previous_response_id" not in requests[-1]

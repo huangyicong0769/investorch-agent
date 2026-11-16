@@ -667,13 +667,18 @@ class InvestOrchAgentTUI(App[None]):
         capacity = "—" if capacity_tokens is None else self._format_token_count(capacity_tokens)
 
         def usage_line(label: str, usage: TokenUsage) -> str:
+            deepseek = ""
+            if usage.safety_output_tokens:
+                deepseek += f" · safety {self._format_token_count(usage.safety_output_tokens)}"
+            if usage.tool_search or usage.tool_fetch or usage.tool_image_search:
+                deepseek += f" · billed search {usage.tool_search} · fetch {usage.tool_fetch} · images {usage.tool_image_search}"
             return (
                 f"{label} · req {usage.requests} · in {self._format_token_count(usage.input_tokens)} "
                 f"· cached {self._format_token_count(usage.cached_input_tokens)} "
                 f"· write {self._format_token_count(usage.cache_write_input_tokens)} "
                 f"· out {self._format_token_count(usage.output_tokens)} "
                 f"· reasoning {self._format_token_count(usage.reasoning_output_tokens)} "
-                f"· total {self._format_token_count(usage.total_tokens)}"
+                f"· total {self._format_token_count(usage.total_tokens)}{deepseek}"
             )
 
         estimate = " (estimated)" if presentation.context_kind == "estimated" else ""

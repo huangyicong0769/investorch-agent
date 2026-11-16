@@ -41,6 +41,13 @@ export function UsagePopover({ contextWindowTokens, presentation }: UsagePopover
     ['Reasoning', 'reasoning_output_tokens'],
     ['Total', 'total_tokens'],
   ]
+  const deepSeekRows: typeof rows = [
+    ['Safety tokens', 'safety_output_tokens'],
+    ['Billed web searches', 'tool_search'],
+    ['Billed page reads', 'tool_fetch'],
+    ['Billed image searches', 'tool_image_search'],
+  ]
+  rows.push(...deepSeekRows.filter(([, key]) => presentation.main_usage[key] || presentation.auxiliary_usage[key]))
 
   return (
     <div className="relative">
@@ -88,8 +95,8 @@ export function UsagePopover({ contextWindowTokens, presentation }: UsagePopover
             <tbody>{rows.map(([label, key]) => (
               <tr key={key}>
                 <th scope="row" className="py-1 text-left font-normal text-muted-foreground">{label}</th>
-                <td className="py-1 text-right tabular-nums">{exactTokens(presentation.main_usage[key])}</td>
-                <td className="py-1 text-right tabular-nums">{exactTokens(presentation.auxiliary_usage[key])}</td>
+                <td className="py-1 text-right tabular-nums">{exactTokens(presentation.main_usage[key] ?? 0)}</td>
+                <td className="py-1 text-right tabular-nums">{exactTokens(presentation.auxiliary_usage[key] ?? 0)}</td>
               </tr>
             ))}</tbody>
           </table>

@@ -4,10 +4,12 @@ import binascii
 import json
 import uuid
 from collections import Counter
+from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 
 from agents import ToolOutputImage, ToolOutputText
 from openai.types.responses import (
+    Response,
     ResponseCreatedEvent,
     ResponseFunctionWebSearch,
     ResponseOutputItemAddedEvent,
@@ -105,6 +107,7 @@ async def consume_run_events(
     current_agent_name: str,
     *,
     deepseek: bool = False,
+    response_handler: Callable[[Response], None] | None = None,
 ) -> str:
     pending_reasoning: dict[str, _PendingReasoning] = {}
     emitted_reasoning: set[str] = set()
@@ -214,6 +217,8 @@ async def consume_run_events(
                 elif isinstance(event.data, ResponseOutputItemDoneEvent) and await record_web_call(event.data.item):
                     continue
                 elif deepseek and event.data.type in {"response.completed", "response.failed", "response.incomplete"}:
+                    if response_handler is not None:
+                        response_handler(event.data.response)
                     for item in event.data.response.output or ():
                         await record_web_call(item)
                 elif isinstance(event.data, ResponseTextDeltaEvent):

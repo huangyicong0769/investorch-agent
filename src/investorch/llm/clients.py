@@ -8,6 +8,7 @@ from agents import Model, ModelSettings, OpenAIResponsesModel
 from openai import AsyncOpenAI
 
 from investorch.config import AgentModelConfig, AppConfig
+from investorch.llm.deepseek import DeepSeekResponsesModel
 from investorch.llm.oauth import ChatGPTAuth
 
 
@@ -47,14 +48,16 @@ class ModelConnectionClients:
 
             return ChatGPTResponsesModel(selected.name, client)
         if connection.is_deepseek:
-            from investorch.llm.deepseek import DeepSeekResponsesModel
-
             return DeepSeekResponsesModel(selected, client)
         return OpenAIResponsesModel(model=selected.name, openai_client=client)
 
     def for_agent(self, role: str) -> tuple[Model, ModelSettings]:
         selected = self._config.agent_model(role)
-        return self.resolve(selected), ModelSettings(reasoning={"effort": selected.reasoning_effort})
+        model = self.resolve(selected)
+        return model, ModelSettings(
+            reasoning={"effort": selected.reasoning_effort},
+            preserve_raw_usage=True if isinstance(model, DeepSeekResponsesModel) else None,
+        )
 
     async def close(self) -> None:
         self._closed = True

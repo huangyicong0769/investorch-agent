@@ -6,7 +6,7 @@ import sys
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from functools import partial
 from zoneinfo import ZoneInfo
 
@@ -241,6 +241,7 @@ async def open_application_host(
                 event.ended_at,
                 discarded_user_steer_seqs=event.discarded_steer_seqs,
                 error=event.error,
+                main_usage=asdict(event.main_usage) if event.main_usage.requests else None,
             )
         except Exception:
             logger.exception(
