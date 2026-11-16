@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import binascii
+import json
 import uuid
 from collections import Counter
 from dataclasses import dataclass, field, replace
@@ -8,6 +9,8 @@ from dataclasses import dataclass, field, replace
 from agents import ToolOutputImage, ToolOutputText
 from openai.types.responses import (
     ResponseCreatedEvent,
+    ResponseFunctionWebSearch,
+    ResponseOutputItemAddedEvent,
     ResponseOutputItemDoneEvent,
     ResponseOutputMessage,
     ResponseOutputTextAnnotationAddedEvent,
@@ -107,6 +110,8 @@ async def consume_run_events(
     emitted_reasoning: set[str] = set()
     pending_messages: dict[int, _PendingMessage] = {}
     completed_messages: Counter[tuple[str, str]] = Counter()
+    pending_web_calls: dict[str, ResponseFunctionWebSearch] = {}
+    completed_web_calls: set[str] = set()
     loop = asyncio.get_running_loop()
 
     async def flush_reasoning() -> None:
@@ -140,6 +145,22 @@ async def consume_run_events(
             pending = pending_messages.pop(index)
             if pending.text:
                 await output_handler(pending.message())
+
+    async def record_web_call(item: object, *, incomplete: bool = False) -> bool:
+        if not deepseek or not isinstance(item, ResponseFunctionWebSearch) or not getattr(item, "kind", None):
+            return False
+        if item.id in completed_web_calls:
+            return True
+        completed_web_calls.add(item.id)
+        pending_web_calls.pop(item.id, None)
+        name = {"read_link": "URL reading", "image_search": "image search", "deep_image_search": "image search"}.get(
+            item.kind, "web search"
+        )
+        raw = item.model_dump(mode="json", exclude_unset=True)
+        arguments = json.dumps({"kind": item.kind, "action": raw.get("action")}, ensure_ascii=False)
+        await flush_reasoning()
+        await output_handler(ToolCalled(f"DeepSeek {name}", arguments, "incomplete" if incomplete else item.status))
+        return True
 
     stream = result.stream_events().__aiter__()
     next_event = None
@@ -183,6 +204,18 @@ async def consume_run_events(
                     emitted_reasoning.clear()
                     await flush_messages()
                     completed_messages.clear()
+                    completed_web_calls.clear()
+                elif (
+                    deepseek
+                    and isinstance(event.data, ResponseOutputItemAddedEvent)
+                    and isinstance(event.data.item, ResponseFunctionWebSearch)
+                ):
+                    pending_web_calls[event.data.item.id] = event.data.item
+                elif isinstance(event.data, ResponseOutputItemDoneEvent) and await record_web_call(event.data.item):
+                    continue
+                elif deepseek and event.data.type in {"response.completed", "response.failed", "response.incomplete"}:
+                    for item in event.data.response.output or ():
+                        await record_web_call(item)
                 elif isinstance(event.data, ResponseTextDeltaEvent):
                     await flush_reasoning()
                     delta = event.data
@@ -231,6 +264,8 @@ async def consume_run_events(
 
             if event.name == "tool_called":
                 raw_item = item.raw_item
+                if await record_web_call(raw_item):
+                    continue
                 arguments = (
                     raw_item.get("arguments") if isinstance(raw_item, dict) else getattr(raw_item, "arguments", None)
                 )
@@ -257,6 +292,8 @@ async def consume_run_events(
         if next_event is not None:
             next_event.cancel()
             await asyncio.gather(next_event, return_exceptions=True)
+        for call in list(pending_web_calls.values()):
+            await record_web_call(call, incomplete=True)
         await flush_messages()
 
     await flush_reasoning()

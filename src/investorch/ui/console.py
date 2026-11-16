@@ -95,7 +95,8 @@ class ConsoleRenderer:
         self._ui.write(text)
 
     def _render_tool_call(self, event: ToolCalled) -> None:
-        self._ui.write(f"\n[action] {event.name}")
+        status = f" · {event.hosted_status}" if event.hosted_status is not None else ""
+        self._ui.write(f"\n[action] {event.name}{status}")
 
         if not event.arguments:
             return

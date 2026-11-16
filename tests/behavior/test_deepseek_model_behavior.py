@@ -7,6 +7,7 @@ from agents import Agent, ModelSettings, Runner, function_tool
 from openai import AsyncOpenAI
 
 from investorch.application import open_application_host
+from investorch.journal import read_session_journal
 from investorch.llm.clients import ModelConnectionClients
 from investorch.output import consume_run_events, serialize_output_event
 from tests.support.config import make_test_config
@@ -132,6 +133,14 @@ async def test_host_replays_signed_web_item_after_compact_fork_and_reopening(tmp
         "page": {"url": "https://example.org/", "title": "Example Domain", "published_at": None},
         "signature": "fixture-provider-signature",
     }
+    failed_search = {
+        "type": "web_search_call",
+        "id": "ws_failed_search",
+        "kind": "deep_search",
+        "status": "failed",
+        "action": {"type": "search", "queries": ["Example"]},
+        "error": {"code": "unavailable"},
+    }
     requests = []
 
     def handle(request):
@@ -141,7 +150,17 @@ async def test_host_replays_signed_web_item_after_compact_fork_and_reopening(tmp
         if body["model"] == "compact-model":
             payload = response([message("Earlier conversation summary")])
         elif last.get("content") == [{"type": "input_text", "text": "Please read https://example.org/"}]:
-            payload = response([call, message()])
+            return sse(
+                response([call, failed_search, message()]),
+                {"type": "response.output_item.added", "output_index": 0, "item": {**call, "status": "in_progress"}},
+                {
+                    "type": "response.output_item.added",
+                    "output_index": 1,
+                    "item": {**failed_search, "status": "in_progress"},
+                },
+                {"type": "response.output_item.done", "output_index": 1, "item": failed_search},
+                {"type": "response.output_item.done", "output_index": 0, "item": call},
+            )
         else:
             payload = response([message()])
         return sse(payload) if body.get("stream") else httpx2.Response(200, json=payload)
@@ -173,6 +192,15 @@ async def test_host_replays_signed_web_item_after_compact_fork_and_reopening(tmp
     async with open_application_host(config, manual_approval_handler=approve, enable_activity=False) as host:
         await host.runtime.start_run(fork, "Read it again", run_options()).task
         assert call in requests[-1]["input"]
+        assert failed_search in requests[-1]["input"]
+        web_steps = [
+            record for record in read_session_journal(config.session_journal_dir, fork) if record.get("hosted_status")
+        ]
+        assert [(record["name"], record["hosted_status"]) for record in web_steps] == [
+            ("DeepSeek web search", "failed"),
+            ("DeepSeek URL reading", "completed"),
+        ]
+        assert json.loads(web_steps[1]["arguments"]) == {"kind": "read_link", "action": call["action"]}
 
 
 @pytest.mark.parametrize(

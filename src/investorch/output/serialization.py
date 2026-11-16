@@ -29,7 +29,12 @@ def serialize_output_event(event: OutputEvent) -> dict[str, object]:
     if isinstance(event, Reasoning):
         return {"type": "reasoning", "text": event.text, **({"summary": event.summary} if event.summary else {})}
     if isinstance(event, ToolCalled):
-        return {"type": "tool_called", "name": event.name, "arguments": event.arguments}
+        return {
+            "type": "tool_called",
+            "name": event.name,
+            "arguments": event.arguments,
+            **({"hosted_status": event.hosted_status} if event.hosted_status is not None else {}),
+        }
     if isinstance(event, ToolOutput):
         return {
             "type": "tool_output",

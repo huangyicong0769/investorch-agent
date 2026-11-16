@@ -294,7 +294,7 @@ function appendTool(
     arguments: record.arguments,
     label: labels.get(record.seq) ?? null,
     images: [],
-    observation: null,
+    observation: record.hosted_status ?? null,
     observationSeq: null,
   }
   group.items.push(step)
@@ -477,7 +477,7 @@ export function projectTimeline(records: readonly JournalRecord[]): TimelineView
     if (record.type === 'tool_called') {
       activeTurn = ensureAssistantTurn(activeTurn, record)
       const step = appendTool(activeTurn, record, labels)
-      pendingTools.push(step)
+      if (record.hosted_status === undefined) pendingTools.push(step)
       continue
     }
 

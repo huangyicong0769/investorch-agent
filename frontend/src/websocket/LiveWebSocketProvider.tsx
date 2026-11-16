@@ -199,9 +199,10 @@ function outputEvent(value: unknown): OutputEvent | null {
     case 'tool_called': {
       const name = stringField(value, 'name')
       const argumentsValue = nullableStringField(value, 'arguments')
+      const status = stringField(value, 'hosted_status')
       return name === null || argumentsValue === undefined
         ? null
-        : { type: 'tool_called', name, arguments: argumentsValue }
+        : { type: 'tool_called', name, arguments: argumentsValue, ...(status ? { hosted_status: status } : {}) }
     }
     case 'tool_output': {
       const output = stringField(value, 'output')

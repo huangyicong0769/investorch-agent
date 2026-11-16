@@ -20,6 +20,7 @@ class Reasoning:
 class ToolCalled:
     name: str
     arguments: str | None = None
+    hosted_status: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

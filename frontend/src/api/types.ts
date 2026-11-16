@@ -309,6 +309,7 @@ export interface OutputEventToolCalled {
   type: 'tool_called'
   name: string
   arguments: string | null
+  hosted_status?: string
 }
 
 export interface OutputEventToolOutput {

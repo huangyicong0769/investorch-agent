@@ -302,14 +302,19 @@ class ChatTimeline(VerticalScroll):
         self._follow_output(follow_output)
         return step
 
-    async def add_tool_call(self, name: str, arguments: str | None) -> ActivityStep:
+    async def add_tool_call(
+        self, name: str, arguments: str | None, *, hosted_status: str | None = None
+    ) -> ActivityStep:
         follow_output = self.is_vertical_scroll_end
         step = ActivityStep(self._activity_detail_max_height)
         step.label_reasoning = "".join(self._recent_reasoning)
         self._recent_reasoning.clear()
         step.set_tool(name, arguments)
-        self._pending_tool_outputs.append(step)
-        self._tool_steps.append(step)
+        if hosted_status is None:
+            self._pending_tool_outputs.append(step)
+            self._tool_steps.append(step)
+        else:
+            step.set_observation(hosted_status)
         await self._add_activity_step(step)
         self._follow_output(follow_output)
         return step
@@ -363,7 +368,7 @@ class ChatTimeline(VerticalScroll):
         elif isinstance(event, Reasoning):
             return await self.add_reasoning(event.text)
         elif isinstance(event, ToolCalled):
-            return await self.add_tool_call(event.name, event.arguments)
+            return await self.add_tool_call(event.name, event.arguments, hosted_status=event.hosted_status)
         elif isinstance(event, ToolOutput):
             return await self.add_tool_output(_with_images(event.output, event.images))
         elif isinstance(event, AssistantMessage):
@@ -413,7 +418,12 @@ class ChatTimeline(VerticalScroll):
                 await self.add_reasoning(record["text"])
             elif event_type == "tool_called" and isinstance(record.get("name"), str):
                 arguments = record.get("arguments")
-                step = await self.add_tool_call(record["name"], arguments if isinstance(arguments, str) else None)
+                status = record.get("hosted_status")
+                step = await self.add_tool_call(
+                    record["name"],
+                    arguments if isinstance(arguments, str) else None,
+                    hosted_status=status if isinstance(status, str) else None,
+                )
                 seq = record["seq"]
                 if type(seq) is int:
                     step.target_seq = seq
