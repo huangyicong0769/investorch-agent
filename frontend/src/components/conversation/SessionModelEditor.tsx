@@ -8,6 +8,7 @@ import { queryKeys } from '../../api/queries'
 import type { AgentModelConfig, JsonObject, ReasoningEffort } from '../../api/types'
 import { errorMessage } from '../../lib/errors'
 import { RUN_DEFAULTS_MUTATION_KEY } from '../composer/RunControlsPopover'
+import { DEEPSEEK_WEB_CAPABILITIES, supportsDeepSeekWeb } from '../management/ModelFields'
 import { objectValue } from '../management/schema'
 import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
@@ -55,6 +56,7 @@ export function SessionModelEditor({ sessionId }: { sessionId: string }) {
   const config = useQuery({ ...configQueryOptions(), enabled: Boolean(sessionId) })
   const selected = model.data?.effective
   const connections = Object.entries(objectValue(config.data?.values.models))
+  const deepSeekWeb = selected && supportsDeepSeekWeb(objectValue(objectValue(config.data?.values.models)[selected.model]), selected.name)
   const agents = objectValue(config.data?.values.agents)
   const chatGPTConnections = connections.filter(([, value]) => objectValue(value).type === 'chatgpt')
   const catalogs = useQueries({ queries: chatGPTConnections.map(([id]) => ({
@@ -159,6 +161,9 @@ export function SessionModelEditor({ sessionId }: { sessionId: string }) {
         <Button className={rowClass} disabled={!ready || busy} onClick={() => {
           if (selected) { save.reset(); setPanel({ kind: 'window', choice: { connection: selected.model, name: selected.name, label: displayName(selected.model, selected.name) }, value: String(selected.context_window_tokens), changingModel: false }) }
         }} type="button" variant="ghost">Context window<ChevronRight aria-hidden="true" className="size-3.5 text-muted-foreground" /></Button>
+        {deepSeekWeb ? DEEPSEEK_WEB_CAPABILITIES.map(([key, label]) => <label className="flex items-center justify-between gap-2 px-2.5 py-2 text-sm" key={key}>
+          {label}<input checked={selected[key] !== false} disabled={!ready || busy} onChange={(event) => save.mutate({ [key]: event.target.checked })} type="checkbox" />
+        </label>) : null}
         <div className="my-1 border-t" />
         {model.data?.active ? <p className="px-2.5 py-1 text-[11px] text-muted-foreground">Applies to your next message</p> : null}
         <Link className="block rounded-md px-2.5 py-2 text-xs text-muted-foreground hover:bg-accent hover:text-foreground" onClick={(event) => { if (busy) event.preventDefault(); else setOpen(false) }} to="/settings?section=models">Manage models</Link>

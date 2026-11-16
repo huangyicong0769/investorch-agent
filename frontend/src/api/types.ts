@@ -664,6 +664,8 @@ export interface AgentModelConfig {
   name: string
   reasoning_effort: ReasoningEffort
   context_window_tokens: number
+  web_search?: boolean
+  read_url?: boolean
 }
 export interface SessionModelView {
   session_id: string
