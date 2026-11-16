@@ -11,6 +11,7 @@ import { RUN_DEFAULTS_MUTATION_KEY } from '../composer/RunControlsPopover'
 import { DEEPSEEK_WEB_CAPABILITIES, supportsDeepSeekWeb } from '../management/ModelFields'
 import { objectValue } from '../management/schema'
 import { Button } from '@/components/ui/button'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 
 const EFFORTS: { value: ReasoningEffort; label: string }[] = [
@@ -52,6 +53,7 @@ export function SessionModelEditor({ sessionId }: { sessionId: string }) {
   const client = useQueryClient()
   const [open, setOpen] = useState(false)
   const [panel, setPanel] = useState<Panel>({ kind: 'models' })
+  const [expandedConnection, setExpandedConnection] = useState<string | null>()
   const model = useQuery({ ...sessionModelQueryOptions(sessionId), enabled: Boolean(sessionId) })
   const config = useQuery({ ...configQueryOptions(), enabled: Boolean(sessionId) })
   const selected = model.data?.effective
@@ -103,6 +105,7 @@ export function SessionModelEditor({ sessionId }: { sessionId: string }) {
     if (busy) return
     setOpen(next)
     setPanel({ kind: 'models' })
+    setExpandedConnection(undefined)
     save.reset()
   }}>
     <PopoverTrigger asChild>
@@ -136,8 +139,10 @@ export function SessionModelEditor({ sessionId }: { sessionId: string }) {
           {connections.map(([connection, raw]) => {
             const chatGPT = objectValue(raw).type === 'chatgpt'
             const catalog = catalogFor(connection)
+            const current = selected?.model === connection
+            const expanded = expandedConnection === connection || (expandedConnection === undefined && connections.length === 1)
             const choices = new Map<string, ModelChoice>()
-            if (selected?.model === connection) choices.set(selected.name, { connection, name: selected.name, label: displayName(connection, selected.name) })
+            if (current) choices.set(selected.name, { connection, name: selected.name, label: displayName(connection, selected.name) })
             if (chatGPT) {
               for (const item of catalog?.data?.models ?? []) choices.set(item.slug, { connection, name: item.slug, label: item.display_name })
             } else {
@@ -146,14 +151,24 @@ export function SessionModelEditor({ sessionId }: { sessionId: string }) {
                 if (agent.model === connection && typeof agent.name === 'string' && agent.name) choices.set(agent.name, { connection, name: agent.name, label: agent.name })
               }
             }
-            return <div className="py-0.5" key={connection}>
-              {connections.length > 1 ? <p className="px-2.5 pb-1 pt-1.5 text-[11px] text-muted-foreground">{connection}</p> : null}
-              {Array.from(choices.values()).map((choice) => <Button className={rowClass} disabled={!ready || busy} key={choice.name} onClick={() => chooseModel(choice)} title={choice.label} type="button" variant="ghost">
-                <span className="truncate">{choice.label}</span>
-                {selected?.model === connection && selected.name === choice.name ? <Check aria-hidden="true" className="size-3.5" /> : null}
-              </Button>)}
-              {chatGPT ? catalog?.isError ? <div className="px-2.5 py-1.5 text-xs text-muted-foreground" role="alert">Couldn’t load models. <button className="underline" onClick={() => void catalog.refetch()} type="button">Retry</button></div> : catalog?.isPending ? <p className="px-2.5 py-1.5 text-xs text-muted-foreground" role="status">Loading models…</p> : !choices.size ? <p className="px-2.5 py-1.5 text-xs text-muted-foreground">No models available.</p> : null : <Button className={`${rowClass} text-muted-foreground`} disabled={!ready || busy} onClick={() => { save.reset(); setPanel({ kind: 'custom', connection, name: '', window: '' }) }} type="button" variant="ghost">Custom model…<ChevronRight aria-hidden="true" className="size-3.5" /></Button>}
-            </div>
+            return <Collapsible className="py-0.5" key={connection} onOpenChange={(next) => setExpandedConnection(next ? connection : null)} open={expanded}>
+              <CollapsibleTrigger asChild>
+                <Button aria-current={current || undefined} className={`${rowClass} font-medium`} disabled={busy} title={connection} type="button" variant="ghost">
+                  <span className="truncate">{connection}</span>
+                  <span className="flex shrink-0 items-center gap-1.5 text-muted-foreground">
+                    {current ? <Check aria-hidden="true" className="size-3.5" /> : null}
+                    <ChevronRight aria-hidden="true" className={`size-3.5 transition-transform ${expanded ? 'rotate-90' : ''}`} />
+                  </span>
+                </Button>
+              </CollapsibleTrigger>
+              <CollapsibleContent className={connections.length > 1 ? 'max-h-40 overflow-y-auto pl-2' : 'pl-2'}>
+                {Array.from(choices.values()).map((choice) => <Button className={rowClass} disabled={!ready || busy} key={choice.name} onClick={() => chooseModel(choice)} title={choice.label} type="button" variant="ghost">
+                  <span className="truncate">{choice.label}</span>
+                  {current && selected.name === choice.name ? <Check aria-hidden="true" className="size-3.5" /> : null}
+                </Button>)}
+                {chatGPT ? catalog?.isError ? <div className="px-2.5 py-1.5 text-xs text-muted-foreground" role="alert">Couldn’t load models. <button className="underline" onClick={() => void catalog.refetch()} type="button">Retry</button></div> : catalog?.isPending ? <p className="px-2.5 py-1.5 text-xs text-muted-foreground" role="status">Loading models…</p> : !choices.size ? <p className="px-2.5 py-1.5 text-xs text-muted-foreground">No models available.</p> : null : <Button className={`${rowClass} text-muted-foreground`} disabled={!ready || busy} onClick={() => { save.reset(); setPanel({ kind: 'custom', connection, name: '', window: '' }) }} type="button" variant="ghost">Custom model…<ChevronRight aria-hidden="true" className="size-3.5" /></Button>}
+              </CollapsibleContent>
+            </Collapsible>
           })}
         </div>
         <div className="my-1 border-t" />
