@@ -20,7 +20,7 @@ from investorch.config_schema import DEEPSEEK_FLASH_MODELS
 
 def response_title(response: Response) -> str | None:
     title = getattr(response, "title", None)
-    return (title.strip() or None) if response.status == "completed" and isinstance(title, str) else None
+    return (title.strip() or None) if isinstance(title, str) else None
 
 
 @dataclass
@@ -186,7 +186,7 @@ class DeepSeekResponsesModel(OpenAIResponsesModel):
             raise DeepSeekResponseError.from_http(error) from None
         if (failure := response_error(result)) is not None:
             raise failure
-        title = response_title(result)
+        title = response_title(result) if result.status == "completed" else None
         if title is not None:
             self._session_title_requested = False
         raw = result.usage

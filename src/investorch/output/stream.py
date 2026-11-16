@@ -114,7 +114,7 @@ async def consume_run_events(
     current_agent_name: str,
     *,
     deepseek: bool = False,
-    response_handler: Callable[[Response], Awaitable[None]] | None = None,
+    response_handler: Callable[[Response, bool], Awaitable[None]] | None = None,
 ) -> str:
     pending_reasoning: dict[str, _PendingReasoning] = {}
     emitted_reasoning: set[str] = set()
@@ -253,7 +253,11 @@ async def consume_run_events(
                     for item in event.data.response.output or ():
                         await record_web_call(item)
                     if response_handler is not None:
-                        await response_handler(event.data.response)
+                        completed = event.data.type == "response.completed" and event.data.response.status in {
+                            None,
+                            "completed",
+                        }
+                        await response_handler(event.data.response, completed)
                     if not deepseek:
                         continue
                     if (failure := response_error(event.data.response)) is not None:

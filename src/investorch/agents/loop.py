@@ -288,18 +288,18 @@ class AgentLoop:
         native_title = None
         terminal_failure_observed = False
 
-        async def observe_response(response: Response) -> None:
+        async def observe_response(response: Response, completed: bool) -> None:
             nonlocal provider_usage, native_title, terminal_failure_observed
-            terminal_failure_observed = response.status in {"failed", "incomplete"}
+            terminal_failure_observed = not completed
             if deepseek and response.usage is not None:
                 delta = TokenUsage.from_deepseek(
                     response.usage.model_dump(mode="json", exclude_unset=True),
-                    include_tokens=response.status != "completed",
+                    include_tokens=not completed,
                 )
                 if delta != TokenUsage():
                     provider_usage += delta
                     record_main_usage(delta)
-            if model_config.auto_title and native_title is None:
+            if completed and model_config.auto_title and native_title is None:
                 native_title = response_title(response)
                 if native_title is not None and self._session_title_handler is not None:
                     await self._session_title_handler(session_id, native_title)
