@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import tempfile
 import threading
 import tomllib
@@ -414,6 +415,13 @@ class AppConfig:
         for key in reset_keys or []:
             _delete_config_value(overrides, _split_key(key))
         saved = _effective(self.root, overrides) if persist else deepcopy(self._saved_data)
+        for connection, model in saved["models"].items():
+            name = model["api_key_secret"]
+            previous = self._saved_data["models"].get(connection, {}).get("api_key_secret")
+            if name and name != previous and re.fullmatch(r"sk-[A-Za-z0-9_-]{24,}", name.strip()):
+                path = f"models.{connection}.api_key_secret"
+                message = "Enter a secret name here. Paste the API key in the connection's API key field."
+                raise ConfigError(f"{path}: {message}", errors=[{"path": path, "message": message}])
         active = deepcopy(self._data)
         for key in keys:
             if modes[key] == "hot":
