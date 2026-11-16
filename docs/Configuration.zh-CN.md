@@ -91,6 +91,8 @@ DEEPSEEK_API_KEY = "replace-locally-with-your-api-key"
 
 用量面板显示 DeepSeek 返回的计费搜索、页面读取、图片搜索和审核 Token。是否联网由 DeepSeek 决定。失败前执行的操作也可能计费。可在 Web/TUI 关闭后续请求的联网。 [DeepSeek 联网文档](https://api-docs.deepseek.com/guides/web_tools) · [官方定价](https://api-docs.deepseek.com/quick_start/pricing/)
 
+DeepSeek Responses 续接会回传原始联网调用及其 ID、`kind` 和 `signature`。存在带签名的联网轮次时，Compact 保留最近一轮。
+
 在 Python 中以异步上下文管理器调用 `DeepSeekServiceClient.from_config(config, "deepseek")`。文件接口为 `upload_file`、`list_files`、`get_file` 和 `delete_file`，上传默认一小时过期。文本文件或已解析文档用 `input_file(file_id)` 构造 Responses 内容项。独立服务接口为 `ocr`、`transcribe`、`synthesize` 和 `stream_speech`。`stream_speech` 接收异步文本分块，返回音频帧。
 
 ## ChatGPT 多账号与混合连接

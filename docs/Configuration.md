@@ -91,6 +91,8 @@ With thinking off, a Run with client tools omits native web search, URL reading,
 
 Usage shows billed searches, page reads and image searches reported by DeepSeek and any reported safety tokens. The provider decides when to search and may charge for tools used before a failure. Web/TUI switches control future requests. [DeepSeek Web Tools](https://api-docs.deepseek.com/guides/web_tools) · [Models and pricing](https://api-docs.deepseek.com/quick_start/pricing/)
 
+DeepSeek Responses continuation reuses the original web calls with their IDs, `kind` and `signature`. When a signed web round exists, Compact retains the latest one.
+
 Files, OCR, ASR and TTS can be called through `DeepSeekServiceClient.from_config(config, "deepseek")` as an async context manager. Use `upload_file`, `list_files`, `get_file` and `delete_file` to manage files. `input_file(file_id)` creates the Responses content part for text and parsed documents. Use `ocr`, `transcribe`, `synthesize` and `stream_speech` for the standalone services. Uploads default to a one-hour expiry. `stream_speech` accepts an async iterable of text chunks and yields audio frames.
 
 ## ChatGPT accounts and multiple connections

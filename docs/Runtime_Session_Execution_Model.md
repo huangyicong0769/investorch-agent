@@ -162,7 +162,7 @@ Every model request is checked again after tool results and activated Steers arr
 
 Post-answer automatic compaction uses the active Run window and last Main request usage; failure does not discard an already completed answer. Manual and automatic compaction change SDK continuation only, preserve the complete Journal and charge Compact requests to auxiliary totals as they complete. Successful compaction immediately publishes a new context estimate. The compact model's own input budget is checked and oversized text is summarized in bounded batches.
 
-Each new Run copies earlier messages and function `call_id` links into the input. It strips opaque reasoning and handles tool records according to the target provider's protocol. For DeepSeek Responses, it passes back the original web calls with their IDs, `kind` and `signature`. Compaction retains the latest signed web round when one is available.
+Each new Run copies earlier messages and function `call_id` links into the input. It strips opaque reasoning and handles tool records according to the target provider's protocol.
 
 ## Background jobs
 

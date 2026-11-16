@@ -160,7 +160,7 @@ Main 与 auxiliary model usage 在当前进程中按 Session 累积。Auxiliary 
 
 后置自动压缩使用 Active Run 窗口与最后一次 Main 请求用量，失败不丢弃已经完成的答案。手动与自动压缩只改变 SDK continuation，保留完整 Journal，Compact 用量记入 Aux；成功后清空旧 Main 占用。
 
-每次新 Run 将已有消息和函数 `call_id` 放入输入副本。副本去除不透明 reasoning，并按目标 Provider 的协议处理工具记录。使用 DeepSeek Responses 时，回传包含 ID、`kind` 和 `signature` 的原始联网调用。Compact 在存在带签名的联网轮次时保留最近一轮。
+每次新 Run 将已有消息和函数 `call_id` 放入输入副本。副本去除不透明 reasoning，并按目标 Provider 的协议处理工具记录。
 
 ## 后台 Job
 
