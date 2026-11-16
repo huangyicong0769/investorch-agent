@@ -134,13 +134,13 @@ export function SessionModelEditor({ sessionId }: { sessionId: string }) {
         }} size="sm" type="button" variant="link">Retry</Button>
       </div> : null}
       {panel.kind === 'models' ? <>
-        <div className="max-h-72 overflow-y-auto" aria-label="Models">
+        <div className="flex max-h-72 flex-col overflow-y-auto" aria-label="Models">
           {config.isPending || model.isPending ? <p className="px-2.5 py-2 text-xs text-muted-foreground" role="status">Loading models…</p> : null}
           {connections.map(([connection, raw]) => {
             const chatGPT = objectValue(raw).type === 'chatgpt'
             const catalog = catalogFor(connection)
             const current = selected?.model === connection
-            const expanded = expandedConnection === connection || (expandedConnection === undefined && connections.length === 1)
+            const expanded = expandedConnection === undefined ? current || connections.length === 1 : expandedConnection === connection
             const choices = new Map<string, ModelChoice>()
             if (current) choices.set(selected.name, { connection, name: selected.name, label: displayName(connection, selected.name) })
             if (chatGPT) {
@@ -151,9 +151,9 @@ export function SessionModelEditor({ sessionId }: { sessionId: string }) {
                 if (agent.model === connection && typeof agent.name === 'string' && agent.name) choices.set(agent.name, { connection, name: agent.name, label: agent.name })
               }
             }
-            return <Collapsible className="py-0.5" key={connection} onOpenChange={(next) => setExpandedConnection(next ? connection : null)} open={expanded}>
+            return <Collapsible className={`flex flex-col py-0.5 ${expanded ? 'min-h-[4.75rem]' : 'shrink-0'}`} key={connection} onOpenChange={(next) => setExpandedConnection(next ? connection : null)} open={expanded}>
               <CollapsibleTrigger asChild>
-                <Button aria-current={current || undefined} className={`${rowClass} font-medium`} disabled={busy} title={connection} type="button" variant="ghost">
+                <Button aria-current={current || undefined} className={`${rowClass} shrink-0 font-medium`} disabled={busy} title={connection} type="button" variant="ghost">
                   <span className="truncate">{connection}</span>
                   <span className="flex shrink-0 items-center gap-1.5 text-muted-foreground">
                     {current ? <Check aria-hidden="true" className="size-3.5" /> : null}
@@ -161,7 +161,7 @@ export function SessionModelEditor({ sessionId }: { sessionId: string }) {
                   </span>
                 </Button>
               </CollapsibleTrigger>
-              <CollapsibleContent className={connections.length > 1 ? 'max-h-40 overflow-y-auto pl-2' : 'pl-2'}>
+              <CollapsibleContent className="min-h-0 overflow-y-auto pl-2">
                 {Array.from(choices.values()).map((choice) => <Button className={rowClass} disabled={!ready || busy} key={choice.name} onClick={() => chooseModel(choice)} title={choice.label} type="button" variant="ghost">
                   <span className="truncate">{choice.label}</span>
                   {current && selected.name === choice.name ? <Check aria-hidden="true" className="size-3.5" /> : null}
