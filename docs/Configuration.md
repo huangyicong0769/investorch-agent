@@ -146,7 +146,7 @@ For a ChatGPT-only installation, choose an authorized ChatGPT connection for all
 ## Setup and Settings
 
 1. Open `investorch web`. In **Model Connections**, add a connection and save it. Setup runs before the Agent Host starts.
-2. For an API connection, enter the write-only API key. For ChatGPT, select **Continue with ChatGPT**, complete the browser authorization yourself and allow ChatGPT plan usage. Identity-only login is insufficient. Cancel leaves existing authorization intact; reauthorization handles missing permission or expired/revoked credentials.
+2. For an API connection, paste the key into the masked **API key** field on the connection card. To choose a different secret name for Local TOML, expand **Advanced key settings**. For ChatGPT, select **Continue with ChatGPT** and authorize plan usage in the browser. Cancelling retains existing authorization. Reauthorize when the account lacks plan access or its authorization has expired or been revoked.
 3. Select the model and window under **Agent Defaults**. **Copy Main settings to auxiliary roles** is optional; review each role's effort afterward.
 4. **Test saved connection** makes one short request and can consume API or plan usage. **Save and open InvestOrch** starts the same Host after readiness validation.
 

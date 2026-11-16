@@ -146,7 +146,7 @@ API_KEY = "replace-locally-with-your-api-key"
 ## Setup 与 Settings
 
 1. 启动 `investorch web`，在 **Model Connections** 新建并保存连接。此时 Agent Host 可以尚未启动。
-2. API 连接填写只写 API key；ChatGPT 点击 **Continue with ChatGPT**，由用户本人在浏览器完成授权并允许使用计划额度。仅完成身份登录不能推理。取消保留原授权；缺少额度权限或授权过期/撤销时重新授权。
+2. 将密钥粘贴到连接卡片的 **API key** 输入框，输入会自动遮盖。如需自定义本地 TOML 中的密钥名称，展开 **Advanced key settings**。ChatGPT 连接点击 **Continue with ChatGPT**，在浏览器里授权使用计划额度。取消会保留原授权。缺少计划额度权限或授权过期、撤销时，可重新授权。
 3. 在 **Agent Defaults** 选择真实模型与窗口。可将 Main 配置复制给辅助角色，再逐一调整 effort。
 4. **Test saved connection** 发送一次短请求，可能消耗 API 或 ChatGPT 计划额度。**Save and open InvestOrch** 在 readiness 通过后启动同一个 Host。
 
