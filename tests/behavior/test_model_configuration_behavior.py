@@ -8,14 +8,33 @@ from investorch.config import ConfigError, load_config
 from tests.support.config import make_test_config
 
 
+def test_deepseek_connection_supplies_flash_default_without_changing_explicit_models(tmp_path: Path) -> None:
+    (tmp_path / "investorch.toml").write_text(
+        '[models.deepseek]\ntype = "deepseek"\n'
+        '[agents.main]\nmodel = "deepseek"\n'
+        '[agents.permission]\nmodel = "deepseek"\nname = "deepseek-v4-pro"\ncontext_window_tokens = 500000\n'
+        '[secrets]\nDEEPSEEK_API_KEY = "fixture-key"\n'
+    )
+
+    config = load_config(tmp_path)
+
+    assert config.model_connection("deepseek").base_url == "https://api.deepseek.com"
+    assert config.model_connection("deepseek").api_key_secret == "DEEPSEEK_API_KEY"
+    main = config.agent_model("main")
+    assert (main.name, main.context_window_tokens) == ("deepseek-flash", 1048576)
+    assert config.agent_model("permission").name == "deepseek-v4-pro"
+    assert config.resolve_model(main, name="deepseek-v4-flash", context_window_tokens=1048576).name == (
+        "deepseek-v4-flash"
+    )
+
+
 def test_one_connection_can_supply_distinct_agent_models(tmp_path: Path) -> None:
     (tmp_path / "investorch.toml").write_text(
         '[models.shared]\ntype = "openai_compatible"\n'
         'base_url = "https://provider.example.test/v1"\napi_key_secret = "KEY"\n'
         '[agents.main]\nmodel = "shared"\nname = "large"\ncontext_window_tokens = 120000\n'
-        '[agents.title]\nmodel = "shared"\nname = "small"\ncontext_window_tokens = 16000\n'
         '[agents.activity]\nmodel = "shared"\nname = "large"\n'
-        '[agents.permission]\nmodel = "shared"\nname = "large"\n'
+        '[agents.permission]\nmodel = "shared"\nname = "small"\ncontext_window_tokens = 16000\n'
         '[agents.compact]\nmodel = "shared"\nname = "large"\n'
         '[secrets]\nKEY = "fixture-key"\n',
         encoding="utf-8",
@@ -25,8 +44,8 @@ def test_one_connection_can_supply_distinct_agent_models(tmp_path: Path) -> None
 
     assert config.readiness() == []
     assert config.agent_model("main").context_window_tokens == 120000
-    assert config.agent_model("title").name == "small"
-    assert config.agent_model("title").context_window_tokens == 16000
+    assert config.agent_model("permission").name == "small"
+    assert config.agent_model("permission").context_window_tokens == 16000
     assert config.agent_model("activity").context_window_tokens == 120000
     assert config.model_connection("shared").base_url == "https://provider.example.test/v1"
 
@@ -70,11 +89,11 @@ def test_model_overrides_require_explicit_cross_connection_settings(tmp_path: Pa
 
 def test_new_model_never_inherits_another_models_window(tmp_path: Path) -> None:
     config = make_test_config(tmp_path)
-    config.update_many({"agents.title.name": "different", "agents.title.context_window_tokens": None})
+    config.update_many({"agents.activity.name": "different", "agents.activity.context_window_tokens": None})
     config = load_config(config.root)
-    assert "agents.title.context_window_tokens" in config.readiness()
-    with pytest.raises(ConfigError, match=r"agents\.title\.context_window_tokens"):
-        config.agent_model("title")
+    assert "agents.activity.context_window_tokens" in config.readiness()
+    with pytest.raises(ConfigError, match=r"agents\.activity\.context_window_tokens"):
+        config.agent_model("activity")
 
 
 @pytest.mark.parametrize("window", [None, 0, -1, True, 1.5])

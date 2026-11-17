@@ -2,6 +2,10 @@
 
 [简体中文](CHANGELOG.zh-CN.md)
 
+## 0.3.1
+
+See the [0.3.1 release notes](docs/releases/0.3.1.md).
+
 ## 0.3.0
 
 ### Session collaboration and model selection

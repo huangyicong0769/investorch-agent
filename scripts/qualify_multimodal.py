@@ -22,7 +22,6 @@ from investorch.agents import (
     TokenUsage,
     create_agent,
     create_compaction_agent,
-    create_title_agent,
 )
 from investorch.application import PortfolioOperations
 from investorch.config import AppConfig, load_config
@@ -34,7 +33,7 @@ from investorch.llm.clients import ModelConnectionClients
 from investorch.llm.oauth import ChatGPTAuth
 from investorch.output import ToolOutput
 from investorch.runtime.control import RunControl
-from investorch.storage import create_session, get_session_title
+from investorch.storage import create_session
 
 
 def red_png() -> bytes:
@@ -57,7 +56,7 @@ async def qualify() -> None:
         data["secrets"] = source.secrets
         data["paths"]["root"] = directory
         data["backtest"]["use_cnequity"] = False
-        if any(connection["type"] != "openai_compatible" for connection in data["models"].values()):
+        if any(connection["type"] == "chatgpt" for connection in data["models"].values()):
             raise ValueError(
                 "Sign in separately in an isolated Root for ChatGPT qualification; do not copy rotating tokens"
             )
@@ -72,11 +71,8 @@ async def qualify() -> None:
             clients = ModelConnectionClients(config, auth)
             stack.push_async_callback(clients.close)
             main = create_agent(*clients.for_agent("main"), config)
-            title = create_title_agent(*clients.for_agent("title"))
             compact = create_compaction_agent(*clients.for_agent("compact"))
-            loop = AgentLoop(
-                main, title, compact, config, PortfolioOperations(config=config), model_factory=clients.resolve
-            )
+            loop = AgentLoop(main, compact, config, PortfolioOperations(config=config), model_factory=clients.resolve)
             execution = ExecutionState(workspace_root=config.workspace_dir)
             report = {"model": config.agent_model("main").name, "checks": {}}
 
@@ -139,7 +135,6 @@ async def qualify() -> None:
                         passed = passed and any(isinstance(event, ToolOutput) and event.images for event in events)
                     report["checks"][name] = {
                         "passed": bool(passed),
-                        "title_generated": bool(get_session_title(config.sessions_db, name)),
                         "main_tokens": result.main_usage.total_tokens,
                     }
                     if name == "text_image":

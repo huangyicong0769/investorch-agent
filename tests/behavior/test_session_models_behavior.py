@@ -2,6 +2,7 @@ from pathlib import Path
 
 from investorch.application.session_models import SessionModelStore
 from investorch.storage import create_session
+from investorch.storage.sessions import set_session_model
 from tests.support.config import make_test_config
 
 
@@ -42,3 +43,21 @@ async def test_fork_copies_saved_and_draft_models_and_delete_cleans_draft(tmp_pa
     assert models.draft(child) is None
     assert models.view(child).persisted is None
     await harness.runtime.runtime.aclose()
+
+
+def test_legacy_model_uses_configured_deepseek_controls_without_rewriting_its_model_id(tmp_path: Path) -> None:
+    config = make_test_config(tmp_path, {"agents": {"main": {"web_search": False, "safety_check": "high"}}})
+    create_session(config.sessions_db, "session")
+    original = {
+        "model": "test",
+        "name": "deepseek-v4-flash",
+        "reasoning_effort": "low",
+        "context_window_tokens": 1048576,
+    }
+    set_session_model(config.sessions_db, "session", original)
+    models = SessionModelStore(config)
+    snapshot = models.snapshot("session")
+    assert snapshot.model.name == "deepseek-v4-flash" and snapshot.model.web_search is False
+    set_session_model(config.sessions_db, "session", {**original, "web_search": True, "safety_check": "low"})
+    updated = models.snapshot("session").model
+    assert updated.web_search is True and updated.safety_check == "high"

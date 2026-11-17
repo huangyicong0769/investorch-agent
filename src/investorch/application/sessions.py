@@ -257,7 +257,7 @@ class SessionOperations:
         return target_session_id
 
     async def set_title(self, session_id: str, title: str) -> SessionRecord:
-        async with self.lifecycle_lock, self._runtime.reserve_session(session_id):
+        async with self.lifecycle_lock:
             session = await asyncio.to_thread(get_session, self._config.sessions_db, session_id)
             if session is None:
                 raise SessionNotFoundError(session_id)

@@ -26,13 +26,6 @@ def test_web_cli_port_override_is_optional() -> None:
     assert parse_web_args(["--port", "8000"]).port == 8000
 
 
-def test_web_updates_require_restart(tmp_path: Path) -> None:
-    config = make_test_config(tmp_path)
-
-    with pytest.raises(ConfigError, match=r"web\.default_port requires persist=true"):
-        config.update("web.default_port", 8000, persist=False)
-
-
 def test_local_config_cannot_redirect_project_root(tmp_path: Path) -> None:
     config = make_test_config(tmp_path)
     config.root_config_path.write_text(

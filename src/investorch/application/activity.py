@@ -66,7 +66,7 @@ class ActivityCoordinator:
             return
 
         reasoning = "".join(self._reasoning_by_run.pop(output.run_id, []))
-        if journal_seq is None:
+        if journal_seq is None or output.event.hosted_status is not None:
             return
         active_run = self._runtime.get_active_run(output.session_id)
         user_message = (

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import tempfile
 import threading
 import tomllib
@@ -14,6 +15,15 @@ import tomlkit
 from pydantic import ValidationError
 
 from investorch.config_schema import (
+    AGENT_ROLES,
+    AppConfigSchema,
+    OAuthCredentialSchema,
+    SafetyLevel,
+    config_field_metadata,
+    is_deepseek_connection,
+    resolve_under_root,
+)
+from investorch.config_schema import (
     FOLLOW_UP_BEHAVIORS as FOLLOW_UP_BEHAVIORS,
 )
 from investorch.config_schema import (
@@ -24,12 +34,6 @@ from investorch.config_schema import (
 )
 from investorch.config_schema import (
     REQUIRED_AGENT_ROLES as REQUIRED_AGENT_ROLES,
-)
-from investorch.config_schema import (
-    AppConfigSchema,
-    OAuthCredentialSchema,
-    config_field_metadata,
-    resolve_under_root,
 )
 
 REDACTED = "<redacted>"
@@ -43,6 +47,10 @@ class ModelConnectionConfig:
     api_key_secret: str | None = None
     credentials: str | None = None
 
+    @property
+    def is_deepseek(self) -> bool:
+        return is_deepseek_connection(self.type, self.base_url)
+
 
 @dataclass(frozen=True, slots=True)
 class AgentModelConfig:
@@ -50,6 +58,10 @@ class AgentModelConfig:
     name: str
     reasoning_effort: str
     context_window_tokens: int
+    web_search: bool = True
+    read_url: bool = True
+    auto_title: bool = True
+    safety_check: SafetyLevel | None = None
 
     def __post_init__(self) -> None:
         if not self.model or not self.name or self.reasoning_effort not in REASONING_EFFORTS:
@@ -170,17 +182,21 @@ class AppConfig:
 
     def model_connection(self, connection_id: str) -> ModelConnectionConfig:
         raw = self[f"models.{connection_id}"]
-        required = ("base_url", "api_key_secret") if raw["type"] == "openai_compatible" else ("credentials",)
+        required = ("credentials",) if raw["type"] == "chatgpt" else ("base_url", "api_key_secret")
         if any(not raw[field] for field in required):
             raise ConfigError(f"models.{connection_id} is incomplete; run investorch web to complete Setup")
         return ModelConnectionConfig(**raw)
 
-    def agent_model(self, role: str) -> AgentModelConfig:
+    def agent_model(self, role: str, *, fallback: AgentModelConfig | None = None) -> AgentModelConfig:
+        if role == "title":
+            title = self._data["agents"].get("title", {})
+            if not (title.get("model") or title.get("name")):
+                return fallback if fallback is not None else self._agent_model(self._data, "main")
         return self._agent_model(self._data, role)
 
     @staticmethod
     def _agent_model(data: dict[str, Any], role: str) -> AgentModelConfig:
-        if role not in REQUIRED_AGENT_ROLES:
+        if role not in AGENT_ROLES:
             raise ConfigError(f"Unknown Agent role: {role}")
         raw = dict(data["agents"][role])
         if not raw["model"] or not raw["name"]:
@@ -201,6 +217,9 @@ class AppConfig:
         name: str | None = None,
         reasoning_effort: str | None = None,
         context_window_tokens: int | None = None,
+        web_search: bool | None = None,
+        read_url: bool | None = None,
+        auto_title: bool | None = None,
     ) -> AgentModelConfig:
         connection_id = base.model if model is None else model
         self.model_connection(connection_id)
@@ -221,6 +240,10 @@ class AppConfig:
             context_window_tokens=base.context_window_tokens
             if context_window_tokens is None
             else context_window_tokens,
+            web_search=base.web_search if web_search is None else web_search,
+            read_url=base.read_url if read_url is None else read_url,
+            auto_title=base.auto_title if auto_title is None else auto_title,
+            safety_check=base.safety_check,
         )
 
     def secret(self, name: str) -> str:
@@ -232,8 +255,9 @@ class AppConfig:
     def readiness(self, *, saved: bool = False) -> list[str]:
         data = self._saved_data if saved else self._data
         missing = []
-        for role in REQUIRED_AGENT_ROLES:
-            agent = data["agents"][role]
+        for role, agent in data["agents"].items():
+            if role not in REQUIRED_AGENT_ROLES and not (agent["model"] or agent["name"]):
+                continue
             for field in ("model", "name"):
                 if not agent[field]:
                     missing.append(f"agents.{role}.{field}")
@@ -245,9 +269,9 @@ class AppConfig:
             connection = data["models"].get(agent["model"])
             if connection is None:
                 continue
-            fields = ("base_url", "api_key_secret") if connection["type"] == "openai_compatible" else ("credentials",)
+            fields = ("credentials",) if connection["type"] == "chatgpt" else ("base_url", "api_key_secret")
             missing.extend(f"models.{agent['model']}.{field}" for field in fields if not connection[field])
-            if connection["type"] == "openai_compatible":
+            if connection["type"] != "chatgpt":
                 name = connection["api_key_secret"]
                 if name and not data["secrets"].get(name, "").strip():
                     missing.append(f"secrets.{name}")
@@ -391,6 +415,13 @@ class AppConfig:
         for key in reset_keys or []:
             _delete_config_value(overrides, _split_key(key))
         saved = _effective(self.root, overrides) if persist else deepcopy(self._saved_data)
+        for connection, model in saved["models"].items():
+            name = model["api_key_secret"]
+            previous = self._saved_data["models"].get(connection, {}).get("api_key_secret")
+            if name and name != previous and re.fullmatch(r"sk-[A-Za-z0-9_-]{24,}", name.strip()):
+                path = f"models.{connection}.api_key_secret"
+                message = "Enter a secret name here. Paste the API key in the connection's API key field."
+                raise ConfigError(f"{path}: {message}", errors=[{"path": path, "message": message}])
         active = deepcopy(self._data)
         for key in keys:
             if modes[key] == "hot":

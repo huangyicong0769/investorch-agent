@@ -1,21 +1,8 @@
-import asyncio
-import logging
-from pathlib import Path
+from agents import Agent, Model, ModelSettings, RunConfig, TResponseInputItem
 
-from agents import (
-    Agent,
-    Model,
-    ModelSettings,
-    SQLiteSession,
-    TResponseInputItem,
-)
-
-from investorch.storage import get_session_title, set_session_title
-
+from .continuation import portable_history_filter
 from .prompts import TITLE_AGENT_INSTRUCTIONS
 from .usage import TokenUsage, UsageHandler, run_with_usage
-
-logger = logging.getLogger(__name__)
 
 
 def create_title_agent(model: Model, model_settings: ModelSettings) -> Agent:
@@ -39,6 +26,7 @@ async def generate_session_title(
                 "content": "Generate a concise title for the conversation above. **Output only the title.**",
             },
         ],
+        run_config=RunConfig(call_model_input_filter=portable_history_filter(history)),
         usage_handler=usage_handler,
     )
 
@@ -47,40 +35,3 @@ async def generate_session_title(
     if not title:
         raise ValueError("Title agent returned an empty title.")
     return title, TokenUsage.from_sdk(result.context_wrapper.usage)
-
-
-async def ensure_session_title(
-    title_agent: Agent, session: SQLiteSession, session_db: str | Path, *, usage_handler: UsageHandler | None = None
-) -> TokenUsage:
-    existing_title = await asyncio.to_thread(
-        get_session_title,
-        session_db,
-        session.session_id,
-    )
-
-    if existing_title and existing_title.strip():
-        return TokenUsage()
-
-    history = await session.get_items()
-
-    usage = TokenUsage()
-
-    def record(delta: TokenUsage) -> None:
-        nonlocal usage
-        usage += delta
-        if usage_handler is not None:
-            usage_handler(delta)
-
-    try:
-        title, _ = await generate_session_title(title_agent, history, usage_handler=record)
-    except Exception as e:
-        logger.warning("Failed to generate session title: %s", e)
-        return usage
-
-    await asyncio.to_thread(
-        set_session_title,
-        session_db,
-        session.session_id,
-        title,
-    )
-    return usage

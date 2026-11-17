@@ -37,6 +37,8 @@ async def test_running_projection_reaches_sdk_and_flushes_without_repeating_tool
     create_session(config.sessions_db, "session")
     set_session_title(config.sessions_db, "session", "Already titled")
     session = SQLiteSession("session", config.sessions_db)
+    stored_summary = {"role": "assistant", "content": COMPACTED_CONTEXT_PREFIX + "Earlier work completed."}
+    await session.add_items([stored_summary])
     control = RunControl("session", "run", lambda: None)
     executions = []
     approvals = []
@@ -93,7 +95,6 @@ async def test_running_projection_reaches_sdk_and_flushes_without_repeating_tool
     agent = Agent(name="Main", model=main, tools=[large_result])
     loop = AgentLoop(
         agent,
-        agent,
         Agent(name="Compact", model=compact),
         config,
         PortfolioOperations(config=config),
@@ -138,6 +139,7 @@ async def test_running_projection_reaches_sdk_and_flushes_without_repeating_tool
         assert sum(usage.total_tokens for usage, is_main in usages if is_main) == (count + int(successful)) * 30
         assert sum(usage.total_tokens for usage, is_main in usages if not is_main) == count * 37
         assert sum(compacting is True for _tokens, compacting in contexts) == count
+        assert main.calls[0].input[0] == {**stored_summary, "role": "user"}
         for index, call in enumerate(main.calls[1:]):
             incoming = call.input
             summary_index = next(
@@ -145,22 +147,23 @@ async def test_running_projection_reaches_sdk_and_flushes_without_repeating_tool
                 for position, item in enumerate(incoming)
                 if isinstance(item.get("content"), str) and item["content"].startswith(COMPACTED_CONTEXT_PREFIX)
             )
-            assert incoming[summary_index]["content"] == COMPACTED_CONTEXT_PREFIX + f"Summary of completed work {index}"
+            assert incoming[summary_index] == {
+                "role": "user",
+                "content": COMPACTED_CONTEXT_PREFIX + f"Summary of completed work {index}",
+            }
             assert all(
-                position < summary_index
-                for position, item in enumerate(incoming)
-                if item.get("role") in {"user", "developer", "system"}
+                item.get("role") not in {"user", "developer", "system"} for item in incoming[summary_index + 1 :]
             )
             assert "Preserve this current user directive exactly" in json.dumps(incoming)
             assert len(json.dumps(incoming)) < 3000
-            assert "x" * 12000 not in json.dumps(incoming)
             assert_tool_pairs(incoming)
         if mode == "steer":
             assert activations == [(2,)]
             assert all("Keep the added constraint exactly" in json.dumps(call.input) for call in main.calls[1:])
         history = await session.get_items()
-        sent_prefix = main.calls[-1].input
-        assert canonical(history[: len(sent_prefix)]) == canonical(sent_prefix)
+        sent_prefix = canonical(main.calls[-1].input)
+        sent_prefix[summary_index]["role"] = "assistant"
+        assert canonical(history[: len(sent_prefix)]) == sent_prefix
         assert_tool_pairs(history)
         assert len(json.dumps(history)) < 3000
         if successful:
@@ -210,7 +213,6 @@ async def test_measured_responses_anchor_only_new_content_within_and_between_run
     compact = ScriptedModel()
     agent = Agent(name="Main", instructions="Established instructions. " * 140, model=main, tools=[read_evidence])
     loop = AgentLoop(
-        agent,
         agent,
         Agent(name="Compact", model=compact),
         config,

@@ -6,10 +6,11 @@ import sys
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from functools import partial
 from zoneinfo import ZoneInfo
 
+from agents import SQLiteSession
 from agents.mcp import MCPServer, MCPServerManager
 
 from investorch.agents import (
@@ -22,7 +23,9 @@ from investorch.agents import (
     create_title_agent,
 )
 from investorch.agents.skill_review import create_skill_review_agent
-from investorch.config import AppConfig
+from investorch.agents.title import generate_session_title
+from investorch.agents.usage import UsageHandler
+from investorch.config import AgentModelConfig, AppConfig
 from investorch.context import AppState, ExecutionState
 from investorch.inputs import UserInput
 from investorch.journal import SessionJournal
@@ -39,7 +42,8 @@ from investorch.runtime import (
     RuntimeSessionSnapshot,
 )
 from investorch.runtime.errors import format_run_error
-from investorch.storage import create_session, delete_unused_session, list_sessions
+from investorch.storage import create_session, delete_unused_session, get_session_title, list_sessions
+from investorch.storage.sessions import set_session_title_if_empty
 from investorch.tools import close_execution, make_messaging_tools, make_session_tools, start_execution
 
 from . import session_queries
@@ -241,6 +245,7 @@ async def open_application_host(
                 event.ended_at,
                 discarded_user_steer_seqs=event.discarded_steer_seqs,
                 error=event.error,
+                main_usage=asdict(event.main_usage) if event.main_usage.requests else None,
             )
         except Exception:
             logger.exception(
@@ -249,6 +254,22 @@ async def open_application_host(
                 event.run_id,
             )
         await callbacks.handle_run_ended(event)
+
+    async def handle_session_title(session_id: str, title: str) -> None:
+        async def save() -> None:
+            try:
+                if await asyncio.to_thread(set_session_title_if_empty, config.sessions_db, session_id, title):
+                    presentation_state.set_session_title(session_id, title)
+                    await journal.record_session_title(session_id, title)
+            except Exception:
+                logger.exception("Failed to record title for session %s", session_id)
+
+        task = asyncio.create_task(save())
+        try:
+            await asyncio.shield(task)
+        except asyncio.CancelledError:
+            await task
+            raise
 
     def handle_runtime_state(snapshot: RuntimeSessionSnapshot) -> None:
         presentation_state.observe_runtime(snapshot)
@@ -264,6 +285,17 @@ async def open_application_host(
     state.chatgpt_auth = chatgpt_auth
     model_clients = ModelConnectionClients(config, chatgpt_auth)
 
+    async def generate_fallback_title(session: SQLiteSession, selected: AgentModelConfig, usage: UsageHandler) -> None:
+        try:
+            existing = await asyncio.to_thread(get_session_title, config.sessions_db, session.session_id)
+            if existing and existing.strip():
+                return
+            title_agent = create_title_agent(*model_clients.for_agent("title", fallback=selected))
+            title, _ = await generate_session_title(title_agent, await session.get_items(), usage_handler=usage)
+            await handle_session_title(session.session_id, title)
+        except Exception as error:
+            logger.warning("Failed to generate title for session %s (%s)", session.session_id, type(error).__name__)
+
     try:
         await start_execution(execution, config.workspace_dir)
         mcp_servers = _load_agent_mcp_servers(config)
@@ -275,7 +307,6 @@ async def open_application_host(
                     server.record_connection_result(errors.get(server))
                 logger.info("MCP server manager started with %d active servers", len(mcp_manager.active_servers))
                 main_model, main_model_settings = model_clients.for_agent("main")
-                title_model, title_model_settings = model_clients.for_agent("title")
                 compact_model, compact_model_settings = model_clients.for_agent("compact")
                 permission_model, permission_model_settings = model_clients.for_agent("permission")
                 skills.review_agent = create_skill_review_agent(permission_model, permission_model_settings)
@@ -292,7 +323,6 @@ async def open_application_host(
                 )
                 agent_loop = AgentLoop(
                     agent,
-                    create_title_agent(title_model, title_model_settings),
                     create_compaction_agent(compact_model, compact_model_settings),
                     config,
                     portfolios,
@@ -301,6 +331,8 @@ async def open_application_host(
                     skills=skills,
                     usage_handler=presentation_state.add_usage,
                     context_handler=presentation_state.observe_context,
+                    session_title_handler=handle_session_title,
+                    session_title_fallback=generate_fallback_title,
                 )
                 approvals = ApprovalCoordinator(
                     config=config,

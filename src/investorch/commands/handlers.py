@@ -20,6 +20,7 @@ from investorch.application.sessions import (
     SessionDeletionUnsafeError,
 )
 from investorch.config import FOLLOW_UP_BEHAVIORS, PERMISSION_MODES, REASONING_EFFORTS, ConfigError
+from investorch.config_schema import DEEPSEEK_FLASH_MODELS, DEEPSEEK_PRO_MODEL
 from investorch.context import AppState
 from investorch.llm.oauth import ChatGPTAuthError
 from investorch.runtime import AgentRuntime, SessionBusyError
@@ -245,6 +246,24 @@ async def dispatch_command(
 
         case "model":
             session_id = state.selected_session_id
+            if command.args and command.args[0] == "web":
+                if len(command.args) != 2 or command.args[1] not in {"on", "off"}:
+                    return CommandResult("Usage: /model web on|off")
+                enabled = command.args[1] == "on"
+                try:
+                    selected = runtime.session_models.view(session_id).effective
+                    connection = state.config.model_connection(selected.model)
+                    if connection.type == "chatgpt" or (connection.is_deepseek and selected.name == DEEPSEEK_PRO_MODEL):
+                        runtime.session_models.update(session_id, web_search=enabled)
+                        return CommandResult(f"Web search: {command.args[1]} for the next Run.")
+                    if not connection.is_deepseek or selected.name not in DEEPSEEK_FLASH_MODELS:
+                        return CommandResult("Web search is available on ChatGPT, DeepSeek Flash and DeepSeek Pro.")
+                    runtime.session_models.update(session_id, web_search=enabled, read_url=enabled)
+                except (ConfigError, KeyError) as error:
+                    return CommandResult(str(error))
+                if enabled and selected.reasoning_effort == "none":
+                    return CommandResult("Web settings updated. Enable thinking to use them with local tools.")
+                return CommandResult(f"DeepSeek web search and URL reading: {command.args[1]} for the next Run.")
             if command.args and command.args[0] in {"login", "logout"}:
                 if len(command.args) > 2:
                     return CommandResult("Usage: /model login|logout [connection]")

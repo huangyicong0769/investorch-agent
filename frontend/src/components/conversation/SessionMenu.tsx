@@ -223,6 +223,15 @@ export function SessionMenu({ session }: SessionMenuProps) {
     setRenameOpen(true)
   }
 
+  const copySessionId = async () => {
+    try {
+      await navigator.clipboard.writeText(session.session_id)
+      toast.success('Session ID copied.')
+    } catch {
+      toast.error('Could not copy the session ID.')
+    }
+  }
+
   const closeRename = () => {
     if (!renameMutation.isPending) {
       setRenameOpen(false)
@@ -285,6 +294,12 @@ export function SessionMenu({ session }: SessionMenuProps) {
             sideOffset={6}
             className="z-20 min-w-48 rounded-lg border border-border bg-card p-1 shadow-lg"
           >
+            <DropdownMenuItem
+              className="w-full rounded-md px-3 py-2 text-left text-sm hover:bg-muted"
+              onSelect={() => void copySessionId()}
+            >
+              Copy session ID
+            </DropdownMenuItem>
             {archived ? (
               <DropdownMenuItem
                 className="w-full rounded-md px-3 py-2 text-left text-sm hover:bg-muted data-[disabled]:opacity-60"

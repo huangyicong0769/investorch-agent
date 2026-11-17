@@ -19,7 +19,7 @@ from investorch.application import ApplicationCallbacks, open_application_host
 from investorch.journal import read_session_journal
 from investorch.output import AssistantMessage, AssistantMessageUpdate, ToolCalled, consume_run_events
 from investorch.runtime import RuntimeOutput
-from investorch.storage import create_session, set_session_title
+from investorch.storage import create_session, get_session_title, set_session_title
 from investorch.web.connections import WebConnectionHub
 from investorch.web.events import WebEventBridge
 from tests.support.config import make_test_config
@@ -530,6 +530,7 @@ async def test_complete_response_is_visible_while_title_generation_is_still_wait
             assert [event.text for event in events if isinstance(event, AssistantMessage)] == ["Visible answer"]
             release_title.set()
             await asyncio.wait_for(run.task, 3)
+            assert get_session_title(config.sessions_db, "session") == "A title"
             assert [event.text for event in events if isinstance(event, AssistantMessage)] == ["Visible answer"]
         finally:
             release_title.set()

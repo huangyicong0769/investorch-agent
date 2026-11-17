@@ -62,6 +62,17 @@ async def test_same_origin_browser_can_save_and_secret_errors_never_echo_input(t
         assert failed.json()["error"]["details"]["errors"][0]["path"] == "secrets.EXTRA_KEY"
         assert "private-fixture-value" not in failed.text
 
+        api_key = "sk-proj-" + "a" * 48
+        original = web.runtime.config.root_config_path.read_bytes()
+        failed = await web.client.patch(
+            "/api/config",
+            json={"changes": {"models.openai": {"base_url": "https://api.openai.com/v1", "api_key_secret": api_key}}},
+        )
+        assert failed.status_code == 422
+        assert failed.json()["error"]["details"]["errors"][0]["path"] == "models.openai.api_key_secret"
+        assert api_key not in failed.text
+        assert web.runtime.config.root_config_path.read_bytes() == original
+
 
 async def test_empty_root_setup_unlocks_sessions_and_repeated_completion_preserves_them(tmp_path: Path) -> None:
     app = create_web_app(load_config(root=tmp_path))

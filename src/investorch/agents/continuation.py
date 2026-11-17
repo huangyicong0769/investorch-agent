@@ -2,13 +2,37 @@
 
 import json
 from collections import Counter
+from itertools import chain
 
 from agents import TResponseInputItem
 from agents.run_config import CallModelData, CallModelInputFilter, ModelInputData
 
 
-def portable_history_filter(history: list[TResponseInputItem]) -> CallModelInputFilter:
-    """Omit prior-Run opaque reasoning and response IDs from requests, never from storage."""
+def is_deepseek_web_call(item: TResponseInputItem) -> bool:
+    return isinstance(item, dict) and item.get("type") == "web_search_call" and "kind" in item
+
+
+def latest_deepseek_web_round(items: list[TResponseInputItem]) -> tuple[int, int] | None:
+    """Prefer the newest round that can replay a signed page exactly."""
+    last_web_round = last_signed_round = None
+    start = 0
+    has_web = has_signature = False
+    for end, item in enumerate(chain(items, ({"role": "user"},))):
+        if item.get("role") == "user":
+            if has_web:
+                last_web_round = (start, end)
+                if has_signature:
+                    last_signed_round = last_web_round
+            start = end
+            has_web = has_signature = False
+        elif is_deepseek_web_call(item):
+            has_web = True
+            has_signature = has_signature or bool(item.get("signature"))
+    return last_signed_round or last_web_round
+
+
+def portable_history_filter(history: list[TResponseInputItem], *, deepseek: bool = False) -> CallModelInputFilter:
+    """Keep signed web items intact for DeepSeek and portable history for the other providers."""
     previous = Counter(json.dumps(item, sort_keys=True, ensure_ascii=False) for item in history)
 
     def filter_input(data: CallModelData) -> ModelInputData:
@@ -19,6 +43,10 @@ def portable_history_filter(history: list[TResponseInputItem]) -> CallModelInput
             if remaining[fingerprint]:
                 remaining[fingerprint] -= 1
                 if isinstance(item, dict):
+                    if item.get("type") == "web_search_call":
+                        if deepseek or not is_deepseek_web_call(item):
+                            items.append(item)
+                        continue
                     if item.get("type") == "reasoning":
                         continue
                     item = {key: value for key, value in item.items() if key != "id"}

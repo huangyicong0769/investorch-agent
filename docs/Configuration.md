@@ -2,16 +2,18 @@
 
 [简体中文](Configuration.zh-CN.md)
 
-This guide describes the **unreleased 0.3.0** configuration. Released 0.2.0 installations must follow [Upgrade](Upgrade.md) before using it.
+This guide describes the 0.3.1 configuration.
 
 ## Two configuration layers
 
-- `models.<id>` registers a freely named **connection**: an OpenAI-compatible endpoint and API-key reference, or a ChatGPT authorization reference.
-- `agents.<role>` selects that connection, the actual model ID, reasoning effort and context window. The built-in roles are `main`, `title`, `activity`, `permission` and `compact`. Skill Review shares `permission`; Spawn inherits its parent Run instead of using another role.
+- `models.<id>` registers a named API-key or ChatGPT connection.
+- `agents.<role>` selects the connection, model ID, reasoning effort and context window. The roles are `main`, `title`, `activity`, `permission` and `compact`. Skill Review uses `permission`. Spawn inherits its parent Run’s settings.
+
+The optional `[agents.title]` model generates a title for a Session still unnamed after its Main answer completes. When that role is unset, the Title Agent uses the model selected for the Run. A title returned by the Main model is saved immediately and skips the auxiliary request.
 
 Connection IDs use letters, digits, `_` and `-`. Reasoning effort accepts `none`, `minimal`, `low`, `medium`, `high`, `xhigh` and `max`; the chosen model must support the requested level. API-compatible connections allow manual model IDs. ChatGPT choices come from the selected account's catalog, and requests use its model slug.
 
-The effective context window is always a positive integer. Main needs an explicit window. An auxiliary role may omit it only when its connection and actual model match Main. A Session or Spawn override may inherit an unchanged model's window; changing the model name requires a new explicit window. Changing the connection requires the name, effort and window together. Obtain the window from the model's documentation or account catalog; the application does not guess it from the name.
+The effective context window is a positive integer. Supply an explicit window when setting an explicit Main model ID. An auxiliary role on the same connection and model can inherit Main’s window. Changing a Session’s model ID requires its window. Changing the connection also requires the name and effort. Use the window from the provider’s documentation or catalog.
 
 ## API-key example
 
@@ -27,12 +29,6 @@ api_key_secret = "OPENAI_API_KEY"
 model = "openai_api"
 name = "replace-with-provider-model-id"
 reasoning_effort = "high"
-context_window_tokens = 128000
-
-[agents.title]
-model = "openai_api"
-name = "replace-with-provider-model-id"
-reasoning_effort = "none"
 context_window_tokens = 128000
 
 [agents.activity]
@@ -56,6 +52,50 @@ context_window_tokens = 128000
 [secrets]
 OPENAI_API_KEY = "replace-locally-with-your-api-key"
 ```
+
+## DeepSeek Flash
+
+Choose **DeepSeek API key** in Web Setup or Settings. The Responses adapter recognizes `type = "deepseek"` and existing OpenAI-compatible connections to `https://api.deepseek.com` or `https://api.deepseek.com/v1`. A new Agent on this connection defaults to `deepseek-flash` and a context window of 1,048,576 tokens.
+
+```toml
+[models.deepseek]
+type = "deepseek"
+
+[agents.main]
+model = "deepseek"
+reasoning_effort = "high"
+
+[agents.activity]
+model = "deepseek"
+
+[agents.permission]
+model = "deepseek"
+
+[agents.compact]
+model = "deepseek"
+
+[secrets]
+DEEPSEEK_API_KEY = "replace-locally-with-your-api-key"
+```
+
+| Capability | Configuration and availability |
+| --- | --- |
+| Web search and URL reading | Main Flash text requests enable `web_search` and `read_url` by default. Both are off for auxiliary Agents by default. Set them per supported role in **Agent Defaults** or for the next Run through the Session model menu. In TUI/plain, `/model web off` disables both for the next Run. |
+| Auto title | Flash can return a title in the Main response to a user Run in an unnamed Session. InvestOrch saves the first usable title immediately. Set `auto_title = false` under `[agents.main]` to disable automatic naming. |
+| Content safety | `safety_check = "high"` enables DeepSeek input and output review for Flash text requests. `"low"` selects the API’s default checks. |
+| Pro and legacy models | For `deepseek-v4-pro`, **Web search** enables the standard Responses search tool and its progress events. Flash extensions also apply to the legacy Flash aliases on a direct DeepSeek connection. |
+
+Copying Main settings in **Agent Defaults** preserves the auxiliary roles’ web switches. The Title Agent names Sessions from conversation history and omits web tools from its requests.
+
+With thinking off, a Run with client tools omits native web search, URL reading, native title requests and explicit safety review. Enabling thinking lets Flash use these features alongside local tools. A request without client tools can use non-thinking search. Structured-output requests use the standard Responses format.
+
+DeepSeek Responses is stateless, so each request carries its context. InvestOrch replays images in their original local tool results. While a tool image is still in the request, Flash defers native web search, URL reading and titles, even after the model has read the image. Native web tools resume automatically when a later request has no tool images and the model settings allow them. User attachments can still use native web. High content safety review requires text-only local tool results.
+
+Web and TUI use the returned events to update each tool call. The `kind` field distinguishes Flash search, page reading and image search. Usage shows billed operations and reported safety tokens. The provider decides when to search and may charge for tools used before a failure. [DeepSeek Web Tools](https://api-docs.deepseek.com/guides/web_tools) · [Models and pricing](https://api-docs.deepseek.com/quick_start/pricing/)
+
+Main continuation with DeepSeek Responses reuses the original web calls with their IDs, `kind` and `signature`. Compact retains the latest signed web round when it fits the input budget. The Title Agent receives portable conversation history with DeepSeek-specific web items and reasoning removed.
+
+Files, OCR, ASR and TTS can be called through `DeepSeekServiceClient.from_config(config, "deepseek")` as an async context manager. Use `upload_file`, `list_files`, `get_file` and `delete_file` to manage files. `input_file(file_id)` creates the Responses content part for text and parsed documents. Use `ocr`, `transcribe`, `synthesize` and `stream_speech` for the standalone services. Uploads default to a one-hour expiry. `stream_speech` accepts an async iterable of text chunks and yields audio frames.
 
 ## ChatGPT accounts and multiple connections
 
@@ -81,12 +121,6 @@ name = "select-personal-account-catalog-slug"
 reasoning_effort = "high"
 context_window_tokens = 128000
 
-[agents.title]
-model = "api"
-name = "replace-with-provider-model-id"
-reasoning_effort = "none"
-context_window_tokens = 128000
-
 [agents.activity]
 model = "api"
 name = "replace-with-provider-model-id"
@@ -109,12 +143,14 @@ context_window_tokens = 128000
 API_KEY = "replace-locally-with-your-api-key"
 ```
 
-For a ChatGPT-only installation, choose an authorized ChatGPT connection for all five roles; an API key is unnecessary. Different credentials represent separate account/Workspace authorizations. Connections deliberately sharing a credential share its refresh lock and token rotation. ChatGPT connections use the official endpoint; they do not accept a custom `base_url` or API-key reference.
+For a ChatGPT-only installation, choose an authorized ChatGPT connection for all four roles; an API key is unnecessary. Different credentials represent separate account/Workspace authorizations. Connections deliberately sharing a credential share its refresh lock and token rotation. ChatGPT connections use the official endpoint; they do not accept a custom `base_url` or API-key reference.
+
+Main can use native **Web search** when the selected ChatGPT model and account support it. It uses the existing `web_search` setting, which defaults to on for Main. Auxiliary Agents default to web off. Set the Main default in **Agent Defaults**. For the next Run, use **Web search** in the Session model menu or `/model web on|off` in TUI and plain. The conversation shows search progress and source links when the model uses the tool. [OpenAI preview limitations](https://developers.openai.com/siwc/token-sharing-open-source/preview-limitations)
 
 ## Setup and Settings
 
 1. Open `investorch web`. In **Model Connections**, add a connection and save it. Setup runs before the Agent Host starts.
-2. For an API connection, enter the write-only API key. For ChatGPT, select **Continue with ChatGPT**, complete the browser authorization yourself and allow ChatGPT plan usage. Identity-only login is insufficient. Cancel leaves existing authorization intact; reauthorization handles missing permission or expired/revoked credentials.
+2. For an API connection, paste the key into the masked **API key** field on the connection card. To choose a different secret name for Local TOML, expand **Advanced key settings**. For ChatGPT, select **Continue with ChatGPT** and authorize plan usage in the browser. Cancelling retains existing authorization. Reauthorize when the account lacks plan access or its authorization has expired or been revoked.
 3. Select the model and window under **Agent Defaults**. **Copy Main settings to auxiliary roles** is optional; review each role's effort afterward.
 4. **Test saved connection** makes one short request and can consume API or plan usage. **Save and open InvestOrch** starts the same Host after readiness validation.
 
@@ -143,7 +179,7 @@ Each accepted Run freezes the connection, model, effort and positive window. Its
 
 When the selected window is too small for continuation plus input, preflight compaction runs before Main inference. If it fails or the input still cannot fit, Main does not run. Post-answer automatic compaction remains available. Both preserve the complete JSONL Journal.
 
-At each new Run, the request copy of prior continuation omits opaque reasoning and provider response-item IDs while retaining messages and function `call_id` links. SQLite and Journal originals remain intact; new reasoning within that Run remains available. This also applies when the connection is unchanged: previous opaque reasoning cannot be reused across Runs, which may change continuity or caching efficiency. See [Runtime](Runtime_Session_Execution_Model.md) for execution details.
+Each new Run receives messages, function `call_id` links, and compatible web calls with their IDs. Prior opaque reasoning and other response-item IDs stay in storage. Reasoning produced within a Run stays available for its tool continuations. See [Runtime](Runtime_Session_Execution_Model.md) for execution details.
 
 ## Operator ownership
 

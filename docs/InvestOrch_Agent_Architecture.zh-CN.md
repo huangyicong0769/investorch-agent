@@ -84,7 +84,7 @@ InvestOrch 使用 OpenAI Agents SDK，不自行实现 Agent loop 或 Tool-call p
 
 Main Agent 会为每个 Run 使用已捕获 model settings 进行 clone。辅助 Agent 职责狭窄：
 
-- Title Agent 生成 Session 标题。
+- Title Agent 为主回答完成后仍无标题的 Session 命名。
 - Activity Agent 为 Tool call 生成只用于展示的 label。
 - Permission Agent 在 review 模式下可以返回 approve、reject 或 ask。
 - Compact Agent 用带标记的 summary 替换 SDK continuation history。
@@ -284,4 +284,4 @@ Portfolio 迁移仍由现有模块负责，保留 schema v6 与旧 live 状态�
 
 正文中的图表使用 `![净值曲线](figures/nav.png)` 等 Markdown 引用。Workspace 相对路径图片按正文位置显示，工具观察仍默认折叠。只读 `/api/workspace/image` 接口在 Workspace 范围和单图字节限制内提供 JPEG、PNG、GIF、WebP。路径引用展示当前文件，不是 Session 快照：覆盖或删除文件会改变旧消息的显示结果；内嵌图片附件的历史持久化方式不变。
 
-Main、Title、Compact 接收含图片的 SDK 历史。ReviewContext 接受纯图片指令标记，Activity 使用文本/数量摘要；Permission 不从未看到的图片推断授权。持久化副本位于 SDK SQLite 历史与 JSONL Journal，不增加 asset 子系统。
+Main、Title 和 Compact 接收含图片的 SDK 历史。ReviewContext 接受纯图片指令标记，Activity 使用文本与数量摘要。持久化副本位于 SDK SQLite 历史与 JSONL Journal。

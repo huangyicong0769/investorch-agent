@@ -17,14 +17,11 @@ from investorch.agents import (
     AgentRunResult,
     ApprovalOutcome,
     CompactionResult,
-    ContextBudgetError,
     TokenUsage,
 )
 from investorch.context import ExecutionState, TodoItem
 from investorch.inputs import UserInput, input_summary
-from investorch.llm.models import ChatGPTInferenceError
-from investorch.llm.oauth import ChatGPTAuthError
-from investorch.output import AssistantMessage, OutputEvent
+from investorch.output import OutputEvent
 
 from .control import RunControl
 from .errors import format_run_error
@@ -555,11 +552,16 @@ class AgentRuntime:
         discarded_steer_count = 0
         discarded_steer_seqs: tuple[int, ...] = ()
         partial_auxiliary_usage = TokenUsage()
+        partial_main_usage = TokenUsage()
         failure: str | None = None
 
         def record_preflight_usage(usage: TokenUsage) -> None:
             nonlocal partial_auxiliary_usage
             partial_auxiliary_usage += usage
+
+        def record_run_usage(usage: TokenUsage) -> None:
+            nonlocal partial_main_usage
+            partial_main_usage += usage
 
         async def handle_output(event: OutputEvent) -> None:
             await self._output_handler(RuntimeOutput(run_id=run_id, session_id=session_id, event=event))
@@ -656,6 +658,7 @@ class AgentRuntime:
                 steer_activated_handler=handle_steers_activated,
                 application_instruction=application_instruction,
                 preflight_usage_handler=record_preflight_usage,
+                run_usage_handler=record_run_usage,
             )
             status = "completed"
             logger.info("Completed Agent run session=%s run=%s", session_id, run_id)
@@ -668,8 +671,6 @@ class AgentRuntime:
         except Exception as error:
             input_journal.fail(error)
             failure = self._error_formatter(error)
-            if isinstance(error, (ChatGPTInferenceError, ChatGPTAuthError, ContextBudgetError)):
-                await handle_output(AssistantMessage(str(error)))
             logger.exception("Failed Agent run session=%s run=%s", session_id, run_id)
             raise
         finally:
@@ -740,6 +741,7 @@ class AgentRuntime:
                         discarded_steer_count=discarded_steer_count,
                         discarded_steer_seqs=discarded_steer_seqs,
                         partial_auxiliary_usage=partial_auxiliary_usage,
+                        partial_main_usage=partial_main_usage,
                         error=failure,
                     )
                 )

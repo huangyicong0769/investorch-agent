@@ -14,6 +14,7 @@ from agents import Agent, ModelResponse, SQLiteSession, TResponseInputItem
 from investorch.config import AppConfig
 
 from .compact import COMPACTED_CONTEXT_PREFIX, _replace_session_history, estimate_context_tokens, summarize_history
+from .continuation import latest_deepseek_web_round
 from .usage import TokenUsage
 
 logger = logging.getLogger(__name__)
@@ -24,6 +25,14 @@ class ContextProjectionBudgetError(ValueError):
         super().__init__(f"Context still exceeds its input budget ({estimated_tokens} >= {budget_tokens})")
         self.estimated_tokens = estimated_tokens
         self.budget_tokens = budget_tokens
+
+
+def _estimate_request_overhead(
+    instructions: str | None, tool_schemas: object, extra_input: Sequence[TResponseInputItem]
+) -> int:
+    # Use a conservative two bytes per estimated token for serialized tool declarations.
+    schema_tokens = math.ceil(estimate_context_tokens(tool_schemas) / 2)
+    return estimate_context_tokens([instructions, list(extra_input)]) + schema_tokens + 1024
 
 
 def _canonical_item(item: TResponseInputItem) -> str | None:
@@ -95,11 +104,7 @@ class ContextBudget:
         measured = self._measured
         fingerprints = _item_fingerprints(items)
         if measured is None or fingerprints[: len(measured.items)] != measured.items:
-            return (
-                estimate_context_tokens(items)
-                + estimate_context_tokens([instructions, tool_schemas, list(extra_input)])
-                + 1024
-            )
+            return estimate_context_tokens(items) + _estimate_request_overhead(instructions, tool_schemas, extra_input)
         # Opaque reasoning/SDK IDs do not establish new portable history items.
         portable = [item for item in items if _canonical_item(item) is not None]
         estimate = measured.tokens + estimate_context_tokens(portable[len(measured.items) :])
@@ -204,7 +209,7 @@ class ContextProjection:
     ) -> list[TResponseInputItem]:
         if self._flushed:
             raise ValueError("Cannot resume a context projection after its final flush")
-        overhead = estimate_context_tokens([instructions, tool_schemas, list(extra_input)]) + 1024
+        overhead = _estimate_request_overhead(instructions, tool_schemas, extra_input)
         reserve = min(8192, max(256, context_window_tokens // 20))
         soft_budget = math.floor(context_window_tokens * self._config["compaction.trigger_ratio"]) - reserve
         hard_budget = context_window_tokens - reserve
@@ -233,7 +238,13 @@ class ContextProjection:
             group = items[start:end]
             if any(item.get("role") == "assistant" or str(item.get("type", "")).endswith("_call") for item in group):
                 recent_start = start
-        prefixes = list(dict.fromkeys([recent_start, full_prefix]))
+        prefixes = [recent_start, full_prefix]
+        if (web_round := latest_deepseek_web_round(items)) is not None:
+            start, end = web_round
+            # Preserve the selected web round intact when it fits.
+            prefixes = [max(length for length in boundaries if length <= start), *prefixes]
+            prefixes = [length for length in prefixes if not start < length < end]
+        prefixes = list(dict.fromkeys(prefixes))
         if self._context_handler is not None:
             self._context_handler(estimate, True)
         try:

@@ -69,7 +69,7 @@ async def test_activated_steer_advances_the_next_approval_instruction_boundary(t
     )
     agent = Agent[AgentContext](name="Main", instructions="test", model=model, tools=[create_portfolio])
     unused_agent = Agent(name="Unused", instructions="test", model=ScriptedModel())
-    loop = AgentLoop(agent, unused_agent, unused_agent, config, portfolios, model_factory=lambda _: agent.model)
+    loop = AgentLoop(agent, unused_agent, config, portfolios, model_factory=lambda _: agent.model)
 
     async def approval_handler(request: ApprovalRequest) -> ApprovalOutcome:
         approval_requests.append(request)
@@ -199,7 +199,6 @@ async def test_cancel_after_activation_commit_does_not_add_a_conflicting_discard
     loop = AgentLoop(
         Agent[AgentContext](name="Main", instructions="test", model=model, tools=[create_portfolio]),
         unused_agent,
-        unused_agent,
         config,
         portfolios,
         model_factory=lambda _: model,
@@ -312,7 +311,6 @@ async def test_activation_write_failure_stops_the_run_and_discards_the_unconsume
     loop = AgentLoop(
         Agent[AgentContext](name="Main", instructions="test", model=model, tools=[create_portfolio]),
         unused_agent,
-        unused_agent,
         config,
         portfolios,
         model_factory=lambda _: model,
@@ -413,7 +411,6 @@ async def test_fallback_activation_write_failure_never_starts_the_promoted_model
     unused_agent = Agent(name="Unused", instructions="test", model=ScriptedModel())
     loop = AgentLoop(
         Agent[AgentContext](name="Main", instructions="test", model=model),
-        unused_agent,
         unused_agent,
         config,
         portfolios,

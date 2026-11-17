@@ -5,12 +5,10 @@ from decimal import Decimal
 from pathlib import Path
 
 import pytest
-from agents import Agent, ModelSettings, SQLiteSession
-from agents.testing import ScriptedModel
+from agents import ModelSettings
 from agents.tool import FunctionTool
 from agents.tool_context import ToolContext
 
-from investorch.agents import AgentLoop
 from investorch.agents.main import create_agent
 from investorch.application import PortfolioOperations
 from investorch.context import AgentContext, ExecutionState
@@ -43,7 +41,6 @@ from investorch.tools import (
     update_portfolio,
 )
 from tests.support.config import make_test_config
-from tests.support.web import open_test_web
 
 STOCK = InstrumentId("600519", "XSHG")
 UNKNOWN_STOCK = InstrumentId("000001", "XSHE")
@@ -729,56 +726,3 @@ def test_main_agent_registers_complete_portfolio_tool_surface(tmp_path: Path) ->
     assert set(portfolio_tools) == read_names | mutation_names
     assert all(portfolio_tools[name].needs_approval is False for name in read_names)
     assert all(portfolio_tools[name].needs_approval is True for name in mutation_names)
-
-
-async def test_run_created_agent_context_uses_host_portfolio_state(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    async with open_test_web(tmp_path) as harness:
-        portfolio = await harness.host.portfolios.create(name="Core", base_currency="CNY")
-        agent_loop = AgentLoop(
-            Agent(name="Main", instructions="test"),
-            Agent(name="Title", instructions="test"),
-            Agent(name="Compaction", instructions="test"),
-            harness.host.config,
-            harness.host.portfolios,
-            model_factory=lambda _: ScriptedModel(),
-        )
-        captured: dict[str, AgentContext] = {}
-
-        def stop_at_sdk_boundary(*_args: object, context: AgentContext, **_kwargs: object) -> None:
-            captured["context"] = context
-            raise RuntimeError("controlled SDK boundary")
-
-        monkeypatch.setattr("investorch.agents.loop.Runner.run_streamed", stop_at_sdk_boundary)
-
-        async def unused_handler(*_args: object) -> None:
-            raise AssertionError("handler should not be reached")
-
-        session = SQLiteSession("session-a", harness.host.config.sessions_db)
-        with pytest.raises(RuntimeError, match="controlled SDK boundary"):
-            await agent_loop.run(
-                "read the portfolio",
-                session,
-                harness.host.execution,
-                run_id="run-a",
-                session_id="session-a",
-                model_config=harness.host.config.agent_model("main"),
-                approval_handler=unused_handler,  # type: ignore[arg-type]
-                output_handler=unused_handler,
-                run_control=None,  # type: ignore[arg-type]
-            )
-        session.close()
-
-        context = ToolContext(
-            context=captured["context"],
-            tool_name="portfolio-behavior-test",
-            tool_call_id="call-a",
-            tool_arguments="{}",
-        )
-
-        result = await invoke(get_portfolio, context, portfolio_id=portfolio.id)
-
-    assert isinstance(result, dict)
-    assert result["portfolio"]["portfolio_id"] == portfolio.id

@@ -44,7 +44,6 @@ async def test_agent_loop_keeps_application_context_separate_from_visible_user_i
     loop = AgentLoop(
         agent,
         unused_agent,
-        unused_agent,
         config,
         PortfolioOperations(config=config),
         model_factory=lambda _: agent.model,

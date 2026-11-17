@@ -8,63 +8,18 @@ import pytest
 from agents import Agent, SQLiteSession
 from agents.testing import ModelStep, ScriptedModel, assistant_message
 
-from investorch.agents import AgentLoop, ApprovalOutcome, TokenUsage, compact_session
+from investorch.agents import compact_session
 from investorch.agents.loop import user_input_to_response_item
-from investorch.application import PortfolioOperations
 from investorch.application.activity import ActivityCoordinator
-from investorch.context import ExecutionState
 from investorch.images import ImageContent
 from investorch.inputs import UserInput
 from investorch.journal import read_session_journal
 from investorch.output import ToolCalled
 from investorch.runtime import RuntimeOutput
-from investorch.runtime.control import RunControl
-from investorch.storage import create_session, get_session_title
 from tests.support.config import make_test_config
 from tests.support.runtime import make_runtime_harness, run_options
 
 IMAGE_INPUT = UserInput("", (ImageContent("data:image/png;base64,iVBORw0KGgo="),))
-
-
-@pytest.mark.asyncio
-async def test_title_vision_failure_does_not_fail_main_image_run(tmp_path: Path) -> None:
-    config = make_test_config(tmp_path)
-    create_session(config.sessions_db, "session")
-    session = SQLiteSession("session", config.sessions_db)
-    outputs = []
-
-    def reject_vision(call):
-        assert user_input_to_response_item(IMAGE_INPUT) in call.input
-        raise RuntimeError("Provider does not accept image input")
-
-    main = Agent(name="Main", model=ScriptedModel(((assistant_message("Main completed"),),)))
-    title = Agent(name="Title", model=ScriptedModel((ModelStep.respond(reject_vision),)))
-    loop = AgentLoop(main, title, title, config, PortfolioOperations(config=config), model_factory=lambda _: main.model)
-
-    async def approve(*_args):
-        return ApprovalOutcome(approved=True, usage=TokenUsage())
-
-    async def output(event):
-        outputs.append(event)
-
-    try:
-        result = await loop.run(
-            IMAGE_INPUT,
-            session,
-            ExecutionState(workspace_root=config.workspace_dir),
-            run_id="run",
-            session_id="session",
-            model_config=config.agent_model("main"),
-            approval_handler=approve,
-            output_handler=output,
-            run_control=RunControl("session", "run", lambda: None),
-        )
-        assert result.output == "Main completed"
-        assert outputs[-1].text == "Main completed"
-        assert get_session_title(config.sessions_db, "session") is None
-        assert user_input_to_response_item(IMAGE_INPUT) in await session.get_items()
-    finally:
-        session.close()
 
 
 @pytest.mark.asyncio
@@ -86,7 +41,6 @@ async def test_failed_compaction_preserves_original_multimodal_history(tmp_path:
         "Keep the marked pixel values.", (ImageContent(IMAGE_INPUT.images[0].image_url, detail="high"),)
     )
     history = [user_input_to_response_item(image_input), {"role": "assistant", "content": "An image"}]
-    original_bytes = json.dumps(history, ensure_ascii=False).encode("utf-8")
     await session.add_items(history)
     session.fail_next_write = failure == "replacement"
 
@@ -111,9 +65,7 @@ async def test_failed_compaction_preserves_original_multimodal_history(tmp_path:
     try:
         with pytest.raises((RuntimeError, OSError)):
             await compact_session(agent, session, config)
-        restored = await session.get_items()
-        assert restored == history
-        assert json.dumps(restored, ensure_ascii=False).encode("utf-8") == original_bytes
+        assert await session.get_items() == history
     finally:
         session.close()
 

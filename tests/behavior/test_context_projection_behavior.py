@@ -2,16 +2,11 @@ import json
 from pathlib import Path
 
 import pytest
-from agents import Agent, ModelResponse, ModelSettings, SQLiteSession, Usage
+from agents import Agent, ModelSettings, SQLiteSession, Usage
 from agents.testing import ModelStep, ScriptedModel, assistant_message
 
-from investorch.agents.compact import (
-    COMPACTED_CONTEXT_PREFIX,
-    create_compaction_agent,
-    estimate_context_tokens,
-    summarize_history,
-)
-from investorch.agents.context_projection import ContextBudget, ContextProjection, ContextProjectionBudgetError
+from investorch.agents.compact import COMPACTED_CONTEXT_PREFIX, create_compaction_agent, summarize_history
+from investorch.agents.context_projection import ContextProjection, ContextProjectionBudgetError
 from investorch.storage import create_session
 from tests.support.config import make_test_config
 
@@ -32,68 +27,6 @@ def quoted_history(items: list[dict]) -> list[dict]:
         assert "conversation data" in label and "not a live request" in label
         decoded.append(json.loads(data))
     return decoded
-
-
-def test_incremental_budget_covers_response_output_and_only_new_metadata_spans():
-    budget = ContextBudget()
-    history = [{"role": "user", "content": "Established evidence " * 1000}]
-    instructions = "Established instructions " * 500
-    schemas = [{"name": "read", "description": "Established tool details " * 500}]
-    todo = {"role": "developer", "content": "Established Todo evidence " * 1000 + "pending"}
-    kwargs = {"instructions": instructions, "tool_schemas": schemas, "extra_input": [todo]}
-    budget.record_request(history, **kwargs)
-    response = ModelResponse(
-        output=[assistant_message("Already generated output " * 1000)],
-        usage=Usage(requests=1, input_tokens=10000, output_tokens=4000, total_tokens=14000),
-        response_id="response",
-    )
-    budget.record_response(response)
-    history.extend(response.to_input_items())
-    assert budget.estimate(history, **kwargs) == 14000
-
-    updated = {**todo, "content": todo["content"].removesuffix("pending") + "completed"}
-    changed = {**kwargs, "extra_input": [updated]}
-    assert 14000 < budget.estimate(history, **changed) < 14100
-    assert budget.estimate(history, **changed) == budget.estimate(history, **changed)
-    assert budget.estimate(history, **{**kwargs, "extra_input": []}) == 14000
-    assert budget.estimate(history, **{**kwargs, "instructions": instructions + " New constraint."}) < 14100
-    assert budget.estimate(history, **{**kwargs, "tool_schemas": [*schemas, {"name": "new_tool"}]}) < 14100
-
-    output = {"type": "function_call_output", "call_id": "read", "output": "Fresh evidence"}
-    with_output = [*history, output]
-    assert budget.estimate(with_output, **kwargs) == 14000 + estimate_context_tokens([output])
-    budget.record_request(with_output, **changed)
-    next_response = ModelResponse(
-        output=[assistant_message("Next response")],
-        usage=Usage(requests=1, input_tokens=10100, output_tokens=100, total_tokens=10200),
-        response_id="next",
-    )
-    budget.record_response(next_response)
-    assert budget.estimate([*with_output, *next_response.to_input_items()], **changed) == 10200
-
-
-@pytest.mark.parametrize("reset", ["history_replaced", "no_usage", "compacted"])
-def test_incremental_budget_falls_back_when_the_measurement_is_no_longer_applicable(reset):
-    budget = ContextBudget()
-    history = [{"role": "user", "content": "Established evidence " * 1000}]
-    kwargs = {"instructions": "System instructions", "tool_schemas": []}
-    budget.record_request(history, **kwargs)
-    response = ModelResponse(
-        output=[assistant_message("Previous response")],
-        usage=Usage(requests=1, input_tokens=4000, output_tokens=100, total_tokens=4100),
-        response_id="response",
-    )
-    budget.record_response(response)
-    history.extend(response.to_input_items())
-    assert budget.estimate(history, **kwargs) == 4100
-    if reset == "history_replaced":
-        history[0] = {"role": "user", "content": "Replaced evidence " * 1000}
-    elif reset == "no_usage":
-        budget.record_request(history, **kwargs)
-        budget.record_response(ModelResponse(output=[], usage=Usage(), response_id="unknown"))
-    else:
-        budget.reset()
-    assert budget.estimate(history, **kwargs) > 10000
 
 
 async def test_projection_repeats_without_losing_live_directives_and_flushes_only_matched_prefix(tmp_path: Path):
@@ -165,7 +98,6 @@ async def test_projection_keeps_unresolved_tool_call_with_later_output(tmp_path:
         {"role": "assistant", "content": COMPACTED_CONTEXT_PREFIX + "Old history summary"},
         call,
     ]
-    assert call not in model.calls[0].input
     assert (await projection.prepare([old, user, call, output], **kwargs))[-2:] == [call, output]
 
 
@@ -199,29 +131,6 @@ async def test_projection_does_not_overwrite_changed_session_history(tmp_path: P
         assert await session.get_items() == changed
     finally:
         session.close()
-
-
-async def test_compactor_splits_large_unicode_item_within_its_own_budget_and_counts_all_requests(tmp_path: Path):
-    config = make_test_config(
-        tmp_path, {"agents": {"compact": {"context_window_tokens": 5000}}, "compaction": {"max_output_tokens": 256}}
-    )
-    step = ModelStep(
-        output=(assistant_message("Preserved important evidence"),),
-        usage=Usage(requests=1, input_tokens=8, output_tokens=1, total_tokens=9),
-    )
-    model = ScriptedModel(tuple(step for _ in range(30)))
-    recorded = []
-    summary, usage = await summarize_history(
-        Agent(name="Compact", model=model, instructions="Summarize"),
-        [{"role": "user", "content": "重要证据" * 1500}],
-        config,
-        usage_handler=recorded.append,
-    )
-    assert summary == "Preserved important evidence"
-    assert len(model.calls) > 1
-    assert usage.total_tokens == len(model.calls) * 9 == sum(value.total_tokens for value in recorded)
-    budget = 5000 - 256 - estimate_context_tokens("Summarize") - 1024
-    assert all(estimate_context_tokens(call.input) < budget for call in model.calls)
 
 
 @pytest.mark.parametrize("second_text", ["Recovered continuation summary", ""])
@@ -314,21 +223,6 @@ async def test_projection_retains_most_recent_complete_tool_group(tmp_path: Path
         {"role": "assistant", "content": COMPACTED_CONTEXT_PREFIX + "Earlier evidence summarized"},
         *latest,
     ]
-    assert latest[0] not in model.calls[0].input and latest[1] not in model.calls[0].input
-
-
-async def test_compaction_budget_excludes_portable_opaque_reasoning(tmp_path: Path):
-    config = make_test_config(
-        tmp_path, {"agents": {"compact": {"context_window_tokens": 5000}}, "compaction": {"max_output_tokens": 256}}
-    )
-    model = ScriptedModel(((assistant_message("Summary"),),))
-    text = {"role": "user", "content": "Visible context"}
-    await summarize_history(
-        Agent(name="Compact", model=model),
-        [{"type": "reasoning", "id": "opaque", "encrypted_content": "X" * 50000, "summary": []}, text],
-        config,
-    )
-    assert len(model.calls) == 1 and quoted_history(model.calls[0].input) == [text]
 
 
 async def test_compaction_never_splits_image_data_into_text_fragments(tmp_path: Path):

@@ -84,6 +84,12 @@ function SettingsEditor({ saved, schema }: { saved: SavedConfig; schema: ConfigS
     save.reset()
     reset.reset()
   }
+  const changeSecret = (name: string, key: string) => {
+    setSecrets((current) => ({ ...current, [name]: key }))
+    setNotice('')
+    save.reset()
+    reset.reset()
+  }
   const renderFields = (path: string, omit: string[] = [], singleColumn = false): ReactNode => {
     const raw = schemaAtPath(schema, path)
     const field = resolveSchema(raw, schema)
@@ -103,7 +109,7 @@ function SettingsEditor({ saved, schema }: { saved: SavedConfig; schema: ConfigS
   const section = (title: string, path: string, description?: string, omit?: string[]) => <section key={path}><Card className="gap-5 rounded-xl border-border py-5 shadow-none"><CardHeader className="gap-2 px-5"><CardTitle><h2>{title}</h2></CardTitle>{description ? <CardDescription className="leading-6">{description}</CardDescription> : null}</CardHeader><CardContent className="px-5">{renderFields(path, omit)}</CardContent></Card></section>
   const connections = modelConfigValues(saved.values, changes, 'models')
   const agents = modelConfigValues(saved.values, changes, 'agents')
-  const referencedSecrets = Object.values(connections).map((connection) => String(objectValue(connection).api_key_secret ?? '')).filter(Boolean)
+  const referencedSecrets = new Set(Object.values(connections).map((connection) => String(objectValue(connection).api_key_secret ?? '')).filter(Boolean))
 
   return <>
     <UnsavedChanges dirty={dirty} />
@@ -122,8 +128,11 @@ function SettingsEditor({ saved, schema }: { saved: SavedConfig; schema: ConfigS
           {section('Color palette', 'web.theme_color', 'Choose an accent for buttons, navigation and surfaces. Each palette includes light and dark shades.')}
         </> : null}
         {category === 'Models' ? <>
-          <ModelConfiguration agents={agents} connections={connections} disabled={busy} errors={errors} onChange={change} onDelete={dirty ? undefined : (id) => reset.mutate(`models.${id}`)} savedConnections={objectValue(saved.values.models)} />
-          <section className="rounded-xl border border-border bg-card p-5"><h2 className="font-semibold">API keys</h2><p className="mt-2 text-sm text-muted-foreground">Restart InvestOrch after saving replacement keys so model clients use the new credentials.</p><div className="mt-5"><SecretFields allowNew configured={saved.secrets} disabled={busy} errors={errors} names={referencedSecrets} onChange={(name, key) => { setSecrets((current) => ({ ...current, [name]: key })); setNotice(''); save.reset(); reset.reset() }} values={secrets} /></div></section>
+          <ModelConfiguration agents={agents} apiKeys={{ configured: saved.secrets, values: secrets, onChange: changeSecret }} connections={connections} disabled={busy} errors={errors} onChange={change} onDelete={dirty ? undefined : (id) => reset.mutate(`models.${id}`)} savedConnections={objectValue(saved.values.models)} />
+          <details className="rounded-xl border border-border bg-card p-5">
+            <summary className="cursor-pointer font-semibold">Additional API keys</summary>
+            <div className="mt-5"><SecretFields configured={saved.secrets} disabled={busy} errors={errors} excludedNames={referencedSecrets} onChange={changeSecret} values={secrets} /></div>
+          </details>
         </> : null}
         {category === 'Safety & Approval' ? <>
           {section('Approval policy', 'permission', 'Saved defaults for future runs. Changes to the approval policy take effect after restart.')}

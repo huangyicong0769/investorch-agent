@@ -30,6 +30,7 @@ export function SessionItem({
   const status = state ? getSessionStatus(state) : 'Ready'
   const queuedCount = state?.runtime.queued_count ?? 0
   const approvalCount = state?.pending_approvals.length ?? 0
+  const title = sessionTitle(state?.session ?? session, state?.presentation.session_title)
 
   return (
     <li className="group relative list-none">
@@ -43,10 +44,10 @@ export function SessionItem({
           active ? 'border-primary/15 bg-card text-accent-foreground shadow-sm' : 'border-transparent hover:bg-card/60'
         }`}
         onClick={() => onSelect(session)}
-        title={`${sessionTitle(session)} · ${session.session_id}`}
+        title={`${title} · ${session.session_id}`}
         type="button"
       >
-        <span className="block truncate text-sm font-medium">{sessionTitle(session)}</span>
+        <span className="block truncate text-sm font-medium">{title}</span>
         <span className={status === 'Ready' && !queuedCount && !archived ? 'sr-only' : 'mt-1.5 flex min-w-0 flex-wrap items-center gap-2 text-xs text-muted-foreground'}>
           <Badge aria-label={`Status: ${status}`} variant="secondary" className={`border-0 px-1.5 py-0 text-[10px] ${status === 'Approval' ? 'bg-warning/10 text-warning' : status === 'Running' ? 'bg-success/10 text-success' : ''}`}>
             {status === 'Approval'

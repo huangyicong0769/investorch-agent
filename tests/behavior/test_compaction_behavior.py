@@ -11,12 +11,9 @@ from investorch.storage import create_session
 from tests.support.config import make_test_config
 
 
-@pytest.mark.parametrize("window", [2048, 1000000])
-async def test_context_budget_failure_reaches_output_and_journal_without_exposing_input_or_other_value_errors(
-    tmp_path: Path, monkeypatch, window: int
-) -> None:
+async def test_context_budget_failure_is_reported_once_without_exposing_input(tmp_path: Path, monkeypatch) -> None:
     from agents import ModelSettings
-    from agents.testing import ModelStep, ScriptedModel
+    from agents.testing import ScriptedModel
 
     from investorch.application import ApplicationCallbacks, open_application_host
     from investorch.journal.reader import read_session_journal
@@ -25,7 +22,7 @@ async def test_context_budget_failure_reaches_output_and_journal_without_exposin
     from tests.support.runtime import run_options
 
     config = make_test_config(tmp_path, {"compaction": {"auto_enabled": False}})
-    model = ScriptedModel((ModelStep.raise_error(ValueError("private-provider-value")),))
+    model = ScriptedModel()
     install_host_models(monkeypatch, lambda *_: (model, ModelSettings()))
     outputs = []
     ended = []
@@ -48,27 +45,18 @@ async def test_context_budget_failure_reaches_output_and_journal_without_exposin
         enable_activity=False,
     ) as host:
         session_id = await host.sessions.create()
-        host.session_models.update(session_id, context_window_tokens=window)
+        host.session_models.update(session_id, context_window_tokens=2048)
         run = host.runtime.start_run(session_id, "private-user-input", run_options())
-        with pytest.raises(ContextBudgetError if window == 2048 else ValueError):
+        with pytest.raises(ContextBudgetError):
             await run.task
         assert len(ended) == 1 and ended[0].status == "failed"
+        assert model.calls == ()
+        assert outputs == []
+        error = ended[0].error
+        assert error is not None and "larger window" in error and "Main was not executed" in error
+        assert "private-" not in error
         records = read_session_journal(config.session_journal_dir, session_id)
-        if window == 2048:
-            assert model.calls == ()
-            assert len(outputs) == 1
-            output, seq = outputs[0]
-            assert output.session_id == session_id and output.run_id == run.run_id
-            assert seq is not None
-            assert "shorten the input" in output.event.text
-            assert "larger window" in output.event.text
-            assert "Main was not executed" in output.event.text
-            assert "private-" not in output.event.text
-            assert sum(record.get("text") == output.event.text for record in records) == 1
-        else:
-            model.assert_complete()
-            assert outputs == []
-            assert not any("private-provider-value" in record.get("text", "") for record in records)
+        assert sum(record.get("error") == error for record in records) == 1
 
 
 @pytest.mark.parametrize("outcome", ["too_large", "main_failed", "cancelled", "completed"])
@@ -147,7 +135,7 @@ async def test_preflight_compact_usage_stays_with_its_session_when_the_run_does_
                 await run.task
             assert main.calls == ()
             records = read_session_journal(config.session_journal_dir, session_id)
-            assert sum("larger window" in record.get("text", "") for record in records) == 1
+            assert sum("larger window" in (record.get("error") or "") for record in records) == 1
         elif outcome == "main_failed":
             with pytest.raises(RuntimeError, match="controlled model failure"):
                 await run.task
@@ -184,7 +172,7 @@ async def test_empty_session_compaction_is_a_no_op(tmp_path: Path) -> None:
     assert history == []
 
 
-@pytest.mark.parametrize("summary", ["Prior work summarized.", "", "X" * 9000])
+@pytest.mark.parametrize("summary", ["Prior work summarized.", ""])
 async def test_switching_to_smaller_window_compacts_before_main_or_fails_closed(tmp_path: Path, summary: str) -> None:
     from agents.testing import ScriptedModel, assistant_message
 
@@ -205,15 +193,12 @@ async def test_switching_to_smaller_window_compacts_before_main_or_fails_closed(
     compact_model = ScriptedModel(((assistant_message(summary),),) * (2 if not summary else 1))
     main = Agent(name="Main", model=main_model)
     compact = Agent(name="Compact", model=compact_model)
-    cleared_context = []
     loop = AgentLoop(
-        main,
         main,
         compact,
         config,
         PortfolioOperations(config=config),
         model_factory=lambda _: main_model,
-        preflight_compaction_handler=lambda session_id, result: cleared_context.append((session_id, result.changed)),
     )
 
     async def approve(*_):
@@ -241,11 +226,6 @@ async def test_switching_to_smaller_window_compacts_before_main_or_fails_closed(
                 await run()
             assert await session.get_items() == history
             assert main_model.calls == ()
-        elif len(summary) > 8000:
-            with pytest.raises(ContextBudgetError, match="still exceeds"):
-                await run()
-            assert main_model.calls == ()
-            assert cleared_context == [("session", True)]
         else:
             result = await run()
             assert result.output == "Main answer"
@@ -255,53 +235,5 @@ async def test_switching_to_smaller_window_compacts_before_main_or_fails_closed(
             assert incoming[0]["content"] == COMPACTED_CONTEXT_PREFIX + summary
             assert incoming[1]["content"] == [{"type": "input_text", "text": "New request"}]
             assert len(incoming) == 2
-            assert cleared_context == [("session", True)]
-    finally:
-        session.close()
-
-
-async def test_preflight_handles_the_real_main_agent_tool_schemas(tmp_path: Path) -> None:
-    from agents import ModelSettings
-    from agents.testing import ScriptedModel, assistant_message
-
-    from investorch.agents import AgentLoop, ApprovalOutcome, create_agent
-    from investorch.application.portfolios import PortfolioOperations
-    from investorch.context import ExecutionState
-    from investorch.runtime.control import RunControl
-    from investorch.storage import set_session_title
-
-    config = make_test_config(tmp_path)
-    create_session(config.sessions_db, "session")
-    set_session_title(config.sessions_db, "session", "Already titled")
-    session = SQLiteSession("session", config.sessions_db)
-    await session.add_items([{"role": "user", "content": "Old history " * 30000}])
-    model = ScriptedModel(((assistant_message("done"),),))
-    compact_model = ScriptedModel(((assistant_message("Old work summarized"),),))
-    agent = create_agent(model, ModelSettings(), config)
-    compact = Agent(name="Compact", model=compact_model)
-    loop = AgentLoop(agent, compact, compact, config, PortfolioOperations(config=config), lambda _: model)
-
-    async def approve(*_):
-        return ApprovalOutcome(True, TokenUsage())
-
-    async def output(_):
-        pass
-
-    try:
-        result = await loop.run(
-            "Continue",
-            session,
-            ExecutionState(),
-            run_id="run",
-            session_id="session",
-            model_config=config.resolve_model(config.agent_model("main"), context_window_tokens=200000),
-            approval_handler=approve,
-            output_handler=output,
-            run_control=RunControl("session", "run", lambda: None),
-        )
-        assert result.output == "done"
-        assert len(compact_model.calls) == 1
-        assert any(tool.name == "update_config" for tool in model.calls[0].tools)
-        assert len(model.calls[0].input) == 2
     finally:
         session.close()

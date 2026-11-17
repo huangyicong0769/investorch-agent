@@ -2,19 +2,17 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import pytest
-from agents import Agent, ModelBehaviorError, ModelSettings, SQLiteSession, Usage, function_tool
+from agents import Agent, ModelBehaviorError, ModelSettings, Usage, function_tool
 from agents.testing import ScriptedModel, assistant_message, function_call
 from agents.usage import RequestUsage
 
 from investorch.agents.activity import generate_activity_label
 from investorch.agents.permission import create_permission_agent, review_permission
 from investorch.agents.skill_review import create_skill_review_agent, review_skill
-from investorch.agents.title import ensure_session_title
 from investorch.agents.usage import UsageTracker, run_with_usage
 from investorch.application import ApprovalCoordinator
 from investorch.journal import SessionJournal
 from investorch.runtime import ApprovalRequest
-from investorch.storage import init_session_metadata
 from tests.support.config import make_test_config
 
 
@@ -156,26 +154,6 @@ async def test_failed_review_is_accounted_before_manual_approval(tmp_path: Path)
     assert result.approved is False
     assert result.usage.total_tokens == 18
     assert len(updates) == 1
-
-
-async def test_title_persistence_failure_cannot_discard_completed_usage(tmp_path: Path, monkeypatch) -> None:
-    updates = []
-    database = tmp_path / "sessions.db"
-    session = SQLiteSession("session", database)
-    await session.add_items([{"role": "user", "content": "hello"}])
-    init_session_metadata(database)
-    model = ScriptedModel(((assistant_message("A title"),),), default_usage=request_usage())
-
-    def fail_persistence(*_args):
-        assert len(updates) == 1
-        raise OSError("storage unavailable")
-
-    monkeypatch.setattr("investorch.agents.title.set_session_title", fail_persistence)
-    with pytest.raises(OSError, match="storage unavailable"):
-        await ensure_session_title(Agent(name="Title", model=model), session, database, usage_handler=updates.append)
-    assert updates[0].total_tokens == 18
-    assert len(updates) == 1
-    session.close()
 
 
 async def test_candidate_review_tool_accounts_nested_model_separately_once(tmp_path: Path) -> None:

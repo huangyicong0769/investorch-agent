@@ -44,7 +44,7 @@ async def test_clients_are_reused_per_connection_and_closed_together(tmp_path: P
         main = config.agent_model("main")
         large = clients.resolve(main)
         small = clients.resolve(replace(main, name="smaller"))
-        clients.for_agent("title")
+        clients.for_agent("activity")
         assert len(created) == 1
         assert large.model == "test-model" and small.model == "smaller"
         clients.resolve(replace(main, model="second"))

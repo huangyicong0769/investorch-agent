@@ -1,15 +1,21 @@
 import asyncio
 import base64
 import binascii
+import json
 import uuid
 from collections import Counter
-from dataclasses import dataclass, field
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass, field, replace
 
 from agents import ToolOutputImage, ToolOutputText
 from openai.types.responses import (
+    Response,
     ResponseCreatedEvent,
+    ResponseFunctionWebSearch,
+    ResponseOutputItemAddedEvent,
     ResponseOutputItemDoneEvent,
     ResponseOutputMessage,
+    ResponseOutputTextAnnotationAddedEvent,
     ResponseReasoningItem,
     ResponseReasoningSummaryTextDeltaEvent,
     ResponseReasoningTextDeltaEvent,
@@ -17,6 +23,7 @@ from openai.types.responses import (
 )
 
 from investorch.images import ImageContent, detect_image_media_type
+from investorch.llm.deepseek import response_error
 
 from .events import (
     AgentChanged,
@@ -26,7 +33,14 @@ from .events import (
     Reasoning,
     ToolCalled,
     ToolOutput,
+    UrlCitation,
 )
+
+_WEB_PROGRESS = {
+    "response.web_search_call.in_progress": "in_progress",
+    "response.web_search_call.searching": "searching",
+    "response.web_search_call.completed": "completed",
+}
 
 
 @dataclass
@@ -34,12 +48,44 @@ class _PendingMessage:
     provider_id: str
     message_id: str = field(default_factory=lambda: uuid.uuid4().hex)
     parts: dict[int, list[str]] = field(default_factory=dict)
+    annotations: dict[int, dict[tuple[int, int, str], UrlCitation]] = field(default_factory=dict)
     next_update_at: float = 0
     dirty: bool = False
 
     @property
     def text(self) -> str:
         return "".join(part for index in sorted(self.parts) for part in self.parts[index])
+
+    def add_annotation(self, index: int, annotation: object) -> None:
+        if (citation := UrlCitation.from_annotation(annotation)) is not None:
+            key = (citation.start_index, citation.end_index, citation.url)
+            self.annotations.setdefault(index, {})[key] = citation
+            self.dirty = True
+
+    @property
+    def citations(self) -> tuple[UrlCitation, ...]:
+        citations = []
+        offset = 0
+        for index, chunks in sorted(self.parts.items()):
+            count = sum(map(len, chunks))
+            citations.extend(
+                replace(citation, start_index=offset + citation.start_index, end_index=offset + citation.end_index)
+                for citation in self.annotations.get(index, {}).values()
+                if citation.end_index <= count
+            )
+            offset += count
+        return tuple(citations)
+
+    def finish(self, item: ResponseOutputMessage) -> AssistantMessage:
+        self.parts = {index: [part.text] for index, part in enumerate(item.content) if part.type == "output_text"}
+        for index, part in enumerate(item.content):
+            if part.type == "output_text":
+                for annotation in part.annotations or ():
+                    self.add_annotation(index, annotation)
+        return self.message()
+
+    def message(self) -> AssistantMessage:
+        return AssistantMessage(text=self.text, message_id=self.message_id, citations=self.citations)
 
 
 def _message_text(message: ResponseOutputMessage) -> str:
@@ -65,17 +111,44 @@ async def consume_run_events(
     result,
     output_handler: OutputHandler,
     current_agent_name: str,
+    *,
+    deepseek: bool = False,
+    response_handler: Callable[[Response, bool], Awaitable[None]] | None = None,
 ) -> str:
     pending_reasoning: dict[str, _PendingReasoning] = {}
     emitted_reasoning: set[str] = set()
     pending_messages: dict[int, _PendingMessage] = {}
     completed_messages: Counter[tuple[str, str]] = Counter()
+    pending_web_calls: dict[int, ResponseFunctionWebSearch] = {}
+    reported_web_calls: dict[str, ToolCalled] = {}
+    response_confirmed = not deepseek
+    pending_response_output: list[AssistantMessage | Reasoning] = []
+    pending_finalized_messages: dict[tuple[str, str], tuple[int, _PendingMessage]] = {}
     loop = asyncio.get_running_loop()
+
+    async def emit_response_output(event: AssistantMessage | Reasoning) -> None:
+        if response_confirmed:
+            await output_handler(event)
+        else:
+            pending_response_output.append(event)
+
+    async def discard_response_output() -> None:
+        message_ids = {message.message_id for message in pending_messages.values()}
+        message_ids.update(
+            event.message_id
+            for event in pending_response_output
+            if isinstance(event, AssistantMessage) and event.message_id is not None
+        )
+        pending_messages.clear()
+        pending_reasoning.clear()
+        pending_response_output.clear()
+        for message_id in message_ids:
+            await output_handler(AssistantMessageUpdate(message_id, ""))
 
     async def flush_reasoning() -> None:
         for item_id, pending in pending_reasoning.items():
             if pending.display_text:
-                await output_handler(Reasoning(text=pending.display_text, summary=pending.summary_text or None))
+                await emit_response_output(Reasoning(text=pending.display_text, summary=pending.summary_text or None))
                 emitted_reasoning.add(item_id)
         pending_reasoning.clear()
 
@@ -92,7 +165,7 @@ async def consume_run_events(
     async def flush_updates() -> None:
         for pending in pending_messages.values():
             if pending.dirty and loop.time() >= pending.next_update_at:
-                await output_handler(AssistantMessageUpdate(message_id=pending.message_id, text=pending.text))
+                await output_handler(AssistantMessageUpdate(pending.message_id, pending.text, pending.citations))
                 pending.dirty = False
                 pending.next_update_at = loop.time() + 0.05
 
@@ -102,7 +175,23 @@ async def consume_run_events(
         for index in list(pending_messages):
             pending = pending_messages.pop(index)
             if pending.text:
-                await output_handler(AssistantMessage(text=pending.text, message_id=pending.message_id))
+                await output_handler(pending.message())
+
+    async def record_web_call(item: object, *, status: str | None = None) -> bool:
+        if not isinstance(item, ResponseFunctionWebSearch):
+            return False
+        kind = getattr(item, "kind", None)
+        name = {"read_link": "URL reading", "image_search": "Image search", "deep_image_search": "Image search"}.get(
+            kind, "Web search"
+        )
+        raw = item.model_dump(mode="json", exclude_unset=True)
+        arguments = json.dumps({**({"kind": kind} if kind else {}), "action": raw.get("action")}, ensure_ascii=False)
+        record = ToolCalled(name, arguments, status or item.status, item.id)
+        if reported_web_calls.get(item.id) != record:
+            reported_web_calls[item.id] = record
+            await flush_reasoning()
+            await output_handler(record)
+        return True
 
     stream = result.stream_events().__aiter__()
     next_event = None
@@ -146,6 +235,45 @@ async def consume_run_events(
                     emitted_reasoning.clear()
                     await flush_messages()
                     completed_messages.clear()
+                    pending_finalized_messages.clear()
+                    pending_web_calls.clear()
+                    reported_web_calls.clear()
+                    response_confirmed = not deepseek
+                elif isinstance(event.data, ResponseOutputItemAddedEvent) and isinstance(
+                    event.data.item, ResponseFunctionWebSearch
+                ):
+                    pending_web_calls[event.data.output_index] = event.data.item
+                    await record_web_call(event.data.item)
+                elif event.data.type in _WEB_PROGRESS:
+                    if (call := pending_web_calls.get(event.data.output_index)) is not None:
+                        await record_web_call(call, status=_WEB_PROGRESS[event.data.type])
+                elif isinstance(event.data, ResponseOutputItemDoneEvent) and await record_web_call(event.data.item):
+                    pending_web_calls.pop(event.data.output_index, None)
+                    continue
+                elif event.data.type in {"response.completed", "response.failed", "response.incomplete"}:
+                    for item in event.data.response.output or ():
+                        await record_web_call(item)
+                        if isinstance(item, ResponseOutputMessage) and (
+                            match := pending_finalized_messages.get((item.id, _message_text(item)))
+                        ):
+                            index, message = match
+                            pending_response_output[index] = message.finish(item)
+                    if response_handler is not None:
+                        completed = event.data.type == "response.completed" and event.data.response.status in {
+                            None,
+                            "completed",
+                        }
+                        await response_handler(event.data.response, completed)
+                    if not deepseek:
+                        continue
+                    if (failure := response_error(event.data.response)) is not None:
+                        await discard_response_output()
+                        raise failure
+                    response_confirmed = True
+                    for output in pending_response_output:
+                        await output_handler(output)
+                    pending_response_output.clear()
+                    pending_finalized_messages.clear()
                 elif isinstance(event.data, ResponseTextDeltaEvent):
                     await flush_reasoning()
                     delta = event.data
@@ -155,6 +283,13 @@ async def consume_run_events(
                     pending.parts.setdefault(delta.content_index, []).append(delta.delta)
                     pending.dirty = True
                     await flush_updates()
+                elif isinstance(event.data, ResponseOutputTextAnnotationAddedEvent):
+                    annotation = event.data
+                    if annotation.output_index not in pending_messages:
+                        pending_messages[annotation.output_index] = _PendingMessage(annotation.item_id)
+                    pending_messages[annotation.output_index].add_annotation(
+                        annotation.content_index, annotation.annotation
+                    )
                 elif isinstance(event.data, ResponseOutputItemDoneEvent) and isinstance(
                     event.data.item, ResponseReasoningItem
                 ):
@@ -166,11 +301,11 @@ async def consume_run_events(
                     await flush_reasoning()
                     item = event.data.item
                     text = _message_text(item)
-                    pending = pending_messages.pop(event.data.output_index, None)
+                    pending = pending_messages.pop(event.data.output_index, None) or _PendingMessage(item.id)
                     completed_messages[item.id, text] += 1
-                    await output_handler(
-                        AssistantMessage(text=text, message_id=pending.message_id if pending else uuid.uuid4().hex)
-                    )
+                    if not response_confirmed:
+                        pending_finalized_messages[item.id, text] = (len(pending_response_output), pending)
+                    await emit_response_output(pending.finish(item))
                 continue
 
             if event.type != "run_item_stream_event":
@@ -189,6 +324,8 @@ async def consume_run_events(
 
             if event.name == "tool_called":
                 raw_item = item.raw_item
+                if await record_web_call(raw_item):
+                    continue
                 arguments = (
                     raw_item.get("arguments") if isinstance(raw_item, dict) else getattr(raw_item, "arguments", None)
                 )
@@ -208,17 +345,18 @@ async def consume_run_events(
                     pending_messages = {
                         index: message for index, message in pending_messages.items() if message is not pending
                     }
-                await output_handler(
-                    AssistantMessage(
-                        text=text,
-                        message_id=pending.message_id if pending else uuid.uuid4().hex,
-                    )
-                )
+                await output_handler((pending or _PendingMessage(item.raw_item.id)).finish(item.raw_item))
     finally:
         if next_event is not None:
             next_event.cancel()
             await asyncio.gather(next_event, return_exceptions=True)
-        await flush_messages()
+        for call in pending_web_calls.values():
+            if reported_web_calls[call.id].hosted_status in {"in_progress", "searching"}:
+                await record_web_call(call, status="incomplete")
+        if response_confirmed:
+            await flush_messages()
+        else:
+            await discard_response_output()
 
     await flush_reasoning()
     return current_agent_name

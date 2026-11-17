@@ -18,6 +18,7 @@ from investorch.output import (
     ToolCalled,
     ToolOutput,
 )
+from investorch.output.events import render_citations
 from investorch.presentation import input_author_label
 
 logger = logging.getLogger(__name__)
@@ -189,6 +190,7 @@ class ChatTimeline(VerticalScroll):
         self._current_activity_group: ActivityGroup | None = None
         self._pending_tool_outputs: deque[ActivityStep] = deque()
         self._tool_steps: list[ActivityStep] = []
+        self._hosted_steps: dict[str, ActivityStep] = {}
         self._activity_steps_by_target_seq: dict[int, ActivityStep] = {}
         self._recent_reasoning: list[str] = []
         self._streaming_messages: dict[str, Markdown] = {}
@@ -252,6 +254,11 @@ class ChatTimeline(VerticalScroll):
             return
         follow_output = self.is_vertical_scroll_end
         message = self._streaming_messages.get(message_id)
+        if not text:
+            if message is not None:
+                self._streaming_messages.pop(message_id)
+                await message.remove()
+            return
         if message is None:
             turn = await self._ensure_assistant_turn()
             self._finish_activity()
@@ -301,14 +308,25 @@ class ChatTimeline(VerticalScroll):
         self._follow_output(follow_output)
         return step
 
-    async def add_tool_call(self, name: str, arguments: str | None) -> ActivityStep:
+    async def add_tool_call(
+        self, name: str, arguments: str | None, *, hosted_status: str | None = None, hosted_call_id: str | None = None
+    ) -> ActivityStep:
+        if hosted_call_id is not None and (step := self._hosted_steps.get(hosted_call_id)) is not None:
+            step.set_tool(name, arguments)
+            step.set_activity_label(f"{name} · {(hosted_status or '').replace('_', ' ')}")
+            return step
         follow_output = self.is_vertical_scroll_end
         step = ActivityStep(self._activity_detail_max_height)
         step.label_reasoning = "".join(self._recent_reasoning)
         self._recent_reasoning.clear()
         step.set_tool(name, arguments)
-        self._pending_tool_outputs.append(step)
-        self._tool_steps.append(step)
+        if hosted_status is None:
+            self._pending_tool_outputs.append(step)
+            self._tool_steps.append(step)
+        else:
+            step.set_activity_label(f"{name} · {hosted_status.replace('_', ' ')}")
+            if hosted_call_id is not None:
+                self._hosted_steps[hosted_call_id] = step
         await self._add_activity_step(step)
         self._follow_output(follow_output)
         return step
@@ -362,13 +380,17 @@ class ChatTimeline(VerticalScroll):
         elif isinstance(event, Reasoning):
             return await self.add_reasoning(event.text)
         elif isinstance(event, ToolCalled):
-            return await self.add_tool_call(event.name, event.arguments)
+            step = await self.add_tool_call(
+                event.name, event.arguments, hosted_status=event.hosted_status, hosted_call_id=event.hosted_call_id
+            )
+            return step if event.hosted_status is None else None
         elif isinstance(event, ToolOutput):
             return await self.add_tool_output(_with_images(event.output, event.images))
         elif isinstance(event, AssistantMessage):
-            await self.add_assistant_message(_with_images(event.text, event.images), message_id=event.message_id)
+            text = render_citations(event.text, event.citations)
+            await self.add_assistant_message(_with_images(text, event.images), message_id=event.message_id)
         elif isinstance(event, AssistantMessageUpdate):
-            await self.update_assistant_message(event.message_id, event.text)
+            await self.update_assistant_message(event.message_id, render_citations(event.text, event.citations))
         return None
 
     def register_activity_step(self, step: ActivityStep, target_seq: int) -> None:
@@ -380,6 +402,7 @@ class ChatTimeline(VerticalScroll):
     async def reset(self) -> None:
         self._finish_activity()
         self._activity_steps_by_target_seq.clear()
+        self._hosted_steps.clear()
         self._streaming_messages.clear()
         self._completed_message_ids.clear()
         self._current_assistant_turn = None
@@ -398,7 +421,7 @@ class ChatTimeline(VerticalScroll):
             if type(target_seq) is int and target_seq >= 1 and isinstance(text, str) and text.strip():
                 activity_labels[target_seq] = text.strip()
 
-        for record in records:
+        for index, record in enumerate(records):
             event_type = record["type"]
 
             if event_type == "activity_label":
@@ -411,9 +434,16 @@ class ChatTimeline(VerticalScroll):
                 await self.add_reasoning(record["text"])
             elif event_type == "tool_called" and isinstance(record.get("name"), str):
                 arguments = record.get("arguments")
-                step = await self.add_tool_call(record["name"], arguments if isinstance(arguments, str) else None)
+                status = record.get("hosted_status")
+                call_id = record.get("hosted_call_id")
+                step = await self.add_tool_call(
+                    record["name"],
+                    arguments if isinstance(arguments, str) else None,
+                    hosted_status=status if isinstance(status, str) else None,
+                    hosted_call_id=call_id if isinstance(call_id, str) else None,
+                )
                 seq = record["seq"]
-                if type(seq) is int:
+                if type(seq) is int and status is None:
                     step.target_seq = seq
                     self.register_activity_step(step, seq)
                     label = activity_labels.get(seq)
@@ -424,10 +454,24 @@ class ChatTimeline(VerticalScroll):
             elif event_type == "assistant_message" and isinstance(record.get("text"), str):
                 message_id = record.get("message_id")
                 await self.add_assistant_message(
-                    _record_text(record, "text"), message_id=message_id if isinstance(message_id, str) else None
+                    _record_text(record, "display_text" if isinstance(record.get("display_text"), str) else "text"),
+                    message_id=message_id if isinstance(message_id, str) else None,
                 )
             elif event_type == "agent_changed" and isinstance(record.get("name"), str):
                 await self.add_agent_changed(record["name"])
+            elif event_type == "run_ended" and record.get("status") == "failed":
+                error = record.get("error")
+                previous = records[index - 1] if index else {}
+                if (
+                    isinstance(error, str)
+                    and error
+                    and not (
+                        previous.get("type") == "assistant_message"
+                        and not previous.get("message_id")
+                        and previous.get("text") == error
+                    )
+                ):
+                    await self.add_notice(error)
             elif event_type == "approval" and type(record.get("approved")) is bool:
                 tool_name = record.get("tool_name")
                 arguments = record.get("arguments")

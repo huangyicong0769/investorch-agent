@@ -74,6 +74,10 @@ def serialize_token_usage(usage: TokenUsage) -> dict[str, object]:
         "reasoning_output_tokens": usage.reasoning_output_tokens,
         "total_tokens": usage.total_tokens,
         "last_request_total_tokens": usage.last_request_total_tokens,
+        "safety_output_tokens": usage.safety_output_tokens,
+        "tool_search": usage.tool_search,
+        "tool_fetch": usage.tool_fetch,
+        "tool_image_search": usage.tool_image_search,
     }
 
 
@@ -99,7 +103,9 @@ def serialize_run_ended(event: RuntimeRunEnded) -> dict[str, object]:
         "ended_at": event.ended_at.isoformat(),
         "duration_ms": max(0, round((event.ended_at - event.started_at).total_seconds() * 1000)),
         "discarded_steer_count": event.discarded_steer_count,
-        "main_usage": serialize_token_usage(result.main_usage) if result is not None else None,
+        "main_usage": serialize_token_usage(event.main_usage)
+        if result is not None or event.main_usage.requests
+        else None,
         "auxiliary_usage": serialize_token_usage(event.auxiliary_usage),
         "main_context_tokens": None if result is None or compacted else result.main_usage.last_request_total_tokens,
         "auto_compaction": serialize_compaction_result(result.auto_compaction)
@@ -192,6 +198,7 @@ def serialize_session_presentation_state(state: SessionPresentationState) -> dic
         "revision": state.revision,
         "main_context_tokens": state.main_context_tokens,
         "last_todo_run_id": state.last_todo_run_id,
+        "session_title": state.session_title,
         "last_todos": [{"content": todo["content"], "status": todo["status"]} for todo in state.last_todos],
     }
 

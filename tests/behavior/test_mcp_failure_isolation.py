@@ -129,7 +129,7 @@ async def agent_with_mcp(tmp_path: Path, url: str, model: ScriptedModel, **manag
         mcp_config={"include_server_in_tool_names": True},
     )
     unused = Agent(name="Unused", model=ScriptedModel())
-    loop = AgentLoop(main, unused, unused, config, PortfolioOperations(config=config), lambda _: model)
+    loop = AgentLoop(main, unused, config, PortfolioOperations(config=config), lambda _: model)
     create_session(config.sessions_db, "session")
     set_session_title(config.sessions_db, "session", "MCP failure isolation")
     session = SQLiteSession("session", config.sessions_db)

@@ -199,9 +199,11 @@ function outputEvent(value: unknown): OutputEvent | null {
     case 'tool_called': {
       const name = stringField(value, 'name')
       const argumentsValue = nullableStringField(value, 'arguments')
+      const status = stringField(value, 'hosted_status')
+      const callId = stringField(value, 'hosted_call_id')
       return name === null || argumentsValue === undefined
         ? null
-        : { type: 'tool_called', name, arguments: argumentsValue }
+        : { type: 'tool_called', name, arguments: argumentsValue, ...(status ? { hosted_status: status } : {}), ...(callId ? { hosted_call_id: callId } : {}) }
     }
     case 'tool_output': {
       const output = stringField(value, 'output')
@@ -209,13 +211,15 @@ function outputEvent(value: unknown): OutputEvent | null {
     }
     case 'assistant_message': {
       const text = stringField(value, 'text')
+      const displayText = stringField(value, 'display_text')
       const messageId = stringField(value, 'message_id')
-      return text === null ? null : { type: 'assistant_message', text, images: imageContents(value.images), ...(messageId ? { message_id: messageId } : {}) }
+      return text === null ? null : { type: 'assistant_message', text, images: imageContents(value.images), ...(messageId ? { message_id: messageId } : {}), ...(displayText ? { display_text: displayText } : {}) }
     }
     case 'assistant_message_update': {
       const text = stringField(value, 'text')
+      const displayText = stringField(value, 'display_text')
       const messageId = stringField(value, 'message_id')
-      return text === null || !messageId ? null : { type: 'assistant_message_update', text, message_id: messageId }
+      return text === null || !messageId ? null : { type: 'assistant_message_update', text, message_id: messageId, ...(displayText ? { display_text: displayText } : {}) }
     }
     default:
       return null
@@ -313,6 +317,7 @@ function presentationSnapshot(value: unknown): SessionPresentationState | null {
     usage: value.usage, main_usage: value.main_usage, auxiliary_usage: value.auxiliary_usage,
     main_context_tokens: contextTokens, context_window_tokens: capacity, context_model: contextModel,
     context_kind: value.context_kind as SessionPresentationState['context_kind'], compacting: value.compacting,
+    session_title: nullableStringField(value, 'session_title') ?? null,
     revision: value.revision, epoch: value.epoch, last_todo_run_id: lastTodoRunId, last_todos: todos,
   }
 }
@@ -784,11 +789,16 @@ export function LiveWebSocketProvider({ children }: PropsWithChildren) {
     if (event.session_id === selectedSessionRef.current) {
       if (event.kind === 'output' && event.event.type === 'assistant_message_update') {
         const message = event.event
+        if (!message.text) {
+          setStreamingState((current) => current?.message.message_id === message.message_id ? null : current)
+          return
+        }
         setStreamingState((current) => ({
           sessionId: event.session_id,
           runId: event.run_id,
           message: {
             ...message,
+            text: message.display_text ?? message.text,
             timestamp: current?.message.message_id === message.message_id ? current.message.timestamp : receivedAt(),
           },
         }))

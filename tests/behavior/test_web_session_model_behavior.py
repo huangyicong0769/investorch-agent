@@ -39,10 +39,12 @@ async def test_web_model_view_keeps_active_run_separate_from_next_draft(tmp_path
         await web.runtime.agent_loop.wait_until_started(session_id)
         before = (await web.client.get(path)).json()
         assert before["active"] == before["persisted"]
-        changed = (await web.client.patch(path, json={"reasoning_effort": "low"})).json()
+        changed = (await web.client.patch(path, json={"reasoning_effort": "low", "web_search": False})).json()
         assert changed["active"] == before["active"]
         assert changed["persisted"] == before["persisted"]
         assert changed["draft"]["reasoning_effort"] == "low"
+        assert changed["active"]["web_search"] is True
+        assert changed["draft"]["web_search"] is False
         web.runtime.agent_loop.complete(session_id)
         await web.runtime.wait_for_run_ended(session_id)
         assert (await web.client.get(path)).json()["active"] is None
@@ -51,4 +53,5 @@ async def test_web_model_view_keeps_active_run_separate_from_next_draft(tmp_path
         admitted = (await web.client.get(path)).json()
         assert admitted["draft"] is None
         assert admitted["active"]["reasoning_effort"] == "low"
+        assert admitted["active"]["web_search"] is False
         assert admitted["persisted"] == admitted["active"]

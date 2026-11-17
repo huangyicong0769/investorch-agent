@@ -15,7 +15,7 @@ def install_host_models(
         def __init__(self, config: AppConfig, _auth: object) -> None:
             self.config = config
 
-        def for_agent(self, role: str) -> tuple[Model, ModelSettings]:
+        def for_agent(self, role: str, *, fallback: AgentModelConfig | None = None) -> tuple[Model, ModelSettings]:
             return for_role(self.config, role)
 
         def resolve(self, _selected: AgentModelConfig) -> Model:

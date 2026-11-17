@@ -6,7 +6,6 @@ import type { JsonValue } from '../../api/types'
 import { ErrorNotice, fieldErrors } from '../management/Feedback'
 import { ModelConfiguration, modelConfigValues, modelConfigChanges } from '../management/ModelConfiguration'
 import { objectValue } from '../management/schema'
-import { SecretFields } from '../management/SecretFields'
 import { UnsavedChanges } from '../management/UnsavedChanges'
 import { Button } from '@/components/ui/button'
 
@@ -17,7 +16,6 @@ function SetupForm({ saved }: { saved: SavedConfig }) {
   const [notice, setNotice] = useState('')
   const connections = modelConfigValues(saved.values, changes, 'models')
   const agents = modelConfigValues(saved.values, changes, 'agents')
-  const referencedKeys = Object.values(connections).map((connection) => String(objectValue(connection).api_key_secret ?? '')).filter(Boolean)
   const dirty = Object.keys(changes).length > 0 || Object.values(keys).some(Boolean)
   const save = useMutation({
     mutationFn: async (finish: boolean) => {
@@ -43,10 +41,14 @@ function SetupForm({ saved }: { saved: SavedConfig }) {
     setChanges((current) => ({ ...Object.fromEntries(Object.entries(current).filter(([key]) => !key.startsWith(`${path}.`))), [path]: value }))
     setNotice(''); save.reset(); probe.reset()
   }
+  const changeKey = (name: string, value: string) => {
+    setKeys((current) => ({ ...current, [name]: value }))
+    save.reset()
+    probe.reset()
+  }
   return <div className="space-y-6">
     <UnsavedChanges dirty={dirty} />
-    <ModelConfiguration agents={agents} connections={connections} disabled={busy} errors={fieldErrors(save.error)} onChange={change} savedConnections={objectValue(saved.values.models)} />
-    {referencedKeys.length ? <section className="rounded-xl border border-border bg-card p-5"><h2 className="mb-5 font-semibold">API keys</h2><SecretFields configured={saved.secrets} disabled={busy} errors={fieldErrors(save.error)} names={referencedKeys} onChange={(name, value) => { setKeys((current) => ({ ...current, [name]: value })); save.reset(); probe.reset() }} values={keys} /></section> : null}
+    <ModelConfiguration agents={agents} apiKeys={{ configured: saved.secrets, values: keys, onChange: changeKey }} connections={connections} disabled={busy} errors={fieldErrors(save.error)} onChange={change} savedConnections={objectValue(saved.values.models)} />
     <section className="space-y-4 rounded-xl border border-border bg-card p-5">
       <h2 className="font-semibold">Verify and start</h2>
       <p className="text-sm text-muted-foreground">Save connections first to authorize ChatGPT. Then choose each Agent’s model and context window. API key connection testing sends one request with the key entered above.</p>
@@ -56,7 +58,7 @@ function SetupForm({ saved }: { saved: SavedConfig }) {
       {notice ? <p className="text-sm" role="status">{notice}</p> : null}
       <div className="flex flex-wrap gap-3">
         <Button disabled={busy || !dirty} onClick={() => { setChanges({}); setKeys({}); save.reset(); probe.reset() }} type="button" variant="ghost">Discard changes</Button>
-        {connection.type === 'openai_compatible' ? <Button disabled={busy || !key || !main.name} onClick={() => probe.mutate()} type="button" variant="outline">{probe.isPending ? 'Testing…' : 'Test Main connection'}</Button> : null}
+        {connection.type === 'openai_compatible' || connection.type === 'deepseek' ? <Button disabled={busy || !key || !main.name} onClick={() => probe.mutate()} type="button" variant="outline">{probe.isPending ? 'Testing…' : 'Test Main connection'}</Button> : null}
         <Button disabled={busy || !dirty} onClick={() => save.mutate(false)} type="button" variant="outline">Save configuration</Button>
         <Button disabled={busy} onClick={() => save.mutate(true)} type="button">{save.isPending ? 'Saving…' : 'Save and open InvestOrch'}</Button>
       </div>

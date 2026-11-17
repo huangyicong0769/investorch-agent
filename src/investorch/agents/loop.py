@@ -13,20 +13,23 @@ from agents import Agent, Model, RunConfig, RunContextWrapper, Runner, SQLiteSes
 from agents.items import ModelResponse
 from agents.lifecycle import RunHooksBase
 from agents.run_config import CallModelData, CallModelInputFilter, ModelInputData
-from agents.tool import FunctionTool, Tool
+from agents.tool import FunctionTool, Tool, WebSearchTool
+from openai.types.responses import Response
 
 from investorch.config import AgentModelConfig, AppConfig
+from investorch.config_schema import DEEPSEEK_FLASH_MODELS
 from investorch.context import AgentContext, ExecutionState, TodoUpdateHandler
 from investorch.inputs import UserInput
+from investorch.llm.deepseek import DeepSeekResponseError, DeepSeekResponsesModel, response_title
 from investorch.llm.models import ChatGPTResponsesModel, chatgpt_tools
 from investorch.output import AssistantMessage, OutputEvent, OutputHandler, consume_run_events
 from investorch.output.stream import assistant_message_from_result
+from investorch.storage.sessions import get_session_title
 
-from .compact import CompactionResult, compact_session, session_history_restore_failed
+from .compact import CompactionResult, _is_compacted_summary, compact_session, session_history_restore_failed
 from .context_projection import ContextBudget, ContextProjection, ContextProjectionBudgetError
-from .continuation import portable_history_filter
-from .title import ensure_session_title
-from .usage import TokenUsage, UsageTracker
+from .continuation import is_deepseek_web_call, portable_history_filter
+from .usage import TokenUsage, UsageHandler, UsageTracker
 
 if TYPE_CHECKING:
     from investorch.application.portfolios import PortfolioOperations
@@ -136,9 +139,10 @@ def _run_model_input_filter(
     *,
     projection: ContextProjection | None = None,
     context_window_tokens: int = 0,
+    deepseek: bool = False,
 ) -> CallModelInputFilter:
     """Budget portable history and current Run state for each request."""
-    portable_filter = portable_history_filter(history)
+    portable_filter = portable_history_filter(history, deepseek=deepseek)
 
     async def filter_input(data: CallModelData[AgentContext]) -> ModelInputData:
         filtered = portable_filter(data)
@@ -176,18 +180,21 @@ def _run_model_input_filter(
                     }
                 )
         if projection is None:
-            return ModelInputData(input=[*filtered.input, *extra_input], instructions=filtered.instructions)
-        try:
-            prepared = await projection.prepare(
-                filtered.input,
-                instructions=filtered.instructions,
-                tool_schemas=_tool_schemas(tools),
-                context_window_tokens=context_window_tokens,
-                extra_input=extra_input,
-            )
-        except ContextProjectionBudgetError as error:
-            raise ContextBudgetError(error.estimated_tokens, error.budget_tokens, during_run=True) from error
-        return ModelInputData(input=prepared, instructions=filtered.instructions)
+            prepared = [*filtered.input, *extra_input]
+        else:
+            try:
+                prepared = await projection.prepare(
+                    filtered.input,
+                    instructions=filtered.instructions,
+                    tool_schemas=_tool_schemas(tools),
+                    context_window_tokens=context_window_tokens,
+                    extra_input=extra_input,
+                )
+            except ContextProjectionBudgetError as error:
+                raise ContextBudgetError(error.estimated_tokens, error.budget_tokens, during_run=True) from error
+        # Send summaries as context. Providers can interpret an assistant tail as reply prefill.
+        model_input = [{**item, "role": "user"} if _is_compacted_summary(item) else item for item in prepared]
+        return ModelInputData(input=model_input, instructions=filtered.instructions)
 
     return filter_input
 
@@ -205,7 +212,6 @@ class AgentLoop:
     def __init__(
         self,
         agent: Agent[AgentContext],
-        title_agent: Agent,
         compaction_agent: Agent,
         config: AppConfig,
         portfolios: PortfolioOperations,
@@ -215,10 +221,12 @@ class AgentLoop:
         preflight_compaction_handler: Callable[[str, CompactionResult], None] | None = None,
         usage_handler: Callable[[str, TokenUsage, AgentModelConfig | None], None] | None = None,
         context_handler: Callable[..., None] | None = None,
+        session_title_handler: Callable[[str, str], Awaitable[None]] | None = None,
+        session_title_fallback: Callable[[SQLiteSession, AgentModelConfig, UsageHandler], Awaitable[None]]
+        | None = None,
     ) -> None:
         self._agent = agent
         self._model_factory = model_factory
-        self._title_agent = title_agent
         self._compaction_agent = compaction_agent
         self._config = config
         self._portfolios = portfolios
@@ -227,6 +235,8 @@ class AgentLoop:
         self._preflight_compaction_handler = preflight_compaction_handler
         self._usage_handler = usage_handler
         self._context_handler = context_handler
+        self._session_title_handler = session_title_handler
+        self._session_title_fallback = session_title_fallback
         self._context_budgets: dict[str, tuple[AgentModelConfig, ContextBudget]] = {}
 
     def _context_budget(self, session_id: str, model: AgentModelConfig) -> ContextBudget:
@@ -253,9 +263,11 @@ class AgentLoop:
         steer_activated_handler: SteerActivatedHandler | None = None,
         application_instruction: str | None = None,
         preflight_usage_handler: Callable[[TokenUsage], None] | None = None,
+        run_usage_handler: Callable[[TokenUsage], None] | None = None,
     ) -> AgentRunResult:
         settings = self._agent.model_settings.resolve({"reasoning": {"effort": model_config.reasoning_effort}})
         run_agent = self._agent.clone(model=self._model_factory(model_config), model_settings=settings)
+        deepseek = isinstance(run_agent.model, DeepSeekResponsesModel)
         agent_context = AgentContext(
             config=self._config,
             execution=execution,
@@ -267,11 +279,35 @@ class AgentLoop:
         )
         if isinstance(run_agent.model, ChatGPTResponsesModel):
             all_tools = await run_agent.get_all_tools(RunContextWrapper(agent_context))
+            if model_config.web_search:
+                all_tools = [*all_tools, WebSearchTool()]
             run_agent = run_agent.clone(tools=chatgpt_tools(all_tools), mcp_servers=[])
 
         def record_main_usage(usage: TokenUsage) -> None:
             if self._usage_handler is not None:
                 self._usage_handler(session_id, usage, model_config)
+            if run_usage_handler is not None:
+                run_usage_handler(usage)
+
+        provider_usage = TokenUsage()
+        native_title = None
+        terminal_failure_observed = False
+
+        async def observe_response(response: Response, completed: bool) -> None:
+            nonlocal provider_usage, native_title, terminal_failure_observed
+            terminal_failure_observed = not completed
+            if deepseek and response.usage is not None:
+                delta = TokenUsage.from_deepseek(
+                    response.usage.model_dump(mode="json", exclude_unset=True),
+                    include_tokens=not completed,
+                )
+                if delta != TokenUsage():
+                    provider_usage += delta
+                    record_main_usage(delta)
+            if completed and model_config.auto_title and native_title is None:
+                native_title = response_title(response)
+                if native_title is not None and self._session_title_handler is not None:
+                    await self._session_title_handler(session_id, native_title)
 
         observed_auxiliary_usage = TokenUsage()
 
@@ -306,6 +342,15 @@ class AgentLoop:
             model_input.append({"role": "developer", "content": application_instruction})
         if user_input is not None:
             model_input.append(user_input_to_response_item(user_input))
+            if (
+                isinstance(run_agent.model, DeepSeekResponsesModel)
+                and user_input.origin.kind == "user"
+                and model_config.auto_title
+                and model_config.name in DEEPSEEK_FLASH_MODELS
+            ):
+                existing = await asyncio.to_thread(get_session_title, self._config.sessions_db, session_id)
+                if not existing or not existing.strip():
+                    run_agent.model.request_session_title()
         if not model_input:
             raise ValueError("Run requires user input or an application instruction")
 
@@ -327,14 +372,19 @@ class AgentLoop:
         projection = ContextProjection(
             self._compaction_agent,
             self._config,
-            initial_history_count=sum(item.get("type") != "reasoning" for item in history),
+            initial_history_count=sum(
+                item.get("type") != "reasoning" and (deepseek or not is_deepseek_web_call(item)) for item in history
+            ),
             usage_handler=record_auxiliary_usage,
             context_handler=record_context,
             context_budget=context_budget,
         )
         run_config = RunConfig(
             call_model_input_filter=_run_model_input_filter(
-                history, projection=projection, context_window_tokens=model_config.context_window_tokens
+                history,
+                projection=projection,
+                context_window_tokens=model_config.context_window_tokens,
+                deepseek=deepseek,
             )
         )
         result = Runner.run_streamed(
@@ -361,7 +411,13 @@ class AgentLoop:
             while True:
                 run_control.bind_stream(result)
                 try:
-                    current_agent_name = await consume_run_events(result, stream_output, current_agent_name)
+                    current_agent_name = await consume_run_events(
+                        result, stream_output, current_agent_name, deepseek=deepseek, response_handler=observe_response
+                    )
+                except DeepSeekResponseError as error:
+                    if isinstance(error.usage, dict) and not terminal_failure_observed:
+                        record_main_usage(TokenUsage.from_deepseek(error.usage, include_tokens=True))
+                    raise
                 finally:
                     main_usage_tracker.record(result.context_wrapper.usage)
                     run_control.unbind_stream(result)
@@ -448,7 +504,7 @@ class AgentLoop:
             flushed = await projection.flush(session)
             if projection.changed and not flushed and self._context_handler is not None:
                 retained = await session.get_items()
-                portable = await _run_model_input_filter(retained)(
+                portable = await _run_model_input_filter(retained, deepseek=deepseek)(
                     CallModelData(
                         model_data=ModelInputData(input=retained, instructions=None), agent=run_agent, context=None
                     )
@@ -463,16 +519,15 @@ class AgentLoop:
 
         message = assistant_message_from_result(result)
         output = message.text
-        main_usage = TokenUsage.from_sdk(result.context_wrapper.usage)
+        main_usage = TokenUsage.from_sdk(result.context_wrapper.usage) + provider_usage
         if last_message is None or last_message.text != message.text:
             await output_handler(message)
         elif message.images:
             # Image generation results are separate SDK items; keep them without
             # repeating the final text already delivered by message_output_created.
             await output_handler(AssistantMessage(text="", images=message.images))
-        await ensure_session_title(
-            self._title_agent, session, self._config.sessions_db, usage_handler=record_auxiliary_usage
-        )
+        if model_config.auto_title and native_title is None and self._session_title_fallback is not None:
+            await self._session_title_fallback(session, model_config, record_auxiliary_usage)
         auto_compaction, auto_compaction_failed, consistency_uncertain = await self._auto_compact(
             session, main_usage, model_config, agent_context, record_auxiliary_usage
         )
@@ -502,11 +557,12 @@ class AgentLoop:
         instructions = await agent.get_system_prompt(wrapper)
         tool_schemas = _tool_schemas(await agent.get_all_tools(wrapper))
         output_reserve = min(8192, max(256, context_window_tokens // 20))
-        budget = math.floor(context_window_tokens * self._config["compaction.trigger_ratio"]) - output_reserve
+        soft_budget = math.floor(context_window_tokens * self._config["compaction.trigger_ratio"]) - output_reserve
+        hard_budget = context_window_tokens - output_reserve
 
         async def estimate():
             history = await session.get_items()
-            portable = portable_history_filter(history)(
+            portable = portable_history_filter(history, deepseek=isinstance(agent.model, DeepSeekResponsesModel))(
                 CallModelData(model_data=ModelInputData(input=history, instructions=None), agent=agent, context=None)
             )
             return context_budget.estimate(
@@ -518,12 +574,19 @@ class AgentLoop:
         estimated_tokens = await estimate()
         if self._context_handler is not None:
             self._context_handler(session.session_id, estimated_tokens, model_config)
-        if estimated_tokens < budget:
+        if estimated_tokens < soft_budget:
             return None
         try:
             if self._context_handler is not None:
                 self._context_handler(session.session_id, estimated_tokens, model_config, compacting=True)
-            result = await compact_session(self._compaction_agent, session, self._config, usage_handler=usage_handler)
+            result = await compact_session(
+                self._compaction_agent,
+                session,
+                self._config,
+                usage_handler=usage_handler,
+                retained_web_budget=hard_budget
+                - context_budget.estimate(model_input, instructions=instructions, tool_schemas=tool_schemas),
+            )
             if result.changed:
                 context_budget.reset()
         except BaseException as error:
@@ -539,8 +602,8 @@ class AgentLoop:
         if self._preflight_compaction_handler is not None:
             self._preflight_compaction_handler(session.session_id, result)
         estimated_tokens = await estimate()
-        if estimated_tokens >= budget:
-            raise ContextBudgetError(estimated_tokens, budget, after_compaction=True)
+        if estimated_tokens >= hard_budget:
+            raise ContextBudgetError(estimated_tokens, hard_budget, after_compaction=result.changed)
         return result
 
     async def compact(
@@ -564,6 +627,8 @@ class AgentLoop:
         instructions = await self._agent.get_system_prompt(wrapper)
         schemas = _tool_schemas(await self._agent.get_all_tools(wrapper))
         context_budget = self._context_budget(session.session_id, model_config)
+        window = model_config.context_window_tokens
+        reserve = min(8192, max(256, window // 20))
 
         async def notify(compacting: bool) -> None:
             if self._context_handler is not None:
@@ -588,6 +653,9 @@ class AgentLoop:
                     if self._usage_handler is not None
                     else None
                 ),
+                retained_web_budget=window
+                - reserve
+                - context_budget.estimate([], instructions=instructions, tool_schemas=schemas),
             )
             if result.changed:
                 context_budget.reset()

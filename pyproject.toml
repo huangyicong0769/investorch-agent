@@ -1,6 +1,6 @@
 [project]
 name = "investorch"
-version = "0.3.0"
+version = "0.3.1"
 description = "Local human-in-the-loop investment orchestration agent with Web, TUI, and plain-console clients."
 readme = "README.md"
 authors = [{ name = "InvestOrch contributors" }]
@@ -33,6 +33,7 @@ dependencies = [
     "textual==8.2.8",
     "tomlkit>=0.15.2,<0.16",
     "uvicorn[standard]>=0.54.0,<0.55",
+    "websockets>=14,<17",
 ]
 
 [project.urls]

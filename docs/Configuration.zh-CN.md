@@ -2,12 +2,14 @@
 
 [English](Configuration.md)
 
-本文适用于**尚未发布的 0.3.0**。0.2.0 实例应先阅读[升级说明](Upgrade.zh-CN.md)，再使用新配置。
+本文适用于 0.3.1。
 
 ## 两层配置
 
-- `models.<id>` 是可自由命名的**连接**：OpenAI-compatible Endpoint 与 API key 引用，或 ChatGPT 授权引用。
-- `agents.<role>` 选择连接、真实模型 ID、推理强度与上下文窗口。内置角色固定为 `main/title/activity/permission/compact`；Skill Review 共用 `permission`，Spawn 默认继承父 Run，不增加角色。
+- `models.<id>` 注册命名的 API key 或 ChatGPT 连接。
+- `agents.<role>` 选择连接、真实模型 ID、推理强度与上下文窗口。内置角色包括 `main`、`title`、`activity`、`permission` 和 `compact`。Skill Review 共用 `permission`，Spawn 默认继承父 Run。
+
+`[agents.title]` 可选，用于在主回答完成后为仍无标题的 Session 命名。未配置时，Title Agent 使用该 Run 的模型。主模型一旦返回有效标题，界面立即更新并省去辅助请求。
 
 连接 ID 只使用字母、数字、下划线和连字符。推理强度支持 `none/minimal/low/medium/high/xhigh/max`，具体模型也必须支持所选等级。API 连接允许手填真实模型 ID；ChatGPT 从所选账号目录选择，请求使用目录 slug。
 
@@ -15,7 +17,7 @@
 
 ## API key 完整示例
 
-下列连接和五个 Agent 的配置可通过结构校验。调用前应替换 key、模型 ID 与窗口；`128000` 仅为示例，不代表任何实际模型的容量。
+下列配置可通过结构校验。调用前请替换 key、模型 ID 与窗口。`128000` 是示例值。
 
 ```toml
 [models.openai_api]
@@ -27,12 +29,6 @@ api_key_secret = "OPENAI_API_KEY"
 model = "openai_api"
 name = "replace-with-provider-model-id"
 reasoning_effort = "high"
-context_window_tokens = 128000
-
-[agents.title]
-model = "openai_api"
-name = "replace-with-provider-model-id"
-reasoning_effort = "none"
 context_window_tokens = 128000
 
 [agents.activity]
@@ -56,6 +52,50 @@ context_window_tokens = 128000
 [secrets]
 OPENAI_API_KEY = "replace-locally-with-your-api-key"
 ```
+
+## DeepSeek Flash
+
+在 Web Setup 或 Settings 选择 **DeepSeek API key**。Responses 适配器识别 `type = "deepseek"`，也识别 API 地址为 `https://api.deepseek.com` 或 `https://api.deepseek.com/v1` 的既有 OpenAI-compatible 连接。新 Agent 选择直连 DeepSeek 时，默认模型为 `deepseek-flash`，上下文窗口为 1,048,576 tokens。
+
+```toml
+[models.deepseek]
+type = "deepseek"
+
+[agents.main]
+model = "deepseek"
+reasoning_effort = "high"
+
+[agents.activity]
+model = "deepseek"
+
+[agents.permission]
+model = "deepseek"
+
+[agents.compact]
+model = "deepseek"
+
+[secrets]
+DEEPSEEK_API_KEY = "replace-locally-with-your-api-key"
+```
+
+| 能力 | 配置和可用性 |
+| --- | --- |
+| 原生搜索和 URL 阅读 | Main 的 Flash 文本请求默认启用 `web_search` 和 `read_url`。所有辅助 Agent 默认关闭两项。可在 **Agent Defaults** 按角色设置。Session 模型菜单的改动在下一次 Run 生效，TUI/plain 可用 `/model web off` 为下一次 Run 关闭两项。 |
+| 自动标题 | 未命名 Session 的 Flash 用户 Run 可在 Main 请求中获取标题。首个有效标题立即保存。可在 `[agents.main]` 下设 `auto_title = false` 关闭自动命名。 |
+| 内容审核 | `safety_check = "high"` 启用 Flash 文本请求的输入与输出审核。`"low"` 使用 API 默认检查。 |
+| Pro 与旧模型 | `deepseek-v4-pro` 的 **Web search** 开关启用标准 Responses 搜索工具和进度事件。直连 DeepSeek 时，Flash 的旧别名也可使用 Flash 扩展。 |
+
+在 **Agent Defaults** 复制主模型设置时，各辅助角色保留自己的联网开关。Title Agent 始终使用会话历史生成标题，请求省略联网工具。
+
+思考关闭且请求包含本地工具时，请求会省略原生联网、原生标题及显式安全审核参数。开启思考后可将这些 Flash 能力与本地工具一起使用。没有本地工具的请求支持非思考搜索。结构化输出使用标准 Responses 格式。
+
+DeepSeek Responses 是无状态接口，每次请求都携带上下文。InvestOrch 回传本地工具结果时保留原始图片。只要实际发送的上下文仍含工具图片，即使模型已经读过，Flash 也会暂时省略原生搜索、URL 阅读和原生标题。后续请求不再包含工具图片时，原生联网会在模型设置允许的情况下自动恢复。用户直接附图仍可使用原生联网。高等级内容审核要求本地工具结果为纯文本。
+
+Web 和 TUI 根据返回的事件更新同一条工具调用的状态，并用 `kind` 区分 Flash 的搜索、网页读取和图片搜索。用量面板显示 DeepSeek 返回的计费次数和审核 Token。是否联网由 DeepSeek 决定，失败前执行的操作也可能计费。 [DeepSeek 联网文档](https://api-docs.deepseek.com/guides/web_tools) · [官方定价](https://api-docs.deepseek.com/quick_start/pricing/)
+
+DeepSeek Responses 的 Main 续接会回传原始联网调用及其 ID、`kind` 和 `signature`。输入预算允许时，Compact 保留最近一轮带签名的联网记录。Title Agent 的输入先转换为可移植会话历史，去除 DeepSeek 专用联网条目和推理记录。
+
+在 Python 中以异步上下文管理器调用 `DeepSeekServiceClient.from_config(config, "deepseek")`。文件接口为 `upload_file`、`list_files`、`get_file` 和 `delete_file`，上传默认一小时过期。文本文件或已解析文档用 `input_file(file_id)` 构造 Responses 内容项。独立服务接口为 `ocr`、`transcribe`、`synthesize` 和 `stream_speech`。`stream_speech` 接收异步文本分块，返回音频帧。
 
 ## ChatGPT 多账号与混合连接
 
@@ -81,12 +121,6 @@ name = "select-personal-account-catalog-slug"
 reasoning_effort = "high"
 context_window_tokens = 128000
 
-[agents.title]
-model = "api"
-name = "replace-with-provider-model-id"
-reasoning_effort = "none"
-context_window_tokens = 128000
-
 [agents.activity]
 model = "api"
 name = "replace-with-provider-model-id"
@@ -109,12 +143,14 @@ context_window_tokens = 128000
 API_KEY = "replace-locally-with-your-api-key"
 ```
 
-仅使用 ChatGPT 时，五个角色均选择已授权的 ChatGPT 连接即可，无需 API key。不同 credential 对应不同账号/Workspace 授权；明确共享同一 credential 的连接共用刷新锁与 Token 轮换。ChatGPT 使用官方 Endpoint，不接受自定义 `base_url` 或 API key 引用。
+仅使用 ChatGPT 时，四个角色均选择已授权的 ChatGPT 连接即可，无需 API key。不同 credential 对应不同账号/Workspace 授权；明确共享同一 credential 的连接共用刷新锁与 Token 轮换。ChatGPT 使用官方 Endpoint，不接受自定义 `base_url` 或 API key 引用。
+
+所选 ChatGPT 模型和账号支持时，Main 可调用原生 **Web search**。Main 沿用默认开启的 `web_search` 设置，辅助 Agent 默认关闭联网。在 **Agent Defaults** 可修改 Main 的默认值。若要调整下一次 Run，可用 Session 模型菜单中的 **Web search** 开关，或在 TUI 和普通终端输入 `/model web on|off`。工具调用的进度和来源链接会显示在会话中。 [OpenAI 预览版限制](https://developers.openai.com/siwc/token-sharing-open-source/preview-limitations)
 
 ## Setup 与 Settings
 
 1. 启动 `investorch web`，在 **Model Connections** 新建并保存连接。此时 Agent Host 可以尚未启动。
-2. API 连接填写只写 API key；ChatGPT 点击 **Continue with ChatGPT**，由用户本人在浏览器完成授权并允许使用计划额度。仅完成身份登录不能推理。取消保留原授权；缺少额度权限或授权过期/撤销时重新授权。
+2. 将密钥粘贴到连接卡片的 **API key** 输入框，输入会自动遮盖。如需自定义本地 TOML 中的密钥名称，展开 **Advanced key settings**。ChatGPT 连接点击 **Continue with ChatGPT**，在浏览器里授权使用计划额度。取消会保留原授权。缺少计划额度权限或授权过期、撤销时，可重新授权。
 3. 在 **Agent Defaults** 选择真实模型与窗口。可将 Main 配置复制给辅助角色，再逐一调整 effort。
 4. **Test saved connection** 发送一次短请求，可能消耗 API 或 ChatGPT 计划额度。**Save and open InvestOrch** 在 readiness 通过后启动同一个 Host。
 
@@ -143,7 +179,7 @@ Web 输入框右下显示模型与思考强度。点选模型或在 **Thinking**
 
 如果目标窗口容纳不下 continuation 与输入，Main 推理前先压缩；失败或仍无法容纳时不执行 Main。回答后的自动压缩仍保留。两种压缩均保留完整 JSONL Journal。
 
-每次新 Run 的请求副本会剔除旧 continuation 中不透明 reasoning 和 Provider response-item ID，保留消息及函数 `call_id` 关联；SQLite/Journal 原件不变，本 Run 新生成的 reasoning 仍可继续使用。即使连接未变也执行这一处理，因此不会跨 Run 复用旧 opaque reasoning，可能影响连续性或缓存效率。执行契约见 [Runtime](Runtime_Session_Execution_Model.zh-CN.md)。
+每次新 Run 收到消息、函数 `call_id` 关联和兼容的原始联网调用及其 ID。过去的不透明推理和其他响应条目的 ID 留在存储中。本 Run 内生成的推理可用于该 Run 的工具续轮。执行契约见 [Runtime](Runtime_Session_Execution_Model.zh-CN.md)。
 
 ## 操作者边界
 

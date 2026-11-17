@@ -56,7 +56,7 @@ async def test_model_requests_read_current_run_todos_without_persisting_instruct
     )
     unused = Agent(name="Unused", model=ScriptedModel())
     selected_model = model
-    loop = AgentLoop(main, unused, unused, config, PortfolioOperations(config=config), lambda _: selected_model)
+    loop = AgentLoop(main, unused, config, PortfolioOperations(config=config), lambda _: selected_model)
     approvals = []
     todo_updates = []
 

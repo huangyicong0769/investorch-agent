@@ -48,7 +48,6 @@ async def run_scripted_tool(
     loop = AgentLoop(
         agent,
         unused_agent,
-        unused_agent,
         config,
         portfolios,
         successful_tool_handler=context.observe_successful_tool,

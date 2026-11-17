@@ -115,7 +115,7 @@ Todo 是投影到客户端的瞬时 Run state，不写入 SDK continuation、JSO
 - Archive 保留 continuation、Journal、title、lineage 与模型选择；仍可编辑模型 Draft，但恢复前不能执行。
 - Unarchive 恢复普通操作。
 - Delete 删除显式 Session 及其全部递归 Spawn 后代；Clear 使用同一删除契约，再创建不继承来源关系的普通新 Session。
-- Compact 用带标记的 assistant summary 替换 SDK continuation；Journal 保持完整。
+- Compact 使用带标记的摘要压缩 SDK continuation。Journal 保持完整。
 - Fork 把来源 Session 最后稳定提交头部 clone 为新的独立 Session。
 
 Fork 复制 SDK continuation、存在时的 Journal、带后缀 title、直接 parent lineage 与持久模型元数据。来源 Draft 作为目标 Draft 复制，仍只存在于进程内。它不复制 active Run、permission/follow-up 覆盖、Steer/Queue、Todo、approval、archive state、job、usage、cache 或 UI state。它是 stable-head cloning，不是 historical-turn branching。
@@ -160,7 +160,9 @@ Main 与 auxiliary model usage 在当前进程中按 Session 累积。Auxiliary 
 
 后置自动压缩使用 Active Run 窗口与最后一次 Main 请求用量，失败不丢弃已经完成的答案。手动与自动压缩只改变 SDK continuation，保留完整 Journal，Compact 用量记入 Aux；成功后清空旧 Main 占用。
 
-每次新 Run 发送的旧历史副本会剔除不透明 reasoning 和 Provider response-item ID，保留消息及函数 `call_id`。SQLite/Journal 原件不变，本 Run 新生成的 reasoning 保留用于后续请求。同连接跨 Run 也如此：不能复用旧 opaque reasoning，可能影响连续性或缓存效率。
+每次新 Run 将已有消息和函数 `call_id` 放入输入副本。副本去除不透明 reasoning，并按目标 Provider 的协议处理工具记录。
+
+组装 Main 请求时，本轮生成和已存储的压缩摘要都作为带标记的 `user` 上下文传入模型。
 
 ## 后台 Job
 

@@ -57,6 +57,10 @@ export interface TokenUsage {
   reasoning_output_tokens: number
   total_tokens: number
   last_request_total_tokens: number | null
+  safety_output_tokens?: number
+  tool_search?: number
+  tool_fetch?: number
+  tool_image_search?: number
 }
 
 export interface RuntimeSnapshot {
@@ -79,6 +83,7 @@ export interface SessionPresentationState {
   main_context_tokens: number | null
   context_window_tokens: number | null
   context_model: string | null
+  session_title?: string | null
   context_kind: 'unknown' | 'measured' | 'estimated'
   compacting: boolean
   revision: number
@@ -309,6 +314,8 @@ export interface OutputEventToolCalled {
   type: 'tool_called'
   name: string
   arguments: string | null
+  hosted_status?: string
+  hosted_call_id?: string
 }
 
 export interface OutputEventToolOutput {
@@ -322,12 +329,14 @@ export interface OutputEventAssistantMessage {
   images?: ImageContent[]
   type: 'assistant_message'
   text: string
+  display_text?: string
 }
 
 export interface OutputEventAssistantMessageUpdate {
   type: 'assistant_message_update'
   message_id: string
   text: string
+  display_text?: string
 }
 
 export type OutputEvent =
@@ -657,6 +666,8 @@ export interface AgentModelConfig {
   name: string
   reasoning_effort: ReasoningEffort
   context_window_tokens: number
+  web_search?: boolean
+  read_url?: boolean
 }
 export interface SessionModelView {
   session_id: string
