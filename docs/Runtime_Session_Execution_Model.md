@@ -135,7 +135,7 @@ Agent Conversation history is a separate flat projection: accepted user messages
 Every `ApprovalRequest` carries an immutable approval ID, Run ID, Session ID, and captured permission mode. Resolution targets that exact request.
 
 - `manual`: always ask the user.
-- `review`: the Permission Agent may approve, reject, or ask; failure and invalid output fall back to asking.
+- In `review` mode, the Permission Agent evaluates authorization and side effects. Main verifies implementation and research correctness. Review failures and invalid output fall back to asking the user.
 
 The approval decision is journaled for the originating Session. Multiple Sessions may wait for approval concurrently.
 

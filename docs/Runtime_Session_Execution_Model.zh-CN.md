@@ -137,7 +137,7 @@ Agent Conversation 历史使用独立扁平投影：已接受用户消息、证�
 每个 `ApprovalRequest` 都带不可变 approval ID、Run ID、Session ID 和已捕获 permission mode。Resolution 只作用于该 request。
 
 - `manual`：始终询问用户。
-- `review`：Permission Agent 可以 approve、reject 或 ask；失败和无效输出回退到询问。
+- `review` 模式下，Permission Agent 审查授权范围和操作副作用，Main 负责核验实现与研究结果。审查失败或输出无效时询问用户。
 
 Approval decision 写入来源 Session Journal。多个 Session 可以同时等待审批。
 
