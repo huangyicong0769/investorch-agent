@@ -11,6 +11,29 @@ from investorch.storage import create_session
 from tests.support.config import make_test_config
 
 
+async def test_compact_can_summarize_a_signed_web_round_that_exceeds_the_input_budget(tmp_path: Path) -> None:
+    from agents.testing import ScriptedModel, assistant_message
+
+    config = make_test_config(tmp_path)
+    create_session(config.sessions_db, "session")
+    session = SQLiteSession("session", config.sessions_db)
+    try:
+        await session.add_items(
+            [
+                {"role": "user", "content": "Read the source."},
+                {"type": "web_search_call", "kind": "read_link", "signature": "signature", "id": "ws_source"},
+                {"role": "assistant", "content": "Source notes. " * 2000},
+            ]
+        )
+        model = ScriptedModel(((assistant_message("Earlier source summarized."),),))
+        result = await compact_session(Agent(name="Compact", model=model), session, config, retained_web_budget=8000)
+        assert result.changed
+        assert len(await session.get_items()) == 1
+        model.assert_complete()
+    finally:
+        session.close()
+
+
 @pytest.mark.parametrize("window", [2048, 1000000])
 async def test_context_budget_failure_is_reported_once_without_exposing_input_or_other_value_errors(
     tmp_path: Path, monkeypatch, window: int

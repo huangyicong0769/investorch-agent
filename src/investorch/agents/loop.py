@@ -579,7 +579,14 @@ class AgentLoop:
         try:
             if self._context_handler is not None:
                 self._context_handler(session.session_id, estimated_tokens, model_config, compacting=True)
-            result = await compact_session(self._compaction_agent, session, self._config, usage_handler=usage_handler)
+            result = await compact_session(
+                self._compaction_agent,
+                session,
+                self._config,
+                usage_handler=usage_handler,
+                retained_web_budget=hard_budget
+                - context_budget.estimate(model_input, instructions=instructions, tool_schemas=tool_schemas),
+            )
             if result.changed:
                 context_budget.reset()
         except BaseException as error:
@@ -620,6 +627,8 @@ class AgentLoop:
         instructions = await self._agent.get_system_prompt(wrapper)
         schemas = _tool_schemas(await self._agent.get_all_tools(wrapper))
         context_budget = self._context_budget(session.session_id, model_config)
+        window = model_config.context_window_tokens
+        reserve = min(8192, max(256, window // 20))
 
         async def notify(compacting: bool) -> None:
             if self._context_handler is not None:
@@ -644,6 +653,9 @@ class AgentLoop:
                     if self._usage_handler is not None
                     else None
                 ),
+                retained_web_budget=window
+                - reserve
+                - context_budget.estimate([], instructions=instructions, tool_schemas=schemas),
             )
             if result.changed:
                 context_budget.reset()

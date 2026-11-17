@@ -86,6 +86,7 @@ async def compact_session(
     config: AppConfig,
     *,
     usage_handler: Callable[[TokenUsage], None] | None = None,
+    retained_web_budget: int | None = None,
 ) -> CompactionResult:
     history = await session.get_items()
     source_items = len(history)
@@ -95,8 +96,12 @@ async def compact_session(
     source = history
     if web_round is not None:
         start, end = web_round
-        retained = history[start:end]
-        source = [*history[:start], *history[end:]]
+        candidate = history[start:end]
+        if retained_web_budget is None or estimate_context_tokens(candidate) < retained_web_budget:
+            retained = candidate
+            source = [*history[:start], *history[end:]]
+        else:
+            web_round = None
     if not source or (len(source) == 1 and _is_compacted_summary(source[0])):
         return CompactionResult(changed=False, usage=TokenUsage(), source_items=source_items, summary_chars=0)
 
