@@ -96,7 +96,7 @@ Run 停止或失败会暂停剩余 Queue。Resume 提升一个 head item；Clear
 
 发送 Session/Run ID 随不可变 `UserInput.origin` 传递，与目标 Run ID 分开。初始输入、Steer continuation、Queue promotion 和 terminal Steer fallback 使用同一 SDK 转换与 Journal 事件类型。有效 Agent 指示参加同一冻结 Review 历史。通用 `user_input_committed` 视图通知只在 `user_message` 可读后发出；history/live 根据 Journal seq 去重。
 
-自投、缺失、归档、stopping、被保留的目标或未解决的 pending work 按已有 lifecycle 规则失败。不增加重试队列、自动回复、完成回调或持久 Mailbox。发送方在待审时取消不影响目标；投递接受后，输入与 Run 由目标持有。Fork 随历史复制可选 origin，Compact 仍不改 Journal。
+自投、缺失、归档、stopping、被保留的目标或未解决的 pending work 按已有 lifecycle 规则失败。发送方在待审时取消不影响目标。投递接受后，输入与 Run 由目标持有。Fork 随 Journal 历史复制可选 origin。
 
 ## Stop 与取消
 
@@ -137,7 +137,7 @@ Agent Conversation 历史使用独立扁平投影：已接受用户消息、证�
 每个 `ApprovalRequest` 都带不可变 approval ID、Run ID、Session ID 和已捕获 permission mode。Resolution 只作用于该 request。
 
 - `manual`：始终询问用户。
-- `review`：Permission Agent 可以 approve、reject 或 ask；失败和无效输出回退到询问。
+- `review` 模式下，Permission Agent 审查授权范围和操作副作用。审查失败或输出无效时询问用户。
 
 Approval decision 写入来源 Session Journal。多个 Session 可以同时等待审批。
 
@@ -188,7 +188,7 @@ Spawn 默认继承 parent Active Run 模型，不读取 parent 新的 Session Dr
 
 `spawn_agent(task, title?)` 使用已有 Permission/HITL 审批和普通 `submit_user_input`。子 Session 使用相同 Main 模型、Tools、Skills 和独立审批规则，拥有各自 continuation 与 Journal。初始输入保持 `user` role，来源由 SDK Session/Run/call 上下文提供。创建事务保存独立 Spawn lineage，并一次复制关联 Portfolio IDs；不复制父历史、Portfolio/Ledger 事实或授权。Fork 不继承 Spawn lineage；父完成、Stop 或 Archive 不级联子 Session。
 
-工具调用身份生成稳定 child ID。已有 workflow 接受标记、Runtime 和 Journal 事实防止初始任务重复投递。确定因容量/关闭拒绝时只回收未启动 child；接受状态不确定时保留身份供诊断。回执只确认提交，不证明完成或重启恢复。递归子 Session 使用相同 Tools；不新增 stop/wait/status Tool、完成 registry 或自动回复。通过 `list_sessions` 观察当前状态，通过 `read_session(view="events")` 读取完成事实。
+工具调用身份生成稳定 child ID。已有 workflow 接受标记、Runtime 和 Journal 事实防止初始任务重复投递。确定因容量或关闭而拒绝时只回收未启动的 child。接受状态不确定时保留身份供诊断。Spawn 回执确认提交，可通过 `read_session` 读取结果。
 
 所有新顶层 Run 共享 `AgentRuntime._start_run()` 的同步准入门槛。`runtime.max_concurrent_runs` 默认 3，仅接受严格正整数，可在 Settings 或本地 TOML 热应用。下调不停止现有 Run，仅拒绝新准入并报告 `capacity_exceeded`（Web HTTP 429）。父 Run、普通输入、消息、Spawn 和 follow-up 晋升公平共用名额；Waiting Approval 与 Stopping 直到摘除仍占位。Title/Permission/Activity/Compact 辅助调用不额外占位。容量策略不属于冻结的 `RunOptions`。
 

@@ -2,7 +2,7 @@
 
 [简体中文](Configuration.zh-CN.md)
 
-This guide describes the 0.3.1 configuration.
+This guide describes the 0.3.2 configuration.
 
 ## Two configuration layers
 
@@ -17,7 +17,7 @@ The effective context window is a positive integer. Supply an explicit window wh
 
 ## API-key example
 
-This is a complete model/Agent configuration with structurally valid placeholders. Replace the key, model ID and example window before making requests. `128000` is an example, not a statement about any model's capacity.
+Before making requests, replace the API key, model IDs, and example context windows with the values for your connection. `128000` is an example value.
 
 ```toml
 [models.openai_api]
@@ -183,7 +183,7 @@ Each new Run receives messages, function `call_id` links, and compatible web cal
 
 ## Operator ownership
 
-Agent Tools can inspect redacted configuration and request approved changes to normal settings. `models`, `agents`, `secrets`, `auth` and `permission` are operator-owned; Agent config updates cannot edit them or existing Session model selections. Model configuration has no `providers` layer and no `agents.spawned` role. 0.3.0 does not expose InvestOrch as an MCP server; existing MCP client integrations continue.
+Agent Tools can inspect redacted configuration and request approved changes to normal settings. The operator manages `models`, `agents`, `secrets`, `auth`, `permission`, and existing Session model selections.
 
 ## Tool reading budgets
 

@@ -1,9 +1,11 @@
+import asyncio
 import json
 from collections.abc import Awaitable, Callable
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Annotated
 
 from agents import FunctionTool
 from agents.tool_context import ToolContext
+from pydantic import Field
 
 from investorch.context import AgentContext
 from investorch.tools.errors import tool
@@ -28,7 +30,7 @@ def make_spawning_tools(*, submit: Callable[..., Awaitable["SpawnReceipt"]]) -> 
         The child inherits this Run's model unless explicitly overridden, Tools, Skills and independent Permission review, with separate
         history and Run lifecycle. Related Portfolio IDs are copied once, without authorization.
         Recursive delegation shares the Host's global Run limit, including your own Run. A receipt
-        confirms input submission only; use list_sessions/read_session to observe later facts.
+        confirms input submission. Use list_sessions to check status and read_session to read results.
         Do not automatically reply or stop children when your own Run ends.
 
         Args:
@@ -68,4 +70,9 @@ def make_spawning_tools(*, submit: Callable[..., Awaitable["SpawnReceipt"]]) -> 
             "disposition": receipt.disposition,
         }
 
-    return [spawn_agent]
+    @tool
+    async def wait_agents(time: Annotated[float, Field(ge=0, allow_inf_nan=False, strict=True)]) -> None:
+        """Pause this Run for the requested number of seconds while other Runs continue."""
+        await asyncio.sleep(time)
+
+    return [spawn_agent, wait_agents]
