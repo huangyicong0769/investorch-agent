@@ -557,7 +557,8 @@ class AgentLoop:
         instructions = await agent.get_system_prompt(wrapper)
         tool_schemas = _tool_schemas(await agent.get_all_tools(wrapper))
         output_reserve = min(8192, max(256, context_window_tokens // 20))
-        budget = math.floor(context_window_tokens * self._config["compaction.trigger_ratio"]) - output_reserve
+        soft_budget = math.floor(context_window_tokens * self._config["compaction.trigger_ratio"]) - output_reserve
+        hard_budget = context_window_tokens - output_reserve
 
         async def estimate():
             history = await session.get_items()
@@ -573,7 +574,7 @@ class AgentLoop:
         estimated_tokens = await estimate()
         if self._context_handler is not None:
             self._context_handler(session.session_id, estimated_tokens, model_config)
-        if estimated_tokens < budget:
+        if estimated_tokens < soft_budget:
             return None
         try:
             if self._context_handler is not None:
@@ -594,8 +595,8 @@ class AgentLoop:
         if self._preflight_compaction_handler is not None:
             self._preflight_compaction_handler(session.session_id, result)
         estimated_tokens = await estimate()
-        if estimated_tokens >= budget:
-            raise ContextBudgetError(estimated_tokens, budget, after_compaction=True)
+        if estimated_tokens >= hard_budget:
+            raise ContextBudgetError(estimated_tokens, hard_budget, after_compaction=result.changed)
         return result
 
     async def compact(

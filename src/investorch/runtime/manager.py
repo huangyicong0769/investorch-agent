@@ -17,15 +17,11 @@ from investorch.agents import (
     AgentRunResult,
     ApprovalOutcome,
     CompactionResult,
-    ContextBudgetError,
     TokenUsage,
 )
 from investorch.context import ExecutionState, TodoItem
 from investorch.inputs import UserInput, input_summary
-from investorch.llm.deepseek import DeepSeekResponseError
-from investorch.llm.models import ChatGPTInferenceError
-from investorch.llm.oauth import ChatGPTAuthError
-from investorch.output import AssistantMessage, OutputEvent
+from investorch.output import OutputEvent
 
 from .control import RunControl
 from .errors import format_run_error
@@ -675,8 +671,6 @@ class AgentRuntime:
         except Exception as error:
             input_journal.fail(error)
             failure = self._error_formatter(error)
-            if isinstance(error, (ChatGPTInferenceError, ChatGPTAuthError, ContextBudgetError, DeepSeekResponseError)):
-                await handle_output(AssistantMessage(str(error)))
             logger.exception("Failed Agent run session=%s run=%s", session_id, run_id)
             raise
         finally:

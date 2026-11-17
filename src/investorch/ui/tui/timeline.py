@@ -421,7 +421,7 @@ class ChatTimeline(VerticalScroll):
             if type(target_seq) is int and target_seq >= 1 and isinstance(text, str) and text.strip():
                 activity_labels[target_seq] = text.strip()
 
-        for record in records:
+        for index, record in enumerate(records):
             event_type = record["type"]
 
             if event_type == "activity_label":
@@ -459,6 +459,19 @@ class ChatTimeline(VerticalScroll):
                 )
             elif event_type == "agent_changed" and isinstance(record.get("name"), str):
                 await self.add_agent_changed(record["name"])
+            elif event_type == "run_ended" and record.get("status") == "failed":
+                error = record.get("error")
+                previous = records[index - 1] if index else {}
+                if (
+                    isinstance(error, str)
+                    and error
+                    and not (
+                        previous.get("type") == "assistant_message"
+                        and not previous.get("message_id")
+                        and previous.get("text") == error
+                    )
+                ):
+                    await self.add_notice(error)
             elif event_type == "approval" and type(record.get("approved")) is bool:
                 tool_name = record.get("tool_name")
                 arguments = record.get("arguments")

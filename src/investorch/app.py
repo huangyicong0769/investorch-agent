@@ -17,6 +17,7 @@ from investorch.config import AppConfig, ConfigError, load_config
 from investorch.context import AppState
 from investorch.initializer import initialize
 from investorch.inputs import UserInput
+from investorch.llm.deepseek import DeepSeekResponseError
 from investorch.llm.models import ChatGPTInferenceError
 from investorch.llm.oauth import ChatGPTAuthError
 from investorch.log import configure_logging
@@ -77,8 +78,8 @@ async def _run_console(state: AppState, runtime: AgentRuntime, sessions: Session
             continue
         try:
             result = await active_run.task
-        except (ChatGPTAuthError, ChatGPTInferenceError, ContextBudgetError):
-            # Runtime already emitted the safe recovery guidance to all clients.
+        except (ChatGPTAuthError, ChatGPTInferenceError, ContextBudgetError, DeepSeekResponseError) as error:
+            ui.write(str(error))
             continue
         except ConfigError as error:
             ui.write(str(error))

@@ -959,7 +959,9 @@ class InvestOrchAgentTUI(App[None]):
                         )
             else:
                 if event.session_id == self.state.selected_session_id:
-                    await self.query_one(ChatTimeline).add_notice("Agent run failed. See the system log for details.")
+                    await self.query_one(ChatTimeline).add_notice(
+                        event.error or "Agent run failed. See the system log for details."
+                    )
         finally:
             try:
                 await self.refresh_sessions()

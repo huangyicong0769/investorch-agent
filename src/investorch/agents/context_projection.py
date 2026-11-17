@@ -27,6 +27,14 @@ class ContextProjectionBudgetError(ValueError):
         self.budget_tokens = budget_tokens
 
 
+def _estimate_request_overhead(
+    instructions: str | None, tool_schemas: object, extra_input: Sequence[TResponseInputItem]
+) -> int:
+    # Use a conservative two bytes per estimated token for serialized tool declarations.
+    schema_tokens = math.ceil(estimate_context_tokens(tool_schemas) / 2)
+    return estimate_context_tokens([instructions, list(extra_input)]) + schema_tokens + 1024
+
+
 def _canonical_item(item: TResponseInputItem) -> str | None:
     if isinstance(item, dict):
         if item.get("type") == "reasoning":
@@ -96,11 +104,7 @@ class ContextBudget:
         measured = self._measured
         fingerprints = _item_fingerprints(items)
         if measured is None or fingerprints[: len(measured.items)] != measured.items:
-            return (
-                estimate_context_tokens(items)
-                + estimate_context_tokens([instructions, tool_schemas, list(extra_input)])
-                + 1024
-            )
+            return estimate_context_tokens(items) + _estimate_request_overhead(instructions, tool_schemas, extra_input)
         # Opaque reasoning/SDK IDs do not establish new portable history items.
         portable = [item for item in items if _canonical_item(item) is not None]
         estimate = measured.tokens + estimate_context_tokens(portable[len(measured.items) :])
@@ -205,7 +209,7 @@ class ContextProjection:
     ) -> list[TResponseInputItem]:
         if self._flushed:
             raise ValueError("Cannot resume a context projection after its final flush")
-        overhead = estimate_context_tokens([instructions, tool_schemas, list(extra_input)]) + 1024
+        overhead = _estimate_request_overhead(instructions, tool_schemas, extra_input)
         reserve = min(8192, max(256, context_window_tokens // 20))
         soft_budget = math.floor(context_window_tokens * self._config["compaction.trigger_ratio"]) - reserve
         hard_budget = context_window_tokens - reserve
