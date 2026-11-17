@@ -377,7 +377,7 @@ export function projectTimeline(records: readonly JournalRecord[]): TimelineView
     }
   }
 
-  for (const record of orderedRecords) {
+  for (const [index, record] of orderedRecords.entries()) {
     if (record.type === 'activity_label' || record.type === 'run_error') {
       continue
     }
@@ -460,6 +460,16 @@ export function projectTimeline(records: readonly JournalRecord[]): TimelineView
     lastAgentChangedName = null
 
     if (record.type === 'assistant_message') {
+      const next = orderedRecords[index + 1]
+      if (
+        !record.message_id &&
+        next &&
+        isCompleteRunEndedRecord(next) &&
+        next.status === 'failed' &&
+        record.text === (runErrors.get(next.run_id) ?? next.error)
+      ) {
+        continue
+      }
       activeTurn = ensureAssistantTurn(activeTurn, record)
       const message: TimelineAssistantMessageViewModel = {
         type: 'assistant_message',

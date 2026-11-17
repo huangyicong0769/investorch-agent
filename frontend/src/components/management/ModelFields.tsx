@@ -20,7 +20,7 @@ export function supportsDeepSeekWeb(connection: JsonObject, name: unknown) {
 const WEB_SEARCH = ['web_search', 'Web search'] as const
 
 export function modelWebCapabilities(connection: JsonObject, name: unknown) {
-  if (connection.type === 'chatgpt') return [WEB_SEARCH]
+  if (connection.type === 'chatgpt' || (isDeepSeekConnection(connection) && name === 'deepseek-v4-pro')) return [WEB_SEARCH]
   if (supportsDeepSeekWeb(connection, name)) return [WEB_SEARCH, ['read_url', 'URL reading'] as const]
   return []
 }

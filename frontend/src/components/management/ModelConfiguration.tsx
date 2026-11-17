@@ -65,7 +65,7 @@ export function ModelConfiguration({ connections, agents, savedConnections, apiK
           <label className="block text-sm">Connection type<select className={`${fieldClass} mt-2`} disabled={disabled} onChange={(e) => {
             const type = e.target.value
             if (type === 'chatgpt') onChange(`models.${id}`, { type, credentials: id })
-            else if (type === 'deepseek') onChange(`models.${id}`, { type, base_url: 'https://api.deepseek.com', api_key_secret: 'DEEPSEEK_API_KEY' })
+            else if (type === 'deepseek') onChange(`models.${id}`, { type, base_url: 'https://api.deepseek.com', api_key_secret: `${id}_DEEPSEEK_KEY` })
             else onChange(`models.${id}`, { type, base_url: 'https://api.openai.com/v1', api_key_secret: `${id}_KEY` })
           }} value={String(connection.type ?? 'openai_compatible')}><option value="openai_compatible">OpenAI-compatible API key</option><option value="deepseek">DeepSeek API key</option><option value="chatgpt">ChatGPT plan usage</option></select></label>
           {chatgpt ? connectionField('credentials', 'Credential reference') : <>
