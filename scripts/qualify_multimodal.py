@@ -33,7 +33,7 @@ from investorch.llm.clients import ModelConnectionClients
 from investorch.llm.oauth import ChatGPTAuth
 from investorch.output import ToolOutput
 from investorch.runtime.control import RunControl
-from investorch.storage import create_session, get_session_title
+from investorch.storage import create_session
 
 
 def red_png() -> bytes:
@@ -135,7 +135,6 @@ async def qualify() -> None:
                         passed = passed and any(isinstance(event, ToolOutput) and event.images for event in events)
                     report["checks"][name] = {
                         "passed": bool(passed),
-                        "title_generated": bool(get_session_title(config.sessions_db, name)),
                         "main_tokens": result.main_usage.total_tokens,
                     }
                     if name == "text_image":

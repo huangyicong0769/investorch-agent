@@ -9,7 +9,7 @@ from dataclasses import replace
 from io import BytesIO
 from pathlib import Path
 
-from agents import Agent, ModelSettings, Runner, WebSearchTool, set_tracing_disabled
+from agents import Agent, ModelSettings, Runner, set_tracing_disabled
 from openai import AsyncOpenAI
 
 from investorch.application import open_application_host
@@ -76,7 +76,6 @@ async def check_pro_events(key: str) -> None:
         agent = Agent(
             name="Pro web search",
             model=model,
-            tools=[WebSearchTool()],
             model_settings=ModelSettings(reasoning={"effort": "low"}),
         )
         records = await collect_web_events(
