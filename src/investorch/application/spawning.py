@@ -179,9 +179,6 @@ async def spawn_agent(
             raise SpawnError(
                 f"spawn_consistency_uncertain: Check Session {child_id} and System Status before retrying."
             ) from error
-        child_run = runtime.get_active_run(child_id)
-        if submitted.disposition == "run_started" and child_run is not None and child_run.run_id == submitted.run_id:
-            parent_run.spawned_runs.append(child_run)
         try:
             await _await_mutation(sessions.mark_application_workflow_started(child_id))
         except Exception as error:
@@ -190,28 +187,3 @@ async def spawn_agent(
                 f"spawn_consistency_uncertain: Input was submitted to Session {child_id}; check its history before retrying."
             ) from error
         return SpawnReceipt(child_id, submitted.run_id, True, submitted.disposition)
-
-
-async def wait_agents(
-    *, runtime: AgentRuntime, source_session_id: str, source_run_id: str, seconds: float
-) -> dict[str, object]:
-    parent_run = runtime.get_active_run(source_session_id)
-    if parent_run is None or parent_run.run_id != source_run_id:
-        raise SpawnError("spawn_parent_unavailable: The parent Run is no longer active.")
-
-    children = tuple(parent_run.spawned_runs)
-    pending = {child.task for child in children if not child.task.done()}
-    timed_out = False
-    if pending:
-        finished, _ = await asyncio.wait(pending, timeout=seconds, return_when=asyncio.FIRST_COMPLETED)
-        timed_out = not finished
-
-    statuses = []
-    for child in children:
-        status: str = child.phase
-        if child.task.cancelled():
-            status = "cancelled"
-        elif child.task.done():
-            status = "failed" if child.task.exception() is not None else "completed"
-        statuses.append({"session_id": child.session_id, "run_id": child.run_id, "status": status})
-    return {"timed_out": timed_out, "children": statuses}

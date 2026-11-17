@@ -192,7 +192,7 @@ Spawn inherits the parent Active Run model, never its newer Session Draft. Same-
 
 The tool-call identity yields a stable child ID. Existing workflow acceptance, Runtime and Journal facts prevent duplicate initial submission. Proven capacity/shutdown refusal rolls back an unstarted child; uncertain acceptance retains its identity for diagnosis. A Spawn receipt confirms submission. Read results through `read_session`.
 
-After a Spawn receipt, call `wait_agents(time)` in a later tool round. It waits up to `time` seconds for any active direct child Run launched by the current Run, then reports the status and IDs of those children. Zero returns their current statuses. Children continue running after a timeout or a parent Stop.
+`wait_agents(time)` pauses the calling Run for `time` seconds while other Runs continue. Use `list_sessions` to check status and `read_session` to read results.
 
 All new top-level Runs share the synchronous admission gate in `AgentRuntime._start_run()`. `runtime.max_concurrent_runs` defaults to 3 and accepts strict positive integers. Settings or local TOML may hot-apply it; reducing the limit leaves existing Runs untouched and rejects new admission with `capacity_exceeded` (Web HTTP 429). Parents, ordinary input, messaging, Spawn and follow-up promotion use the same slots. Waiting Approval and Stopping continue to occupy slots until removal. Auxiliary Title/Permission/Activity/Compact calls consume no additional slots. The policy is separate from frozen `RunOptions`.
 

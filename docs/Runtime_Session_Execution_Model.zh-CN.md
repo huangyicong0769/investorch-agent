@@ -190,7 +190,7 @@ Spawn 默认继承 parent Active Run 模型，不读取 parent 新的 Session Dr
 
 工具调用身份生成稳定 child ID。已有 workflow 接受标记、Runtime 和 Journal 事实防止初始任务重复投递。确定因容量或关闭而拒绝时只回收未启动的 child。接受状态不确定时保留身份供诊断。Spawn 回执确认提交，可通过 `read_session` 读取结果。
 
-收到 Spawn 回执后，在下一轮工具调用中使用 `wait_agents(time)`。它最多等待 `time` 秒，直到本次 Run 启动的任一仍活动的直接子 Run 结束，再返回这些子 Run 的状态和 ID。传入 0 可读取当前状态。等待超时或父 Run 停止后，子 Run 继续执行。
+`wait_agents(time)` 将当前 Run 暂停 `time` 秒，其他 Run 继续执行。通过 `list_sessions` 查看状态，通过 `read_session` 读取结果。
 
 所有新顶层 Run 共享 `AgentRuntime._start_run()` 的同步准入门槛。`runtime.max_concurrent_runs` 默认 3，仅接受严格正整数，可在 Settings 或本地 TOML 热应用。下调不停止现有 Run，仅拒绝新准入并报告 `capacity_exceeded`（Web HTTP 429）。父 Run、普通输入、消息、Spawn 和 follow-up 晋升公平共用名额；Waiting Approval 与 Stopping 直到摘除仍占位。Title/Permission/Activity/Compact 辅助调用不额外占位。容量策略不属于冻结的 `RunOptions`。
 

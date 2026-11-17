@@ -1,3 +1,4 @@
+import asyncio
 import json
 from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Annotated
@@ -13,9 +14,7 @@ if TYPE_CHECKING:
     from investorch.application.spawning import SpawnReceipt
 
 
-def make_spawning_tools(
-    *, submit: Callable[..., Awaitable["SpawnReceipt"]], wait: Callable[..., Awaitable[dict[str, object]]]
-) -> list[FunctionTool]:
+def make_spawning_tools(*, submit: Callable[..., Awaitable["SpawnReceipt"]]) -> list[FunctionTool]:
     @tool(needs_approval=True)
     async def spawn_agent(
         context: ToolContext[AgentContext],
@@ -31,8 +30,7 @@ def make_spawning_tools(
         The child inherits this Run's model unless explicitly overridden, Tools, Skills and independent Permission review, with separate
         history and Run lifecycle. Related Portfolio IDs are copied once, without authorization.
         Recursive delegation shares the Host's global Run limit, including your own Run. A receipt
-        confirms input submission only. Use wait_agents in a later tool round to wait for this Run's children.
-        Use read_session to read their results.
+        confirms input submission. Use list_sessions to check status and read_session to read results.
         Do not automatically reply or stop children when your own Run ends.
 
         Args:
@@ -73,19 +71,8 @@ def make_spawning_tools(
         }
 
     @tool
-    async def wait_agents(
-        context: ToolContext[AgentContext], time: Annotated[float, Field(ge=0, allow_inf_nan=False, strict=True)]
-    ) -> dict[str, object]:
-        """Wait for any running direct child of this Run to finish, then return all tracked child statuses.
-
-        Call after receiving spawn_agent's receipt. An empty child list means this Run has no tracked children.
-        A timeout leaves the children running. Use read_session with a returned Session ID to read the result.
-
-        Args:
-            time: Maximum wait in seconds. Zero reads the current statuses.
-        """
-        return await wait(
-            source_session_id=context.context.session_id, source_run_id=context.context.run_id, seconds=time
-        )
+    async def wait_agents(time: Annotated[float, Field(ge=0, allow_inf_nan=False, strict=True)]) -> None:
+        """Pause this Run for the requested number of seconds while other Runs continue."""
+        await asyncio.sleep(time)
 
     return [spawn_agent, wait_agents]
