@@ -2,7 +2,7 @@ from contextlib import aclosing
 from dataclasses import dataclass
 from typing import Any
 
-from agents import ModelBehaviorError, ModelSettings, OpenAIResponsesModel
+from agents import ModelBehaviorError, ModelSettings, OpenAIResponsesModel, WebSearchTool
 from agents.agent_output import AgentOutputSchemaBase
 from agents.handoffs import Handoff
 from agents.items import ModelResponse, TResponseInputItem
@@ -15,7 +15,7 @@ from openai.types.responses.response import IncompleteDetails
 from openai.types.responses.response_prompt_param import ResponsePromptParam
 
 from investorch.config import AgentModelConfig
-from investorch.config_schema import DEEPSEEK_FLASH_MODELS
+from investorch.config_schema import DEEPSEEK_FLASH_MODELS, DEEPSEEK_PRO_MODEL
 
 
 def response_title(response: Response) -> str | None:
@@ -98,10 +98,18 @@ class DeepSeekResponsesModel(OpenAIResponsesModel):
     ) -> dict[str, Any]:
         if previous_response_id or conversation_id or prompt:
             raise ModelBehaviorError("DeepSeek Responses requires complete local input history.")
+        plain_text = output_schema is None or output_schema.is_plain_text()
+        if (
+            plain_text
+            and self.model == DEEPSEEK_PRO_MODEL
+            and self._selected.web_search
+            and not any(isinstance(tool, WebSearchTool) for tool in tools)
+        ):
+            tools = [*tools, WebSearchTool()]
         request = super()._build_response_create_kwargs(
             system_instructions, input, model_settings, tools, output_schema, handoffs, stream=stream
         )
-        if self.model not in DEEPSEEK_FLASH_MODELS or (output_schema is not None and not output_schema.is_plain_text()):
+        if self.model not in DEEPSEEK_FLASH_MODELS or not plain_text:
             return request
         extra = dict(request["extra_body"] or {})
         reasoning = request["reasoning"]

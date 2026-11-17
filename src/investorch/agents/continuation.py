@@ -43,8 +43,8 @@ def portable_history_filter(history: list[TResponseInputItem], *, deepseek: bool
             if remaining[fingerprint]:
                 remaining[fingerprint] -= 1
                 if isinstance(item, dict):
-                    if item.get("type") == "web_search_call" and (deepseek or is_deepseek_web_call(item)):
-                        if deepseek:
+                    if item.get("type") == "web_search_call":
+                        if deepseek or not is_deepseek_web_call(item):
                             items.append(item)
                         continue
                     if item.get("type") == "reasoning":

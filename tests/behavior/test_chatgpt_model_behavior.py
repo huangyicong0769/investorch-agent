@@ -73,9 +73,12 @@ async def test_main_chatgpt_web_search_uses_session_switch_and_records_sources(t
         "title": "Example Domains",
     }
     tool_types = []
+    inputs = []
 
     def handle(request):
-        tool_types.append({tool["type"] for tool in json.loads(request.content)["tools"]})
+        body = json.loads(request.content)
+        tool_types.append({tool["type"] for tool in body["tools"]})
+        inputs.append(body["input"])
         web_enabled = "web_search" in tool_types[-1]
         answer = {
             "id": "msg_answer",
@@ -115,6 +118,7 @@ async def test_main_chatgpt_web_search_uses_session_switch_and_records_sources(t
 
     assert {"namespace", "web_search"} <= tool_types[0]
     assert "web_search" not in tool_types[1]
+    assert search in inputs[1]
     records = read_session_journal(config.session_journal_dir, session_id)
     assert [(event["name"], event["hosted_status"]) for event in records if event.get("hosted_call_id")] == [
         ("Web search", "completed"),

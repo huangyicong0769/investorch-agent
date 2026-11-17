@@ -300,7 +300,8 @@ async def test_flash_continues_a_session_after_a_local_tool_returns_an_image(tmp
         assert requests_with_image >= 2
 
 
-async def test_streamed_citations_are_positioned_by_code_point_and_kept_once(tmp_path):
+@pytest.mark.parametrize("citations_in_final_envelope", [False, True])
+async def test_streamed_citations_are_positioned_by_code_point_and_kept_once(tmp_path, citations_in_final_envelope):
     config = make_test_config(tmp_path, {"models": {"test": {"type": "deepseek"}}})
     text = "研究🙂值得关注。"
     citation = {
@@ -314,17 +315,19 @@ async def test_streamed_citations_are_positioned_by_code_point_and_kept_once(tmp
     position = {"output_index": 0, "content_index": 0, "item_id": answer["id"]}
 
     def handle(_):
-        return sse(
-            response([answer]),
-            {"type": "response.output_text.delta", "delta": text, "logprobs": [], **position},
-            {
-                "type": "response.output_text.annotation.added",
-                "annotation": citation,
-                "annotation_index": 0,
-                **position,
-            },
-            {"type": "response.output_item.done", "output_index": 0, "item": answer},
-        )
+        records = [{"type": "response.output_text.delta", "delta": text, "logprobs": [], **position}]
+        if not citations_in_final_envelope:
+            records.append(
+                {
+                    "type": "response.output_text.annotation.added",
+                    "annotation": citation,
+                    "annotation_index": 0,
+                    **position,
+                }
+            )
+        done = message(text) if citations_in_final_envelope else answer
+        records.append({"type": "response.output_item.done", "output_index": 0, "item": done})
+        return sse(response([answer]), *records)
 
     clients = ModelConnectionClients(
         config,
@@ -469,7 +472,7 @@ async def test_host_replays_signed_web_item_after_compact_fork_and_reopening(tmp
         ("deepseek", "deepseek-v4-flash", {"web_search": False}, "none", [], ["deepseek_read_url"]),
         ("deepseek", "deepseek-flash", {"safety_check": "high"}, "none", ["function"], ["function"]),
         ("deepseek", "deepseek-flash", {"web_search": False, "read_url": False}, "high", ["function"], ["function"]),
-        ("deepseek", "deepseek-v4-pro", {}, "high", ["function", "web_search"], ["function", "web_search"]),
+        ("deepseek", "deepseek-v4-pro", {}, "high", ["function"], ["function", "web_search"]),
         ("openai_compatible", "deepseek-flash", {}, "high", ["function"], ["function"]),
     ],
 )

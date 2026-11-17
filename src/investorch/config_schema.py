@@ -22,6 +22,7 @@ PERMISSION_MODES = get_args(PermissionMode)
 FOLLOW_UP_BEHAVIORS = get_args(FollowUpBehavior)
 DEEPSEEK_BASE_URL = "https://api.deepseek.com"
 DEEPSEEK_DEFAULT_MODEL = "deepseek-flash"
+DEEPSEEK_PRO_MODEL = "deepseek-v4-pro"
 DEEPSEEK_CONTEXT_WINDOW = 1048576
 DEEPSEEK_FLASH_MODELS = frozenset({DEEPSEEK_DEFAULT_MODEL, "deepseek-v4-flash", "deepseek-v4-flash-vision-exp"})
 

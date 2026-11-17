@@ -123,6 +123,7 @@ async def consume_run_events(
     reported_web_calls: dict[str, ToolCalled] = {}
     response_confirmed = not deepseek
     pending_response_output: list[AssistantMessage | Reasoning] = []
+    pending_finalized_messages: dict[tuple[str, str], tuple[int, _PendingMessage]] = {}
     loop = asyncio.get_running_loop()
 
     async def emit_response_output(event: AssistantMessage | Reasoning) -> None:
@@ -234,6 +235,7 @@ async def consume_run_events(
                     emitted_reasoning.clear()
                     await flush_messages()
                     completed_messages.clear()
+                    pending_finalized_messages.clear()
                     pending_web_calls.clear()
                     reported_web_calls.clear()
                     response_confirmed = not deepseek
@@ -251,6 +253,11 @@ async def consume_run_events(
                 elif event.data.type in {"response.completed", "response.failed", "response.incomplete"}:
                     for item in event.data.response.output or ():
                         await record_web_call(item)
+                        if isinstance(item, ResponseOutputMessage) and (
+                            match := pending_finalized_messages.get((item.id, _message_text(item)))
+                        ):
+                            index, message = match
+                            pending_response_output[index] = message.finish(item)
                     if response_handler is not None:
                         completed = event.data.type == "response.completed" and event.data.response.status in {
                             None,
@@ -266,6 +273,7 @@ async def consume_run_events(
                     for output in pending_response_output:
                         await output_handler(output)
                     pending_response_output.clear()
+                    pending_finalized_messages.clear()
                 elif isinstance(event.data, ResponseTextDeltaEvent):
                     await flush_reasoning()
                     delta = event.data
@@ -293,9 +301,11 @@ async def consume_run_events(
                     await flush_reasoning()
                     item = event.data.item
                     text = _message_text(item)
-                    pending = pending_messages.pop(event.data.output_index, None)
+                    pending = pending_messages.pop(event.data.output_index, None) or _PendingMessage(item.id)
                     completed_messages[item.id, text] += 1
-                    await emit_response_output((pending or _PendingMessage(item.id)).finish(item))
+                    if not response_confirmed:
+                        pending_finalized_messages[item.id, text] = (len(pending_response_output), pending)
+                    await emit_response_output(pending.finish(item))
                 continue
 
             if event.type != "run_item_stream_event":
