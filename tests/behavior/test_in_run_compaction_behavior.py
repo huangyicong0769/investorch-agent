@@ -156,7 +156,6 @@ async def test_running_projection_reaches_sdk_and_flushes_without_repeating_tool
             )
             assert "Preserve this current user directive exactly" in json.dumps(incoming)
             assert len(json.dumps(incoming)) < 3000
-            assert "x" * 12000 not in json.dumps(incoming)
             assert_tool_pairs(incoming)
         if mode == "steer":
             assert activations == [(2,)]

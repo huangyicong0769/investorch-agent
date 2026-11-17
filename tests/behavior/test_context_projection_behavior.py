@@ -54,7 +54,6 @@ def test_incremental_budget_covers_response_output_and_only_new_metadata_spans()
     updated = {**todo, "content": todo["content"].removesuffix("pending") + "completed"}
     changed = {**kwargs, "extra_input": [updated]}
     assert 14000 < budget.estimate(history, **changed) < 14100
-    assert budget.estimate(history, **changed) == budget.estimate(history, **changed)
     assert budget.estimate(history, **{**kwargs, "extra_input": []}) == 14000
     assert budget.estimate(history, **{**kwargs, "instructions": instructions + " New constraint."}) < 14100
     assert budget.estimate(history, **{**kwargs, "tool_schemas": [*schemas, {"name": "new_tool"}]}) < 14100

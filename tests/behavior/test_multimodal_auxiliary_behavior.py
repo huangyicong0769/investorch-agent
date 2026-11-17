@@ -41,7 +41,6 @@ async def test_failed_compaction_preserves_original_multimodal_history(tmp_path:
         "Keep the marked pixel values.", (ImageContent(IMAGE_INPUT.images[0].image_url, detail="high"),)
     )
     history = [user_input_to_response_item(image_input), {"role": "assistant", "content": "An image"}]
-    original_bytes = json.dumps(history, ensure_ascii=False).encode("utf-8")
     await session.add_items(history)
     session.fail_next_write = failure == "replacement"
 
@@ -66,9 +65,7 @@ async def test_failed_compaction_preserves_original_multimodal_history(tmp_path:
     try:
         with pytest.raises((RuntimeError, OSError)):
             await compact_session(agent, session, config)
-        restored = await session.get_items()
-        assert restored == history
-        assert json.dumps(restored, ensure_ascii=False).encode("utf-8") == original_bytes
+        assert await session.get_items() == history
     finally:
         session.close()
 

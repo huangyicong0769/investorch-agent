@@ -418,7 +418,6 @@ async def test_host_replays_signed_web_item_after_compact_fork_and_reopening(tmp
     async with open_application_host(config, manual_approval_handler=approve, enable_activity=False) as host:
         session_id = await host.sessions.create()
         await host.sessions.set_title(session_id, "Web test")
-        await host.runtime.start_run(session_id, "Warm up", run_options()).task
         used = await host.runtime.start_run(session_id, "Please read https://example.org/", run_options()).task
         assert (used.main_usage.tool_search, used.main_usage.tool_fetch, used.main_usage.tool_image_search) == (3, 1, 2)
         assert used.main_usage.total_tokens == 18

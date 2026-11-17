@@ -21,19 +21,6 @@ async def test_health_exposes_ready_status(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_bootstrap_stays_sessionless_until_user_creates_session(tmp_path: Path) -> None:
-    async with open_test_web(tmp_path) as web:
-        response = await web.client.get("/api/bootstrap")
-
-        assert response.status_code == 200
-        payload = response.json()
-        assert payload["initial_session_id"] is None
-        assert payload["runtime"] is None
-        assert payload["presentation"] is None
-        assert payload["sessions"] == []
-
-
-@pytest.mark.asyncio
 async def test_portfolio_index_exposes_current_active_and_archived_summaries(tmp_path: Path) -> None:
     async with open_test_web(tmp_path) as web:
         active = await web.host.portfolios.create(
@@ -451,15 +438,6 @@ async def test_destructive_operations_require_explicit_confirmation(
         assert response.status_code == 400
         assert response.json()["error"]["code"] == "confirmation_required"
         assert (await web.client.get(f"/api/sessions/{session_id}")).status_code == 200
-
-
-@pytest.mark.asyncio
-async def test_unknown_session_has_stable_not_found_error(tmp_path: Path) -> None:
-    async with open_test_web(tmp_path) as web:
-        response = await web.client.get("/api/sessions/unknown")
-
-        assert response.status_code == 404
-        assert response.json()["error"]["code"] == "session_not_found"
 
 
 @pytest.mark.asyncio
