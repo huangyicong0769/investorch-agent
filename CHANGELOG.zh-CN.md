@@ -6,6 +6,10 @@
 
 详见 [0.3.2 发行说明](docs/releases/0.3.2.zh-CN.md)。
 
+## 0.3.1
+
+详见 [0.3.1 发行说明](docs/releases/0.3.1.zh-CN.md)。
+
 ## 0.3.0
 
 ### Session 协作与模型选择

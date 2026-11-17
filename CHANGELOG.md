@@ -6,6 +6,10 @@
 
 See the [0.3.2 release notes](docs/releases/0.3.2.md).
 
+## 0.3.1
+
+See the [0.3.1 release notes](docs/releases/0.3.1.md).
+
 ## 0.3.0
 
 ### Session collaboration and model selection
