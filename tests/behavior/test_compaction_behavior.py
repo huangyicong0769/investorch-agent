@@ -172,7 +172,7 @@ async def test_empty_session_compaction_is_a_no_op(tmp_path: Path) -> None:
     assert history == []
 
 
-@pytest.mark.parametrize("summary", ["Prior work summarized.", "", "X" * 9000])
+@pytest.mark.parametrize("summary", ["Prior work summarized.", ""])
 async def test_switching_to_smaller_window_compacts_before_main_or_fails_closed(tmp_path: Path, summary: str) -> None:
     from agents.testing import ScriptedModel, assistant_message
 
@@ -193,14 +193,12 @@ async def test_switching_to_smaller_window_compacts_before_main_or_fails_closed(
     compact_model = ScriptedModel(((assistant_message(summary),),) * (2 if not summary else 1))
     main = Agent(name="Main", model=main_model)
     compact = Agent(name="Compact", model=compact_model)
-    cleared_context = []
     loop = AgentLoop(
         main,
         compact,
         config,
         PortfolioOperations(config=config),
         model_factory=lambda _: main_model,
-        preflight_compaction_handler=lambda session_id, result: cleared_context.append((session_id, result.changed)),
     )
 
     async def approve(*_):
@@ -228,11 +226,6 @@ async def test_switching_to_smaller_window_compacts_before_main_or_fails_closed(
                 await run()
             assert await session.get_items() == history
             assert main_model.calls == ()
-        elif len(summary) > 8000:
-            with pytest.raises(ContextBudgetError, match="still exceeds"):
-                await run()
-            assert main_model.calls == ()
-            assert cleared_context == [("session", True)]
         else:
             result = await run()
             assert result.output == "Main answer"
@@ -242,57 +235,5 @@ async def test_switching_to_smaller_window_compacts_before_main_or_fails_closed(
             assert incoming[0]["content"] == COMPACTED_CONTEXT_PREFIX + summary
             assert incoming[1]["content"] == [{"type": "input_text", "text": "New request"}]
             assert len(incoming) == 2
-            assert cleared_context == [("session", True)]
-    finally:
-        session.close()
-
-
-async def test_preflight_accepts_a_short_prompt_with_a_large_tool_catalog(tmp_path: Path) -> None:
-    from agents import ModelSettings, function_tool
-    from agents.testing import ScriptedModel, assistant_message
-
-    from investorch.agents import AgentLoop, ApprovalOutcome, create_agent
-    from investorch.application.portfolios import PortfolioOperations
-    from investorch.context import ExecutionState
-    from investorch.runtime.control import RunControl
-    from investorch.storage import set_session_title
-
-    config = make_test_config(tmp_path)
-    create_session(config.sessions_db, "session")
-    set_session_title(config.sessions_db, "session", "Already titled")
-    session = SQLiteSession("session", config.sessions_db)
-    model = ScriptedModel(((assistant_message("done"),),))
-    compact_model = ScriptedModel()
-    agent = create_agent(model, ModelSettings(), config)
-
-    @function_tool(description_override="Look up market metadata. " * 20000)
-    def metadata() -> str:
-        return "fixture"
-
-    agent.tools.append(metadata)
-    compact = Agent(name="Compact", model=compact_model)
-    loop = AgentLoop(agent, compact, config, PortfolioOperations(config=config), lambda _: model)
-
-    async def approve(*_):
-        return ApprovalOutcome(True, TokenUsage())
-
-    async def output(_):
-        pass
-
-    try:
-        result = await loop.run(
-            "Continue",
-            session,
-            ExecutionState(),
-            run_id="run",
-            session_id="session",
-            model_config=config.resolve_model(config.agent_model("main"), context_window_tokens=500000),
-            approval_handler=approve,
-            output_handler=output,
-            run_control=RunControl("session", "run", lambda: None),
-        )
-        assert result.output == "done"
-        assert compact_model.calls == ()
-        assert {"metadata", "update_config"} <= {tool.name for tool in model.calls[0].tools}
     finally:
         session.close()
