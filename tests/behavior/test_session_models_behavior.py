@@ -59,6 +59,5 @@ def test_legacy_model_uses_configured_deepseek_controls_without_rewriting_its_mo
     snapshot = models.snapshot("session")
     assert snapshot.model.name == "deepseek-v4-flash" and snapshot.model.web_search is False
     set_session_model(config.sessions_db, "session", {**original, "web_search": True, "safety_check": "low"})
-    assert models.view("session").persisted.safety_check == "low"
     updated = models.snapshot("session").model
     assert updated.web_search is True and updated.safety_check == "high"

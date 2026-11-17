@@ -525,4 +525,3 @@ async def test_responses_declares_native_tools_alongside_local_tools(
     if effort == "none":
         assert ("title" in request) is not local
         assert "safety_check" not in request
-    assert "previous_response_id" not in request

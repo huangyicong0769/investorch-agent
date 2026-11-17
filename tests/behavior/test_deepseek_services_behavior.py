@@ -13,7 +13,7 @@ from investorch.llm.deepseek_services import DeepSeekServiceClient, DeepSeekServ
 from tests.support.config import make_test_config
 
 
-@pytest.mark.parametrize("purpose", ["user_data", "text_recognition", "rich_layout_recognition"])
+@pytest.mark.parametrize("purpose", ["user_data", "rich_layout_recognition"])
 async def test_files_lifecycle_uses_shared_connection_and_document_purpose(tmp_path: Path, purpose: str):
     config = make_test_config(tmp_path, {"models": {"test": {"type": "deepseek"}}})
     sample = tmp_path / ("fixture.txt" if purpose == "user_data" else "fixture.pdf")

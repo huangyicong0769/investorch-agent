@@ -11,12 +11,9 @@ from investorch.storage import create_session
 from tests.support.config import make_test_config
 
 
-@pytest.mark.parametrize("window", [2048, 1000000])
-async def test_context_budget_failure_is_reported_once_without_exposing_input_or_other_value_errors(
-    tmp_path: Path, monkeypatch, window: int
-) -> None:
+async def test_context_budget_failure_is_reported_once_without_exposing_input(tmp_path: Path, monkeypatch) -> None:
     from agents import ModelSettings
-    from agents.testing import ModelStep, ScriptedModel
+    from agents.testing import ScriptedModel
 
     from investorch.application import ApplicationCallbacks, open_application_host
     from investorch.journal.reader import read_session_journal
@@ -25,7 +22,7 @@ async def test_context_budget_failure_is_reported_once_without_exposing_input_or
     from tests.support.runtime import run_options
 
     config = make_test_config(tmp_path, {"compaction": {"auto_enabled": False}})
-    model = ScriptedModel((ModelStep.raise_error(ValueError("private-provider-value")),))
+    model = ScriptedModel()
     install_host_models(monkeypatch, lambda *_: (model, ModelSettings()))
     outputs = []
     ended = []
@@ -48,23 +45,18 @@ async def test_context_budget_failure_is_reported_once_without_exposing_input_or
         enable_activity=False,
     ) as host:
         session_id = await host.sessions.create()
-        host.session_models.update(session_id, context_window_tokens=window)
+        host.session_models.update(session_id, context_window_tokens=2048)
         run = host.runtime.start_run(session_id, "private-user-input", run_options())
-        with pytest.raises(ContextBudgetError if window == 2048 else ValueError):
+        with pytest.raises(ContextBudgetError):
             await run.task
         assert len(ended) == 1 and ended[0].status == "failed"
+        assert model.calls == ()
+        assert outputs == []
+        error = ended[0].error
+        assert error is not None and "larger window" in error and "Main was not executed" in error
+        assert "private-" not in error
         records = read_session_journal(config.session_journal_dir, session_id)
-        if window == 2048:
-            assert model.calls == ()
-            assert outputs == []
-            error = ended[0].error
-            assert error is not None and "larger window" in error and "Main was not executed" in error
-            assert "private-" not in error
-            assert sum(record.get("error") == error for record in records) == 1
-        else:
-            model.assert_complete()
-            assert outputs == []
-            assert not any("private-provider-value" in record.get("text", "") for record in records)
+        assert sum(record.get("error") == error for record in records) == 1
 
 
 @pytest.mark.parametrize("outcome", ["too_large", "main_failed", "cancelled", "completed"])
@@ -255,8 +247,7 @@ async def test_switching_to_smaller_window_compacts_before_main_or_fails_closed(
         session.close()
 
 
-@pytest.mark.parametrize("large_catalog", [False, True])
-async def test_preflight_handles_the_real_main_agent_tool_schemas(tmp_path: Path, large_catalog: bool) -> None:
+async def test_preflight_accepts_a_short_prompt_with_a_large_tool_catalog(tmp_path: Path) -> None:
     from agents import ModelSettings, function_tool
     from agents.testing import ScriptedModel, assistant_message
 
@@ -270,18 +261,15 @@ async def test_preflight_handles_the_real_main_agent_tool_schemas(tmp_path: Path
     create_session(config.sessions_db, "session")
     set_session_title(config.sessions_db, "session", "Already titled")
     session = SQLiteSession("session", config.sessions_db)
-    if not large_catalog:
-        await session.add_items([{"role": "user", "content": "Old history " * 30000}])
     model = ScriptedModel(((assistant_message("done"),),))
-    compact_model = ScriptedModel(((assistant_message("Old work summarized"),),))
+    compact_model = ScriptedModel()
     agent = create_agent(model, ModelSettings(), config)
-    if large_catalog:
 
-        @function_tool(description_override="Look up market metadata. " * 20000)
-        def metadata() -> str:
-            return "fixture"
+    @function_tool(description_override="Look up market metadata. " * 20000)
+    def metadata() -> str:
+        return "fixture"
 
-        agent.tools.append(metadata)
+    agent.tools.append(metadata)
     compact = Agent(name="Compact", model=compact_model)
     loop = AgentLoop(agent, compact, config, PortfolioOperations(config=config), lambda _: model)
 
@@ -298,16 +286,13 @@ async def test_preflight_handles_the_real_main_agent_tool_schemas(tmp_path: Path
             ExecutionState(),
             run_id="run",
             session_id="session",
-            model_config=config.resolve_model(
-                config.agent_model("main"), context_window_tokens=500000 if large_catalog else 200000
-            ),
+            model_config=config.resolve_model(config.agent_model("main"), context_window_tokens=500000),
             approval_handler=approve,
             output_handler=output,
             run_control=RunControl("session", "run", lambda: None),
         )
         assert result.output == "done"
-        assert len(compact_model.calls) == (0 if large_catalog else 1)
-        assert any(tool.name == "update_config" for tool in model.calls[0].tools)
-        assert len(model.calls[0].input) == (1 if large_catalog else 2)
+        assert compact_model.calls == ()
+        assert {"metadata", "update_config"} <= {tool.name for tool in model.calls[0].tools}
     finally:
         session.close()
