@@ -47,6 +47,7 @@ class ActiveRun:
     phase: RunPhase = "running"
     stopped_pending_steer_count: int = 0
     todos: list[TodoItem] = field(default_factory=list)
+    spawned_runs: list[ActiveRun] = field(default_factory=list, repr=False)
 
 
 class SessionBusyError(RuntimeError):

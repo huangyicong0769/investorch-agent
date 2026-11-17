@@ -396,11 +396,14 @@ async def open_application_host(
                     journal=journal,
                     presentation_state=presentation_state,
                 )
-                from investorch.application.spawning import spawn_agent
+                from investorch.application.spawning import spawn_agent, wait_agents
                 from investorch.tools.spawning import make_spawning_tools
 
                 agent.tools.extend(
-                    make_spawning_tools(submit=partial(spawn_agent, state=state, runtime=runtime, sessions=sessions))
+                    make_spawning_tools(
+                        submit=partial(spawn_agent, state=state, runtime=runtime, sessions=sessions),
+                        wait=partial(wait_agents, runtime=runtime),
+                    )
                 )
                 portfolio_sessions = PortfolioSessionWorkflows(
                     state=state,

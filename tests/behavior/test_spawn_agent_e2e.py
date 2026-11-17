@@ -1,12 +1,14 @@
+import ast
 import asyncio
 
 import pytest
 from agents import ModelSettings, SQLiteSession
 from agents.testing import ModelStep, ScriptedModel, assistant_message, function_call
 
-from investorch.application import open_application_host
+from investorch.application import ApplicationCallbacks, open_application_host
 from investorch.application.review_context import ReviewContext
 from investorch.application.session_queries import read_session
+from investorch.output import ToolCalled
 from investorch.runtime import RunCapacityExceededError
 from investorch.storage import create_session, list_sessions, set_session_title
 from tests.support.config import make_test_config
@@ -97,6 +99,60 @@ async def test_sdk_spawn_requires_permission_and_uses_the_normal_child_agent(tmp
             model.assert_complete()
         finally:
             release_approval.set()
+            release_child.set()
+
+
+async def test_wait_agents_blocks_the_next_parent_turn_until_the_child_finishes(tmp_path, monkeypatch):
+    config = make_test_config(tmp_path, {"backtest": {"use_cnequity": False}, "compaction": {"auto_enabled": False}})
+    create_session(config.sessions_db, "parent")
+    set_session_title(config.sessions_db, "parent", "Parent")
+    waiting, release_child = asyncio.Event(), asyncio.Event()
+
+    async def respond(call):
+        if any(item.get("role") == "user" and "child research" in str(item) for item in call.input):
+            await release_child.wait()
+            return (assistant_message("child complete"),)
+        outputs = [item for item in call.input if item.get("type") == "function_call_output"]
+        if not outputs:
+            return (function_call("spawn_agent", {"task": "child research", "title": "Child"}, call_id="spawn"),)
+        if len(outputs) == 1:
+            return (function_call("wait_agents", {"time": 2}, call_id="wait"),)
+        spawn, waited = (ast.literal_eval(item["output"]) for item in outputs)
+        assert waited == {
+            "timed_out": False,
+            "children": [{"session_id": spawn["session_id"], "run_id": spawn["run_id"], "status": "completed"}],
+        }
+        return (assistant_message("parent received completion"),)
+
+    model = ScriptedModel(tuple(ModelStep.respond(respond) for _ in range(4)))
+    install_host_models(
+        monkeypatch, lambda _config, role: (model if role == "main" else ScriptedModel(), ModelSettings())
+    )
+
+    async def approve(request, _reason):
+        assert request.tool_name == "spawn_agent"
+        return True
+
+    async def observe(output, _seq):
+        if isinstance(output.event, ToolCalled) and output.event.name == "wait_agents":
+            waiting.set()
+
+    async with open_application_host(
+        config,
+        manual_approval_handler=approve,
+        callbacks=ApplicationCallbacks(handle_output=observe),
+        create_initial_session=False,
+        enable_activity=False,
+    ) as host:
+        parent = host.runtime.start_run("parent", "delegate", run_options())
+        try:
+            await asyncio.wait_for(waiting.wait(), 3)
+            completed, _ = await asyncio.wait((parent.task,), timeout=0.05)
+            assert not completed
+            release_child.set()
+            assert (await asyncio.wait_for(parent.task, 3)).output == "parent received completion"
+            model.assert_complete()
+        finally:
             release_child.set()
 
 
