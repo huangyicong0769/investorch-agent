@@ -26,7 +26,7 @@ from investorch.output import AssistantMessage, OutputEvent, OutputHandler, cons
 from investorch.output.stream import assistant_message_from_result
 from investorch.storage.sessions import get_session_title
 
-from .compact import CompactionResult, compact_session, session_history_restore_failed
+from .compact import CompactionResult, _is_compacted_summary, compact_session, session_history_restore_failed
 from .context_projection import ContextBudget, ContextProjection, ContextProjectionBudgetError
 from .continuation import is_deepseek_web_call, portable_history_filter
 from .usage import TokenUsage, UsageHandler, UsageTracker
@@ -180,18 +180,21 @@ def _run_model_input_filter(
                     }
                 )
         if projection is None:
-            return ModelInputData(input=[*filtered.input, *extra_input], instructions=filtered.instructions)
-        try:
-            prepared = await projection.prepare(
-                filtered.input,
-                instructions=filtered.instructions,
-                tool_schemas=_tool_schemas(tools),
-                context_window_tokens=context_window_tokens,
-                extra_input=extra_input,
-            )
-        except ContextProjectionBudgetError as error:
-            raise ContextBudgetError(error.estimated_tokens, error.budget_tokens, during_run=True) from error
-        return ModelInputData(input=prepared, instructions=filtered.instructions)
+            prepared = [*filtered.input, *extra_input]
+        else:
+            try:
+                prepared = await projection.prepare(
+                    filtered.input,
+                    instructions=filtered.instructions,
+                    tool_schemas=_tool_schemas(tools),
+                    context_window_tokens=context_window_tokens,
+                    extra_input=extra_input,
+                )
+            except ContextProjectionBudgetError as error:
+                raise ContextBudgetError(error.estimated_tokens, error.budget_tokens, during_run=True) from error
+        # Send summaries as context. Providers can interpret an assistant tail as reply prefill.
+        model_input = [{**item, "role": "user"} if _is_compacted_summary(item) else item for item in prepared]
+        return ModelInputData(input=model_input, instructions=filtered.instructions)
 
     return filter_input
 
