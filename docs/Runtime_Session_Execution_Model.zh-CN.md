@@ -162,6 +162,8 @@ Main 与 auxiliary model usage 在当前进程中按 Session 累积。Auxiliary 
 
 每次新 Run 将已有消息和函数 `call_id` 放入输入副本。副本去除不透明 reasoning，并按目标 Provider 的协议处理工具记录。
 
+组装 Main 请求时，本轮生成和已存储的压缩摘要都作为带标记的 `user` 上下文传入模型。
+
 ## 后台 Job
 
 `ExecutionState` 全局拥有受管 job。每个 job 保存 owner Session 和 Run ID 以便归属。Job listing 是 Application 全局的，job 可以比来源 Run 存活更久。

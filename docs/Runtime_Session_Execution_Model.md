@@ -164,6 +164,8 @@ Post-answer automatic compaction uses the active Run window and last Main reques
 
 Each new Run copies earlier messages and function `call_id` links into the input. It strips opaque reasoning and handles tool records according to the target provider's protocol.
 
+Main requests send both newly generated and stored compaction summaries as marked `user` context.
+
 ## Background jobs
 
 `ExecutionState` owns managed jobs globally. Each job records owner Session and Run IDs for attribution. Job listing is application-global, and jobs may outlive their creator Run.
