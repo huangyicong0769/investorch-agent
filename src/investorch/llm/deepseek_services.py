@@ -162,6 +162,8 @@ def _opus_duration(audio: bytes) -> float | None:
 def _audio_duration(audio: bytes) -> float | None:
     if audio.startswith(b"OggS"):
         return _opus_duration(audio)
+    if not _valid_wav(audio):
+        return None
     try:
         with wave.open(BytesIO(audio), "rb") as wav:
             rate = wav.getframerate()

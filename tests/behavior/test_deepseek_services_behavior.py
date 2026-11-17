@@ -135,6 +135,9 @@ async def test_asr_uploads_pcm16_and_validates_format_and_duration(tmp_path: Pat
         write_wav(8000)
         result = await client.transcribe(sample)
         assert (result.request_id, result.text, result.duration_ms) == ("asr-1", "Example", 1000)
+        sample.write_bytes(sample.read_bytes()[:46])
+        with pytest.raises(DeepSeekServiceError, match="invalid_audio"):
+            await client.transcribe(sample)
         write_wav(8000 * 120 + 1)
         with pytest.raises(DeepSeekServiceError, match="audio_too_long"):
             await client.transcribe(sample)
