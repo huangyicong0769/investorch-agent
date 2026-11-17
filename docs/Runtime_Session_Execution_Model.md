@@ -94,7 +94,7 @@ After sender approval, `send_message` uses the same `submit_user_input` routing.
 
 Source Session/Run IDs travel inside immutable `UserInput.origin`, separately from the target Run ID. Initial input, Steer continuation, Queue promotion, and terminal Steer fallback use the same SDK conversion and Journal event types. Effective Agent instructions participate in the same frozen Review history. A generic `user_input_committed` view notification is emitted after `user_message` is readable; history/live reconciliation uses Journal sequence numbers.
 
-Self, missing, archived, stopping, and reserved destinations or unresolved pending work fail through existing lifecycle rules. There is no retry queue, automatic reply, completion callback, or persistent mailbox. Cancelling a sender during pending approval leaves the target untouched; after submission, the target owns its accepted input and Run. Fork copies optional origin with history; Compact continues to leave Journal unchanged.
+Self, missing, archived, stopping, and reserved destinations or unresolved pending work fail through existing lifecycle rules. Cancelling a sender during pending approval leaves the target untouched. The target takes ownership of the input and Run after submission. Fork copies optional origin with the Journal history.
 
 ## Stop and cancellation
 
@@ -135,7 +135,7 @@ Agent Conversation history is a separate flat projection: accepted user messages
 Every `ApprovalRequest` carries an immutable approval ID, Run ID, Session ID, and captured permission mode. Resolution targets that exact request.
 
 - `manual`: always ask the user.
-- In `review` mode, the Permission Agent evaluates authorization and side effects. Main verifies implementation and research correctness. Review failures and invalid output fall back to asking the user.
+- In `review` mode, the Permission Agent evaluates authorization and side effects. Review failures and invalid output fall back to asking the user.
 
 The approval decision is journaled for the originating Session. Multiple Sessions may wait for approval concurrently.
 
@@ -191,8 +191,6 @@ Spawn inherits the parent Active Run model, never its newer Session Draft. Same-
 `spawn_agent(task, title?)` uses existing Permission/HITL approval and ordinary `submit_user_input`. Children inherit the parent Run model by default, with the same Tools and Skills and independent approval rules, with separate continuation and Journal. Initial input remains `user` role with trusted SDK Session/Run/call provenance. The creation transaction records independent Spawn lineage and a one-time copy of related Portfolio IDs; it copies neither parent history nor Portfolio/Ledger facts or authorization. Forks do not inherit Spawn lineage, and parent completion, stop or archive never cascades to children.
 
 The tool-call identity yields a stable child ID. Existing workflow acceptance, Runtime and Journal facts prevent duplicate initial submission. Proven capacity/shutdown refusal rolls back an unstarted child; uncertain acceptance retains its identity for diagnosis. A Spawn receipt confirms submission. Read results through `read_session`.
-
-`wait_agents(time)` pauses the calling Run for `time` seconds while other Runs continue. Use `list_sessions` to check status and `read_session` to read results.
 
 All new top-level Runs share the synchronous admission gate in `AgentRuntime._start_run()`. `runtime.max_concurrent_runs` defaults to 3 and accepts strict positive integers. Settings or local TOML may hot-apply it; reducing the limit leaves existing Runs untouched and rejects new admission with `capacity_exceeded` (Web HTTP 429). Parents, ordinary input, messaging, Spawn and follow-up promotion use the same slots. Waiting Approval and Stopping continue to occupy slots until removal. Auxiliary Title/Permission/Activity/Compact calls consume no additional slots. The policy is separate from frozen `RunOptions`.
 

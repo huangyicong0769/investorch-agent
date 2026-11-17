@@ -104,7 +104,7 @@ ChatGPT connections use verified local OAuth authorization and the official dire
 The Main Agent currently receives:
 
 - workspace and execution: `explore`, `edit`, `delete`, `exec_command`;
-- utility and state: `calculate`, `get_current_time`, `write_todos`;
+- Utility and state tools include `calculate`, `get_current_time`, `write_todos`, and `wait_agents`.
 - Session discovery and history: `list_sessions`, `read_session`;
 - Session input submission: `send_message` (sender approval required);
 - configuration: `get_config`, `update_config`;
@@ -174,7 +174,7 @@ For example, discover a complete target ID with `list_sessions`, then call `send
 
 Each immutable `UserInput` carries an immutable `InputOrigin`. External inputs default to `user`; the Tool derives Agent Session/Run IDs from SDK context. Agent origin is optional metadata on existing `user_message`/`user_steer` events, with the target Run ID unchanged. SDK input stays `role=user` and adds a separate application-generated provenance text item before the original text/images. Review includes the source on effective instructions under its existing frozen boundary and Steer activation policy. Conversation reads retain `type=user`, source metadata and image metadata; old history needs no migration.
 
-Web/TUI reuse user-message components with a small Agent source label and full-ID navigation/copy or resume guidance. A generic Journal-committed input notification feeds existing history reconciliation and TUI sequence deduplication. Receipts confirm only Run/Steer/Queue acceptance; [Runtime](Runtime_Session_Execution_Model.md#agent-message-submission) defines their different persistence guarantees. Messaging adds no mailbox, task registry, completion callback, automatic reply, spawning, or cross-process transport. Concurrent Sessions still share Workspace and managed resources.
+Web/TUI reuse user-message components with a small Agent source label and full-ID navigation/copy or resume guidance. A generic Journal-committed input notification feeds existing history reconciliation and TUI sequence deduplication. Receipts confirm Run/Steer/Queue acceptance. See the [Runtime persistence guarantees](Runtime_Session_Execution_Model.md#agent-message-submission).
 
 ## Session spawning
 

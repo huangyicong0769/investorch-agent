@@ -98,7 +98,7 @@ ChatGPT 连接使用验证后的本地 OAuth 授权与官方 direct Responses En
 Main Agent 当前获得：
 
 - Workspace 与执行：`explore`、`edit`、`delete`、`exec_command`；
-- Utility 与状态：`calculate`、`get_current_time`、`write_todos`；
+- 通用工具与状态管理包括 `calculate`、`get_current_time`、`write_todos` 和 `wait_agents`。
 - Session 发现与历史：`list_sessions`、`read_session`；
 - Session 输入提交：`send_message`（需要发送方审批）；
 - 配置：`get_config`、`update_config`；
@@ -168,7 +168,7 @@ Host 一次注册 `send_message`，绑定本 Host 的 AppState、Runtime 与已�
 
 不可变 `UserInput` 携带不可变 `InputOrigin`。外部输入默认 `user`，Tool 从 SDK context 取得 Agent 的 Session/Run ID。Agent 来源作为已有 `user_message`/`user_steer` 的可选元数据，目标 Run ID 保持原含义。SDK 输入仍为 `role=user`，在原始文本/图片前增加独立的应用生成来源说明。Review 在已有冻结边界与 Steer 生效规则下标注有效指示来源。Conversation 仍返回 `type=user`，保留来源和图片元信息；旧历史无需迁移。
 
-Web/TUI 复用普通消息组件，仅增加小型 Agent 来源标记及完整 ID 导航/复制或 resume 提示。通用的 Journal 输入提交后通知接入已有历史同步与 TUI seq 去重。回执只确认 Run/Steer/Queue 接受，[Runtime](Runtime_Session_Execution_Model.zh-CN.md#agent-消息提交)说明各自持久化语义。消息不增加 Mailbox、任务 registry、完成回调、自动回复、spawn 或跨进程传输。并发 Session 仍共享 Workspace 与受管资源。
+Web/TUI 复用普通消息组件，显示 Agent 来源标记及完整 ID 导航、复制或 resume 提示。通用的 Journal 输入提交后通知接入已有历史同步与 TUI seq 去重。回执确认 Run/Steer/Queue 接受。详见 [Runtime 持久化语义](Runtime_Session_Execution_Model.zh-CN.md#agent-消息提交)。
 
 ## Session 派生
 

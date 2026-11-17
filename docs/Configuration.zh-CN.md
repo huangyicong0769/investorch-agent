@@ -17,7 +17,7 @@
 
 ## API key 完整示例
 
-下列配置可通过结构校验。调用前请替换 key、模型 ID 与窗口。`128000` 是示例值。
+调用前请填写 API key、模型 ID 和实际窗口。`128000` 是示例值。
 
 ```toml
 [models.openai_api]
@@ -183,7 +183,7 @@ Web 输入框右下显示模型与思考强度。点选模型或在 **Thinking**
 
 ## 操作者边界
 
-Agent Tools 可读取脱敏配置，并经审批修改普通设置；`models/agents/secrets/auth/permission` 及已有 Session 模型由操作者管理，Agent 配置工具不能修改。配置只有两层，不增加 `providers` 或 `agents.spawned`。0.3.0 不将 InvestOrch 作为 MCP server 对外提供服务，已有 MCP client 集成继续保留。
+Agent Tools 可读取脱敏配置，并经审批修改普通设置。`models`、`agents`、`secrets`、`auth`、`permission` 和已有 Session 模型由操作者管理。
 
 Doctor/升级预检是离线检查，只证明结构与凭据存在性，不证明 Token 当前有效或模型已经调用成功。内置 Skill 更新仍需显式 `investorch --update` 并重启。
 
