@@ -2,9 +2,9 @@
 
 [简体中文](CHANGELOG.zh-CN.md)
 
-## 0.3.1
+## 0.3.2
 
-See the [0.3.1 release notes](docs/releases/0.3.1.md).
+See the [0.3.2 release notes](docs/releases/0.3.2.md).
 
 ## 0.3.0
 
