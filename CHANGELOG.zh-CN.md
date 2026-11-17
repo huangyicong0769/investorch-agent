@@ -6,7 +6,16 @@
 
 - 接入 DeepSeek 应用 API 套件，支持原生搜索、网页读取、内容审核、Files、文档解析、OCR、ASR 和 HTTP 与 WebSocket TTS。
 - 新 DeepSeek 连接默认使用 `deepseek-flash`，支持按 Session 控制联网、点击引用和查看服务端计费次数。
+- Sign in with ChatGPT 的 Main 支持原生联网、搜索进度和来源引用。Web 的 Session 菜单支持复制完整 ID。
 - 未命名 Session 收到主模型返回的标题时立即保存。主回答完成后仍无标题时，由 Title Agent 命名。
+
+### 修复
+
+- 大型工具结果触发自动压缩后，Run 可以继续执行。修正大型工具清单的上下文估算，每次 Run 失败只显示一次原因。
+- DeepSeek Pro 可调用标准联网工具。后续 Run 保留联网调用和来源引用。签名联网轮次超过可用窗口时，Compact 可将其压缩成摘要。
+- DeepSeek 关闭思考时保留本地工具。请求保留工具返回的图片，并暂缓与图片不兼容的 Flash 联网能力。
+- API key 在各连接卡片的遮盖输入框中填写，新建 DeepSeek 连接各用独立的密钥引用。Web 模型选择器按连接折叠，其他 Provider 保持可见。
+- ASR 上传前拒绝截断的 WAV。Main 提示词约束 MCP 查询范围，并引导批量数据落盘后本地计算。
 
 详见 [0.3.1 发行说明](docs/releases/0.3.1.zh-CN.md)。
 

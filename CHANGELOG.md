@@ -6,7 +6,16 @@
 
 - Integrate the DeepSeek application API suite, including native search and URL reading, content safety, Files and document parsing, OCR, ASR, and HTTP and WebSocket TTS.
 - Default new DeepSeek connections to `deepseek-flash`. Add per-Session web controls, clickable citations, and billed tool counts.
+- Enable native Web Search for Main on Sign in with ChatGPT and show sources and search progress. Add Copy session ID to the Web session menu.
 - Save a Main model title as soon as it arrives in an unnamed Session. Use the Title Agent if the Main answer completes with the Session still unnamed.
+
+### Fixed
+
+- Keep Runs moving after context compaction, including after large tool results. Account for large tool catalogs in the context estimate and show each Run failure once.
+- Enable standard hosted search for DeepSeek Pro. Preserve web-call history and source citations through follow-up Runs, and compact signed search history when it exceeds the available window.
+- Keep local tools available when DeepSeek thinking is off. Preserve tool images and pause incompatible Flash web tools while those images appear in the request.
+- Keep API keys masked and give new DeepSeek connections separate secret references. Group the Web model picker by connection so other providers stay visible.
+- Reject truncated WAV files before transcription. Guide Main to process bulk data in workspace files and keep MCP queries bounded.
 
 See the [0.3.1 release notes](docs/releases/0.3.1.md).
 

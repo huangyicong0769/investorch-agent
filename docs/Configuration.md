@@ -83,7 +83,7 @@ DEEPSEEK_API_KEY = "replace-locally-with-your-api-key"
 | Web search and URL reading | Main Flash text requests enable `web_search` and `read_url` by default. Both are off for auxiliary Agents by default. Set them per supported role in **Agent Defaults** or for the next Run through the Session model menu. In TUI/plain, `/model web off` disables both for the next Run. |
 | Auto title | Flash can return a title in the Main response to a user Run in an unnamed Session. InvestOrch saves the first usable title immediately. Set `auto_title = false` under `[agents.main]` to disable automatic naming. |
 | Content safety | `safety_check = "high"` enables DeepSeek input and output review for Flash text requests. `"low"` selects the API’s default checks. |
-| Pro and legacy models | `deepseek-v4-pro` uses standard Responses, including standard search events for explicitly supplied `web_search` tools. Flash extensions also apply to the legacy Flash aliases on a direct DeepSeek connection. |
+| Pro and legacy models | For `deepseek-v4-pro`, **Web search** enables the standard Responses search tool and its progress events. Flash extensions also apply to the legacy Flash aliases on a direct DeepSeek connection. |
 
 Copying Main settings in **Agent Defaults** preserves the auxiliary roles’ web switches. The Title Agent names Sessions from conversation history and omits web tools from its requests.
 
@@ -93,7 +93,7 @@ DeepSeek Responses is stateless, so each request carries its context. InvestOrch
 
 Web and TUI use the returned events to update each tool call. The `kind` field distinguishes Flash search, page reading and image search. Usage shows billed operations and reported safety tokens. The provider decides when to search and may charge for tools used before a failure. [DeepSeek Web Tools](https://api-docs.deepseek.com/guides/web_tools) · [Models and pricing](https://api-docs.deepseek.com/quick_start/pricing/)
 
-Main continuation with DeepSeek Responses reuses the original web calls with their IDs, `kind` and `signature`. When a signed web round exists, Compact retains the latest one. The Title Agent receives portable conversation history with DeepSeek-specific web items and reasoning removed.
+Main continuation with DeepSeek Responses reuses the original web calls with their IDs, `kind` and `signature`. Compact retains the latest signed web round when it fits the input budget. The Title Agent receives portable conversation history with DeepSeek-specific web items and reasoning removed.
 
 Files, OCR, ASR and TTS can be called through `DeepSeekServiceClient.from_config(config, "deepseek")` as an async context manager. Use `upload_file`, `list_files`, `get_file` and `delete_file` to manage files. `input_file(file_id)` creates the Responses content part for text and parsed documents. Use `ocr`, `transcribe`, `synthesize` and `stream_speech` for the standalone services. Uploads default to a one-hour expiry. `stream_speech` accepts an async iterable of text chunks and yields audio frames.
 
@@ -179,7 +179,7 @@ Each accepted Run freezes the connection, model, effort and positive window. Its
 
 When the selected window is too small for continuation plus input, preflight compaction runs before Main inference. If it fails or the input still cannot fit, Main does not run. Post-answer automatic compaction remains available. Both preserve the complete JSONL Journal.
 
-At each new Run, the request copy of prior continuation omits opaque reasoning and provider response-item IDs while retaining messages and function `call_id` links. SQLite and Journal originals remain intact; new reasoning within that Run remains available. This also applies when the connection is unchanged: previous opaque reasoning cannot be reused across Runs, which may change continuity or caching efficiency. See [Runtime](Runtime_Session_Execution_Model.md) for execution details.
+Each new Run receives messages, function `call_id` links, and compatible web calls with their IDs. Prior opaque reasoning and other response-item IDs stay in storage. Reasoning produced within a Run stays available for its tool continuations. See [Runtime](Runtime_Session_Execution_Model.md) for execution details.
 
 ## Operator ownership
 

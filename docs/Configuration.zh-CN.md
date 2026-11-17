@@ -83,7 +83,7 @@ DEEPSEEK_API_KEY = "replace-locally-with-your-api-key"
 | 原生搜索和 URL 阅读 | Main 的 Flash 文本请求默认启用 `web_search` 和 `read_url`。所有辅助 Agent 默认关闭两项。可在 **Agent Defaults** 按角色设置。Session 模型菜单的改动在下一次 Run 生效，TUI/plain 可用 `/model web off` 为下一次 Run 关闭两项。 |
 | 自动标题 | 未命名 Session 的 Flash 用户 Run 可在 Main 请求中获取标题。首个有效标题立即保存。可在 `[agents.main]` 下设 `auto_title = false` 关闭自动命名。 |
 | 内容审核 | `safety_check = "high"` 启用 Flash 文本请求的输入与输出审核。`"low"` 使用 API 默认检查。 |
-| Pro 与旧模型 | `deepseek-v4-pro` 使用标准 Responses。声明 `web_search` 时，服务端通过标准搜索事件报告进度。直连 DeepSeek 时，Flash 的旧别名也可使用 Flash 扩展。 |
+| Pro 与旧模型 | `deepseek-v4-pro` 的 **Web search** 开关启用标准 Responses 搜索工具和进度事件。直连 DeepSeek 时，Flash 的旧别名也可使用 Flash 扩展。 |
 
 在 **Agent Defaults** 复制主模型设置时，各辅助角色保留自己的联网开关。Title Agent 始终使用会话历史生成标题，请求省略联网工具。
 
@@ -93,7 +93,7 @@ DeepSeek Responses 是无状态接口，每次请求都携带上下文。InvestO
 
 Web 和 TUI 根据返回的事件更新同一条工具调用的状态，并用 `kind` 区分 Flash 的搜索、网页读取和图片搜索。用量面板显示 DeepSeek 返回的计费次数和审核 Token。是否联网由 DeepSeek 决定，失败前执行的操作也可能计费。 [DeepSeek 联网文档](https://api-docs.deepseek.com/guides/web_tools) · [官方定价](https://api-docs.deepseek.com/quick_start/pricing/)
 
-DeepSeek Responses 的 Main 续接会回传原始联网调用及其 ID、`kind` 和 `signature`。存在带签名的联网轮次时，Compact 保留最近一轮。Title Agent 的输入先转换为可移植会话历史，去除 DeepSeek 专用联网条目和推理记录。
+DeepSeek Responses 的 Main 续接会回传原始联网调用及其 ID、`kind` 和 `signature`。输入预算允许时，Compact 保留最近一轮带签名的联网记录。Title Agent 的输入先转换为可移植会话历史，去除 DeepSeek 专用联网条目和推理记录。
 
 在 Python 中以异步上下文管理器调用 `DeepSeekServiceClient.from_config(config, "deepseek")`。文件接口为 `upload_file`、`list_files`、`get_file` 和 `delete_file`，上传默认一小时过期。文本文件或已解析文档用 `input_file(file_id)` 构造 Responses 内容项。独立服务接口为 `ocr`、`transcribe`、`synthesize` 和 `stream_speech`。`stream_speech` 接收异步文本分块，返回音频帧。
 
@@ -179,7 +179,7 @@ Web 输入框右下显示模型与思考强度。点选模型或在 **Thinking**
 
 如果目标窗口容纳不下 continuation 与输入，Main 推理前先压缩；失败或仍无法容纳时不执行 Main。回答后的自动压缩仍保留。两种压缩均保留完整 JSONL Journal。
 
-每次新 Run 的请求副本会剔除旧 continuation 中不透明 reasoning 和 Provider response-item ID，保留消息及函数 `call_id` 关联；SQLite/Journal 原件不变，本 Run 新生成的 reasoning 仍可继续使用。即使连接未变也执行这一处理，因此不会跨 Run 复用旧 opaque reasoning，可能影响连续性或缓存效率。执行契约见 [Runtime](Runtime_Session_Execution_Model.zh-CN.md)。
+每次新 Run 收到消息、函数 `call_id` 关联和兼容的原始联网调用及其 ID。过去的不透明推理和其他响应条目的 ID 留在存储中。本 Run 内生成的推理可用于该 Run 的工具续轮。执行契约见 [Runtime](Runtime_Session_Execution_Model.zh-CN.md)。
 
 ## 操作者边界
 
