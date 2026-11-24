@@ -233,12 +233,23 @@ async def test_namespaced_function_executes_through_sdk_and_its_result_is_replay
     ) as client:
         agent = Agent(name="Main", model=ChatGPTResponsesModel("test-model", client), tools=chatgpt_tools([report]))
         result = await Runner.run(agent, "Report", run_config={"tracing_disabled": True})
+        await Runner.run(
+            agent,
+            [*result.to_input_list(), {"role": "user", "content": "What was reported?"}],
+            run_config={"tracing_disabled": True},
+        )
     assert called == ["approved"]
     assert result.final_output == "done"
     assert requests[0]["tools"][0]["type"] == "namespace"
-    assert any(
-        item.get("type") == "function_call_output" and item["output"] == "recorded" for item in requests[1]["input"]
-    )
+    for request in requests[1:]:
+        (call,) = [item for item in request["input"] if item.get("type") == "function_call"]
+        (tool_output,) = [item for item in request["input"] if item.get("type") == "function_call_output"]
+        assert call["call_id"] == tool_output["call_id"] == "call_1"
+        assert call["arguments"] == '{"value":"approved"}'
+        assert tool_output["output"] == "recorded"
+        assert "parsed_arguments" not in call
+    (message,) = [item for item in requests[2]["input"] if item.get("role") == "assistant"]
+    assert message["content"] == [{"type": "output_text", "text": "done", "annotations": []}]
 
 
 async def test_truncated_stream_cannot_be_reported_as_success():

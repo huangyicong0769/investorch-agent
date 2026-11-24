@@ -122,6 +122,28 @@ def _settings(settings: ModelSettings) -> ModelSettings:
     )
 
 
+def _chatgpt_input_item(item: TResponseInputItem) -> TResponseInputItem:
+    if not isinstance(item, dict):
+        return item
+    if item.get("role") == "system":
+        return {**item, "role": "developer"}
+    # The stream collector adds SDK-only fields that the Responses API rejects on replay.
+    if item.get("type") == "function_call" and "parsed_arguments" in item:
+        return {key: value for key, value in item.items() if key != "parsed_arguments"}
+    content = item.get("content")
+    if item.get("role") == "assistant" and isinstance(content, list):
+        return {
+            **item,
+            "content": [
+                {key: value for key, value in part.items() if key != "parsed"}
+                if isinstance(part, dict) and part.get("type") == "output_text" and "parsed" in part
+                else part
+                for part in content
+            ],
+        }
+    return item
+
+
 class OpenAIEndpointResponsesModel(OpenAIResponsesModel):
     def _build_response_create_kwargs(
         self,
@@ -188,14 +210,7 @@ class ChatGPTResponsesModel(OpenAIEndpointResponsesModel):
                     raise ModelBehaviorError("Deferred tool search is unavailable through ChatGPT plan usage.")
             elif not isinstance(tool, WebSearchTool):
                 raise ModelBehaviorError("This hosted tool is unavailable through ChatGPT plan usage.")
-        request_input = (
-            input
-            if isinstance(input, str)
-            else [
-                {**item, "role": "developer"} if isinstance(item, dict) and item.get("role") == "system" else item
-                for item in input
-            ]
-        )
+        request_input = input if isinstance(input, str) else [_chatgpt_input_item(item) for item in input]
         settings = _settings(model_settings)
         choice = settings.tool_choice
         if isinstance(choice, str) and choice not in {"auto", "required", "none"}:
