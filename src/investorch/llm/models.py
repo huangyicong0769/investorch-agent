@@ -2,13 +2,24 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from dataclasses import replace
+from inspect import isawaitable
 from typing import Any
 
-from agents import FunctionTool, ModelBehaviorError, ModelSettings, OpenAIResponsesModel, WebSearchTool, tool_namespace
+from agents import (
+    FunctionTool,
+    Model,
+    ModelBehaviorError,
+    ModelSettings,
+    OpenAIResponsesModel,
+    RunConfig,
+    WebSearchTool,
+    tool_namespace,
+)
 from agents.agent_output import AgentOutputSchemaBase
 from agents.handoffs import Handoff
 from agents.items import ModelResponse, TResponseInputItem, TResponseStreamEvent
 from agents.models.interface import ModelTracing
+from agents.run_config import CallModelData, ModelInputData
 from agents.tool import Tool
 from agents.usage import Usage
 from openai import APIStatusError, AsyncOpenAI, omit
@@ -145,36 +156,37 @@ def _chatgpt_input_item(item: TResponseInputItem) -> TResponseInputItem:
 
 
 class OpenAIEndpointResponsesModel(OpenAIResponsesModel):
-    def _build_response_create_kwargs(
-        self,
-        system_instructions: str | None,
-        input: str | list[TResponseInputItem],
-        model_settings: ModelSettings,
-        tools: list[Tool],
-        output_schema: AgentOutputSchemaBase | None,
-        handoffs: list[Handoff],
-        previous_response_id: str | None = None,
-        conversation_id: str | None = None,
-        stream: bool = False,
-        prompt: ResponsePromptParam | None = None,
-    ) -> dict[str, Any]:
-        request = super()._build_response_create_kwargs(
-            system_instructions,
-            input,
-            model_settings,
-            tools,
-            output_schema,
-            handoffs,
-            previous_response_id=previous_response_id,
-            conversation_id=conversation_id,
-            stream=stream,
-            prompt=prompt,
+    """Identify Responses models connected to the official OpenAI endpoint."""
+
+
+def with_developer_prompt(
+    model: str | Model | None, run_config: RunConfig | dict[str, Any] | None = None
+) -> RunConfig | dict[str, Any] | None:
+    """Put the stable prompt in the first input item before calling GPT-6.2."""
+    config = run_config if run_config is not None else {}
+    if isinstance(config, RunConfig):
+        model = config.model or model
+        existing_filter = config.call_model_input_filter
+    else:
+        model = config.get("model") or model
+        existing_filter = config.get("call_model_input_filter")
+    if not isinstance(model, OpenAIEndpointResponsesModel) or not model.model.startswith("gpt-6.2-"):
+        return run_config
+
+    async def filter_input(data: CallModelData) -> ModelInputData:
+        prepared = existing_filter(data) if existing_filter is not None else data.model_data
+        if isawaitable(prepared):
+            prepared = await prepared
+        if not prepared.instructions:
+            return prepared
+        return ModelInputData(
+            input=[{"role": "developer", "content": prepared.instructions}, *prepared.input],
+            instructions=None,
         )
-        if system_instructions and self.model.startswith("gpt-6.2-"):
-            # GPT-6.2 appends top-level instructions after input.
-            request["input"] = [{"role": "developer", "content": system_instructions}, *request["input"]]
-            request.pop("instructions", None)
-        return request
+
+    if isinstance(config, RunConfig):
+        return replace(config, call_model_input_filter=filter_input)
+    return {**config, "call_model_input_filter": filter_input}
 
 
 class ChatGPTResponsesModel(OpenAIEndpointResponsesModel):

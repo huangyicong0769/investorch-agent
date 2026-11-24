@@ -7,6 +7,7 @@ from typing import Any
 from agents import Agent, ModelResponse, RunContextWrapper, RunHooks, Runner, RunResult, Usage
 
 from investorch.llm.deepseek import DeepSeekResponseError
+from investorch.llm.models import with_developer_prompt
 
 
 @dataclass(frozen=True, slots=True)
@@ -129,6 +130,7 @@ async def run_with_usage(
     if not isinstance(context, RunContextWrapper):
         context = RunContextWrapper(context=context)
     tracker = UsageTracker(usage_handler)
+    kwargs["run_config"] = with_developer_prompt(agent.model, kwargs.get("run_config"))
     try:
         return await Runner.run(agent, input, context=context, hooks=tracker, **kwargs)
     except DeepSeekResponseError as error:

@@ -6,17 +6,18 @@ from dataclasses import replace
 
 import httpx2
 import pytest
-from agents import Agent, ModelBehaviorError, ModelSettings, Runner, function_tool
+from agents import Agent, AgentHooks, ModelBehaviorError, ModelSettings, Runner, function_tool
 from openai import AsyncOpenAI
 from pydantic import BaseModel
 
 from investorch.agents.prompts import MAIN_AGENT_INSTRUCTIONS
+from investorch.agents.usage import run_with_usage
 from investorch.application import open_application_host
 from investorch.commands.handlers import dispatch_command
 from investorch.commands.parser import parse_command
 from investorch.journal import read_session_journal
 from investorch.llm.clients import ModelConnectionClients
-from investorch.llm.models import ChatGPTInferenceError, ChatGPTResponsesModel, chatgpt_tools
+from investorch.llm.models import ChatGPTInferenceError, ChatGPTResponsesModel, chatgpt_tools, with_developer_prompt
 from investorch.llm.oauth import ChatGPTAuth
 from tests.support.config import make_test_config
 from tests.support.runtime import run_options
@@ -333,6 +334,7 @@ async def test_api_key_model_instruction_placement_and_request_parameters(
     tmp_path, endpoint, model_name, streamed, developer_prefix
 ):
     requests = []
+    model_inputs = []
     config = make_test_config(
         tmp_path,
         {
@@ -365,6 +367,10 @@ async def test_api_key_model_instruction_placement_and_request_parameters(
     def factory(**kwargs):
         return AsyncOpenAI(**kwargs, http_client=httpx2.AsyncClient(transport=httpx2.MockTransport(handle)))
 
+    class ModelInputHook(AgentHooks):
+        async def on_llm_start(self, context, agent, system_prompt, input_items):
+            model_inputs.append((system_prompt, list(input_items)))
+
     auth = ChatGPTAuth(config)
     clients = ModelConnectionClients(config, auth, client_factory=factory)
     try:
@@ -374,13 +380,15 @@ async def test_api_key_model_instruction_placement_and_request_parameters(
             model=model,
             instructions=instructions,
             model_settings=ModelSettings(max_tokens=100, temperature=0.2),
+            hooks=ModelInputHook(),
         )
         if streamed:
-            result = Runner.run_streamed(agent, history, run_config={"tracing_disabled": True})
+            run_config = with_developer_prompt(agent.model, {"tracing_disabled": True})
+            result = Runner.run_streamed(agent, history, run_config=run_config)
             async for _ in result.stream_events():
                 pass
         else:
-            result = await Runner.run(agent, history, run_config={"tracing_disabled": True})
+            result = await run_with_usage(agent, history, run_config={"tracing_disabled": True})
     finally:
         await clients.close()
         await auth.close()
@@ -391,9 +399,12 @@ async def test_api_key_model_instruction_placement_and_request_parameters(
     assert request["max_output_tokens"] == 100
     assert request["temperature"] == 0.2
     if developer_prefix:
-        assert request["input"] == [{"role": "developer", "content": instructions}, *history]
+        expected = [{"role": "developer", "content": instructions}, *history]
+        assert model_inputs == [(None, expected)]
+        assert request["input"] == expected
         assert "instructions" not in request
     else:
+        assert model_inputs == [(instructions, history)]
         assert request["input"] == history
         assert request["instructions"] == instructions
 

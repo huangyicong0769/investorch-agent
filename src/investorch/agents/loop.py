@@ -21,7 +21,7 @@ from investorch.config_schema import DEEPSEEK_FLASH_MODELS
 from investorch.context import AgentContext, ExecutionState, TodoUpdateHandler
 from investorch.inputs import UserInput
 from investorch.llm.deepseek import DeepSeekResponseError, DeepSeekResponsesModel, response_title
-from investorch.llm.models import ChatGPTResponsesModel, chatgpt_tools
+from investorch.llm.models import ChatGPTResponsesModel, chatgpt_tools, with_developer_prompt
 from investorch.output import AssistantMessage, OutputEvent, OutputHandler, consume_run_events
 from investorch.output.stream import assistant_message_from_result
 from investorch.storage.sessions import get_session_title
@@ -385,6 +385,7 @@ class AgentLoop:
                 deepseek=deepseek,
             )
         )
+        run_config = with_developer_prompt(run_agent.model, run_config)
         result = Runner.run_streamed(
             run_agent,
             model_input,
