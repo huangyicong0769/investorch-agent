@@ -258,7 +258,11 @@ async def test_native_title_does_not_overwrite_a_manual_rename(tmp_path, monkeyp
 
 async def test_flash_continues_a_session_after_a_local_tool_returns_an_image(tmp_path, monkeypatch):
     config = make_test_config(
-        tmp_path, {"models": {"test": {"type": "deepseek"}}, "agents": {"main": {"name": "deepseek-flash"}}}
+        tmp_path,
+        {
+            "models": {"test": {"type": "deepseek"}},
+            "agents": {"main": {"name": "deepseek-flash", "reasoning_effort": "low", "safety_check": "high"}},
+        },
     )
     image = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aX1cAAAAASUVORK5CYII="
     (config.workspace_dir / "fixture.png").write_bytes(base64.b64decode(image))
@@ -278,23 +282,27 @@ async def test_flash_continues_a_session_after_a_local_tool_returns_an_image(tmp
         nonlocal requests_with_image
         body = json.loads(request.content)
         tools = {tool["type"] for tool in body["tools"]}
+        assert native_web <= tools
+        assert body["safety_check"] == {"level": "high"}
         if not any(item.get("call_id") == "call_explore" for item in body["input"]):
-            assert native_web <= tools
             assert body["title"] == {"enabled": True}
             return sse(response([call]))
         output = next(item for item in body["input"] if item.get("type") == "function_call_output")
-        assert any(part.get("image_url") == image_data for part in output["output"])
+        assert output["call_id"] == "call_explore"
+        assert [part["image_url"] for part in output["output"] if part["type"] == "input_image"] == [image_data]
         requests_with_image += 1
-        if native_web & tools or "title" in body:
-            return httpx2.Response(400, json={"error": {"message": "Only text is supported in function_call_output."}})
-        payload = response([message()])
-        return sse(payload) if body.get("stream") else httpx2.Response(200, json=payload)
+        if body["input"][-1].get("type") == "function_call_output":
+            assert body["title"] == {"enabled": True}
+            return sse(response([message()], title="Chart"))
+        assert "title" not in body
+        return sse(response([message()]))
 
     install_deepseek_http(monkeypatch, handle)
     async with open_application_host(config, manual_approval_handler=approve, enable_activity=False) as host:
         session_id = await host.sessions.create()
         first = await host.runtime.start_run(session_id, "Read fixture.png", run_options()).task
         assert first.output == "完成"
+        assert get_session_title(config.sessions_db, session_id) == "Chart"
         follow_up = await host.runtime.start_run(session_id, "Continue with the image", run_options()).task
         assert follow_up.output == "完成"
         assert requests_with_image >= 2
