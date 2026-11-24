@@ -297,10 +297,8 @@ class AgentLoop:
             nonlocal provider_usage, native_title, terminal_failure_observed
             terminal_failure_observed = not completed
             if deepseek and response.usage is not None:
-                delta = TokenUsage.from_deepseek(
-                    response.usage.model_dump(mode="json", exclude_unset=True),
-                    include_tokens=not completed,
-                )
+                # The SDK counts base usage for successful and failed terminal events.
+                delta = TokenUsage.from_deepseek(response.usage.model_dump(mode="json", exclude_unset=True))
                 if delta != TokenUsage():
                     provider_usage += delta
                     record_main_usage(delta)
