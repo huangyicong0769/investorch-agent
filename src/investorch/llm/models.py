@@ -162,7 +162,7 @@ class OpenAIEndpointResponsesModel(OpenAIResponsesModel):
 def with_developer_prompt(
     model: str | Model | None, run_config: RunConfig | dict[str, Any] | None = None
 ) -> RunConfig | dict[str, Any] | None:
-    """Put the stable prompt in the first input item before calling GPT-6.2."""
+    """Put the stable prompt in the first input item for official OpenAI models."""
     config = run_config if run_config is not None else {}
     if isinstance(config, RunConfig):
         model = config.model or model
@@ -170,7 +170,7 @@ def with_developer_prompt(
     else:
         model = config.get("model") or model
         existing_filter = config.get("call_model_input_filter")
-    if not isinstance(model, OpenAIEndpointResponsesModel) or not model.model.startswith("gpt-6.2-"):
+    if not isinstance(model, OpenAIEndpointResponsesModel):
         return run_config
 
     async def filter_input(data: CallModelData) -> ModelInputData:

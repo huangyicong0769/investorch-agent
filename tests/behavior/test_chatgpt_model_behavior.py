@@ -326,7 +326,7 @@ async def test_streamed_runner_preserves_namespaced_approval_and_executes_only_a
     [
         ("https://api.openai.com/v1", "gpt-6.2-astra", False, True),
         ("https://api.openai.com/v1/", "gpt-6.2-sol", True, True),
-        ("https://api.openai.com/v1", "gpt-6.1-sol", False, False),
+        ("https://api.openai.com/v1", "gpt-6.1-sol", False, True),
         ("https://provider.example.test/v1", "gpt-6.2-sol", False, False),
     ],
 )
