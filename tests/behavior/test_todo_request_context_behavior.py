@@ -48,6 +48,7 @@ async def test_model_requests_read_current_run_todos_without_persisting_instruct
         )
     )
     instructions = "Follow the current user request."
+    prompt = {"role": "developer", "content": instructions}
     main = Agent(
         name="Main",
         instructions=instructions,
@@ -89,17 +90,18 @@ async def test_model_requests_read_current_run_todos_without_persisting_instruct
         model.assert_complete()
         assert len(approvals) == (3 if needs_approval else 0)
         assert todo_updates == [initial, updated, []]
-        assert all(call.system_instructions == instructions for call in model.calls)
-        assert not any(item.get("role") == "developer" for item in model.calls[0].input)
+        assert not any(item.get("role") == "developer" for item in model.calls[0].input[1:])
         for call, expected in zip(model.calls[1:3], [initial, updated], strict=True):
             note = call.input[-1]
             assert note["role"] == "developer"
             assert json.loads(note["content"].rsplit("\n", 1)[1]) == expected
-            assert len([item for item in call.input if item.get("role") == "developer"]) == 1
+            assert len([item for item in call.input[1:] if item.get("role") == "developer"]) == 1
             assert call.input[-2]["type"] == "function_call_output"
-        assert not any(item.get("role") == "developer" for item in model.calls[3].input)
+        assert not any(item.get("role") == "developer" for item in model.calls[3].input[1:])
         request_note = model.calls[1].input[-1]["content"].splitlines()[-2]
         for call in model.calls:
+            assert call.system_instructions is None
+            assert call.input[0] == prompt
             assert not any(item.get("type") == "reasoning" for item in call.input)
             assert "id" not in next(item for item in call.input if item.get("call_id") == "old-call")
         persisted = await session.get_items()
@@ -110,8 +112,10 @@ async def test_model_requests_read_current_run_todos_without_persisting_instruct
         selected_model = ScriptedModel(((assistant_message("new run"),),))
         assert (await run("next")).output == "new run"
         selected_model.assert_complete()
-        assert selected_model.calls[0].system_instructions == instructions
-        assert not any(item.get("role") == "developer" for item in selected_model.calls[0].input)
+        call = selected_model.calls[0]
+        assert call.system_instructions is None
+        assert call.input[0] == prompt
+        assert not any(item.get("role") == "developer" for item in call.input[1:])
         assert request_note not in json.dumps(await session.get_items())
     finally:
         session.close()

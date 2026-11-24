@@ -130,7 +130,7 @@ async def run_with_usage(
     if not isinstance(context, RunContextWrapper):
         context = RunContextWrapper(context=context)
     tracker = UsageTracker(usage_handler)
-    kwargs["run_config"] = with_developer_prompt(agent.model, kwargs.get("run_config"))
+    kwargs["run_config"] = with_developer_prompt(kwargs.get("run_config"))
     try:
         return await Runner.run(agent, input, context=context, hooks=tracker, **kwargs)
     except DeepSeekResponseError as error:

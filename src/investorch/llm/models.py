@@ -7,7 +7,6 @@ from typing import Any
 
 from agents import (
     FunctionTool,
-    Model,
     ModelBehaviorError,
     ModelSettings,
     OpenAIResponsesModel,
@@ -155,23 +154,13 @@ def _chatgpt_input_item(item: TResponseInputItem) -> TResponseInputItem:
     return item
 
 
-class OpenAIEndpointResponsesModel(OpenAIResponsesModel):
-    """Identify Responses models connected to the official OpenAI endpoint."""
-
-
-def with_developer_prompt(
-    model: str | Model | None, run_config: RunConfig | dict[str, Any] | None = None
-) -> RunConfig | dict[str, Any] | None:
-    """Put the stable prompt in the first input item for official OpenAI models."""
+def with_developer_prompt(run_config: RunConfig | dict[str, Any] | None = None) -> RunConfig | dict[str, Any]:
+    """Put the stable prompt in the first input item before each model call."""
     config = run_config if run_config is not None else {}
     if isinstance(config, RunConfig):
-        model = config.model or model
         existing_filter = config.call_model_input_filter
     else:
-        model = config.get("model") or model
         existing_filter = config.get("call_model_input_filter")
-    if not isinstance(model, OpenAIEndpointResponsesModel):
-        return run_config
 
     async def filter_input(data: CallModelData) -> ModelInputData:
         prepared = existing_filter(data) if existing_filter is not None else data.model_data
@@ -189,7 +178,7 @@ def with_developer_prompt(
     return {**config, "call_model_input_filter": filter_input}
 
 
-class ChatGPTResponsesModel(OpenAIEndpointResponsesModel):
+class ChatGPTResponsesModel(OpenAIResponsesModel):
     """Use the SDK's Responses stream for both streamed and ordinary Runner calls."""
 
     def __init__(self, model: str, client: AsyncOpenAI):

@@ -7,6 +7,7 @@ from agents.testing import ModelStep, ScriptedModel, assistant_message
 
 from investorch.agents.compact import COMPACTED_CONTEXT_PREFIX, create_compaction_agent, summarize_history
 from investorch.agents.context_projection import ContextProjection, ContextProjectionBudgetError
+from investorch.agents.prompts import COMPACTION_AGENT_INSTRUCTIONS
 from investorch.storage import create_session
 from tests.support.config import make_test_config
 
@@ -19,8 +20,10 @@ def tool_pair(call_id: str, output: str) -> list[dict]:
 
 
 def quoted_history(items: list[dict]) -> list[dict]:
+    prompt, *history = items
+    assert prompt == {"role": "developer", "content": COMPACTION_AGENT_INSTRUCTIONS}
     decoded = []
-    for item in items:
+    for item in history:
         assert item.get("role") == "user" and "type" not in item
         assert isinstance(item["content"], str)
         label, data = item["content"].split("\n", 1)

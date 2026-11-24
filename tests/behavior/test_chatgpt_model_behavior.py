@@ -322,17 +322,17 @@ async def test_streamed_runner_preserves_namespaced_approval_and_executes_only_a
 
 
 @pytest.mark.parametrize(
-    ("endpoint", "model_name", "streamed", "developer_prefix"),
+    ("endpoint", "model_name", "streamed"),
     [
-        ("https://api.openai.com/v1", "gpt-6.2-astra", False, True),
-        ("https://api.openai.com/v1/", "gpt-6.2-sol", True, True),
-        ("https://api.openai.com/v1", "gpt-6.1-sol", False, True),
-        ("https://provider.example.test/v1", "gpt-6.2-sol", False, False),
+        ("https://api.openai.com/v1", "gpt-6.2-astra", False),
+        ("https://api.openai.com/v1/", "gpt-6.2-sol", True),
+        ("https://api.openai.com/v1", "gpt-6.1-sol", False),
+        ("https://api.deepseek.com", "deepseek-flash", True),
+        ("https://api.deepseek.com", "deepseek-v4-pro", False),
+        ("https://provider.example.test/v1", "provider-model", False),
     ],
 )
-async def test_api_key_model_instruction_placement_and_request_parameters(
-    tmp_path, endpoint, model_name, streamed, developer_prefix
-):
+async def test_api_key_model_instruction_placement_and_request_parameters(tmp_path, endpoint, model_name, streamed):
     requests = []
     model_inputs = []
     config = make_test_config(
@@ -383,7 +383,7 @@ async def test_api_key_model_instruction_placement_and_request_parameters(
             hooks=ModelInputHook(),
         )
         if streamed:
-            run_config = with_developer_prompt(agent.model, {"tracing_disabled": True})
+            run_config = with_developer_prompt({"tracing_disabled": True})
             result = Runner.run_streamed(agent, history, run_config=run_config)
             async for _ in result.stream_events():
                 pass
@@ -398,15 +398,10 @@ async def test_api_key_model_instruction_placement_and_request_parameters(
     (request,) = requests
     assert request["max_output_tokens"] == 100
     assert request["temperature"] == 0.2
-    if developer_prefix:
-        expected = [{"role": "developer", "content": instructions}, *history]
-        assert model_inputs == [(None, expected)]
-        assert request["input"] == expected
-        assert "instructions" not in request
-    else:
-        assert model_inputs == [(instructions, history)]
-        assert request["input"] == history
-        assert request["instructions"] == instructions
+    expected = [{"role": "developer", "content": instructions}, *history]
+    assert model_inputs == [(None, expected)]
+    assert request["input"] == expected
+    assert "instructions" not in request
 
 
 @pytest.mark.parametrize(

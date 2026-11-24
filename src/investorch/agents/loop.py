@@ -385,7 +385,7 @@ class AgentLoop:
                 deepseek=deepseek,
             )
         )
-        run_config = with_developer_prompt(run_agent.model, run_config)
+        run_config = with_developer_prompt(run_config)
         result = Runner.run_streamed(
             run_agent,
             model_input,
