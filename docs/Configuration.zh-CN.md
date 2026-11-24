@@ -2,8 +2,6 @@
 
 [English](Configuration.md)
 
-本文适用于 0.3.3。
-
 ## 两层配置
 
 - `models.<id>` 注册命名的 API key 或 ChatGPT 连接。

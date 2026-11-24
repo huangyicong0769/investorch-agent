@@ -4,9 +4,7 @@
 
 InvestOrch Agent is a local-first, human-in-the-loop investment orchestration agent for an individual investor. Its long-term goal is to support the full path from research, strategy development, and backtesting to portfolio decisions, trading, position monitoring, and review.
 
-**0.3.0** adds multi-agent orchestration, reusable model connections and ChatGPT authorization, per-Session model selection, continuous context management, and clearer runtime diagnostics. See [0.3.0 notes](docs/releases/0.3.0.md), [model configuration](docs/Configuration.md) and the [manual upgrade procedure](docs/Upgrade.md).
-
-## What 0.3.0 includes
+## Features
 
 - Web and [Textual](https://github.com/Textualize/textual) TUI clients, plus a diagnostic plain console.
 - Multi-agent task delegation and parallel research, with subagent progress, conversation and results accessible from Web.
@@ -18,7 +16,7 @@ InvestOrch Agent is a local-first, human-in-the-loop investment orchestration ag
 - Reusable Skills and external MCP integrations.
 - Model usage, failure diagnostics, local backup and recovery.
 
-Broker/account mirroring, a QMT gateway, live trading and a unified investment data layer remain future work. See the [0.3.0 notes](docs/releases/0.3.0.md) and [Product Roadmap](docs/InvestOrch_Agent_Product_Roadmap.md).
+Broker/account mirroring, a QMT gateway, live trading and a unified investment data layer remain future work. See the [Product Roadmap](docs/InvestOrch_Agent_Product_Roadmap.md).
 
 ## Compatibility
 
@@ -41,16 +39,18 @@ The installation commands below select Python 3.12.
 Install InvestOrch Agent as a uv-managed tool:
 
 ```bash
-uv tool install --python 3.12 investorch==0.3.0
+uv tool install --python 3.12 investorch
 investorch web
 ```
 
-The installed command is `investorch`. For an existing installation, complete the backup and preflight steps in [Upgrade](docs/Upgrade.md) before replacing it; 0.2.0 model TOML requires manual conversion.
+The installed command is `investorch`. For an existing installation, follow the backup and preflight steps before replacing it. The guide covers manual conversion for legacy `[models.<role>]` configuration. [Upgrade](docs/Upgrade.md)
 
 ### Source checkout
 
+Clone the default branch and install its locked dependencies.
+
 ```bash
-git clone --branch v0.3.0 https://github.com/huangyicong0769/investorch-agent.git
+git clone https://github.com/huangyicong0769/investorch-agent.git
 cd investorch-agent
 uv sync --locked --python 3.12
 ```
@@ -59,15 +59,23 @@ The examples below use `uv run --locked investorch`. For a tool installation, om
 
 ### Release wheel
 
-Download `investorch-0.3.0-py3-none-any.whl`, `investorch-0.3.0.tar.gz` and `SHA256SUMS` from the [0.3.0 GitHub Release](https://github.com/huangyicong0769/investorch-agent/releases/tag/v0.3.0). Verify the wheel before installing it:
+Download the wheel and `SHA256SUMS` into the same directory from the [latest GitHub release](https://github.com/huangyicong0769/investorch-agent/releases/latest).
+
+Replace `X.Y.Z` with the version in the downloaded filename and run the checksum command for your platform.
 
 ```bash
-# macOS
-grep 'investorch-0.3.0-py3-none-any.whl$' SHA256SUMS | shasum -a 256 -c -
-# Linux
-grep 'investorch-0.3.0-py3-none-any.whl$' SHA256SUMS | sha256sum -c -
+wheel=./investorch-X.Y.Z-py3-none-any.whl
 
-uv tool install --python 3.12 ./investorch-0.3.0-py3-none-any.whl
+# macOS
+awk -v wheel="$wheel" '$2 == wheel' SHA256SUMS | shasum -a 256 -c -
+# Linux
+awk -v wheel="$wheel" '$2 == wheel' SHA256SUMS | sha256sum -c -
+```
+
+Install the wheel after verification succeeds.
+
+```bash
+uv tool install --python 3.12 "$wheel"
 ```
 
 A wheel includes the production Web bundle and needs no Node.js runtime. To build a wheel from source, use `uv build --no-sources`; rebuild the Web bundle first when changing frontend code.
@@ -141,7 +149,7 @@ InvestOrch Agent is a human-led personal research project developed with AI assi
 
 ## Documentation
 
-- [0.3.3 release notes](docs/releases/0.3.3.md) and [all versions](docs/releases/).
+- [Release notes](docs/releases/).
 - [Maintainer release procedure](docs/Publishing.md): review, GitHub releases and PyPI publishing.
 - [Configuration](docs/Configuration.md), [Upgrade](docs/Upgrade.md) and [Backup and Recovery](docs/Backup_and_Recovery.md).
 - [Architecture](docs/InvestOrch_Agent_Architecture.md): the implemented system and current boundaries.
