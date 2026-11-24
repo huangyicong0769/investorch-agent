@@ -141,7 +141,7 @@ InvestOrch Agent is a human-led personal research project developed with AI assi
 
 ## Documentation
 
-- [0.3.2 release notes](docs/releases/0.3.2.md) and [all versions](docs/releases/).
+- [0.3.3 release notes](docs/releases/0.3.3.md) and [all versions](docs/releases/).
 - [Maintainer release procedure](docs/Publishing.md): review, GitHub releases and PyPI publishing.
 - [Configuration](docs/Configuration.md), [Upgrade](docs/Upgrade.md) and [Backup and Recovery](docs/Backup_and_Recovery.md).
 - [Architecture](docs/InvestOrch_Agent_Architecture.md): the implemented system and current boundaries.

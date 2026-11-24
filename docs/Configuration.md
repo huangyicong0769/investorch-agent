@@ -2,7 +2,7 @@
 
 [简体中文](Configuration.zh-CN.md)
 
-This guide describes the 0.3.2 configuration.
+This guide describes the 0.3.3 configuration.
 
 ## Two configuration layers
 

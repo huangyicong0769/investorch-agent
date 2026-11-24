@@ -1,6 +1,6 @@
 [project]
 name = "investorch"
-version = "0.3.2"
+version = "0.3.3"
 description = "Local human-in-the-loop investment orchestration agent with Web, TUI, and plain-console clients."
 readme = "README.md"
 authors = [{ name = "InvestOrch contributors" }]
