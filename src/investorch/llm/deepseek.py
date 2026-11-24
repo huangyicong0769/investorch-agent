@@ -10,7 +10,7 @@ from agents.models.interface import ModelTracing
 from agents.tool import Tool
 from agents.usage import Usage
 from openai import APIStatusError, AsyncOpenAI
-from openai.types.responses import Response, ResponseIncompleteEvent
+from openai.types.responses import Response, ResponseFailedEvent, ResponseIncompleteEvent
 from openai.types.responses.response import IncompleteDetails
 from openai.types.responses.response_prompt_param import ResponsePromptParam
 
@@ -154,6 +154,18 @@ class DeepSeekResponsesModel(OpenAIResponsesModel):
                     )
                     yield ResponseIncompleteEvent(
                         type="response.incomplete", response=response, sequence_number=event.sequence_number
+                    )
+                elif event.type == "response.completed" and response.status == "incomplete":
+                    yield ResponseIncompleteEvent(
+                        type="response.incomplete",
+                        response=response.model_copy(update={"error": None}),
+                        sequence_number=event.sequence_number,
+                    )
+                elif event.type == "response.completed" and response.status == "failed":
+                    yield ResponseFailedEvent(
+                        type="response.failed",
+                        response=response.model_copy(update={"error": None}),
+                        sequence_number=event.sequence_number,
                     )
                 elif event.type != "response.completed":
                     yield event.model_copy(update={"response": response.model_copy(update={"error": None})})

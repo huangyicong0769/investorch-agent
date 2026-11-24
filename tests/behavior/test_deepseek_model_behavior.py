@@ -50,11 +50,11 @@ def response(output, **fields):
     }
 
 
-def sse(payload, *events):
+def sse(payload, *events, terminal_type=None):
     records = [
         {"type": "response.created", "response": response([], status="in_progress")},
         *events,
-        {"type": f"response.{payload['status']}", "response": payload},
+        {"type": terminal_type or f"response.{payload['status']}", "response": payload},
     ]
     return httpx2.Response(
         200,
@@ -80,6 +80,35 @@ def install_deepseek_http(monkeypatch, handle):
 
 async def approve(*_):
     return True
+
+
+@pytest.mark.parametrize(
+    ("status", "error_message"),
+    [("incomplete", "incomplete model response"), ("failed", "failed to finish")],
+)
+async def test_flash_counts_usage_when_completed_event_carries_a_failure(tmp_path, monkeypatch, status, error_message):
+    config = make_test_config(tmp_path, {"models": {"test": {"type": "deepseek"}}})
+    stream = sse(response([], status=status), terminal_type="response.completed")
+
+    class SlowClosingStream(httpx2.AsyncByteStream):
+        async def __aiter__(self):
+            yield stream.content
+
+        async def aclose(self):
+            await asyncio.sleep(0.2)
+
+    def handle(_request):
+        return httpx2.Response(200, headers=stream.headers, stream=SlowClosingStream())
+
+    install_deepseek_http(monkeypatch, handle)
+    async with open_application_host(config, manual_approval_handler=approve, enable_activity=False) as host:
+        session_id = await host.sessions.create()
+        with pytest.raises(DeepSeekResponseError, match=error_message):
+            await host.runtime.start_run(session_id, "Summarize the fixture", run_options()).task
+        records = read_session_journal(config.session_journal_dir, session_id)
+        (ended,) = [record for record in records if record["type"] == "run_ended"]
+        assert ended["main_usage"]["requests"] == 1
+        assert ended["main_usage"]["total_tokens"] == 18
 
 
 @pytest.mark.parametrize("completed_with_refusal", [False, True])
