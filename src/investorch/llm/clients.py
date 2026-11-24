@@ -10,7 +10,8 @@ from openai import AsyncOpenAI
 
 from investorch.config import AgentModelConfig, AppConfig
 from investorch.llm.deepseek import DeepSeekResponsesModel
-from investorch.llm.oauth import ChatGPTAuth
+from investorch.llm.models import ChatGPTResponsesModel, OpenAIEndpointResponsesModel
+from investorch.llm.oauth import RESOURCE, ChatGPTAuth
 
 
 class ModelConnectionClients:
@@ -36,7 +37,7 @@ class ModelConnectionClients:
             if connection.type == "chatgpt":
                 client = self._client_factory(
                     api_key=partial(self._auth.access_token, connection.credentials),
-                    base_url="https://api.openai.com/v1",
+                    base_url=RESOURCE,
                     max_retries=0,
                 )
             else:
@@ -45,11 +46,11 @@ class ModelConnectionClients:
                 )
             self._clients[selected.model] = client
         if connection.type == "chatgpt":
-            from investorch.llm.models import ChatGPTResponsesModel
-
             return ChatGPTResponsesModel(selected.name, client)
         if connection.is_deepseek:
             return DeepSeekResponsesModel(selected, client)
+        if str(client.base_url).rstrip("/") == RESOURCE:
+            return OpenAIEndpointResponsesModel(model=selected.name, openai_client=client)
         return OpenAIResponsesModel(model=selected.name, openai_client=client)
 
     def for_agent(self, role: str, *, fallback: AgentModelConfig | None = None) -> tuple[Model, ModelSettings]:

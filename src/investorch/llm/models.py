@@ -16,7 +16,7 @@ from openai.lib.streaming.responses import ResponseStreamState
 from openai.types.responses import Response
 from openai.types.responses.response_prompt_param import ResponsePromptParam
 
-from investorch.llm.oauth import USAGE_URL
+from investorch.llm.oauth import RESOURCE, USAGE_URL
 
 # Only documented categories and conventional API categories may enter user-visible text.
 _INFERENCE_CODES = {
@@ -122,11 +122,44 @@ def _settings(settings: ModelSettings) -> ModelSettings:
     )
 
 
-class ChatGPTResponsesModel(OpenAIResponsesModel):
+class OpenAIEndpointResponsesModel(OpenAIResponsesModel):
+    def _build_response_create_kwargs(
+        self,
+        system_instructions: str | None,
+        input: str | list[TResponseInputItem],
+        model_settings: ModelSettings,
+        tools: list[Tool],
+        output_schema: AgentOutputSchemaBase | None,
+        handoffs: list[Handoff],
+        previous_response_id: str | None = None,
+        conversation_id: str | None = None,
+        stream: bool = False,
+        prompt: ResponsePromptParam | None = None,
+    ) -> dict[str, Any]:
+        request = super()._build_response_create_kwargs(
+            system_instructions,
+            input,
+            model_settings,
+            tools,
+            output_schema,
+            handoffs,
+            previous_response_id=previous_response_id,
+            conversation_id=conversation_id,
+            stream=stream,
+            prompt=prompt,
+        )
+        if system_instructions and self.model.startswith("gpt-6.2-"):
+            # GPT-6.2 appends top-level instructions after input.
+            request["input"] = [{"role": "developer", "content": system_instructions}, *request["input"]]
+            request.pop("instructions", None)
+        return request
+
+
+class ChatGPTResponsesModel(OpenAIEndpointResponsesModel):
     """Use the SDK's Responses stream for both streamed and ordinary Runner calls."""
 
     def __init__(self, model: str, client: AsyncOpenAI):
-        if str(client.base_url).rstrip("/") != "https://api.openai.com/v1":
+        if str(client.base_url).rstrip("/") != RESOURCE:
             raise ValueError("ChatGPT OAuth requires the official https://api.openai.com/v1 endpoint.")
         super().__init__(model=model, openai_client=client)
 

@@ -10,12 +10,14 @@ from agents import Agent, ModelBehaviorError, ModelSettings, Runner, function_to
 from openai import AsyncOpenAI
 from pydantic import BaseModel
 
+from investorch.agents.prompts import MAIN_AGENT_INSTRUCTIONS
 from investorch.application import open_application_host
 from investorch.commands.handlers import dispatch_command
 from investorch.commands.parser import parse_command
 from investorch.journal import read_session_journal
 from investorch.llm.clients import ModelConnectionClients
 from investorch.llm.models import ChatGPTInferenceError, ChatGPTResponsesModel, chatgpt_tools
+from investorch.llm.oauth import ChatGPTAuth
 from tests.support.config import make_test_config
 from tests.support.runtime import run_options
 
@@ -56,7 +58,7 @@ async def test_main_chatgpt_web_search_uses_session_switch_and_records_sources(t
         tmp_path,
         {
             "models": {"chatgpt": {"type": "chatgpt", "credentials": "personal"}},
-            "agents": {"main": {"model": "chatgpt", "auto_title": False}},
+            "agents": {"main": {"model": "chatgpt", "name": "gpt-6.2-sol", "auto_title": False}},
         },
     )
     search = {
@@ -73,12 +75,12 @@ async def test_main_chatgpt_web_search_uses_session_switch_and_records_sources(t
         "title": "Example Domains",
     }
     tool_types = []
-    inputs = []
+    requests = []
 
     def handle(request):
         body = json.loads(request.content)
         tool_types.append({tool["type"] for tool in body["tools"]})
-        inputs.append(body["input"])
+        requests.append(body)
         web_enabled = "web_search" in tool_types[-1]
         answer = {
             "id": "msg_answer",
@@ -118,7 +120,14 @@ async def test_main_chatgpt_web_search_uses_session_switch_and_records_sources(t
 
     assert {"namespace", "web_search"} <= tool_types[0]
     assert "web_search" not in tool_types[1]
-    assert search in inputs[1]
+    assert search in requests[1]["input"]
+    initial = requests[0]["input"][0]
+    assert initial["role"] == "developer"
+    assert initial["content"].startswith(MAIN_AGENT_INSTRUCTIONS)
+    for request in requests:
+        assert request["input"][0] == initial
+        assert request["input"].count(initial) == 1
+        assert "instructions" not in request
     records = read_session_journal(config.session_journal_dir, session_id)
     assert [(event["name"], event["hosted_status"]) for event in records if event.get("hosted_call_id")] == [
         ("Web search", "completed"),
@@ -300,10 +309,32 @@ async def test_streamed_runner_preserves_namespaced_approval_and_executes_only_a
     assert len(requests) == 2
 
 
-async def test_api_key_model_keeps_parameters_that_chatgpt_filters():
-    from agents import OpenAIResponsesModel
-
+@pytest.mark.parametrize(
+    ("endpoint", "model_name", "streamed", "developer_prefix"),
+    [
+        ("https://api.openai.com/v1", "gpt-6.2-astra", False, True),
+        ("https://api.openai.com/v1/", "gpt-6.2-sol", True, True),
+        ("https://api.openai.com/v1", "gpt-6.1-sol", False, False),
+        ("https://provider.example.test/v1", "gpt-6.2-sol", False, False),
+    ],
+)
+async def test_api_key_model_instruction_placement_and_request_parameters(
+    tmp_path, endpoint, model_name, streamed, developer_prefix
+):
     requests = []
+    config = make_test_config(
+        tmp_path,
+        {
+            "models": {"test": {"base_url": endpoint}},
+            "agents": {"title": {"model": "test", "name": model_name, "context_window_tokens": 1000000}},
+        },
+    )
+    instructions = "Write a title for the task."
+    history = [
+        {"role": "developer", "content": "For this task, use English."},
+        {"role": "user", "content": "hello"},
+        {"role": "developer", "content": "Current Run state data: ready."},
+    ]
 
     def handle(request):
         requests.append(json.loads(request.content))
@@ -316,20 +347,44 @@ async def test_api_key_model_keeps_parameters_that_chatgpt_filters():
                 "content": [{"type": "output_text", "text": "ok", "annotations": []}],
             }
         ]
+        if requests[-1].get("stream"):
+            return httpx2.Response(200, headers={"content-type": "text/event-stream"}, content=events(response(output)))
         return httpx2.Response(200, json=response(output))
 
-    async with AsyncOpenAI(
-        api_key="test-api-key", http_client=httpx2.AsyncClient(transport=httpx2.MockTransport(handle))
-    ) as client:
+    def factory(**kwargs):
+        return AsyncOpenAI(**kwargs, http_client=httpx2.AsyncClient(transport=httpx2.MockTransport(handle)))
+
+    auth = ChatGPTAuth(config)
+    clients = ModelConnectionClients(config, auth, client_factory=factory)
+    try:
+        model, _ = clients.for_agent("title")
         agent = Agent(
-            name="Key",
-            model=OpenAIResponsesModel("test-model", client),
+            name="Title",
+            model=model,
+            instructions=instructions,
             model_settings=ModelSettings(max_tokens=100, temperature=0.2),
         )
-        result = await Runner.run(agent, "hello", run_config={"tracing_disabled": True})
+        if streamed:
+            result = Runner.run_streamed(agent, history, run_config={"tracing_disabled": True})
+            async for _ in result.stream_events():
+                pass
+        else:
+            result = await Runner.run(agent, history, run_config={"tracing_disabled": True})
+    finally:
+        await clients.close()
+        await auth.close()
+
     assert result.final_output == "ok"
-    assert requests[0]["max_output_tokens"] == 100
-    assert requests[0]["temperature"] == 0.2
+    assert result.to_input_list()[: len(history)] == history
+    (request,) = requests
+    assert request["max_output_tokens"] == 100
+    assert request["temperature"] == 0.2
+    if developer_prefix:
+        assert request["input"] == [{"role": "developer", "content": instructions}, *history]
+        assert "instructions" not in request
+    else:
+        assert request["input"] == history
+        assert request["instructions"] == instructions
 
 
 @pytest.mark.parametrize(
