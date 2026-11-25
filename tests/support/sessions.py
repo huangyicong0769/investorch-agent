@@ -21,5 +21,6 @@ def make_session_harness(tmp_path: Path) -> SessionHarness:
         runtime=runtime.runtime,
         journal=runtime.journal,
         presentation_state=SessionPresentationStore(),
+        system_prompt="Follow the current user request.",
     )
     return SessionHarness(runtime=runtime, operations=operations)

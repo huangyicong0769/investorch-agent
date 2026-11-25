@@ -22,6 +22,7 @@ async def workflow_harness(tmp_path):
         runtime=runtime.runtime,
         journal=runtime.journal,
         presentation_state=SessionPresentationStore(),
+        system_prompt="Follow the current user request.",
     )
     skills = SkillOperations(config=runtime.config)
     state = AppState(

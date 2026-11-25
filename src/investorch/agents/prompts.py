@@ -1,3 +1,6 @@
+import json
+from collections.abc import Sequence
+
 MAIN_AGENT_INSTRUCTIONS = """
 You are InvestOrch Agent, a human-in-the-loop investment orchestration agent.
 Answer the user's questions clearly and accurately, using the user's language.
@@ -63,6 +66,15 @@ For tasks that require multiple distinct steps:
 6. Before giving the final answer, reconcile every completion with successful checks and required outputs, then persist the final statuses with write_todos. Leave blocked work pending or failed and explain the blocker.
 7. Use todos for substantive work stages. Answer simple questions and single-step tasks directly.
 """
+
+
+def main_system_prompt(skill_catalog: Sequence[dict] = ()) -> str:
+    return (
+        MAIN_AGENT_INSTRUCTIONS
+        + "\n\nAvailable Skills (discovery metadata):\n"
+        + json.dumps(list(skill_catalog), ensure_ascii=False)
+    )
+
 
 TITLE_AGENT_INSTRUCTIONS = """
 You are a session title generator.

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sqlite3
+from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -16,6 +18,7 @@ from investorch.inputs import UserInput
 from investorch.journal import read_session_journal
 from investorch.output import ToolCalled
 from investorch.runtime import RuntimeOutput
+from investorch.storage import create_session
 from tests.support.config import make_test_config
 from tests.support.runtime import make_runtime_harness, run_options
 
@@ -26,23 +29,22 @@ IMAGE_INPUT = UserInput("", (ImageContent("data:image/png;base64,iVBORw0KGgo="),
 @pytest.mark.parametrize("failure", ["provider", "replacement"])
 async def test_failed_compaction_preserves_original_multimodal_history(tmp_path: Path, failure: str) -> None:
     config = make_test_config(tmp_path)
-
-    class FailingReplacementSession(SQLiteSession):
-        fail_next_write = False
-
-        async def add_items(self, items):
-            if self.fail_next_write:
-                self.fail_next_write = False
-                raise OSError("Injected storage failure")
-            return await super().add_items(items)
-
-    session = FailingReplacementSession("session", config.sessions_db)
+    create_session(config.sessions_db, "session", system_prompt="Rules outside the compacted history")
+    session = SQLiteSession("session", config.sessions_db)
     image_input = UserInput(
         "Keep the marked pixel values.", (ImageContent(IMAGE_INPUT.images[0].image_url, detail="high"),)
     )
     history = [user_input_to_response_item(image_input), {"role": "assistant", "content": "An image"}]
     await session.add_items(history)
-    session.fail_next_write = failure == "replacement"
+    saved = await session.get_items()
+    if failure == "replacement":
+        with closing(sqlite3.connect(config.sessions_db)) as connection:
+            connection.execute(
+                """
+                CREATE TRIGGER reject_compact BEFORE INSERT ON agent_messages
+                BEGIN SELECT RAISE(ABORT, 'Injected storage failure'); END
+                """
+            )
 
     def summarize(call):
         assert len(call.input) == 2 and all(item["role"] == "user" for item in call.input)
@@ -63,9 +65,10 @@ async def test_failed_compaction_preserves_original_multimodal_history(tmp_path:
 
     agent = Agent(name="Compact", model=ScriptedModel((ModelStep.respond(summarize),)))
     try:
-        with pytest.raises((RuntimeError, OSError)):
+        expected_error = sqlite3.IntegrityError if failure == "replacement" else RuntimeError
+        with pytest.raises(expected_error):
             await compact_session(agent, session, config)
-        assert await session.get_items() == history
+        assert await session.get_items() == saved
     finally:
         session.close()
 

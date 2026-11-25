@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from dataclasses import replace
-from inspect import isawaitable
 from typing import Any
 
 from agents import (
@@ -10,7 +9,6 @@ from agents import (
     ModelBehaviorError,
     ModelSettings,
     OpenAIResponsesModel,
-    RunConfig,
     WebSearchTool,
     tool_namespace,
 )
@@ -18,7 +16,6 @@ from agents.agent_output import AgentOutputSchemaBase
 from agents.handoffs import Handoff
 from agents.items import ModelResponse, TResponseInputItem, TResponseStreamEvent
 from agents.models.interface import ModelTracing
-from agents.run_config import CallModelData, ModelInputData
 from agents.tool import Tool
 from agents.usage import Usage
 from openai import APIStatusError, AsyncOpenAI, omit
@@ -152,30 +149,6 @@ def _chatgpt_input_item(item: TResponseInputItem) -> TResponseInputItem:
             ],
         }
     return item
-
-
-def with_developer_prompt(run_config: RunConfig | dict[str, Any] | None = None) -> RunConfig | dict[str, Any]:
-    """Put the stable prompt in the first input item before each model call."""
-    config = run_config if run_config is not None else {}
-    if isinstance(config, RunConfig):
-        existing_filter = config.call_model_input_filter
-    else:
-        existing_filter = config.get("call_model_input_filter")
-
-    async def filter_input(data: CallModelData) -> ModelInputData:
-        prepared = existing_filter(data) if existing_filter is not None else data.model_data
-        if isawaitable(prepared):
-            prepared = await prepared
-        if not prepared.instructions:
-            return prepared
-        return ModelInputData(
-            input=[{"role": "developer", "content": prepared.instructions}, *prepared.input],
-            instructions=None,
-        )
-
-    if isinstance(config, RunConfig):
-        return replace(config, call_model_input_filter=filter_input)
-    return {**config, "call_model_input_filter": filter_input}
 
 
 class ChatGPTResponsesModel(OpenAIResponsesModel):

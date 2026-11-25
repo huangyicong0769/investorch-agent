@@ -184,7 +184,7 @@ async def test_failed_discovery_keeps_local_and_other_mcp_tools_and_recovers_nex
         peer["fail_listing"] = False
         assert (await run("second")).output == "Connection recovered"
         assert servers[0].runtime_status == "available"
-        assert not any(item.get("role") == "developer" for item in await session.get_items())
+        assert not any(item.get("role") == "developer" for item in (await session.get_items())[1:])
     model.assert_complete()
 
 

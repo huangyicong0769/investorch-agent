@@ -114,6 +114,6 @@ async def test_compaction_receives_portable_history_and_does_not_mutate_it_when_
         assert [json.loads(item["content"].split("\n", 1)[1]) for item in model.calls[0].input] == [
             {key: value for key, value in history[1].items() if key != "id"}
         ]
-        assert await session.get_items() == history
+        assert (await session.get_items())[1:] == history
     finally:
         session.close()

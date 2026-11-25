@@ -494,7 +494,6 @@ async def test_unpublished_tail_is_preserved_and_no_snapshot_arrives_after_inter
 
 async def test_complete_response_is_visible_while_title_generation_is_still_waiting(tmp_path: Path, monkeypatch):
     config = make_test_config(tmp_path, {"backtest": {"use_cnequity": False}, "compaction": {"auto_enabled": False}})
-    create_session(config.sessions_db, "session")
     title_started, release_title = asyncio.Event(), asyncio.Event()
     events = []
 
@@ -523,14 +522,15 @@ async def test_complete_response_is_visible_while_title_generation_is_still_wait
         create_initial_session=False,
         enable_activity=False,
     ) as host:
-        run = host.runtime.start_run("session", "Start", run_options())
+        session_id = await host.sessions.create()
+        run = host.runtime.start_run(session_id, "Start", run_options())
         try:
             await asyncio.wait_for(title_started.wait(), 3)
             assert not run.task.done()
             assert [event.text for event in events if isinstance(event, AssistantMessage)] == ["Visible answer"]
             release_title.set()
             await asyncio.wait_for(run.task, 3)
-            assert get_session_title(config.sessions_db, "session") == "A title"
+            assert get_session_title(config.sessions_db, session_id) == "A title"
             assert [event.text for event in events if isinstance(event, AssistantMessage)] == ["Visible answer"]
         finally:
             release_title.set()

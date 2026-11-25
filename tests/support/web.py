@@ -48,6 +48,7 @@ async def open_test_web(
         runtime=runtime.runtime,
         journal=runtime.journal,
         presentation_state=presentation_state,
+        system_prompt="Follow the current user request.",
     )
 
     async def approve_manually(_request: object, _reason: str | None) -> bool:

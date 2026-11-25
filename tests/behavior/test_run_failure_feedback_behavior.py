@@ -80,6 +80,7 @@ async def test_compaction_failure_identifies_its_stage_without_changing_history(
 
     from investorch.agents import compact_session
     from investorch.runtime.errors import format_run_error
+    from investorch.storage import create_session
 
     config = make_test_config(tmp_path)
     request = httpx2.Request("POST", "https://provider.example.test/v1/responses")
@@ -93,6 +94,7 @@ async def test_compaction_failure_identifies_its_stage_without_changing_history(
         raise error
 
     model = ScriptedModel((ModelStep.respond(fail),))
+    create_session(config.sessions_db, "compact-failure")
     session = SQLiteSession("compact-failure", config.sessions_db)
     history = [{"role": "user", "content": "Synthetic history"}]
     try:
@@ -102,7 +104,7 @@ async def test_compaction_failure_identifies_its_stage_without_changing_history(
         feedback = format_run_error(caught.value)
         assert feedback.startswith("Context compaction failed. BadRequestError (HTTP 400):")
         assert "reasoning_text" in feedback
-        assert await session.get_items() == history
+        assert (await session.get_items())[1:] == history
     finally:
         session.close()
 

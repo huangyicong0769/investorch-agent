@@ -19,6 +19,7 @@ from investorch.portfolio.schema import PortfolioStorageError
 from investorch.skills.bundled import BUNDLED_ROOT
 from investorch.skills.registry import read_registry
 from investorch.skills.validation import validate_skill
+from investorch.storage.sessions import SessionFormatError, require_session_format
 
 
 def doctor_exit_code(checks: list[dict[str, Any]]) -> int:
@@ -218,11 +219,14 @@ def _storage_checks(config: AppConfig, add: Any) -> None:
                 with closing(sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True, timeout=1)) as connection:
                     if connection.execute("PRAGMA quick_check").fetchall() != [("ok",)]:
                         raise sqlite3.DatabaseError("Integrity check failed")
+                    require_session_format(connection)
                     connection.execute("SELECT session_id, created_at, updated_at FROM agent_sessions LIMIT 0")
                     connection.execute("SELECT session_id, message_data FROM agent_messages LIMIT 0")
                     connection.execute("SELECT session_id, title, archived_at FROM extra_session_metadata LIMIT 0")
                     connection.execute("SELECT session_id, branch_from_session_id FROM session_lineage LIMIT 0")
                 add(code, "ok", "Session schema and basic integrity passed")
+        except SessionFormatError as exc:
+            add(code, "error", str(exc))
         except (OSError, sqlite3.Error, PortfolioStorageError):
             add(
                 code,

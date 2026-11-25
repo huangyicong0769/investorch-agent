@@ -21,6 +21,7 @@ from .sessions import (
     set_session_branch_from,
     set_session_model,
     set_session_title,
+    split_session_history,
 )
 
 logger = logging.getLogger(__name__)
@@ -69,7 +70,7 @@ async def fork_session(
 
     try:
         source = SQLiteSession(source_session_id, sessions_db)
-        source_items = await source.get_items()
+        system_message, source_items = split_session_history(await source.get_items())
         source_title = await asyncio.to_thread(
             get_session_title,
             sessions_db,
@@ -77,7 +78,9 @@ async def fork_session(
         )
 
         target_cleanup_required = True
-        await _await_mutation(asyncio.to_thread(create_session, sessions_db, target_session_id))
+        await _await_mutation(
+            asyncio.to_thread(create_session, sessions_db, target_session_id, system_prompt=system_message["content"])
+        )
         target = SQLiteSession(target_session_id, sessions_db)
         await target.add_items(source_items)
         await journal.clone_session(source_session_id, target_session_id)

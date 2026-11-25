@@ -20,7 +20,8 @@ async def test_model_requests_read_current_run_todos_without_persisting_instruct
     tmp_path: Path, needs_approval: bool
 ):
     config = make_test_config(tmp_path)
-    create_session(config.sessions_db, "session")
+    instructions = "Follow the current user request."
+    create_session(config.sessions_db, "session", system_prompt=instructions)
     set_session_title(config.sessions_db, "session", "Already titled")
     session = SQLiteSession("session", config.sessions_db)
     old_reasoning = {"type": "reasoning", "id": "rs_old", "summary": [], "encrypted_content": "old-opaque"}
@@ -47,7 +48,6 @@ async def test_model_requests_read_current_run_todos_without_persisting_instruct
             (assistant_message("done"),),
         )
     )
-    instructions = "Follow the current user request."
     prompt = {"role": "developer", "content": instructions}
     main = Agent(
         name="Main",
@@ -106,7 +106,8 @@ async def test_model_requests_read_current_run_todos_without_persisting_instruct
             assert "id" not in next(item for item in call.input if item.get("call_id") == "old-call")
         persisted = await session.get_items()
         assert old_reasoning in persisted
-        assert not any(item.get("role") == "developer" for item in persisted)
+        assert persisted[0] == prompt
+        assert not any(item.get("role") == "developer" for item in persisted[1:])
         assert request_note not in json.dumps(persisted)
 
         selected_model = ScriptedModel(((assistant_message("new run"),),))

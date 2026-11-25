@@ -6,7 +6,7 @@ from dataclasses import replace
 
 import httpx2
 import pytest
-from agents import Agent, AgentHooks, ModelBehaviorError, ModelSettings, Runner, function_tool
+from agents import Agent, AgentHooks, ModelBehaviorError, ModelSettings, Runner, SQLiteSession, function_tool
 from openai import AsyncOpenAI
 from pydantic import BaseModel
 
@@ -17,8 +17,9 @@ from investorch.commands.handlers import dispatch_command
 from investorch.commands.parser import parse_command
 from investorch.journal import read_session_journal
 from investorch.llm.clients import ModelConnectionClients
-from investorch.llm.models import ChatGPTInferenceError, ChatGPTResponsesModel, chatgpt_tools, with_developer_prompt
+from investorch.llm.models import ChatGPTInferenceError, ChatGPTResponsesModel, chatgpt_tools
 from investorch.llm.oauth import ChatGPTAuth
+from investorch.storage import create_session
 from tests.support.config import make_test_config
 from tests.support.runtime import run_options
 
@@ -383,10 +384,16 @@ async def test_api_key_model_instruction_placement_and_request_parameters(tmp_pa
             hooks=ModelInputHook(),
         )
         if streamed:
-            run_config = with_developer_prompt({"tracing_disabled": True})
-            result = Runner.run_streamed(agent, history, run_config=run_config)
-            async for _ in result.stream_events():
-                pass
+            create_session(config.sessions_db, "wire", system_prompt=instructions)
+            session = SQLiteSession("wire", config.sessions_db)
+            try:
+                result = Runner.run_streamed(
+                    agent.clone(instructions=None), history, session=session, run_config={"tracing_disabled": True}
+                )
+                async for _ in result.stream_events():
+                    pass
+            finally:
+                session.close()
         else:
             result = await run_with_usage(agent, history, run_config={"tracing_disabled": True})
     finally:
@@ -395,8 +402,7 @@ async def test_api_key_model_instruction_placement_and_request_parameters(tmp_pa
 
     assert result.final_output == "ok"
     expected = [{"role": "developer", "content": instructions}, *history]
-    initial_input = history if streamed else expected
-    assert result.to_input_list()[: len(initial_input)] == initial_input
+    assert result.to_input_list()[: len(expected)] == expected
     (request,) = requests
     assert request["max_output_tokens"] == 100
     assert request["temperature"] == 0.2

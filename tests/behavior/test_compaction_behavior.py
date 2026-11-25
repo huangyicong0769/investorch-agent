@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import sqlite3
+from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -153,7 +155,7 @@ async def test_preflight_compact_usage_stays_with_its_session_when_the_run_does_
 @pytest.mark.asyncio
 async def test_empty_session_compaction_is_a_no_op(tmp_path: Path) -> None:
     config = make_test_config(tmp_path)
-    create_session(config.sessions_db, "session-a")
+    create_session(config.sessions_db, "session-a", system_prompt="Session rules")
     session = SQLiteSession("session-a", config.sessions_db)
     try:
         result = await compact_session(
@@ -169,7 +171,7 @@ async def test_empty_session_compaction_is_a_no_op(tmp_path: Path) -> None:
     assert result.source_items == 0
     assert result.summary_chars == 0
     assert result.usage == TokenUsage()
-    assert history == []
+    assert history == [{"role": "developer", "content": "Session rules"}]
 
 
 @pytest.mark.parametrize("summary", ["Prior work summarized.", ""])
@@ -184,11 +186,19 @@ async def test_switching_to_smaller_window_compacts_before_main_or_fails_closed(
     from investorch.storage import set_session_title
 
     config = make_test_config(tmp_path)
-    create_session(config.sessions_db, "session")
+    create_session(config.sessions_db, "session", system_prompt="Session rules")
     set_session_title(config.sessions_db, "session", "Already titled")
     session = SQLiteSession("session", config.sessions_db)
     history = [{"role": "user", "content": "Old history " * 1000}]
     await session.add_items(history)
+
+    def stored_prompt_row():
+        with closing(sqlite3.connect(config.sessions_db)) as connection:
+            return connection.execute(
+                "SELECT id, message_data, created_at FROM agent_messages WHERE session_id = 'session' ORDER BY id LIMIT 1"
+            ).fetchone()
+
+    prompt_row = stored_prompt_row()
     main_model = ScriptedModel(((assistant_message("Main answer"),),))
     compact_model = ScriptedModel(((assistant_message(summary),),) * (2 if not summary else 1))
     main = Agent(name="Main", model=main_model)
@@ -224,7 +234,7 @@ async def test_switching_to_smaller_window_compacts_before_main_or_fails_closed(
         if not summary:
             with pytest.raises(ValueError, match="empty summary"):
                 await run()
-            assert await session.get_items() == history
+            assert (await session.get_items())[1:] == history
             assert main_model.calls == ()
         else:
             result = await run()
@@ -232,8 +242,10 @@ async def test_switching_to_smaller_window_compacts_before_main_or_fails_closed(
             assert len(compact_model.calls) == 1
             assert [json.loads(item["content"].split("\n", 1)[1]) for item in compact_model.calls[0].input] == history
             incoming = main_model.calls[0].input
-            assert incoming[0]["content"] == COMPACTED_CONTEXT_PREFIX + summary
-            assert incoming[1]["content"] == [{"type": "input_text", "text": "New request"}]
-            assert len(incoming) == 2
+            assert incoming[0] == {"role": "developer", "content": "Session rules"}
+            assert incoming[1]["content"] == COMPACTED_CONTEXT_PREFIX + summary
+            assert incoming[2]["content"] == [{"type": "input_text", "text": "New request"}]
+            assert len(incoming) == 3
+        assert stored_prompt_row() == prompt_row
     finally:
         session.close()

@@ -72,6 +72,7 @@ async def test_related_portfolios_are_ordered_deduplicated_and_durable(tmp_path:
         runtime=harness.runtime.runtime,
         journal=harness.runtime.journal,
         presentation_state=SessionPresentationStore(),
+        system_prompt=harness.operations.system_prompt,
     )
     assert await reopened.get_related_portfolio_ids(session_id) == ("core", "growth", "income")
     fresh_session_id = await reopened.create()
@@ -136,7 +137,7 @@ async def test_archive_and_unarchive_preserve_durable_session_state(tmp_path: Pa
     assert archived is not None
     assert archived.title == "Research"
     assert archived.branch_from_session_id == parent_id
-    assert await sdk_items(harness, session_id) == [{"role": "user", "content": "sdk history"}]
+    assert (await sdk_items(harness, session_id))[1:] == [{"role": "user", "content": "sdk history"}]
     assert [
         record["text"] for record in read_session_journal(harness.runtime.config.session_journal_dir, session_id)
     ] == ["journal history"]
@@ -258,8 +259,11 @@ async def test_forked_sessions_evolve_independently(tmp_path: Path) -> None:
     await harness.runtime.journal.record_user_message(source_id, "source-only")
     await harness.runtime.journal.record_user_message(target_id, "target-only")
 
-    assert [item["content"] for item in await sdk_items(harness, source_id)] == ["shared", "source-only"]
-    assert [item["content"] for item in await sdk_items(harness, target_id)] == ["shared", "target-only"]
+    source_history = await sdk_items(harness, source_id)
+    target_history = await sdk_items(harness, target_id)
+    assert source_history[0] == target_history[0] == {"role": "developer", "content": harness.operations.system_prompt}
+    assert [item["content"] for item in source_history[1:]] == ["shared", "source-only"]
+    assert [item["content"] for item in target_history[1:]] == ["shared", "target-only"]
     assert [item["text"] for item in read_session_journal(harness.runtime.config.session_journal_dir, source_id)] == [
         "shared",
         "source-only",

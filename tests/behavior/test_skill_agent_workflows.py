@@ -95,7 +95,7 @@ async def test_main_agent_creates_or_acquires_reviews_and_installs_a_skill(tmp_p
         ]
     )
     model = ScriptedModel(steps)
-    main = create_agent(model, ModelSettings(), config, skill_catalog=catalog)
+    main = create_agent(model, ModelSettings(), config)
     unused = Agent(name="Unused", model=ScriptedModel())
     approvals = []
 
@@ -121,7 +121,9 @@ async def test_main_agent_creates_or_acquires_reviews_and_installs_a_skill(tmp_p
     async def output(event):
         outputs.append(event)
 
-    create_session(config.sessions_db, "session")
+    from investorch.agents.prompts import main_system_prompt
+
+    create_session(config.sessions_db, "session", system_prompt=main_system_prompt(catalog))
     set_session_title(config.sessions_db, "session", "Skill workflow")
     session = SQLiteSession("session", config.sessions_db)
     loop = AgentLoop(

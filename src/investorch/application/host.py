@@ -22,6 +22,7 @@ from investorch.agents import (
     create_review_instruction_compactor,
     create_title_agent,
 )
+from investorch.agents.prompts import main_system_prompt
 from investorch.agents.skill_review import create_skill_review_agent
 from investorch.agents.title import generate_session_title
 from investorch.agents.usage import UsageHandler
@@ -43,7 +44,7 @@ from investorch.runtime import (
 )
 from investorch.runtime.errors import format_run_error
 from investorch.storage import create_session, delete_unused_session, get_session_title, list_sessions
-from investorch.storage.sessions import set_session_title_if_empty
+from investorch.storage.sessions import check_session_database, set_session_title_if_empty, split_session_history
 from investorch.tools import close_execution, make_messaging_tools, make_session_tools, start_execution
 
 from . import session_queries
@@ -185,17 +186,18 @@ async def open_application_host(
     callbacks = callbacks or ApplicationCallbacks()
     journal = SessionJournal(config.session_journal_dir, ZoneInfo(config["runtime.default_timezone"]))
     presentation_state = SessionPresentationStore(callbacks.handle_presentation_state)
+    await asyncio.to_thread(check_session_database, config.sessions_db)
     await _discard_legacy_unused_sessions(config, journal)
 
     selected_session_id = uuid.uuid4().hex
     initial_session_id = selected_session_id if create_initial_session else None
+    skills = SkillOperations(config=config)
+    system_prompt = main_system_prompt(skills.enabled_catalog())
     if initial_session_id is not None:
-        await asyncio.to_thread(create_session, config.sessions_db, initial_session_id)
+        await asyncio.to_thread(create_session, config.sessions_db, initial_session_id, system_prompt=system_prompt)
         logger.info("Started session %s", initial_session_id)
     execution = ExecutionState()
     portfolios = PortfolioOperations(config=config)
-    skills = SkillOperations(config=config)
-    skill_catalog = skills.enabled_catalog()
     state = AppState(
         config=config,
         execution=execution,
@@ -291,7 +293,8 @@ async def open_application_host(
             if existing and existing.strip():
                 return
             title_agent = create_title_agent(*model_clients.for_agent("title", fallback=selected))
-            title, _ = await generate_session_title(title_agent, await session.get_items(), usage_handler=usage)
+            _, history = split_session_history(await session.get_items())
+            title, _ = await generate_session_title(title_agent, history, usage_handler=usage)
             await handle_session_title(session.session_id, title)
         except Exception as error:
             logger.warning("Failed to generate title for session %s (%s)", session.session_id, type(error).__name__)
@@ -319,7 +322,6 @@ async def open_application_host(
                     model_settings=main_model_settings,
                     config=config,
                     mcp_servers=mcp_servers,
-                    skill_catalog=skill_catalog,
                 )
                 agent_loop = AgentLoop(
                     agent,
@@ -395,6 +397,7 @@ async def open_application_host(
                     runtime=runtime,
                     journal=journal,
                     presentation_state=presentation_state,
+                    system_prompt=system_prompt,
                 )
                 from investorch.application.spawning import spawn_agent
                 from investorch.tools.spawning import make_spawning_tools

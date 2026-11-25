@@ -61,7 +61,7 @@ async def test_projection_repeats_without_losing_live_directives_and_flushes_onl
             {"role": "assistant", "content": COMPACTED_CONTEXT_PREFIX + first_summary},
             todo,
         ]
-        assert await session.get_items() == raw
+        assert (await session.get_items())[1:] == raw
         second = [*first, steer, *tool_pair("call-two", "VIOLET\n" + "Second evidence " * 1000)]
         await session.add_items(second[len(first) :])
         projected = await projection.prepare(second, **kwargs)
@@ -79,7 +79,7 @@ async def test_projection_repeats_without_losing_live_directives_and_flushes_onl
         final = {"role": "assistant", "content": "Final reply after the last model request"}
         await session.add_items([final])
         assert await projection.flush(session)
-        assert await session.get_items() == [*projected, final]
+        assert (await session.get_items())[1:] == [*projected, final]
         assert not await projection.flush(session)
         assert sum(compacting for _, compacting in states) == 2
         assert states[-1][0] < 6000 and not states[-1][1]
@@ -131,7 +131,7 @@ async def test_projection_does_not_overwrite_changed_session_history(tmp_path: P
     try:
         await session.add_items(changed)
         assert not await projection.flush(session)
-        assert await session.get_items() == changed
+        assert (await session.get_items())[1:] == changed
     finally:
         session.close()
 
@@ -163,7 +163,7 @@ async def test_empty_compaction_retries_once_with_full_usage_and_preserves_histo
                 Agent(name="Compact", model=model), session, config, usage_handler=recorded.append
             )
             assert result.usage.total_tokens == 18
-            assert await session.get_items() == [
+            assert (await session.get_items())[1:] == [
                 {"role": "assistant", "content": COMPACTED_CONTEXT_PREFIX + second_text}
             ]
         else:
@@ -171,7 +171,7 @@ async def test_empty_compaction_retries_once_with_full_usage_and_preserves_histo
                 await compact_session(
                     Agent(name="Compact", model=model), session, config, usage_handler=recorded.append
                 )
-            assert await session.get_items() == history
+            assert (await session.get_items())[1:] == history
         assert len(model.calls) == 2
         assert model.calls[0].input == model.calls[1].input
         assert sum(value.total_tokens for value in recorded) == 18
@@ -277,9 +277,10 @@ async def test_projection_flush_matches_sdk_output_metadata_without_ignoring_con
         assert not await projection.flush(session)
         assert "session prefix changed" in caplog.text
         await session.clear_session()
+        create_session(config.sessions_db, "metadata")
         await session.add_items([raw])
         assert await projection.flush(session)
-        assert await session.get_items() == projected
+        assert (await session.get_items())[1:] == projected
     finally:
         session.close()
 

@@ -114,7 +114,7 @@ async def test_main_receives_review_reason_and_final_decision_after_approval(
         assert credential not in resumed
         feedbacks = [
             item["content"] if approved else item["output"]
-            for item in model.calls[1].input
+            for item in model.calls[1].input[1:]
             if (
                 item.get("role") == "developer"
                 if approved

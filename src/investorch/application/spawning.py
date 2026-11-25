@@ -122,6 +122,7 @@ async def spawn_agent(
                     parent_run_id=source_run_id,
                     tool_call_id=tool_call_id,
                     title=title,
+                    system_prompt=sessions.system_prompt,
                 )
             )
         except KeyError as error:

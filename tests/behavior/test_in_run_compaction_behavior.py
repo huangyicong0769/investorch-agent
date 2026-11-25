@@ -34,7 +34,8 @@ def assert_tool_pairs(items) -> None:
 @pytest.mark.parametrize("mode", ["completed", "approval", "steer", "failed", "cancelled"])
 async def test_running_projection_reaches_sdk_and_flushes_without_repeating_tools(tmp_path: Path, mode: str) -> None:
     config = make_test_config(tmp_path)
-    create_session(config.sessions_db, "session")
+    system_prompt = "Session rules"
+    create_session(config.sessions_db, "session", system_prompt=system_prompt)
     set_session_title(config.sessions_db, "session", "Already titled")
     session = SQLiteSession("session", config.sessions_db)
     stored_summary = {"role": "assistant", "content": COMPACTED_CONTEXT_PREFIX + "Earlier work completed."}
@@ -139,7 +140,9 @@ async def test_running_projection_reaches_sdk_and_flushes_without_repeating_tool
         assert sum(usage.total_tokens for usage, is_main in usages if is_main) == (count + int(successful)) * 30
         assert sum(usage.total_tokens for usage, is_main in usages if not is_main) == count * 37
         assert sum(compacting is True for _tokens, compacting in contexts) == count
-        assert main.calls[0].input[0] == {**stored_summary, "role": "user"}
+        assert all(call.input[0] == {"role": "developer", "content": system_prompt} for call in main.calls)
+        assert all(system_prompt not in json.dumps(call.input) for call in compact.calls)
+        assert main.calls[0].input[1] == {**stored_summary, "role": "user"}
         for index, call in enumerate(main.calls[1:]):
             incoming = call.input
             summary_index = next(
@@ -179,7 +182,7 @@ async def test_running_projection_reaches_sdk_and_flushes_without_repeating_tool
 
 async def test_measured_responses_anchor_only_new_content_within_and_between_runs(tmp_path: Path) -> None:
     config = make_test_config(tmp_path)
-    create_session(config.sessions_db, "session")
+    create_session(config.sessions_db, "session", system_prompt="Established instructions. " * 140)
     set_session_title(config.sessions_db, "session", "Already titled")
     session = SQLiteSession("session", config.sessions_db)
     executions = []
@@ -211,7 +214,7 @@ async def test_measured_responses_anchor_only_new_content_within_and_between_run
         )
     )
     compact = ScriptedModel()
-    agent = Agent(name="Main", instructions="Established instructions. " * 140, model=main, tools=[read_evidence])
+    agent = Agent(name="Main", model=main, tools=[read_evidence])
     loop = AgentLoop(
         agent,
         Agent(name="Compact", model=compact),

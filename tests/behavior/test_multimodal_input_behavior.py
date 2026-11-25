@@ -94,7 +94,7 @@ async def test_image_api_history_fork_archive_clear_and_delete(tmp_path: Path) -
         fork_id = fork.json()["session"]["session_id"]
         assert (await web.client.get(f"/api/sessions/{fork_id}/history")).json()["records"] == history["records"]
         clone = SQLiteSession(fork_id, web.host.config.sessions_db)
-        assert (await clone.get_items())[0]["content"][0]["image_url"] == IMAGE.image_url
+        assert (await clone.get_items())[1]["content"][0]["image_url"] == IMAGE.image_url
         clone.close()
         for action in ("archive", "unarchive"):
             assert (await web.client.post(f"/api/sessions/{fork_id}/{action}")).status_code == 200

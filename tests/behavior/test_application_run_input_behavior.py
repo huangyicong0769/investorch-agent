@@ -36,7 +36,7 @@ async def test_agent_loop_keeps_application_context_separate_from_visible_user_i
     tmp_path: Path, user_input: UserInput
 ) -> None:
     config = make_test_config(tmp_path)
-    create_session(config.sessions_db, "session-a")
+    create_session(config.sessions_db, "session-a", system_prompt="test")
     set_session_title(config.sessions_db, "session-a", "Test")
     model = ScriptedModel(((assistant_message("done"),),))
     agent = Agent[AgentContext](name="Main", instructions="test", model=model)
@@ -73,11 +73,12 @@ async def test_agent_loop_keeps_application_context_separate_from_visible_user_i
     finally:
         session.close()
 
-    assert history[0] == {
+    assert history[0] == {"role": "developer", "content": "test"}
+    assert history[1] == {
         "role": "developer",
         "content": "The selected Portfolio ID is portfolio-a. This establishes identity only.",
     }
-    assert history[1] == user_input_to_response_item(user_input)
+    assert history[2] == user_input_to_response_item(user_input)
     model.assert_complete()
 
 
