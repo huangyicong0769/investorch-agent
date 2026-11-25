@@ -32,11 +32,11 @@ def latest_deepseek_web_round(items: list[TResponseInputItem]) -> tuple[int, int
     return last_signed_round or last_web_round
 
 
-def _portable_item(item: TResponseInputItem, *, deepseek: bool) -> TResponseInputItem | None:
+def _portable_item(item: TResponseInputItem) -> TResponseInputItem | None:
     if not isinstance(item, dict):
         return item
     if item.get("type") == "web_search_call":
-        return item if deepseek or not is_deepseek_web_call(item) else None
+        return None if is_deepseek_web_call(item) else item
     if item.get("type") == "reasoning":
         return None
     item.pop("id", None)
@@ -46,19 +46,16 @@ def _portable_item(item: TResponseInputItem, *, deepseek: bool) -> TResponseInpu
 def portable_history(history: list[TResponseInputItem]) -> list[TResponseInputItem]:
     """Copy conversation data for a separate task such as title generation or summarization."""
     return [
-        item
-        for raw in history
-        if (item := _portable_item(raw.copy() if isinstance(raw, dict) else raw, deepseek=False)) is not None
+        item for raw in history if (item := _portable_item(raw.copy() if isinstance(raw, dict) else raw)) is not None
     ]
 
 
 class MainRunSession:
     """Read replay input and attribute new history to the Run's frozen connection."""
 
-    def __init__(self, session: SQLiteSession, connection: str, *, deepseek: bool) -> None:
+    def __init__(self, session: SQLiteSession, connection: str) -> None:
         self._session = session
         self._connection = connection
-        self._deepseek = deepseek
         self.session_id = session.session_id
         self.session_settings = session.session_settings
 
@@ -74,7 +71,7 @@ class MainRunSession:
                 and isinstance(item, dict)
                 and ("id" in item or item.get("type") in ("reasoning", "web_search_call"))
             ):
-                item = _portable_item(item, deepseek=self._deepseek)
+                item = _portable_item(item)
             if item is not None:
                 items.append(item)
         return items
