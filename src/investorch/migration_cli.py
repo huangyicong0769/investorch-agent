@@ -29,12 +29,13 @@ def run_migration_cli(args: list[str]) -> None:
         from investorch.storage.session_migration import migrate_sessions
         from investorch.storage.sessions import SessionFormatError
 
-        try:
+        def get_system_prompt() -> str:
             config = load_config(root=options.root)
-            prompt = None if options.dry_run else main_system_prompt(SkillOperations(config=config).enabled_catalog())
-            result = migrate_sessions(
-                options.database or config.sessions_db, system_prompt=prompt, dry_run=options.dry_run
-            )
+            return main_system_prompt(SkillOperations(config=config).enabled_catalog())
+
+        try:
+            path = options.database or load_config(root=options.root).sessions_db
+            result = migrate_sessions(path, get_system_prompt=get_system_prompt, dry_run=options.dry_run)
         except (SessionFormatError, sqlite3.Error, OSError, ValueError) as exc:
             print(f"Session migration failed: {exc}", file=sys.stderr)
             raise SystemExit(1) from exc

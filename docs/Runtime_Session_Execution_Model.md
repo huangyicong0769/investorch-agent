@@ -118,7 +118,7 @@ Todo is transient Run state projected to clients. It is not stored in SDK contin
 
 Fork copies SDK continuation, the journal when present, title with a suffix, direct parent lineage and persisted model metadata. A source Draft becomes a target Draft, retaining its process-local semantics. It does not copy active Runs, permission/follow-up overrides, Steer/Queue state, Todos, approvals, archive state, jobs, usage, caches, or UI state. It is stable-head cloning, not historical-turn branching.
 
-Empty Sessions that never acquire SDK messages, journal records, metadata, queued intent, or lineage are discarded. Web starts without creating a Session until the user does so; TUI/plain create an initial Session.
+Web starts without creating a Session. TUI and plain mode create an initial Session. When a client switches away from a Session, it can discard that Session if it contains only the fixed System Prompt and has no Journal, metadata, queued input or lineage. TUI and plain mode apply the same history checks to the selected Session on exit.
 
 ## Output and replay
 

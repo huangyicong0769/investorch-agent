@@ -43,7 +43,7 @@ from investorch.runtime import (
     RuntimeSessionSnapshot,
 )
 from investorch.runtime.errors import format_run_error
-from investorch.storage import create_session, delete_unused_session, get_session_title, list_sessions
+from investorch.storage import create_session, delete_unused_session, get_session_title
 from investorch.storage.sessions import check_session_database, set_session_title_if_empty, split_session_history
 from investorch.tools import close_execution, make_messaging_tools, make_session_tools, start_execution
 
@@ -164,15 +164,6 @@ async def _discard_unused_session(config: AppConfig, journal: SessionJournal, se
         return False
 
 
-async def _discard_legacy_unused_sessions(config: AppConfig, journal: SessionJournal) -> None:
-    records = await asyncio.to_thread(list_sessions, config.sessions_db, include_archived=True)
-    discarded = 0
-    for record in records:
-        discarded += await _discard_unused_session(config, journal, record.session_id)
-    if discarded:
-        logger.info("Discarded %d legacy unused sessions", discarded)
-
-
 @asynccontextmanager
 async def open_application_host(
     config: AppConfig,
@@ -187,7 +178,6 @@ async def open_application_host(
     journal = SessionJournal(config.session_journal_dir, ZoneInfo(config["runtime.default_timezone"]))
     presentation_state = SessionPresentationStore(callbacks.handle_presentation_state)
     await asyncio.to_thread(check_session_database, config.sessions_db)
-    await _discard_legacy_unused_sessions(config, journal)
 
     selected_session_id = uuid.uuid4().hex
     initial_session_id = selected_session_id if create_initial_session else None
@@ -449,7 +439,7 @@ async def open_application_host(
                 await runtime.aclose()
             if execution.sandbox is not None:
                 await close_execution(execution)
-            if create_initial_session:
+            if create_initial_session and state.selected_session_id is not None:
                 await _discard_unused_session(config, journal, state.selected_session_id)
         finally:
             try:

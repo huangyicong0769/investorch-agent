@@ -3,6 +3,7 @@
 import json
 import os
 import sqlite3
+from collections.abc import Callable
 from contextlib import closing
 from dataclasses import dataclass
 from pathlib import Path
@@ -37,11 +38,16 @@ def _backup_session_database(path: Path) -> Path:
 
 
 def migrate_sessions(
-    db_path: Path, *, system_prompt: str | None = None, dry_run: bool = False
+    db_path: Path, *, get_system_prompt: Callable[[], str], dry_run: bool = False
 ) -> SessionMigrationResult:
     path = db_path.resolve(strict=True)
-    mode = "ro" if dry_run else "rw"
-    with closing(sqlite3.connect(f"{path.as_uri()}?mode={mode}", uri=True)) as connection, connection:
+    uri = path.as_uri() + "?mode=rw"
+    if dry_run:
+        wal = path.with_name(path.name + "-wal")
+        if wal.exists() and wal.stat().st_size:
+            raise SessionFormatError("Session database has pending WAL data. Preview a checkpointed SQLite backup.")
+        uri = path.as_uri() + "?mode=ro&immutable=1"
+    with closing(sqlite3.connect(uri, uri=True)) as connection, connection:
         connection.execute("BEGIN" if dry_run else "BEGIN IMMEDIATE")
         version = connection.execute("PRAGMA user_version").fetchone()[0]
         if version != 0:
@@ -52,6 +58,7 @@ def migrate_sessions(
         count = connection.execute("SELECT count(*) FROM agent_sessions").fetchone()[0]
         if dry_run or version == SESSION_SCHEMA_VERSION:
             return SessionMigrationResult(version, SESSION_SCHEMA_VERSION, count)
+        system_prompt = get_system_prompt()
         if not system_prompt:
             raise ValueError("A Session requires a system prompt")
 

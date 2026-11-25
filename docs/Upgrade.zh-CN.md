@@ -17,7 +17,7 @@
    investorch upgrade check
    ```
 
-   独立实例可为迁移和预检命令添加 `--root /path/to/root`。在 SQLite 备份上演练时可为迁移命令添加 `--database /path/to/copy.db`。`--root` 提供生成固定 Prompt 所用的配置和已启用 Skill 目录。
+   独立实例可为迁移和预检命令添加 `--root /path/to/root`。在 SQLite 备份上演练时可为迁移命令添加 `--database /path/to/copy.db`。`--root` 提供生成固定 Prompt 所用的配置和已启用 Skill 目录。若预览提示有待处理的 WAL 数据，使用已完成检查点的 SQLite 备份进行预览。
 
 3. 保留迁移命令输出的 `backup_path`。它指向迁移前 Session 数据库的私有副本。迁移为每个已有 Session（包含空会话和归档会话）插入一条固定指令，并保留已有消息、元数据和 Journal。重复执行时迁移数为零。
 4. 启动新版并打开一个已有 Session。若要在恢复工作前回退，停止所有写入者，将迁移后的数据库及 `-wal`、`-shm` 附属文件一并移走，再把迁移前备份恢复为 `sessions.db`，用旧版启动。

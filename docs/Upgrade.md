@@ -17,7 +17,7 @@ Installation methods are in the [README](../README.md#installation).
    investorch upgrade check
    ```
 
-   Add `--root /path/to/root` to the migration and check commands for a separate instance. To rehearse on a SQLite backup, pass `--database /path/to/copy.db` to the migration commands. `--root` supplies the configuration and enabled Skill catalog for the fixed prompt.
+   Add `--root /path/to/root` to the migration and check commands for a separate instance. To rehearse on a SQLite backup, pass `--database /path/to/copy.db` to the migration commands. `--root` supplies the configuration and enabled Skill catalog for the fixed prompt. If the preview reports pending WAL data, use a checkpointed SQLite backup for the preview.
 
 3. Keep the `backup_path` printed by the migration. It is a private SQLite copy of the prior Session database. Migration inserts one prompt for each existing Session, including empty and archived Sessions, and preserves existing messages, metadata, and journals. Running the command again reports zero migrations.
 4. Start the new version and open an existing Session. To roll back before resuming work, stop all writers and move the migrated database and any `-wal` and `-shm` sidecars aside. Restore the self-contained backup as `sessions.db` and start the old installation.
