@@ -348,9 +348,7 @@ class AgentLoop:
         if not model_input:
             raise ValueError("Run requires user input or an application instruction")
 
-        model_session = MainRunSession(
-            session, self._config.model_connection_identity(model_config.model), deepseek=deepseek
-        )
+        model_session = MainRunSession(session, self._config.model_connection_identity(model_config.model))
         history_items = await self._preflight_compact(
             session,
             run_agent,
@@ -625,11 +623,7 @@ class AgentLoop:
         context_budget = self._context_budget(session.session_id, model_config)
         window = model_config.context_window_tokens
         reserve = min(8192, max(256, window // 20))
-        model_session = MainRunSession(
-            session,
-            self._config.model_connection_identity(model_config.model),
-            deepseek=self._config.model_connection(model_config.model).is_deepseek,
-        )
+        model_session = MainRunSession(session, self._config.model_connection_identity(model_config.model))
 
         async def notify(compacting: bool) -> None:
             if self._context_handler is not None:

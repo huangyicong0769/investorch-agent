@@ -1,6 +1,8 @@
 import asyncio
 import base64
 import json
+import sqlite3
+from contextlib import closing
 
 import httpx2
 import pytest
@@ -290,6 +292,60 @@ async def test_flash_continues_a_session_after_a_local_tool_returns_an_image(tmp
         follow_up = await host.runtime.start_run(session_id, "Continue with the image", run_options()).task
         assert follow_up.output == "完成"
         assert requests_with_image >= 2
+
+
+async def test_host_replays_signed_web_items_only_on_their_source_connection(tmp_path, monkeypatch):
+    config = make_test_config(
+        tmp_path,
+        {
+            "models": {
+                "test": {"type": "deepseek"},
+                "second": {"type": "deepseek", "api_key_secret": "SECOND_DEEPSEEK_KEY"},
+            },
+            "secrets": {"SECOND_DEEPSEEK_KEY": "fixture-second-key"},
+            "agents": {"main": {"name": "deepseek-flash", "auto_title": False}},
+        },
+    )
+    call = {
+        "id": "ws_read_link",
+        "type": "web_search_call",
+        "kind": "read_link",
+        "status": "completed",
+        "action": {"type": "open_page", "url": "https://example.org/"},
+        "signature": "fixture-provider-signature",
+    }
+    requests = []
+
+    def handle(request):
+        output = [message()] if requests else [call, message("Page summary")]
+        requests.append(json.loads(request.content)["input"])
+        return sse(response(output))
+
+    install_deepseek_http(monkeypatch, handle)
+    async with open_application_host(config, manual_approval_handler=approve, enable_activity=False) as host:
+        session_id = await host.sessions.create()
+        await host.runtime.start_run(session_id, "Read the page", run_options()).task
+        await host.runtime.start_run(session_id, "Continue on the first connection", run_options()).task
+        assert call in requests[-1]
+
+        host.session_models.update(
+            session_id, model="second", name="deepseek-flash", reasoning_effort="high", context_window_tokens=1000000
+        )
+        await host.runtime.start_run(session_id, "Continue on the second connection", run_options()).task
+        assert all(item.get("type") != "web_search_call" for item in requests[-1])
+        assert any(item.get("content") == message("Page summary")["content"] for item in requests[-1])
+
+        host.session_models.update(
+            session_id, model="test", name="deepseek-flash", reasoning_effort="high", context_window_tokens=1000000
+        )
+        await host.runtime.start_run(session_id, "Switch back to the first connection", run_options()).task
+        assert call in requests[-1]
+
+        legacy = await host.sessions.fork(session_id)
+        with closing(sqlite3.connect(config.sessions_db)) as database, database:
+            database.execute("UPDATE agent_messages SET source_connection = NULL WHERE session_id = ?", (legacy,))
+        await host.runtime.start_run(legacy, "Resume history with unknown sources", run_options()).task
+        assert all(item.get("type") != "web_search_call" for item in requests[-1])
 
 
 async def test_host_replays_signed_web_item_after_compact_fork_and_reopening(tmp_path, monkeypatch):
