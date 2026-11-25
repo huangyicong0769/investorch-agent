@@ -160,7 +160,7 @@ Main 与 auxiliary model usage 在当前进程中按 Session 累积。Auxiliary 
 
 后置自动压缩使用 Active Run 窗口与最后一次 Main 请求用量，失败不丢弃已经完成的答案。手动与自动压缩只改变 SDK continuation，保留完整 Journal，Compact 用量记入 Aux；成功后清空旧 Main 占用。
 
-每次新 Run 将已有消息和函数 `call_id` 放入输入副本。副本去除不透明 reasoning，并按目标 Provider 的协议处理工具记录。
+每次新 Run 回放已有消息、函数 `call_id` 关联，以及当前连接产出的推理项和响应条目 ID。组装输入时，Main 仅对其他连接和来源未知的历史项做移植处理，并保留存储原件。旧版未记录来源的条目按来源未知处理。
 
 组装 Main 请求时，本轮生成和已存储的压缩摘要都作为带标记的 `user` 上下文传入模型。
 

@@ -23,16 +23,11 @@ from investorch.llm.deepseek import DeepSeekResponseError, DeepSeekResponsesMode
 from investorch.llm.models import ChatGPTResponsesModel, chatgpt_tools
 from investorch.output import AssistantMessage, OutputEvent, OutputHandler, consume_run_events
 from investorch.output.stream import assistant_message_from_result
-from investorch.storage.sessions import (
-    get_foreign_history_keys,
-    get_session_title,
-    session_history_key,
-    split_session_history,
-)
+from investorch.storage.sessions import get_session_title, split_session_history
 
 from .compact import CompactionResult, _is_compacted_summary, compact_session, session_history_restore_failed
 from .context_projection import ContextBudget, ContextProjection, ContextProjectionBudgetError
-from .continuation import portable_history, portable_history_filter
+from .continuation import MainRunSession
 from .usage import TokenUsage, UsageHandler, UsageTracker
 
 if TYPE_CHECKING:
@@ -139,16 +134,14 @@ def should_auto_compact(
 
 
 def _run_model_input_filter(
-    portable_filter: Callable[[CallModelData], ModelInputData] | None,
     *,
     projection: ContextProjection | None = None,
     context_window_tokens: int = 0,
 ) -> CallModelInputFilter:
-    """Budget portable history and current Run state for each request."""
+    """Budget session history and current Run state for each request."""
 
     async def filter_input(data: CallModelData[AgentContext]) -> ModelInputData:
-        filtered = portable_filter(data) if portable_filter is not None else data.model_data
-        system_message, input_items = split_session_history(filtered.input)
+        system_message, input_items = split_session_history(data.model_data.input)
         tools = await data.agent.get_all_tools(RunContextWrapper(data.context)) if projection is not None else []
         extra_input: list[TResponseInputItem] = []
         if data.context is not None:
@@ -198,16 +191,6 @@ def _run_model_input_filter(
         return ModelInputData(input=[system_message, *model_input], instructions=None)
 
     return filter_input
-
-
-def _replay_history(
-    history: list[TResponseInputItem], agent: Agent, portable_filter: Callable[[CallModelData], ModelInputData] | None
-) -> list[TResponseInputItem]:
-    if portable_filter is None:
-        return history
-    return portable_filter(
-        CallModelData(agent=agent, context=None, model_data=ModelInputData(input=history, instructions=None))
-    ).input
 
 
 def _tool_schemas(tools: list[Tool]) -> list[dict[str, Any]]:
@@ -365,16 +348,10 @@ class AgentLoop:
         if not model_input:
             raise ValueError("Run requires user input or an application instruction")
 
-        history_items = await session.get_items()
-        _, history = split_session_history(history_items)
-        foreign_keys = await asyncio.to_thread(
-            get_foreign_history_keys, session.db_path, session_id, model_config.model
+        model_session = MainRunSession(
+            session, self._config.model_connection_identity(model_config.model), deepseek=deepseek
         )
-        foreign_history = (
-            [item for item in history if session_history_key(item) in foreign_keys] if foreign_keys else []
-        )
-        portable_filter = portable_history_filter(foreign_history, deepseek=deepseek) if foreign_history else None
-        await self._preflight_compact(
+        history_items = await self._preflight_compact(
             session,
             run_agent,
             agent_context,
@@ -382,10 +359,9 @@ class AgentLoop:
             model_config,
             record_preflight_usage,
             context_budget,
-            history=history_items,
-            portable_filter=portable_filter,
+            model_session=model_session,
         )
-        _, history = split_session_history(await session.get_items())
+        _, history = split_session_history(history_items)
 
         def record_context(tokens: int, compacting: bool) -> None:
             if self._context_handler is not None:
@@ -394,22 +370,21 @@ class AgentLoop:
         projection = ContextProjection(
             self._compaction_agent,
             self._config,
-            initial_history_count=len(_replay_history(history, run_agent, portable_filter)),
+            initial_history_count=len(history),
             usage_handler=record_auxiliary_usage,
             context_handler=record_context,
             context_budget=context_budget,
         )
         run_config = RunConfig(
             call_model_input_filter=_run_model_input_filter(
-                portable_filter,
                 projection=projection,
                 context_window_tokens=model_config.context_window_tokens,
-            )
+            ),
         )
         result = Runner.run_streamed(
             run_agent,
             model_input,
-            session=session,
+            session=model_session,
             context=agent_context,
             max_turns=self._config["runtime.max_turns"],
             run_config=run_config,
@@ -506,7 +481,7 @@ class AgentLoop:
                     result = Runner.run_streamed(
                         run_agent,
                         sdk_state,
-                        session=session,
+                        session=model_session,
                         max_turns=self._config["runtime.max_turns"],
                         run_config=run_config,
                         hooks=hooks,
@@ -522,16 +497,16 @@ class AgentLoop:
             main_usage_tracker.record(result.context_wrapper.usage)
             flushed = await projection.flush(session)
             if projection.changed and not flushed and self._context_handler is not None:
-                retained = await session.get_items()
-                portable = await _run_model_input_filter(portable_filter)(
+                retained = await model_session.get_items()
+                prepared = await _run_model_input_filter()(
                     CallModelData(
                         model_data=ModelInputData(input=retained, instructions=None), agent=run_agent, context=None
                     )
                 )
                 wrapper = RunContextWrapper(agent_context)
                 estimate = context_budget.estimate(
-                    portable.input[1:],
-                    instructions=portable.input[0]["content"],
+                    prepared.input[1:],
+                    instructions=prepared.input[0]["content"],
                     tool_schemas=_tool_schemas(await run_agent.get_all_tools(wrapper)),
                 )
                 self._context_handler(session_id, estimate, model_config)
@@ -571,9 +546,9 @@ class AgentLoop:
         usage_handler: Callable[[TokenUsage], None] | None,
         context_budget: ContextBudget,
         *,
-        history: list[TResponseInputItem],
-        portable_filter: Callable[[CallModelData], ModelInputData] | None,
-    ) -> CompactionResult | None:
+        model_session: MainRunSession,
+    ) -> list[TResponseInputItem]:
+        history = await model_session.get_items()
         context_window_tokens = model_config.context_window_tokens
         wrapper = RunContextWrapper(context)
         system_message, _ = split_session_history(history)
@@ -585,7 +560,7 @@ class AgentLoop:
         def estimate(items: list[TResponseInputItem]) -> int:
             prompt, tail = split_session_history(items)
             return context_budget.estimate(
-                [*_replay_history(tail, agent, portable_filter), *model_input],
+                [*tail, *model_input],
                 instructions=prompt["content"],
                 tool_schemas=tool_schemas,
             )
@@ -594,7 +569,7 @@ class AgentLoop:
         if self._context_handler is not None:
             self._context_handler(session.session_id, estimated_tokens, model_config)
         if estimated_tokens < soft_budget:
-            return None
+            return history
         try:
             if self._context_handler is not None:
                 self._context_handler(session.session_id, estimated_tokens, model_config, compacting=True)
@@ -617,14 +592,15 @@ class AgentLoop:
                 ) from error
             raise
         finally:
-            estimated_tokens = estimate(await session.get_items())
+            history = await model_session.get_items()
+            estimated_tokens = estimate(history)
             if self._context_handler is not None:
                 self._context_handler(session.session_id, estimated_tokens, model_config)
         if self._preflight_compaction_handler is not None:
             self._preflight_compaction_handler(session.session_id, result)
         if estimated_tokens >= hard_budget:
             raise ContextBudgetError(estimated_tokens, hard_budget, after_compaction=result.changed)
-        return result
+        return history
 
     async def compact(
         self,
@@ -649,13 +625,17 @@ class AgentLoop:
         context_budget = self._context_budget(session.session_id, model_config)
         window = model_config.context_window_tokens
         reserve = min(8192, max(256, window // 20))
+        model_session = MainRunSession(
+            session,
+            self._config.model_connection_identity(model_config.model),
+            deepseek=self._config.model_connection(model_config.model).is_deepseek,
+        )
 
         async def notify(compacting: bool) -> None:
             if self._context_handler is not None:
-                prompt, tail = split_session_history(await session.get_items())
-                filtered = await _run_model_input_filter(None)(
+                filtered = await _run_model_input_filter()(
                     CallModelData(
-                        model_data=ModelInputData(input=[prompt, *portable_history(tail)], instructions=None),
+                        model_data=ModelInputData(input=await model_session.get_items(), instructions=None),
                         agent=self._agent,
                         context=None,
                     )

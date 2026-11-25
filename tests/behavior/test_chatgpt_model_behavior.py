@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import json
+import sqlite3
+from contextlib import closing
 
 import httpx2
 from openai import AsyncOpenAI
@@ -9,6 +12,7 @@ from investorch.agents.prompts import MAIN_AGENT_INSTRUCTIONS
 from investorch.application import open_application_host
 from investorch.commands.handlers import dispatch_command
 from investorch.commands.parser import parse_command
+from investorch.config import load_config
 from investorch.journal import read_session_journal
 from investorch.llm.clients import ModelConnectionClients
 from tests.support.config import make_test_config
@@ -141,12 +145,24 @@ async def test_main_replays_reasoning_from_the_selected_connection_after_switche
         },
     )
     requests = []
+    held_request: int | None = None
+    request_started = asyncio.Event()
+    release_response = asyncio.Event()
 
-    def handle(request):
+    async def handle(request):
         requests.append(json.loads(request.content))
         number = len(requests)
+        if number == held_request:
+            request_started.set()
+            await release_response.wait()
+        reasoning_key = "shared" if number in (1, 3) else str(number)
         output = [
-            {"type": "reasoning", "id": f"rs_{number}", "summary": [], "encrypted_content": f"opaque-{number}"},
+            {
+                "type": "reasoning",
+                "id": f"rs_{reasoning_key}",
+                "summary": [],
+                "encrypted_content": f"opaque-{reasoning_key}",
+            },
             {
                 "type": "message",
                 "id": f"msg_{number}",
@@ -180,7 +196,11 @@ async def test_main_replays_reasoning_from_the_selected_connection_after_switche
         assert session_id is not None
         await host.runtime.start_run(session_id, "Start", run_options()).task
         await host.runtime.start_run(session_id, "Continue on the first connection", run_options()).task
-        assert reasoning_sent() == ["opaque-1"]
+        assert reasoning_sent() == ["opaque-shared"]
+        with closing(sqlite3.connect(config.sessions_db)) as database:
+            first_history = database.execute(
+                "SELECT id, message_data FROM agent_messages WHERE session_id = ? ORDER BY id", (session_id,)
+            ).fetchall()
 
         host.session_models.update(
             session_id, model="second", name="gpt-6.2-sol", reasoning_effort="max", context_window_tokens=1000000
@@ -188,13 +208,56 @@ async def test_main_replays_reasoning_from_the_selected_connection_after_switche
         await host.runtime.start_run(session_id, "Switch connection", run_options()).task
         assert reasoning_sent() == []
         await host.runtime.start_run(session_id, "Continue on the second connection", run_options()).task
-        assert reasoning_sent() == ["opaque-3"]
+        assert reasoning_sent() == ["opaque-shared"]
+        with closing(sqlite3.connect(config.sessions_db)) as database:
+            history = database.execute(
+                "SELECT id, message_data FROM agent_messages WHERE session_id = ? ORDER BY id", (session_id,)
+            ).fetchall()
+        assert history[: len(first_history)] == first_history
 
         fork = await host.sessions.fork(session_id)
         await host.runtime.start_run(fork, "Continue in the fork", run_options()).task
-        assert reasoning_sent() == ["opaque-3", "opaque-4"]
+        assert reasoning_sent() == ["opaque-shared", "opaque-4"]
         host.session_models.update(
             fork, model="first", name="gpt-6.2-sol", reasoning_effort="max", context_window_tokens=1000000
         )
         await host.runtime.start_run(fork, "Switch back to the first connection", run_options()).task
-        assert reasoning_sent() == ["opaque-1", "opaque-2"]
+        assert reasoning_sent() == ["opaque-shared", "opaque-2"]
+
+        legacy = await host.sessions.fork(session_id)
+        with closing(sqlite3.connect(config.sessions_db)) as database, database:
+            database.execute("UPDATE agent_messages SET source_connection = NULL WHERE session_id = ?", (legacy,))
+        await host.runtime.start_run(legacy, "Resume a Session with unknown history sources", run_options()).task
+        assert reasoning_sent() == []
+        await host.runtime.start_run(legacy, "Continue on the recorded connection", run_options()).task
+        assert reasoning_sent() == ["opaque-7"]
+
+    config.update("models.second.credentials", "personal-replacement")
+    updated_config = load_config(root=config.root)
+    async with open_application_host(updated_config, manual_approval_handler=approve, enable_activity=False) as host:
+        await host.runtime.start_run(session_id, "Continue with replacement credentials", run_options()).task
+        assert reasoning_sent() == []
+        await host.runtime.start_run(session_id, "Continue on the replacement connection", run_options()).task
+        assert reasoning_sent() == ["opaque-9"]
+
+        async with open_application_host(
+            updated_config, manual_approval_handler=approve, enable_activity=False, create_initial_session=False
+        ) as other:
+            concurrent_session = await host.sessions.create()
+            other.session_models.update(
+                concurrent_session,
+                model="second",
+                name="gpt-6.2-sol",
+                reasoning_effort="max",
+                context_window_tokens=1000000,
+            )
+            held_request = len(requests) + 1
+            original = host.runtime.start_run(concurrent_session, "Hold the first connection", run_options())
+            try:
+                await asyncio.wait_for(request_started.wait(), timeout=5)
+                await other.runtime.start_run(concurrent_session, "Run the second connection", run_options()).task
+            finally:
+                release_response.set()
+                await original.task
+            await other.runtime.start_run(concurrent_session, "Continue the second connection", run_options()).task
+            assert reasoning_sent() == [f"opaque-{held_request + 1}"]

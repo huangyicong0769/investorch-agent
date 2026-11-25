@@ -177,7 +177,7 @@ Each accepted Run freezes the connection, model, effort and positive window. Its
 
 When the selected window is too small for continuation plus input, preflight compaction runs before Main inference. If it fails or the input still cannot fit, Main does not run. Post-answer automatic compaction remains available. Both preserve the complete JSONL Journal.
 
-Each new Run receives messages, function `call_id` links, and compatible web calls with their IDs. Prior opaque reasoning and other response-item IDs stay in storage. Reasoning produced within a Run stays available for its tool continuations. See [Runtime](Runtime_Session_Execution_Model.md) for execution details.
+Each new Run receives prior messages, function `call_id` links, and compatible web calls. Main also replays opaque reasoning and response-item IDs from the selected connection. History from other connections or with an unknown source is made portable in the input copy. See [Runtime](Runtime_Session_Execution_Model.md) for execution details.
 
 ## Operator ownership
 

@@ -177,7 +177,7 @@ Web 输入框右下显示模型与思考强度。点选模型或在 **Thinking**
 
 如果目标窗口容纳不下 continuation 与输入，Main 推理前先压缩；失败或仍无法容纳时不执行 Main。回答后的自动压缩仍保留。两种压缩均保留完整 JSONL Journal。
 
-每次新 Run 收到消息、函数 `call_id` 关联和兼容的原始联网调用及其 ID。过去的不透明推理和其他响应条目的 ID 留在存储中。本 Run 内生成的推理可用于该 Run 的工具续轮。执行契约见 [Runtime](Runtime_Session_Execution_Model.zh-CN.md)。
+每次新 Run 都会收到历史消息、通过 `call_id` 关联的函数调用和结果，以及兼容的联网调用。Main 也会回放当前连接产出的不透明推理和响应条目 ID。其他连接产出的历史和来源未知的历史会在输入副本中做移植处理。执行契约见 [Runtime](Runtime_Session_Execution_Model.zh-CN.md)。
 
 ## 操作者边界
 

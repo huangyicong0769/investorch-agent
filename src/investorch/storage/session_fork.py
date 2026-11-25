@@ -11,14 +11,17 @@ from agents import SQLiteSession
 from investorch.journal import SessionJournal
 
 from .sessions import (
-    copy_session_model,
+    append_session_items,
     copy_session_related_portfolio_ids,
     create_session,
     delete_session_metadata,
     get_session_branch_from,
+    get_session_history,
+    get_session_model,
     get_session_title,
     session_exists,
     set_session_branch_from,
+    set_session_model,
     set_session_title,
     split_session_history,
 )
@@ -62,14 +65,11 @@ async def fork_session(
 
     await _ensure_target_available(target_session_id, sessions_db, journal)
 
-    source: SQLiteSession | None = None
-    target: SQLiteSession | None = None
-    handles_closed = False
     target_cleanup_required = False
 
     try:
-        source = SQLiteSession(source_session_id, sessions_db)
-        system_message, source_items = split_session_history(await source.get_items())
+        source_history = await asyncio.to_thread(get_session_history, sessions_db, source_session_id)
+        system_message, _ = split_session_history([item for item, _ in source_history])
         source_title = await asyncio.to_thread(
             get_session_title,
             sessions_db,
@@ -80,8 +80,9 @@ async def fork_session(
         await _await_mutation(
             asyncio.to_thread(create_session, sessions_db, target_session_id, system_prompt=system_message["content"])
         )
-        target = SQLiteSession(target_session_id, sessions_db)
-        await target.add_items(source_items)
+        await _await_mutation(
+            asyncio.to_thread(append_session_items, sessions_db, target_session_id, source_history[1:])
+        )
         await journal.clone_session(source_session_id, target_session_id)
         await _await_mutation(
             asyncio.to_thread(
@@ -92,7 +93,9 @@ async def fork_session(
             )
         )
 
-        await _await_mutation(asyncio.to_thread(copy_session_model, sessions_db, source_session_id, target_session_id))
+        source_model = await asyncio.to_thread(get_session_model, sessions_db, source_session_id)
+        if source_model is not None:
+            await _await_mutation(asyncio.to_thread(set_session_model, sessions_db, target_session_id, source_model))
 
         title = _fork_title(source_title)
         if title is not None:
@@ -113,16 +116,10 @@ async def fork_session(
             )
         )
 
-        close_errors = _close_session_handles(target, source)
-        handles_closed = True
-        if close_errors:
-            raise close_errors[0]
     except BaseException as original_error:
-        cleanup_errors: list[BaseException] = []
-        if not handles_closed:
-            cleanup_errors.extend(_close_session_handles(target, source))
-        if target_cleanup_required:
-            cleanup_errors.extend(await _rollback_target(target_session_id, sessions_db, journal))
+        cleanup_errors = (
+            await _rollback_target(target_session_id, sessions_db, journal) if target_cleanup_required else []
+        )
 
         if isinstance(original_error, asyncio.CancelledError):
             logger.info(
@@ -217,20 +214,6 @@ async def _ensure_target_available(
         raise SessionForkError(f"Target session already exists: {target_session_id}")
 
 
-def _close_session_handles(
-    *sessions: SQLiteSession | None,
-) -> list[BaseException]:
-    errors: list[BaseException] = []
-    for session in sessions:
-        if session is None:
-            continue
-        try:
-            session.close()
-        except BaseException as error:
-            errors.append(error)
-    return errors
-
-
 async def _rollback_target(
     target_session_id: str,
     sessions_db: Path,
@@ -259,7 +242,11 @@ async def _rollback_target_unshielded(
     except BaseException as error:
         errors.append(error)
     finally:
-        errors.extend(_close_session_handles(target))
+        if target is not None:
+            try:
+                target.close()
+            except BaseException as error:
+                errors.append(error)
 
     try:
         await journal.delete_session(target_session_id)
