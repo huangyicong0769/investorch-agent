@@ -21,11 +21,9 @@ import tomlkit
 from package_smoke import request, running_web
 
 from investorch.application.skills import SkillOperations
-from investorch.backup import create_backup, verify_backup
 from investorch.config import REQUIRED_AGENT_ROLES, load_config
 from investorch.initializer import initialize
 from investorch.portfolio import init_portfolio_storage, list_ledger_entries, list_portfolios
-from investorch.portfolio.migration import migrate_portfolio
 from investorch.storage import create_session, get_session, init_session_metadata, set_session_title
 
 PROJECT = Path(__file__).resolve().parents[1]
@@ -89,6 +87,19 @@ def sql_economics(path: Path) -> dict:
 def main() -> None:
     executable = shutil.which("investorch")
     assert executable
+
+    def cli(home: Path, *args: str, expected_codes: tuple[int, ...] = (0,)) -> dict:
+        result = subprocess.run(
+            [executable, *args],
+            env={**os.environ, "HOME": str(home)},
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        assert result.returncode in expected_codes, result.stderr
+        return json.loads(result.stdout)
+
     report = {
         "source": "explicit model configuration and literal historical Portfolio SQL fixtures",
         "provider_requests": 0,
@@ -120,8 +131,8 @@ def main() -> None:
                 with running_web(executable, home) as (_, origin):
                     assert request(origin, "/api/setup/state")["status"] == "recovery_required"
                 assert files_digest(root) == raw_before
-                migration = migrate_portfolio(database)
-                assert migration.archive_path and Path(migration.archive_path).is_dir()
+                migration = cli(home, "migrate", "portfolio", "--database", str(database))
+                assert migration["archive_path"] and Path(migration["archive_path"]).is_dir()
             with running_web(executable, home) as (_, origin):
                 assert request(origin, "/api/setup/state")["status"] == "ready"
                 assert request(origin, "/api/portfolios")["portfolios"]
@@ -144,7 +155,10 @@ def main() -> None:
         before = files_digest(active_root)
         with running_web(executable, active_home) as (_, origin):
             assert request(origin, "/api/setup/state")["status"] == "recovery_required"
-        assert not migrate_portfolio(active_db, dry_run=True).safe
+        blocked = cli(
+            active_home, "migrate", "portfolio", "--database", str(active_db), "--dry-run", expected_codes=(1,)
+        )
+        assert not blocked["safe"]
         assert files_digest(active_root) == before
         checks["active_legacy_live"] = "HTTP recovery; migration blocked; source files unchanged"
 
@@ -182,7 +196,7 @@ def main() -> None:
         initialize(config)
         historical = base / "fixture-portfolio.db"
         historical_database(historical, 2)
-        migrate_portfolio(historical)
+        cli(source_home, "migrate", "portfolio", "--database", str(historical))
         shutil.copyfile(historical, config.portfolio_db)
         create_session(config.sessions_db, "recovery-session")
         set_session_title(config.sessions_db, "recovery-session", "Recovery qualification")
@@ -192,20 +206,12 @@ def main() -> None:
         SkillOperations(config=config).set_enabled("skill-creator", False)
         (config.workspace_dir / "strategy.py").write_text("print('qualification')\n")
         original = files_digest(source_root)
-        doctor = subprocess.run(
-            [executable, "doctor", "--root", str(source_root), "--json"],
-            env={**os.environ, "HOME": str(source_home)},
-            capture_output=True,
-            text=True,
-            timeout=30,
-            check=False,
-        )
-        assert doctor.returncode in (0, 1), doctor.stdout
+        cli(source_home, "doctor", "--root", str(source_root), "--json", expected_codes=(0, 1))
         assert files_digest(source_root) == original
         checks["doctor_readonly"] = "real CLI; all source hashes unchanged"
         archive = base / "recovery.zip"
-        create_backup(config, archive)
-        manifest = verify_backup(archive)
+        cli(source_home, "backup", "create", "--root", str(source_root), "--output", str(archive))
+        manifest = cli(source_home, "backup", "verify", str(archive))["manifest"]
         restored_root = base / "restored"
         doc = (PROJECT / "docs/Backup_and_Recovery.md").read_text()
         restore_script = doc.split("<<'PY'\n", 1)[1].split("\nPY\n", 1)[0]
@@ -230,15 +236,7 @@ def main() -> None:
         assert files_digest(config.session_journal_dir) == files_digest(restored.session_journal_dir)
         assert not restored.secrets and not restored.mcp_config_path.exists()
         assert files_digest(source_root) == original
-        restored_doctor = subprocess.run(
-            [executable, "doctor", "--root", str(restored_root), "--json"],
-            env={**os.environ, "HOME": str(source_home)},
-            capture_output=True,
-            text=True,
-            timeout=30,
-            check=False,
-        )
-        assert restored_doctor.returncode in (0, 1), restored_doctor.stdout
+        cli(source_home, "doctor", "--root", str(restored_root), "--json", expected_codes=(0, 1))
         checks["restored_doctor"] = "real CLI; no errors, expected missing-credential/data/WAL warnings"
         checks["backup_restore"] = (
             f"documented recipe restored {len(manifest['files'])} files; Session/ledger/Skills/Workspace equal"

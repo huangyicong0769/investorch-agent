@@ -87,7 +87,7 @@ Main Agent 会为每个 Run 使用已捕获 model settings 进行 clone。辅助
 - Title Agent 为主回答完成后仍无标题的 Session 命名。
 - Activity Agent 为 Tool call 生成只用于展示的 label。
 - Permission Agent 在 review 模式下可以返回 approve、reject 或 ask。
-- Compact Agent 用带标记的 summary 替换 SDK continuation history。
+- 新 Session 将固定 System Prompt 和 Skill 发现目录快照保存为首条 `developer` 消息，Fork 继承这条消息。SDK 随 Session 历史回放它。Compact 用带标记的 summary 替换它之后的历史。
 
 Runtime 保留 OpenAI Agents SDK 与 Responses adapter。`models.<id>` 定义可复用连接，`agents.<role>` 为五个内置角色选择连接、真实模型、effort 与正整数窗口；分别由 `AppConfig.model_connection()`、`agent_model()` 解析。Skill Review 共用 `agents.permission`。Host 的 `ModelConnectionClients` 按连接复用 Client，停机统一关闭；每个 Run 克隆自己的模型及设置，不修改共享 Agent 模板。
 

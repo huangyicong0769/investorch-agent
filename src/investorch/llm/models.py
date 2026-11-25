@@ -4,7 +4,14 @@ from collections.abc import AsyncIterator
 from dataclasses import replace
 from typing import Any
 
-from agents import FunctionTool, ModelBehaviorError, ModelSettings, OpenAIResponsesModel, WebSearchTool, tool_namespace
+from agents import (
+    FunctionTool,
+    ModelBehaviorError,
+    ModelSettings,
+    OpenAIResponsesModel,
+    WebSearchTool,
+    tool_namespace,
+)
 from agents.agent_output import AgentOutputSchemaBase
 from agents.handoffs import Handoff
 from agents.items import ModelResponse, TResponseInputItem, TResponseStreamEvent
@@ -16,7 +23,7 @@ from openai.lib.streaming.responses import ResponseStreamState
 from openai.types.responses import Response
 from openai.types.responses.response_prompt_param import ResponsePromptParam
 
-from investorch.llm.oauth import USAGE_URL
+from investorch.llm.oauth import RESOURCE, USAGE_URL
 
 # Only documented categories and conventional API categories may enter user-visible text.
 _INFERENCE_CODES = {
@@ -122,11 +129,33 @@ def _settings(settings: ModelSettings) -> ModelSettings:
     )
 
 
+def _chatgpt_input_item(item: TResponseInputItem) -> TResponseInputItem:
+    if not isinstance(item, dict):
+        return item
+    if item.get("role") == "system":
+        return {**item, "role": "developer"}
+    # The stream collector adds SDK-only fields that the Responses API rejects on replay.
+    if item.get("type") == "function_call" and "parsed_arguments" in item:
+        return {key: value for key, value in item.items() if key != "parsed_arguments"}
+    content = item.get("content")
+    if item.get("role") == "assistant" and isinstance(content, list):
+        return {
+            **item,
+            "content": [
+                {key: value for key, value in part.items() if key != "parsed"}
+                if isinstance(part, dict) and part.get("type") == "output_text" and "parsed" in part
+                else part
+                for part in content
+            ],
+        }
+    return item
+
+
 class ChatGPTResponsesModel(OpenAIResponsesModel):
     """Use the SDK's Responses stream for both streamed and ordinary Runner calls."""
 
     def __init__(self, model: str, client: AsyncOpenAI):
-        if str(client.base_url).rstrip("/") != "https://api.openai.com/v1":
+        if str(client.base_url).rstrip("/") != RESOURCE:
             raise ValueError("ChatGPT OAuth requires the official https://api.openai.com/v1 endpoint.")
         super().__init__(model=model, openai_client=client)
 
@@ -155,14 +184,7 @@ class ChatGPTResponsesModel(OpenAIResponsesModel):
                     raise ModelBehaviorError("Deferred tool search is unavailable through ChatGPT plan usage.")
             elif not isinstance(tool, WebSearchTool):
                 raise ModelBehaviorError("This hosted tool is unavailable through ChatGPT plan usage.")
-        request_input = (
-            input
-            if isinstance(input, str)
-            else [
-                {**item, "role": "developer"} if isinstance(item, dict) and item.get("role") == "system" else item
-                for item in input
-            ]
-        )
+        request_input = input if isinstance(input, str) else [_chatgpt_input_item(item) for item in input]
         settings = _settings(model_settings)
         choice = settings.tool_choice
         if isinstance(choice, str) and choice not in {"auto", "required", "none"}:

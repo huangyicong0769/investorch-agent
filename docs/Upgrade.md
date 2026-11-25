@@ -2,7 +2,25 @@
 
 [简体中文](Upgrade.zh-CN.md)
 
-This guide covers the 0.3.0 model configuration transition and retains the earlier 0.2.0 upgrade procedure. Installation methods are in the [README](../README.md#installation); changes are in the [0.3.0 release notes](releases/0.3.0.md).
+Installation methods are in the [README](../README.md#installation).
+
+## 0.3.3 Session history migration
+
+0.3.3 changes the Session database format. Each Session begins with one persisted `developer` message containing its fixed System Prompt. Upgrading an existing instance requires an explicit migration before starting the new version.
+
+1. Stop every InvestOrch process that writes to the instance. Keep the previous installation available for recovery.
+2. With the new version, preview the migration and then apply it.
+
+   ```sh
+   investorch migrate sessions --dry-run
+   investorch migrate sessions
+   investorch upgrade check
+   ```
+
+   Add `--root /path/to/root` to the migration and check commands for a separate instance. To rehearse on a SQLite backup, pass `--database /path/to/copy.db` to the migration commands. `--root` supplies the configuration and enabled Skill catalog for the fixed prompt. If the preview reports pending WAL data, use a checkpointed SQLite backup for the preview.
+
+3. Keep the `backup_path` printed by the migration. It is a private SQLite copy of the prior Session database. Migration inserts one prompt for each existing Session, including empty and archived Sessions, and preserves existing messages, metadata, and journals. Running the command again reports zero migrations.
+4. Start the new version and open an existing Session. To roll back before resuming work, stop all writers and move the migrated database and any `-wal` and `-shm` sidecars aside. Restore the self-contained backup as `sessions.db` and start the old installation.
 
 ## 0.2.0 → 0.3.0 model configuration
 

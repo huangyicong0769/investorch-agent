@@ -30,9 +30,10 @@ and [Trusted Publishing](https://docs.pypi.org/trusted-publishers/using-a-publis
    application checks and the wheel and source installation checks.
    Keep `pyproject.toml` and `frontend/package.json` versions aligned, include
    both language release notes under `docs/releases/`, and run
-   `uv run --no-project python scripts/check_release.py --tag v0.3.2`.
-2. Obtain explicit approval before merging to `main`, creating/pushing the
-   `v0.3.2` tag or publishing. Run the full CI gates on the approved commit.
+   `uv run --no-project python scripts/check_release.py --tag "$release_tag"`
+   with `release_tag` set to the intended `vX.Y.Z` tag.
+2. Obtain explicit approval before merging to `main`, creating or pushing the
+   release tag, or publishing. Run the full CI gates on the approved commit.
 3. Push the approved tag on a commit contained in `main`. The `Release` workflow
    validates the tag, runs quality/package checks and creates a **draft
    prerelease** with a wheel, source distribution and `SHA256SUMS`.
@@ -48,7 +49,7 @@ and [Trusted Publishing](https://docs.pypi.org/trusted-publishers/using-a-publis
    reviewing its build result. Only that job receives OIDC permission; it checks
    out no source and uses PyPA's publish action with attestations enabled.
 6. Verify the workflow result, PyPI version/files/attestations and a fresh
-   installation of `investorch==0.3.2` before marking publication complete.
+   installation of the exact published version before marking publication complete.
 
 Drafts and prereleases do not publish to PyPI. There is no manual publish trigger.
 Publish the draft directly as stable: promoting an already published prerelease

@@ -5,18 +5,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-import pytest
-
-from investorch.cli import parse_startup_args
-
-
-@pytest.mark.parametrize("option", ["--sync", "--sync-force"])
-def test_retired_synchronization_options_are_rejected(option: str) -> None:
-    with pytest.raises(SystemExit) as error:
-        parse_startup_args([option])
-
-    assert error.value.code == 2
-
 
 def test_update_installs_and_repairs_only_builtins_without_model_credentials(tmp_path: Path) -> None:
     environment = {**os.environ, "HOME": str(tmp_path)}

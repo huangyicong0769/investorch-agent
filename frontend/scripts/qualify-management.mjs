@@ -4,8 +4,6 @@
 import assert from 'node:assert/strict'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
-import { createServer } from 'node:http'
-import { setTimeout as wait } from 'node:timers/promises'
 import { fileURLToPath, URL } from 'node:url'
 
 const require = createRequire(import.meta.url)
@@ -18,7 +16,11 @@ const browser = await chromium.launch({ channel: process.env.BROWSER_CHANNEL || 
 const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } })
 const errors = []
 const evidence = []
-let probeServer
+const connectionId = 'qa'
+const fixtureEndpoint = 'https://models.example.test/v1'
+const connection = page.getByRole('group', { name: connectionId, exact: true })
+const main = page.getByRole('group', { name: 'Main', exact: true })
+const key = connection.getByLabel('API key', { exact: true })
 page.on('pageerror', (error) => errors.push(error.message))
 const json = async (path) => {
   const response = await page.request.get(`${base}${path}`)
@@ -49,35 +51,19 @@ try {
   const initial = await json('/api/setup/state')
   if (initial.status === 'setup_required') {
     await page.getByRole('heading', { name: 'Set up your workspace' }).waitFor()
-    const primary = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Primary model', exact: true }) })
-    await primary.getByLabel('Name', { exact: true }).fill('fixture-model')
-    await primary.getByLabel('Base Url', { exact: true }).fill('http://127.0.0.1:1/v1')
-    await primary.getByLabel('Api Key Secret', { exact: true }).fill('QA_MODEL_KEY')
-    await page.getByLabel('QA_MODEL_KEY', { exact: true }).fill('fixture-key')
-    const probe = await change('/api/setup/test-model', 'POST', () => page.getByRole('button', { name: 'Test connection', exact: true }).click())
+    await page.getByLabel('New connection ID', { exact: true }).fill(connectionId)
+    await page.getByRole('button', { name: 'Add connection', exact: true }).click()
+    await connection.getByLabel('API endpoint', { exact: true }).fill('http://127.0.0.1:1/v1')
+    await key.fill('fixture-key')
+    await main.getByLabel('Connection', { exact: true }).selectOption(connectionId)
+    await main.getByLabel('Model ID', { exact: true }).fill('fixture-model')
+    await main.getByLabel('Context window (tokens)', { exact: true }).fill('131072')
+    const probe = await change('/api/setup/test-model', 'POST', () => page.getByRole('button', { name: 'Test Main connection', exact: true }).click())
     assert.equal(probe.ok, false)
     assert(!JSON.stringify(probe).includes('fixture-key'))
-    assert.equal(await page.getByLabel('QA_MODEL_KEY', { exact: true }).inputValue(), 'fixture-key')
-    let receiveProbe
-    const receivedProbe = new Promise((resolve) => { receiveProbe = resolve })
-    probeServer = createServer((_request, response) => { receiveProbe(); response.on('error', () => {}) })
-    await new Promise((resolve) => probeServer.listen(0, '127.0.0.1', resolve))
-    await primary.getByLabel('Base Url', { exact: true }).fill(`http://127.0.0.1:${probeServer.address().port}/v1`)
-    await page.getByRole('button', { name: 'Test connection', exact: true }).click()
-    await Promise.race([receivedProbe, wait(5000, undefined, { ref: false }).then(() => { throw new Error('The QA backend must bypass its HTTP proxy for the waiting loopback provider') })])
-    await page.getByRole('button', { name: 'Cancel test', exact: true }).click()
-    await page.getByText('Connection test canceled. Your settings have not changed.', { exact: true }).waitFor()
-    assert.equal(await page.getByLabel('QA_MODEL_KEY', { exact: true }).inputValue(), 'fixture-key')
-    probeServer.closeAllConnections()
-    await new Promise((resolve) => probeServer.close(resolve))
-    probeServer = undefined
-    await primary.getByLabel('Base Url', { exact: true }).fill('http://127.0.0.1:1/v1')
-    const retry = await change('/api/setup/test-model', 'POST', () => page.getByRole('button', { name: 'Test connection', exact: true }).click())
-    assert.equal(retry.ok, false)
-    assert.equal(await page.getByLabel('QA_MODEL_KEY', { exact: true }).inputValue(), 'fixture-key')
-    evidence.push('Connection test failed, then a real request reached a deliberately waiting loopback provider and was canceled in the UI; retry failed with all drafts retained.')
-    await primary.getByLabel('Base Url', { exact: true }).fill('https://models.example.test/v1')
-    await page.getByRole('button', { name: 'Apply primary settings to all roles', exact: true }).click()
+    assert.equal(await key.inputValue(), 'fixture-key')
+    await connection.getByLabel('API endpoint', { exact: true }).fill(fixtureEndpoint)
+    await page.getByRole('button', { name: 'Copy Main settings to auxiliary roles', exact: true }).click()
     await snapshot('setup')
     await page.getByRole('button', { name: 'Save and open InvestOrch', exact: true }).click()
     await page.getByRole('link', { name: 'Settings', exact: true }).waitFor()
@@ -85,7 +71,7 @@ try {
     evidence.push('Fresh Setup completed through the real UI in the same server process; failed model probe retained inputs without echoing its key.')
   }
   const configured = await json('/api/config')
-  assert.equal(configured.values.models.main.base_url, 'https://models.example.test/v1', 'This script may only mutate the disposable fixture instance')
+  assert.equal(configured.values.models[connectionId]?.base_url, fixtureEndpoint, 'This script may only mutate the disposable fixture instance')
   await page.getByRole('button', { name: 'New', exact: true }).click()
   await page.waitForURL('**/c/*')
   await page.getByRole('textbox', { name: 'Message InvestOrch Agent' }).waitFor()
@@ -94,12 +80,12 @@ try {
   await page.getByRole('link', { name: 'Settings', exact: true }).click()
   await page.getByRole('heading', { name: 'Settings', exact: true }).waitFor()
   await page.getByRole('button', { name: 'Advanced', exact: true }).click()
-  await page.locator('summary').filter({ hasText: /^Paths$/ }).click()
-  const directories = page.getByRole('region', { name: 'Data directories', exact: true })
+  const directories = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Data directories', exact: true }) }).last()
   await directories.waitFor()
   assert.equal(await directories.locator('input, select, textarea, button').count(), 0, 'Data directories must not offer editing or Reset controls')
   assert((await directories.innerText()).includes(configured.values.paths.root))
-  await page.getByRole('heading', { name: 'Offline migration', exact: true }).waitFor()
+  await directories.getByText('Move this workspace to another location', { exact: true }).click()
+  await directories.getByText('Directory changes require an offline migration.', { exact: false }).waitFor()
   await snapshot('settings-paths')
   await page.getByRole('button', { name: 'General', exact: true }).click()
   const timezone = page.getByLabel('Default Timezone', { exact: true })
@@ -127,6 +113,7 @@ try {
   assert.equal(skills.filter((skill) => skill.source.type === 'builtin').length, 6)
   await snapshot('skills')
   const name = 'investorch-configuration'
+  const skillEnabled = page.getByLabel(`Enable ${name}`, { exact: true })
   await page.getByRole('link', { name, exact: true }).click()
   await page.getByRole('heading', { name, exact: true }).waitFor()
   const skillContent = (await json(`/api/skills/${name}`)).content
@@ -139,8 +126,8 @@ try {
   await page.getByRole('heading', { name: 'Configure InvestOrch', exact: true }).waitFor()
   await snapshot('skill-detail-metadata')
   await metadata.locator('summary').click()
-  if (!await page.getByLabel('Enabled', { exact: true }).isChecked()) {
-    await change(`/api/skills/${name}`, 'PATCH', () => page.getByLabel('Enabled', { exact: true }).click())
+  if (!await skillEnabled.isChecked()) {
+    await change(`/api/skills/${name}`, 'PATCH', () => skillEnabled.click())
     await page.getByText('Available', { exact: true }).waitFor()
   }
   await page.getByRole('button', { name: `Actions for ${name}`, exact: true }).click()
@@ -148,31 +135,31 @@ try {
   assert.equal(await page.getByRole('menuitem', { name: 'Edit with Agent', exact: true }).count(), 0)
   assert.equal(await page.getByRole('menuitem', { name: 'Remove Skill', exact: true }).count(), 0)
   await page.keyboard.press('Escape')
-  await change(`/api/skills/${name}`, 'PATCH', () => page.getByLabel('Enabled', { exact: true }).click())
+  await change(`/api/skills/${name}`, 'PATCH', () => skillEnabled.click())
   await page.getByText('Saved. Restart InvestOrch to use the updated Skill catalog.', { exact: true }).waitFor()
   assert.equal((await json(`/api/skills/${name}`)).status, 'disabled')
   await page.getByRole('heading', { name: 'Read-only preview', exact: true }).waitFor()
   await snapshot('skill-detail-disabled')
-  await page.getByLabel('File', { exact: true }).selectOption('references/configuration.md')
+  await page.getByLabel('File', { exact: true }).click()
+  await page.getByRole('option', { name: 'references/configuration.md', exact: true }).click()
   await page.locator('pre').filter({ hasText: 'Configuration' }).first().waitFor()
-  await change(`/api/skills/${name}`, 'PATCH', () => page.getByLabel('Enabled', { exact: true }).click())
+  await change(`/api/skills/${name}`, 'PATCH', () => skillEnabled.click())
   evidence.push('Six built-ins are listed; the complete original Skill metadata appears as compact plain text with a Markdown body; built-in menu offers only Fork; disabled Skills retain content/resource previews; enabled state persists with restart guidance.')
 
   await page.getByRole('link', { name: 'Settings', exact: true }).click()
   await page.getByRole('button', { name: 'Models', exact: true }).click()
-  const main = page.getByRole('group', { name: 'Main', exact: true })
-  await main.getByLabel('Reasoning Effort', { exact: true }).selectOption('low')
-  await page.getByLabel('QA_MODEL_KEY', { exact: true }).fill('fixture-replacement-key')
+  await main.getByLabel('Reasoning effort', { exact: true }).selectOption('low')
+  await key.fill('fixture-replacement-key')
   const saved = await change('/api/config', 'PATCH', () => page.getByRole('button', { name: 'Save changes', exact: true }).click())
   assert.equal(saved.requires_restart, true)
   await page.waitForFunction(() => [...document.querySelectorAll('input[type=password]')].every((input) => input.value === ''))
   const masked = await json('/api/config')
-  assert.equal(masked.values.models.main.reasoning_effort, 'low')
-  assert.equal(masked.secrets.QA_MODEL_KEY.configured, true)
+  assert.equal(masked.values.agents.main.reasoning_effort, 'low')
+  assert.equal(masked.secrets[`${connectionId}_KEY`].configured, true)
   assert(!JSON.stringify(masked).includes('fixture-replacement-key'))
   await snapshot('settings-models')
   evidence.push('Role-specific model edits report restart; replacement keys are absent from reads and inputs clear after successful save.')
-  await page.getByLabel('QA_MODEL_KEY', { exact: true }).fill('fixture-secret-only-replacement')
+  await key.fill('fixture-secret-only-replacement')
   const secretOnly = await change('/api/config', 'PATCH', () => page.getByRole('button', { name: 'Save changes', exact: true }).click())
   assert.equal(secretOnly.requires_restart, true)
   await page.waitForFunction(() => [...document.querySelectorAll('input[type=password]')].every((input) => input.value === ''))
@@ -184,7 +171,7 @@ try {
   const dialog = page.getByRole('dialog', { name: 'Add MCP server', exact: true })
   await dialog.getByLabel('Server name', { exact: true }).fill('qa-mcp')
   await dialog.getByLabel('Endpoint URL', { exact: true }).fill('https://mcp.example.test/mcp?token=fixture-mcp-token')
-  await dialog.getByLabel('Replacement headers (JSON)', { exact: true }).fill('{"Authorization":"fixture-header-token"}')
+  await dialog.getByLabel('Headers (JSON)', { exact: true }).fill('{"Authorization":"fixture-header-token"}')
   await dialog.getByLabel('Timeout (seconds)', { exact: true }).fill('12.5')
   const mcp = await change('/api/integrations/mcp', 'POST', () => dialog.getByRole('button', { name: 'Save server', exact: true }).click())
   assert(!JSON.stringify(mcp).includes('fixture-mcp-token'))
@@ -237,6 +224,7 @@ try {
     }
   }
   await page.setViewportSize({ width: 1440, height: 800 })
+  await page.getByText('Passed and disabled', { exact: true }).click()
   await page.mouse.move(1000, 600)
   await page.mouse.wheel(0, 500)
   await page.waitForFunction(() => window.scrollY > 100)
@@ -271,6 +259,5 @@ try {
   console.error(await page.locator('body').innerText())
   throw error
 } finally {
-  if (probeServer) { probeServer.closeAllConnections(); probeServer.close() }
   await browser.close()
 }

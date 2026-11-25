@@ -2,8 +2,6 @@
 
 [English](Configuration.md)
 
-本文适用于 0.3.2。
-
 ## 两层配置
 
 - `models.<id>` 注册命名的 API key 或 ChatGPT 连接。
@@ -89,7 +87,7 @@ DEEPSEEK_API_KEY = "replace-locally-with-your-api-key"
 
 思考关闭且请求包含本地工具时，请求会省略原生联网、原生标题及显式安全审核参数。开启思考后可将这些 Flash 能力与本地工具一起使用。没有本地工具的请求支持非思考搜索。结构化输出使用标准 Responses 格式。
 
-DeepSeek Responses 是无状态接口，每次请求都携带上下文。InvestOrch 回传本地工具结果时保留原始图片。只要实际发送的上下文仍含工具图片，即使模型已经读过，Flash 也会暂时省略原生搜索、URL 阅读和原生标题。后续请求不再包含工具图片时，原生联网会在模型设置允许的情况下自动恢复。用户直接附图仍可使用原生联网。高等级内容审核要求本地工具结果为纯文本。
+DeepSeek Responses 是无状态接口，每次请求都携带上下文。InvestOrch 将图片保留在原始本地工具结果中。开启思考后，含本地函数工具图片的请求也可使用 Flash 的原生搜索、URL 阅读、自动标题和高等级内容审核。
 
 Web 和 TUI 根据返回的事件更新同一条工具调用的状态，并用 `kind` 区分 Flash 的搜索、网页读取和图片搜索。用量面板显示 DeepSeek 返回的计费次数和审核 Token。是否联网由 DeepSeek 决定，失败前执行的操作也可能计费。 [DeepSeek 联网文档](https://api-docs.deepseek.com/guides/web_tools) · [官方定价](https://api-docs.deepseek.com/quick_start/pricing/)
 
@@ -179,7 +177,7 @@ Web 输入框右下显示模型与思考强度。点选模型或在 **Thinking**
 
 如果目标窗口容纳不下 continuation 与输入，Main 推理前先压缩；失败或仍无法容纳时不执行 Main。回答后的自动压缩仍保留。两种压缩均保留完整 JSONL Journal。
 
-每次新 Run 收到消息、函数 `call_id` 关联和兼容的原始联网调用及其 ID。过去的不透明推理和其他响应条目的 ID 留在存储中。本 Run 内生成的推理可用于该 Run 的工具续轮。执行契约见 [Runtime](Runtime_Session_Execution_Model.zh-CN.md)。
+每次新 Run 都会收到历史消息、通过 `call_id` 关联的函数调用和结果，以及兼容的联网调用。Main 也会回放当前连接产出的不透明推理和响应条目 ID。其他连接产出的历史和来源未知的历史会在输入副本中做移植处理。执行契约见 [Runtime](Runtime_Session_Execution_Model.zh-CN.md)。
 
 ## 操作者边界
 

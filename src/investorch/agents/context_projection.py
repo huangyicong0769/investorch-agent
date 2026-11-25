@@ -12,8 +12,9 @@ from itertools import pairwise
 from agents import Agent, ModelResponse, SQLiteSession, TResponseInputItem
 
 from investorch.config import AppConfig
+from investorch.storage.sessions import replace_session_tail, split_session_history
 
-from .compact import COMPACTED_CONTEXT_PREFIX, _replace_session_history, estimate_context_tokens, summarize_history
+from .compact import COMPACTED_CONTEXT_PREFIX, estimate_context_tokens, summarize_history
 from .continuation import latest_deepseek_web_round
 from .usage import TokenUsage
 
@@ -299,7 +300,8 @@ class ContextProjection:
         """Commit a matching prefix only after the SDK has stopped writing this session."""
         if not self._covered or self._flushed:
             return False
-        history = await session.get_items()
+        items = await session.get_items()
+        _, history = split_session_history(items)
         expected = [value for item in self._covered if (value := _canonical_item(item)) is not None]
         if not expected:
             self._warn_flush_mismatch(session)
@@ -320,7 +322,9 @@ class ContextProjection:
         if matched != len(expected):
             self._warn_flush_mismatch(session)
             return False
-        await _replace_session_history(session, history, [*self._replacement, *history[end:]])
+        if not await replace_session_tail(session, items, [*self._replacement, *history[end:]]):
+            self._warn_flush_mismatch(session)
+            return False
         self._flushed = True
         return True
 

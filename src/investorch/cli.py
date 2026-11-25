@@ -101,7 +101,7 @@ def entrypoint() -> None:
         run_backup_cli(sys.argv[2:])
         return
     if len(sys.argv) >= 2 and sys.argv[1] == "migrate":
-        from investorch.portfolio.migration_cli import run_migration_cli
+        from investorch.migration_cli import run_migration_cli
 
         run_migration_cli(sys.argv[2:])
         return

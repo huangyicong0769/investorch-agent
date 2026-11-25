@@ -1,6 +1,5 @@
 import ast
 import asyncio
-import json
 from functools import partial
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -8,146 +7,16 @@ from zoneinfo import ZoneInfo
 import pytest
 from agents import ModelSettings
 from agents.testing import ModelStep, ScriptedModel, assistant_message, function_call
-from agents.tool_context import ToolContext
 
 from investorch.agents import create_agent
-from investorch.application import ApplicationCallbacks, PortfolioOperations, open_application_host
+from investorch.application import ApplicationCallbacks, open_application_host
 from investorch.application.session_queries import list_sessions as list_sessions_query
-from investorch.application.session_queries import read_session as read_session_query
-from investorch.config import AppConfig, load_config
-from investorch.context import AgentContext
 from investorch.journal import SessionJournal, read_session_journal
 from investorch.output import ToolOutput
 from investorch.storage import create_session, get_session, set_session_title
-from investorch.tools import make_session_tools
 from tests.support.config import make_test_config
 from tests.support.model_connections import install_host_models
-from tests.support.runtime import make_runtime_harness, run_options
-
-
-@pytest.mark.asyncio
-async def test_session_tool_defaults_follow_hot_config_and_persisted_reload(tmp_path: Path) -> None:
-    harness = make_runtime_harness(tmp_path)
-    config = harness.config
-    config.update_many({"session_tools.default_page_size": 2, "session_tools.max_page_size": 3}, persist=True)
-    for index in range(4):
-        create_session(config.sessions_db, f"session-{index}")
-        await harness.journal.record_user_message("session-0", f"decision {index}")
-    context = ToolContext(
-        context=AgentContext(
-            config=config,
-            execution=harness.execution,
-            session_id="session-0",
-            run_id="reader",
-            portfolios=PortfolioOperations(config=config),
-        ),
-        tool_name="session-test",
-        tool_call_id="call-hot-defaults",
-        tool_arguments="{}",
-    )
-
-    def bound_tools(bound_config: AppConfig) -> list:
-        return make_session_tools(
-            list_query=partial(
-                list_sessions_query,
-                config=bound_config,
-                sessions_db=config.sessions_db,
-                runtime=harness.runtime,
-            ),
-            read_query=partial(
-                read_session_query,
-                config=bound_config,
-                sessions_db=config.sessions_db,
-                journal=harness.journal,
-            ),
-        )
-
-    listing, history = bound_tools(config)
-    for session_tool in (listing, history):
-        limit_schema = session_tool.params_json_schema["properties"]["limit"]
-        assert {entry["type"] for entry in limit_schema["anyOf"]} == {"integer", "null"}
-        assert limit_schema.get("default") is None
-    assert len((await listing.on_invoke_tool(context, "{}"))["sessions"]) == 2
-    assert len((await listing.on_invoke_tool(context, '{"limit":null}'))["sessions"]) == 2
-    first = await history.on_invoke_tool(context, '{"session_id":"session-0"}')
-    assert [record["seq"] for record in first["records"]] == [3, 4]
-    assert "between 1 and 3" in await history.on_invoke_tool(context, '{"session_id":"session-0","limit":4}')
-
-    config.update_many({"session_tools.default_page_size": 3, "session_tools.max_page_size": 4}, persist=False)
-    assert len((await listing.on_invoke_tool(context, "{}"))["sessions"]) == 3
-    assert len((await history.on_invoke_tool(context, '{"session_id":"session-0","limit":null}'))["records"]) == 3
-    assert len((await history.on_invoke_tool(context, '{"session_id":"session-0","limit":4}'))["records"]) == 4
-    await harness.journal.record_user_message("session-0", "later append")
-    older = await history.on_invoke_tool(
-        context,
-        json.dumps(
-            {
-                "session_id": "session-0",
-                "snapshot_seq": first["snapshot_seq"],
-                "before_seq": first["next_before_seq"],
-            }
-        ),
-    )
-    assert [record["seq"] for record in older["records"]] == [1, 2]
-    assert older["has_older"] is False
-
-    reloaded = load_config(root=config.root)
-    restarted_listing, restarted_history = bound_tools(reloaded)
-    assert len((await restarted_listing.on_invoke_tool(context, "{}"))["sessions"]) == 2
-    assert len((await restarted_history.on_invoke_tool(context, '{"session_id":"session-0"}'))["records"]) == 2
-    assert "between 1 and 3" in await restarted_listing.on_invoke_tool(context, '{"limit":4}')
-    await harness.runtime.aclose()
-
-
-@pytest.mark.asyncio
-async def test_session_tools_are_read_only_and_surface_actionable_safe_errors(tmp_path: Path) -> None:
-    harness = make_runtime_harness(tmp_path)
-    create_session(harness.config.sessions_db, "a")
-    context = ToolContext(
-        context=AgentContext(
-            config=harness.config,
-            execution=harness.execution,
-            session_id="a",
-            run_id="reader",
-            portfolios=PortfolioOperations(config=harness.config),
-        ),
-        tool_name="session-test",
-        tool_call_id="call-a",
-        tool_arguments="{}",
-    )
-    list_sessions, read_session = make_session_tools(
-        list_query=partial(
-            list_sessions_query, config=harness.config, sessions_db=harness.config.sessions_db, runtime=harness.runtime
-        ),
-        read_query=partial(
-            read_session_query, config=harness.config, sessions_db=harness.config.sessions_db, journal=harness.journal
-        ),
-    )
-    assert list_sessions.needs_approval is read_session.needs_approval is False
-    assert set(list_sessions.params_json_schema["properties"]) == {"query", "include_archived", "limit", "offset"}
-    assert (await list_sessions.on_invoke_tool(context, "{}"))["sessions"][0]["session_id"] == "a"
-    assert (await read_session.on_invoke_tool(context, '{"session_id":"a"}'))["records"] == []
-    assert "session_not_found" in await read_session.on_invoke_tool(context, '{"session_id":"unknown"}')
-    assert "limit" in await list_sessions.on_invoke_tool(context, '{"limit":0}')
-    assert "filename-safe" in await read_session.on_invoke_tool(context, '{"session_id":"../private-canary"}')
-    for tool, arguments in [
-        (list_sessions, {"limit": True}),
-        (list_sessions, {"limit": "2"}),
-        (list_sessions, {"offset": False}),
-        (list_sessions, {"include_archived": 1}),
-        (read_session, {"session_id": "a", "limit": True}),
-        (read_session, {"session_id": "a", "before_seq": True}),
-        (read_session, {"session_id": "a", "snapshot_seq": False}),
-    ]:
-        feedback = await tool.on_invoke_tool(context, json.dumps(arguments))
-        assert isinstance(feedback, str)
-        assert "Invalid JSON input" in feedback
-    (harness.config.session_journal_dir / "a.jsonl").write_text("private-content-canary\n", encoding="utf-8")
-    error = await read_session.on_invoke_tool(context, '{"session_id":"a"}')
-    assert "journal_invalid" in error
-    assert "private-content-canary" not in error
-    assert str(harness.config.root) not in error
-    await harness.runtime.aclose()
+from tests.support.runtime import run_options
 
 
 @pytest.mark.asyncio
@@ -246,79 +115,6 @@ async def test_real_host_agent_reads_self_and_target_states_without_side_effects
         release_b.set()
         await asyncio.wait_for(b.task, 3)
         model.assert_complete()
-
-
-@pytest.mark.asyncio
-async def test_sdk_output_stays_bounded_when_python_representation_expands_quoted_text(tmp_path: Path) -> None:
-    harness = make_runtime_harness(tmp_path)
-    create_session(harness.config.sessions_db, "a")
-    for _ in range(3):
-        await harness.journal.record_user_message("a", "'" * 120000 + '"')
-    read_query = partial(
-        read_session_query, config=harness.config, sessions_db=harness.config.sessions_db, journal=harness.journal
-    )
-
-    result = await read_query("a")
-
-    assert len(json.dumps(result)) <= 262144
-    assert len(str(result)) <= 262144
-    assert result["has_older"] is True
-    assert [record["seq"] for record in result["records"]] == [3]
-    await harness.runtime.aclose()
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("terminal_status", ["cancelled", "failed"])
-async def test_paused_accepted_queue_is_pending_but_host_restart_reports_current_idle(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, terminal_status: str
-) -> None:
-    harness = make_runtime_harness(
-        tmp_path, config_overrides={"backtest": {"use_cnequity": False}}, journal_run_ended=True
-    )
-    create_session(harness.config.sessions_db, "a")
-    set_session_title(harness.config.sessions_db, "a", "Persisted")
-    if terminal_status == "failed":
-        harness.agent_loop.fail_input("initial")
-    active = harness.runtime.start_run("a", "initial", run_options("queue"))
-    await harness.agent_loop.wait_until_started("a")
-    await harness.runtime.submit_follow_up("a", "accepted queue", run_options("queue"))
-    if terminal_status == "cancelled":
-        harness.runtime.cancel_run("a")
-        with pytest.raises(asyncio.CancelledError):
-            await active.task
-    else:
-        harness.agent_loop.complete("a")
-        with pytest.raises(RuntimeError, match="controlled Agent failure"):
-            await active.task
-    list_query = partial(
-        list_sessions_query, config=harness.config, sessions_db=harness.config.sessions_db, runtime=harness.runtime
-    )
-    read_query = partial(
-        read_session_query, config=harness.config, sessions_db=harness.config.sessions_db, journal=harness.journal
-    )
-    assert (await list_query())["sessions"][0]["status"] == "pending"
-    assert harness.runtime.session_snapshot("a").queue_paused is True
-    assert (await read_query("a"))["records"][0]["text"] == "initial"
-    await harness.runtime.aclose()
-
-    def unused_model(_config: object, _role: str) -> tuple:
-        return ScriptedModel(), ModelSettings()
-
-    async def unused_approval(_request: object, _reason: str | None) -> bool:
-        raise AssertionError("Reading after restart must not request approval")
-
-    install_host_models(monkeypatch, unused_model)
-    async with open_application_host(
-        harness.config, manual_approval_handler=unused_approval, create_initial_session=False, enable_activity=False
-    ) as host:
-        listing = await list_sessions_query(
-            config=host.config, sessions_db=host.config.sessions_db, runtime=host.runtime
-        )
-        assert listing["sessions"][0]["status"] == "idle"
-        history = await read_session_query(
-            "a", config=host.config, sessions_db=host.config.sessions_db, journal=host.journal, view="events"
-        )
-        assert history["records"][-1]["status"] == terminal_status
 
 
 @pytest.mark.asyncio

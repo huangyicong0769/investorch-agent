@@ -7,6 +7,7 @@ import threading
 import tomllib
 from copy import deepcopy
 from dataclasses import dataclass
+from hashlib import sha256
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -186,6 +187,18 @@ class AppConfig:
         if any(not raw[field] for field in required):
             raise ConfigError(f"models.{connection_id} is incomplete; run investorch web to complete Setup")
         return ModelConnectionConfig(**raw)
+
+    def model_connection_identity(self, connection_id: str) -> str:
+        """Identify the configured endpoint and credential reference for replay."""
+        connection = self.model_connection(connection_id)
+        source = (
+            connection_id,
+            connection.type,
+            connection.base_url,
+            connection.api_key_secret,
+            connection.credentials,
+        )
+        return sha256(repr(source).encode()).hexdigest()
 
     def agent_model(self, role: str, *, fallback: AgentModelConfig | None = None) -> AgentModelConfig:
         if role == "title":

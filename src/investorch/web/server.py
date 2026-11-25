@@ -18,6 +18,7 @@ from investorch.diagnostics import doctor_checks
 from investorch.initializer import initialize
 from investorch.llm.oauth import ChatGPTAuth
 from investorch.log import configure_logging
+from investorch.storage.sessions import SessionFormatError
 
 from .approvals import WebApprovalBroker
 from .assets import install_webui_routes
@@ -133,6 +134,8 @@ def create_web_app(
                                 await start_host()
                     except APIError:
                         pass  # Keep diagnostics available after a failed Host start.
+                    except SessionFormatError as exc:
+                        app.state.recovery_error = str(exc)
                     except Exception as exc:
                         logger.error("Instance initialization failed (%s)", type(exc).__name__)
                         app.state.recovery_error = (

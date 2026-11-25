@@ -39,7 +39,7 @@ jobs:
         run: uv run --locked ruff format --check .
       - name: Lint Python
         run: uv run --locked ruff check .
-      - name: Run behavioral tests
+      - name: Run end-to-end tests
         run: uv run --locked pytest
 
   frontend:

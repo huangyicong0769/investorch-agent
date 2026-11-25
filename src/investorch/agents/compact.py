@@ -1,15 +1,14 @@
-import inspect
 import json
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from agents import Agent, Model, ModelSettings, RunConfig, RunContextWrapper, SQLiteSession, TResponseInputItem
-from agents.run_config import CallModelData, ModelInputData
+from agents import Agent, Model, ModelSettings, RunContextWrapper, SQLiteSession, TResponseInputItem
 
 from investorch.config import AppConfig
+from investorch.storage.sessions import SessionHistoryRestoreError, replace_session_tail, split_session_history
 
-from .continuation import latest_deepseek_web_round, portable_history_filter
+from .continuation import latest_deepseek_web_round, portable_history
 from .prompts import COMPACTION_AGENT_INSTRUCTIONS
 from .usage import TokenUsage, run_with_usage
 
@@ -27,12 +26,6 @@ class CompactionResult:
     usage: TokenUsage
     source_items: int
     summary_chars: int
-
-
-class SessionHistoryRestoreError(RuntimeError):
-    def __init__(self, restore_error: BaseException) -> None:
-        super().__init__("Session history restoration failed after compaction replacement failure.")
-        self.restore_error = restore_error
 
 
 def session_history_restore_failed(error: BaseException) -> bool:
@@ -57,29 +50,6 @@ def _is_compacted_summary(item: TResponseInputItem) -> bool:
     )
 
 
-async def _replace_session_history(
-    session: SQLiteSession,
-    previous_items: list[TResponseInputItem],
-    replacement_items: list[TResponseInputItem],
-) -> None:
-    try:
-        await session.clear_session()
-        await session.add_items(replacement_items)
-    except BaseException as original_error:
-        try:
-            current = await session.get_items()
-            if current != previous_items:
-                await session.clear_session()
-                if previous_items:
-                    await session.add_items(previous_items)
-        except BaseException as restore_error:
-            logger.exception("Failed to restore session history after compaction replacement failure")
-            marker = SessionHistoryRestoreError(restore_error)
-            marker.__cause__ = restore_error
-            raise original_error from marker
-        raise
-
-
 async def compact_session(
     agent: Agent,
     session: SQLiteSession,
@@ -88,7 +58,8 @@ async def compact_session(
     usage_handler: Callable[[TokenUsage], None] | None = None,
     retained_web_budget: int | None = None,
 ) -> CompactionResult:
-    history = await session.get_items()
+    items = await session.get_items()
+    _, history = split_session_history(items)
     source_items = len(history)
 
     web_round = latest_deepseek_web_round(history)
@@ -113,7 +84,8 @@ async def compact_session(
         replacement = [*retained, summary_item]
     else:
         replacement = [summary_item, *retained]
-    await _replace_session_history(session, history, replacement)
+    if not await replace_session_tail(session, items, replacement):
+        raise RuntimeError("Session history changed during Compact.")
     logger.info(
         "Compacted session %s: source_items=%d summary_chars=%d", session.session_id, source_items, len(summary)
     )
@@ -170,7 +142,6 @@ async def summarize_history(
                     selected,
                     items,
                     max_turns=1,
-                    run_config=RunConfig(call_model_input_filter=portable_history_filter(items)),
                     usage_handler=record_usage,
                 )
             except Exception as error:
@@ -183,12 +154,7 @@ async def summarize_history(
                 logger.warning("Compaction returned an empty summary; retrying the same request once")
         raise ValueError("Compaction agent returned an empty summary.")
 
-    filtered = portable_history_filter(history)(
-        CallModelData(agent=agent, context=None, model_data=ModelInputData(input=history, instructions=instructions))
-    )
-    if inspect.isawaitable(filtered):
-        filtered = await filtered
-    current = [_quote_history_item(item) for item in filtered.input]
+    current = [_quote_history_item(item) for item in portable_history(history)]
     # Each pass must strictly reduce the serialized input; an expansive summary fails closed.
     while estimate_context_tokens(current) >= budget:
         fragments: list[TResponseInputItem] = []

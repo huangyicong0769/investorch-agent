@@ -1,6 +1,6 @@
-from agents import Agent, Model, ModelSettings, RunConfig, TResponseInputItem
+from agents import Agent, Model, ModelSettings, TResponseInputItem
 
-from .continuation import portable_history_filter
+from .continuation import portable_history
 from .prompts import TITLE_AGENT_INSTRUCTIONS
 from .usage import TokenUsage, UsageHandler, run_with_usage
 
@@ -20,13 +20,12 @@ async def generate_session_title(
     result = await run_with_usage(
         title_agent,
         [
-            *history,
+            *portable_history(history),
             {
                 "role": "user",
                 "content": "Generate a concise title for the conversation above. **Output only the title.**",
             },
         ],
-        run_config=RunConfig(call_model_input_filter=portable_history_filter(history)),
         usage_handler=usage_handler,
     )
 

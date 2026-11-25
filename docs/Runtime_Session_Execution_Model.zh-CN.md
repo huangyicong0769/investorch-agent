@@ -120,7 +120,7 @@ Todo 是投影到客户端的瞬时 Run state，不写入 SDK continuation、JSO
 
 Fork 复制 SDK continuation、存在时的 Journal、带后缀 title、直接 parent lineage 与持久模型元数据。来源 Draft 作为目标 Draft 复制，仍只存在于进程内。它不复制 active Run、permission/follow-up 覆盖、Steer/Queue、Todo、approval、archive state、job、usage、cache 或 UI state。它是 stable-head cloning，不是 historical-turn branching。
 
-从未获得 SDK message、Journal record、metadata、queued intent 或 lineage 的空 Session 会被丢弃。Web 启动时不创建 Session，直到用户明确创建；TUI/plain 会创建初始 Session。
+Web 启动时不创建 Session。TUI 和 plain 模式会创建初始 Session。切换离开一个 Session 时，如果该 Session 只有固定 System Prompt，且没有 Journal、元数据、排队输入或 lineage，客户端可将其丢弃。TUI 和 plain 模式退出时也会对所选 Session 进行同样的历史检查。
 
 ## Output 与 replay
 
@@ -160,7 +160,7 @@ Main 与 auxiliary model usage 在当前进程中按 Session 累积。Auxiliary 
 
 后置自动压缩使用 Active Run 窗口与最后一次 Main 请求用量，失败不丢弃已经完成的答案。手动与自动压缩只改变 SDK continuation，保留完整 Journal，Compact 用量记入 Aux；成功后清空旧 Main 占用。
 
-每次新 Run 将已有消息和函数 `call_id` 放入输入副本。副本去除不透明 reasoning，并按目标 Provider 的协议处理工具记录。
+每次新 Run 回放已有消息、函数 `call_id` 关联，以及当前连接产出的推理项和响应条目 ID。组装输入时，Main 仅对其他连接和来源未知的历史项做移植处理，并保留存储原件。旧版未记录来源的条目按来源未知处理。
 
 组装 Main 请求时，本轮生成和已存储的压缩摘要都作为带标记的 `user` 上下文传入模型。
 

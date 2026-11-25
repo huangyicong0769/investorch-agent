@@ -10,7 +10,7 @@ from agents.models.interface import ModelTracing
 from agents.tool import Tool
 from agents.usage import Usage
 from openai import APIStatusError, AsyncOpenAI
-from openai.types.responses import Response, ResponseIncompleteEvent
+from openai.types.responses import Response, ResponseFailedEvent, ResponseIncompleteEvent
 from openai.types.responses.response import IncompleteDetails
 from openai.types.responses.response_prompt_param import ResponsePromptParam
 
@@ -21,18 +21,6 @@ from investorch.config_schema import DEEPSEEK_FLASH_MODELS, DEEPSEEK_PRO_MODEL
 def response_title(response: Response) -> str | None:
     title = getattr(response, "title", None)
     return (title.strip() or None) if isinstance(title, str) else None
-
-
-def _has_tool_image(items: list[TResponseInputItem]) -> bool:
-    for item in items:
-        if item.get("type") not in {"function_call_output", "custom_tool_call_output"}:
-            continue
-        parts = item.get("output")
-        if isinstance(parts, list) and any(
-            isinstance(part, dict) and part.get("type") == "input_image" for part in parts
-        ):
-            return True
-    return False
 
 
 @dataclass
@@ -122,14 +110,6 @@ class DeepSeekResponsesModel(OpenAIResponsesModel):
             return request
         if self._selected.safety_check is not None:
             extra["safety_check"] = {"level": self._selected.safety_check}
-        if _has_tool_image(request["input"]):
-            # The hosted extensions require text-only tool results. Keep ordinary user attachments distinct.
-            safety = extra.get("safety_check")
-            if isinstance(safety, dict) and safety.get("level") == "high":
-                raise DeepSeekResponseError("DeepSeek high content safety review requires text-only tool results.")
-            extra.pop("title", None)
-            request["extra_body"] = extra or None
-            return request
         if self._session_title_requested:
             extra["title"] = {"enabled": True}
         hosted = []
@@ -174,6 +154,18 @@ class DeepSeekResponsesModel(OpenAIResponsesModel):
                     )
                     yield ResponseIncompleteEvent(
                         type="response.incomplete", response=response, sequence_number=event.sequence_number
+                    )
+                elif event.type == "response.completed" and response.status == "incomplete":
+                    yield ResponseIncompleteEvent(
+                        type="response.incomplete",
+                        response=response.model_copy(update={"error": None}),
+                        sequence_number=event.sequence_number,
+                    )
+                elif event.type == "response.completed" and response.status == "failed":
+                    yield ResponseFailedEvent(
+                        type="response.failed",
+                        response=response.model_copy(update={"error": None}),
+                        sequence_number=event.sequence_number,
                     )
                 elif event.type != "response.completed":
                     yield event.model_copy(update={"response": response.model_copy(update={"error": None})})

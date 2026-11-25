@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import sqlite3
 import threading
@@ -9,7 +10,9 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-from agents import SQLiteSession
+from agents import SQLiteSession, TResponseInputItem
+
+SESSION_SCHEMA_VERSION = 1
 
 
 @dataclass(frozen=True)
@@ -26,6 +29,97 @@ class SessionRecord:
 
 class SessionMetadataError(RuntimeError):
     pass
+
+
+class SessionHistoryRestoreError(RuntimeError):
+    def __init__(self, restore_error: BaseException) -> None:
+        super().__init__("Session history restoration failed after compaction replacement failure.")
+        self.restore_error = restore_error
+
+
+class SessionFormatError(SessionMetadataError):
+    pass
+
+
+def require_session_format(connection: sqlite3.Connection) -> None:
+    version = connection.execute("PRAGMA user_version").fetchone()[0]
+    if version == 0:
+        raise SessionFormatError(
+            "Session database requires migration. Stop InvestOrch and run investorch migrate sessions."
+        )
+    if version != SESSION_SCHEMA_VERSION:
+        raise SessionFormatError(f"Unsupported Session database format {version}.")
+
+
+def check_session_database(db_path: Path) -> None:
+    with closing(sqlite3.connect(db_path.resolve().as_uri() + "?mode=ro", uri=True)) as connection:
+        require_session_format(connection)
+
+
+def split_session_history(
+    items: list[TResponseInputItem],
+) -> tuple[dict, list[TResponseInputItem]]:
+    if items and isinstance(items[0], dict):
+        prompt = items[0]
+        if prompt.get("role") == "developer" and isinstance(prompt.get("content"), str) and prompt["content"]:
+            return prompt, items[1:]
+    raise SessionFormatError("Session is missing its initial developer message.")
+
+
+async def replace_session_tail(
+    session: SQLiteSession,
+    previous_items: list[TResponseInputItem],
+    replacement_tail: list[TResponseInputItem],
+) -> bool:
+    """Replace a matching history tail while preserving the original prompt row."""
+    split_session_history(previous_items)
+
+    def replace_tail() -> bool:
+        with closing(sqlite3.connect(session.db_path)) as connection:
+            try:
+                connection.execute("BEGIN IMMEDIATE")
+                require_session_format(connection)
+                rows = connection.execute(
+                    "SELECT id, message_data, source_connection FROM agent_messages WHERE session_id = ? ORDER BY id",
+                    (session.session_id,),
+                ).fetchall()
+                if [json.loads(data) for _, data, _ in rows] != previous_items:
+                    return False
+                sources = {id(item): source for item, (_, _, source) in zip(previous_items, rows, strict=True)}
+                connection.execute(
+                    "DELETE FROM agent_messages WHERE session_id = ? AND id > ?",
+                    (session.session_id, rows[0][0]),
+                )
+                connection.executemany(
+                    "INSERT INTO agent_messages (session_id, message_data, source_connection) VALUES (?, ?, ?)",
+                    [(session.session_id, json.dumps(item), sources.get(id(item))) for item in replacement_tail],
+                )
+                connection.execute(
+                    "UPDATE agent_sessions SET updated_at = CURRENT_TIMESTAMP WHERE session_id = ?",
+                    (session.session_id,),
+                )
+                connection.commit()
+                return True
+            except BaseException as original_error:
+                try:
+                    connection.rollback()
+                except BaseException as restore_error:
+                    marker = SessionHistoryRestoreError(restore_error)
+                    marker.__cause__ = restore_error
+                    raise original_error from marker
+                raise
+
+    task = asyncio.create_task(asyncio.to_thread(replace_tail))
+    cancellation = None
+    while not task.done():
+        try:
+            await asyncio.wait({task})
+        except asyncio.CancelledError as error:
+            cancellation = error
+    if cancellation is not None:
+        task.exception()
+        raise cancellation
+    return task.result()
 
 
 class SessionDeletionScopeChangedError(SessionMetadataError):
@@ -75,13 +169,27 @@ def get_session_deletion_scope(db_path: str | Path, session_id: str) -> SessionD
         return _deletion_scope(connection, session_id)
 
 
-def create_session(db_path: str | Path, session_id: str) -> bool:
-    session = SQLiteSession(session_id, db_path)
-    session.close()
-    with closing(sqlite3.connect(db_path)) as connection:
-        cursor = connection.execute("INSERT OR IGNORE INTO agent_sessions (session_id) VALUES (?)", (session_id,))
-        connection.commit()
-    return cursor.rowcount == 1
+def _insert_session(connection: sqlite3.Connection, session_id: str, system_prompt: str | None) -> bool:
+    cursor = connection.execute("INSERT OR IGNORE INTO agent_sessions (session_id) VALUES (?)", (session_id,))
+    if cursor.rowcount != 1:
+        return False
+    if system_prompt is None:
+        from investorch.agents.prompts import main_system_prompt
+
+        system_prompt = main_system_prompt()
+    if not system_prompt:
+        raise ValueError("A Session requires a system prompt")
+    connection.execute(
+        "INSERT INTO agent_messages (session_id, message_data) VALUES (?, ?)",
+        (session_id, json.dumps({"role": "developer", "content": system_prompt})),
+    )
+    return True
+
+
+def create_session(db_path: str | Path, session_id: str, *, system_prompt: str | None = None) -> bool:
+    with closing(sqlite3.connect(db_path)) as connection, connection:
+        require_session_format(connection)
+        return _insert_session(connection, session_id, system_prompt)
 
 
 def create_spawn_session(
@@ -92,6 +200,7 @@ def create_spawn_session(
     parent_run_id: str,
     tool_call_id: str,
     title: str | None = None,
+    system_prompt: str | None = None,
 ) -> bool:
     """Atomically create an ordinary Session with trusted provenance and a Portfolio snapshot."""
     if not all((session_id, parent_session_id, parent_run_id, tool_call_id)) or session_id == parent_session_id:
@@ -99,6 +208,7 @@ def create_spawn_session(
     with closing(sqlite3.connect(db_path)) as connection:
         try:
             connection.execute("BEGIN IMMEDIATE")
+            require_session_format(connection)
             parent = connection.execute(
                 """
                 SELECT metadata.archived_at, metadata.related_portfolio_ids_json
@@ -125,7 +235,7 @@ def create_spawn_session(
             ):
                 raise SessionMetadataError("Conflicting Spawn identity")
             related = _decode_related_portfolio_ids(parent[1])
-            connection.execute("INSERT INTO agent_sessions (session_id) VALUES (?)", (session_id,))
+            _insert_session(connection, session_id, system_prompt)
             connection.execute("INSERT INTO session_spawn_lineage VALUES (?, ?, ?, ?)", (session_id, *identity))
             connection.execute(
                 "INSERT INTO extra_session_metadata (session_id, title, related_portfolio_ids_json) VALUES (?, ?, ?)",
@@ -147,12 +257,14 @@ def session_exists(db_path: str | Path, session_id: str) -> bool:
 def delete_unstarted_spawn_session(db_path: str | Path, session_id: str) -> bool:
     """Rollback only an unstarted Spawn; ordinary unused cleanup never removes lineage."""
     with closing(sqlite3.connect(db_path)) as connection:
+        connection.execute("PRAGMA foreign_keys = ON")
+        require_session_format(connection)
         try:
             connection.execute("BEGIN IMMEDIATE")
             eligible = connection.execute(
                 """
                 SELECT 1 FROM session_spawn_lineage WHERE session_id = ?
-                    AND NOT EXISTS (SELECT 1 FROM agent_messages WHERE session_id = ?)
+                    AND NOT EXISTS (SELECT 1 FROM agent_messages WHERE session_id = ? LIMIT 1 OFFSET 1)
                     AND NOT EXISTS (SELECT 1 FROM extra_session_metadata
                         WHERE session_id = ? AND application_workflow_started != 0)
                     AND NOT EXISTS (SELECT 1 FROM session_spawn_lineage WHERE parent_session_id = ?)
@@ -174,6 +286,8 @@ def delete_unstarted_spawn_session(db_path: str | Path, session_id: str) -> bool
 
 def delete_unused_session(db_path: str | Path, session_id: str) -> bool:
     with closing(sqlite3.connect(db_path)) as connection:
+        connection.execute("PRAGMA foreign_keys = ON")
+        require_session_format(connection)
         cursor = connection.execute(
             """
             DELETE FROM agent_sessions
@@ -181,6 +295,7 @@ def delete_unused_session(db_path: str | Path, session_id: str) -> bool:
                 AND NOT EXISTS (
                     SELECT 1 FROM agent_messages
                     WHERE agent_messages.session_id = agent_sessions.session_id
+                    LIMIT 1 OFFSET 1
                 )
                 AND NOT EXISTS (
                     SELECT 1 FROM extra_session_metadata
@@ -246,9 +361,22 @@ def delete_session_transaction(
 
 
 def init_session_metadata(db_path: str | Path) -> None:
-    schema_session = SQLiteSession("schema-init", db_path)
-    schema_session.close()
     with closing(sqlite3.connect(db_path)) as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        version = connection.execute("PRAGMA user_version").fetchone()[0]
+        if (
+            version == 0
+            and not connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE name IN ('agent_sessions', 'agent_messages')"
+            ).fetchone()
+        ):
+            connection.execute(f"PRAGMA user_version = {SESSION_SCHEMA_VERSION}")
+        else:
+            require_session_format(connection)
+        connection.commit()
+        schema_session = SQLiteSession("schema-init", db_path)
+        schema_session.close()
+        connection.execute("BEGIN IMMEDIATE")
         connection.execute(
             """
             CREATE TABLE IF NOT EXISTS extra_session_metadata (
@@ -271,6 +399,9 @@ def init_session_metadata(db_path: str | Path) -> None:
             connection.execute(
                 "ALTER TABLE extra_session_metadata ADD COLUMN application_workflow_started INTEGER NOT NULL DEFAULT 0"
             )
+        message_columns = {row[1] for row in connection.execute("PRAGMA table_info(agent_messages)")}
+        if "source_connection" not in message_columns:
+            connection.execute("ALTER TABLE agent_messages ADD COLUMN source_connection TEXT")
         connection.execute(
             """
             CREATE TABLE IF NOT EXISTS session_lineage (
@@ -724,6 +855,36 @@ def set_session_model(db_path: str | Path, session_id: str, model: dict[str, obj
             (session_id, json.dumps(model, ensure_ascii=False)),
         )
         connection.commit()
+
+
+def get_session_history(db_path: str | Path, session_id: str) -> list[tuple[TResponseInputItem, str | None]]:
+    with closing(sqlite3.connect(db_path)) as connection:
+        rows = connection.execute(
+            "SELECT message_data, source_connection FROM agent_messages WHERE session_id = ? ORDER BY id", (session_id,)
+        ).fetchall()
+    items = []
+    for data, source in rows:
+        try:
+            items.append((json.loads(data), source))
+        except (json.JSONDecodeError, TypeError):
+            continue
+    return items
+
+
+def append_session_items(
+    db_path: str | Path, session_id: str, items: list[tuple[TResponseInputItem, str | None]]
+) -> None:
+    if not items:
+        return
+    with closing(sqlite3.connect(db_path)) as connection, connection:
+        connection.execute("INSERT OR IGNORE INTO agent_sessions (session_id) VALUES (?)", (session_id,))
+        connection.executemany(
+            "INSERT INTO agent_messages (session_id, message_data, source_connection) VALUES (?, ?, ?)",
+            [(session_id, json.dumps(item), source) for item, source in items],
+        )
+        connection.execute(
+            "UPDATE agent_sessions SET updated_at = CURRENT_TIMESTAMP WHERE session_id = ?", (session_id,)
+        )
 
 
 def session_model_references(db_path: str | Path, connection_id: str) -> list[str]:

@@ -2,8 +2,6 @@
 
 [简体中文](Configuration.zh-CN.md)
 
-This guide describes the 0.3.2 configuration.
-
 ## Two configuration layers
 
 - `models.<id>` registers a named API-key or ChatGPT connection.
@@ -89,7 +87,7 @@ Copying Main settings in **Agent Defaults** preserves the auxiliary roles’ web
 
 With thinking off, a Run with client tools omits native web search, URL reading, native title requests and explicit safety review. Enabling thinking lets Flash use these features alongside local tools. A request without client tools can use non-thinking search. Structured-output requests use the standard Responses format.
 
-DeepSeek Responses is stateless, so each request carries its context. InvestOrch replays images in their original local tool results. While a tool image is still in the request, Flash defers native web search, URL reading and titles, even after the model has read the image. Native web tools resume automatically when a later request has no tool images and the model settings allow them. User attachments can still use native web. High content safety review requires text-only local tool results.
+DeepSeek Responses is stateless, so each request carries its context. InvestOrch replays images in their original local tool results. With thinking enabled, Flash can use native web search, URL reading, titles and high content safety review in requests that contain images from local function tools.
 
 Web and TUI use the returned events to update each tool call. The `kind` field distinguishes Flash search, page reading and image search. Usage shows billed operations and reported safety tokens. The provider decides when to search and may charge for tools used before a failure. [DeepSeek Web Tools](https://api-docs.deepseek.com/guides/web_tools) · [Models and pricing](https://api-docs.deepseek.com/quick_start/pricing/)
 
@@ -179,7 +177,7 @@ Each accepted Run freezes the connection, model, effort and positive window. Its
 
 When the selected window is too small for continuation plus input, preflight compaction runs before Main inference. If it fails or the input still cannot fit, Main does not run. Post-answer automatic compaction remains available. Both preserve the complete JSONL Journal.
 
-Each new Run receives messages, function `call_id` links, and compatible web calls with their IDs. Prior opaque reasoning and other response-item IDs stay in storage. Reasoning produced within a Run stays available for its tool continuations. See [Runtime](Runtime_Session_Execution_Model.md) for execution details.
+Each new Run receives prior messages, function `call_id` links, and compatible web calls. Main also replays opaque reasoning and response-item IDs from the selected connection. History from other connections or with an unknown source is made portable in the input copy. See [Runtime](Runtime_Session_Execution_Model.md) for execution details.
 
 ## Operator ownership
 

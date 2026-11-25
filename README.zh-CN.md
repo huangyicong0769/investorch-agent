@@ -4,9 +4,7 @@
 
 InvestOrch Agent 是面向个人投资者的本地优先、human-in-the-loop 投资编排 Agent。长期目标是支持从研究、策略开发和回测，到组合决策、交易、持仓监控与复盘的完整流程。
 
-**0.3.0** 增加多代理编排、可复用模型连接与 ChatGPT 授权、按 Session 选模、持续上下文管理和更清晰的运行诊断。详见 [0.3.0 说明](docs/releases/0.3.0.zh-CN.md)、[模型配置](docs/Configuration.zh-CN.md)和[手动升级步骤](docs/Upgrade.zh-CN.md)。
-
-## 0.3.0 包含
+## 功能
 
 - Web 和 [Textual](https://github.com/Textualize/textual) TUI，以及诊断用 plain console。
 - 多代理任务委派与并行研究，可在 Web 查看子任务进度、对话和结果。
@@ -18,7 +16,7 @@ InvestOrch Agent 是面向个人投资者的本地优先、human-in-the-loop 投
 - 可复用 Skills 和外部 MCP 集成。
 - 模型用量、失败诊断、本地备份与恢复。
 
-券商账户镜像、QMT Gateway、实盘交易和统一投资数据层属于后续工作。详见 [0.3.0 说明](docs/releases/0.3.0.zh-CN.md)和[产品路线图](docs/InvestOrch_Agent_Product_Roadmap.zh-CN.md)。
+券商账户镜像、QMT Gateway、实盘交易和统一投资数据层属于后续工作。详见[产品路线图](docs/InvestOrch_Agent_Product_Roadmap.zh-CN.md)。
 
 ## 兼容性
 
@@ -41,16 +39,18 @@ InvestOrch Agent 是面向个人投资者的本地优先、human-in-the-loop 投
 将 InvestOrch Agent 安装为 uv 管理的工具：
 
 ```bash
-uv tool install --python 3.12 investorch==0.3.0
+uv tool install --python 3.12 investorch
 investorch web
 ```
 
-安装后的命令是 `investorch`。替换已有安装前，先完成[升级说明](docs/Upgrade.zh-CN.md)中的备份和预检；0.2.0 模型 TOML 须手动转换。
+安装后的命令是 `investorch`。替换已有安装前，先完成备份和预检。仍在使用旧式 `[models.<role>]` 配置时，按指南手动转换。[升级说明](docs/Upgrade.zh-CN.md)
 
 ### 源码安装
 
+克隆仓库默认分支，并按锁文件安装依赖。
+
 ```bash
-git clone --branch v0.3.0 https://github.com/huangyicong0769/investorch-agent.git
+git clone https://github.com/huangyicong0769/investorch-agent.git
 cd investorch-agent
 uv sync --locked --python 3.12
 ```
@@ -59,15 +59,23 @@ uv sync --locked --python 3.12
 
 ### 发行 wheel
 
-从 [0.3.0 GitHub Release](https://github.com/huangyicong0769/investorch-agent/releases/tag/v0.3.0) 下载 `investorch-0.3.0-py3-none-any.whl`、`investorch-0.3.0.tar.gz` 和 `SHA256SUMS`。安装前校验 wheel：
+将同一发行版的 wheel 和 `SHA256SUMS` 下载到同一目录。[最新 GitHub 发行版](https://github.com/huangyicong0769/investorch-agent/releases/latest)
+
+将 `X.Y.Z` 替换为下载文件名中的版本号，再执行对应平台的校验命令。
 
 ```bash
-# macOS
-grep 'investorch-0.3.0-py3-none-any.whl$' SHA256SUMS | shasum -a 256 -c -
-# Linux
-grep 'investorch-0.3.0-py3-none-any.whl$' SHA256SUMS | sha256sum -c -
+wheel=./investorch-X.Y.Z-py3-none-any.whl
 
-uv tool install --python 3.12 ./investorch-0.3.0-py3-none-any.whl
+# macOS
+awk -v wheel="$wheel" '$2 == wheel' SHA256SUMS | shasum -a 256 -c -
+# Linux
+awk -v wheel="$wheel" '$2 == wheel' SHA256SUMS | sha256sum -c -
+```
+
+校验通过后安装 wheel。
+
+```bash
+uv tool install --python 3.12 "$wheel"
 ```
 
 wheel 包含 Web 生产 bundle，运行时不需要 Node.js。源码构建 wheel 使用 `uv build --no-sources`；修改前端后，须先重建 Web bundle。
@@ -141,7 +149,7 @@ InvestOrch Agent 是由人主导、AI 辅助开发的个人研究项目。个人
 
 ## 文档
 
-- [0.3.2 发行说明](docs/releases/0.3.2.zh-CN.md)与[全部版本](docs/releases/)。
+- [发行说明](docs/releases/)。
 - [维护者发布指引](docs/Publishing.md)：review、GitHub Release 与 PyPI 发布。
 - [配置指南](docs/Configuration.zh-CN.md)、[升级说明](docs/Upgrade.zh-CN.md)与[备份和恢复](docs/Backup_and_Recovery.zh-CN.md)。
 - [架构](docs/InvestOrch_Agent_Architecture.zh-CN.md)：已实现系统与当前边界。

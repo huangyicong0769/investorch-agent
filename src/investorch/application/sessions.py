@@ -123,16 +123,18 @@ class SessionOperations:
         runtime: AgentRuntime,
         journal: SessionJournal,
         presentation_state: SessionPresentationStore,
+        system_prompt: str,
     ) -> None:
         self._config = config
         self._runtime = runtime
         self._journal = journal
         self._presentation_state = presentation_state
+        self.system_prompt = system_prompt
         self.lifecycle_lock = asyncio.Lock()
 
     async def create(self) -> str:
         session_id = uuid.uuid4().hex
-        await asyncio.to_thread(create_session, self._config.sessions_db, session_id)
+        await asyncio.to_thread(create_session, self._config.sessions_db, session_id, system_prompt=self.system_prompt)
         logger.info("Started session %s", session_id)
         return session_id
 
@@ -143,7 +145,9 @@ class SessionOperations:
             uuid.NAMESPACE_URL,
             f"urn:investorch:session-request:{workflow.strip()}:{request_id.strip()}",
         ).hex
-        created = await asyncio.to_thread(create_session, self._config.sessions_db, session_id)
+        created = await asyncio.to_thread(
+            create_session, self._config.sessions_db, session_id, system_prompt=self.system_prompt
+        )
         if created:
             logger.info("Started idempotent session %s for workflow %s", session_id, workflow)
         return session_id, created
@@ -153,7 +157,7 @@ class SessionOperations:
             return True
         session = SQLiteSession(session_id, self._config.sessions_db)
         try:
-            return bool(await session.get_items(limit=1))
+            return len(await session.get_items(limit=2)) > 1
         finally:
             session.close()
 

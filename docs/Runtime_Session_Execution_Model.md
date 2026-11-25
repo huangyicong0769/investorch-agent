@@ -118,7 +118,7 @@ Todo is transient Run state projected to clients. It is not stored in SDK contin
 
 Fork copies SDK continuation, the journal when present, title with a suffix, direct parent lineage and persisted model metadata. A source Draft becomes a target Draft, retaining its process-local semantics. It does not copy active Runs, permission/follow-up overrides, Steer/Queue state, Todos, approvals, archive state, jobs, usage, caches, or UI state. It is stable-head cloning, not historical-turn branching.
 
-Empty Sessions that never acquire SDK messages, journal records, metadata, queued intent, or lineage are discarded. Web starts without creating a Session until the user does so; TUI/plain create an initial Session.
+Web starts without creating a Session. TUI and plain mode create an initial Session. When a client switches away from a Session, it can discard that Session if it contains only the fixed System Prompt and has no Journal, metadata, queued input or lineage. TUI and plain mode apply the same history checks to the selected Session on exit.
 
 ## Output and replay
 
@@ -154,7 +154,7 @@ No client owns a second copy of execution truth.
 
 Main and auxiliary model usage is accumulated separately per Session for the current process. Each completed model request updates the shared presentation snapshot immediately; SDK cumulative usage is reconciled at exit so later failure or cancellation does not discard earlier requests. Auxiliary usage includes Title, Activity, Permission, Skill Review and Compact Agents, including failed output validation. A request that never reports usage cannot supply a known token count. HTTP, WebSocket and TUI consume the same process epoch and monotonic snapshot revision.
 
-Main-context occupancy is labeled measured after a physical Main response (input plus output usage) and estimated before a request or after compaction. Estimates include the portable request history, instructions, tool schemas and live Todo; auxiliary tokens never contribute. The model name and context-window denominator travel with the snapshot.
+Main-context occupancy is labeled measured after a physical Main response (input plus output usage) and estimated before a request or after compaction. Estimates include the replayed history, instructions, tool schemas and live Todo. Auxiliary usage is accounted for separately. The model name and context-window denominator travel with the snapshot.
 
 Preflight checks continuation and incoming input against the selected Run window with conservative overhead/output allowance. When needed, it compacts inside the existing Run reservation. Failure, empty summary or a still-oversized budget blocks Main; replacement failures attempt restoration. This protection also applies when `compaction.auto_enabled` is off.
 
@@ -162,7 +162,7 @@ Every model request is checked again after tool results and activated Steers arr
 
 Post-answer automatic compaction uses the active Run window and last Main request usage; failure does not discard an already completed answer. Manual and automatic compaction change SDK continuation only, preserve the complete Journal and charge Compact requests to auxiliary totals as they complete. Successful compaction immediately publishes a new context estimate. The compact model's own input budget is checked and oversized text is summarized in bounded batches.
 
-Each new Run copies earlier messages and function `call_id` links into the input. It strips opaque reasoning and handles tool records according to the target provider's protocol.
+Each new Run replays earlier messages, function `call_id` links, and reasoning and response-item IDs from the selected connection. Main makes history from other or unknown connections portable when building the input and preserves the original stored items. Older items with no recorded source are treated as unknown.
 
 Main requests send both newly generated and stored compaction summaries as marked `user` context.
 

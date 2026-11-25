@@ -1,7 +1,8 @@
+from investorch.storage.sessions import SessionHistoryRestoreError
+
 from .activity import ActivityLabelResult, create_activity_agent, generate_activity_label
 from .compact import (
     CompactionResult,
-    SessionHistoryRestoreError,
     compact_session,
     create_compaction_agent,
     session_history_restore_failed,

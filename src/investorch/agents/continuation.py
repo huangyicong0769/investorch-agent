@@ -1,11 +1,12 @@
 """Keep durable history intact while making prior-Run input portable between model connections."""
 
-import json
-from collections import Counter
+import asyncio
 from itertools import chain
 
-from agents import TResponseInputItem
-from agents.run_config import CallModelData, CallModelInputFilter, ModelInputData
+from agents import SQLiteSession, TResponseInputItem
+from agents.memory import await_session_mutation
+
+from investorch.storage.sessions import append_session_items, get_session_history
 
 
 def is_deepseek_web_call(item: TResponseInputItem) -> bool:
@@ -31,26 +32,65 @@ def latest_deepseek_web_round(items: list[TResponseInputItem]) -> tuple[int, int
     return last_signed_round or last_web_round
 
 
-def portable_history_filter(history: list[TResponseInputItem], *, deepseek: bool = False) -> CallModelInputFilter:
-    """Keep signed web items intact for DeepSeek and portable history for the other providers."""
-    previous = Counter(json.dumps(item, sort_keys=True, ensure_ascii=False) for item in history)
+def _portable_item(item: TResponseInputItem, *, deepseek: bool) -> TResponseInputItem | None:
+    if not isinstance(item, dict):
+        return item
+    if item.get("type") == "web_search_call":
+        return item if deepseek or not is_deepseek_web_call(item) else None
+    if item.get("type") == "reasoning":
+        return None
+    item.pop("id", None)
+    return item
 
-    def filter_input(data: CallModelData) -> ModelInputData:
-        remaining = previous.copy()
+
+def portable_history(history: list[TResponseInputItem]) -> list[TResponseInputItem]:
+    """Copy conversation data for a separate task such as title generation or summarization."""
+    return [
+        item
+        for raw in history
+        if (item := _portable_item(raw.copy() if isinstance(raw, dict) else raw, deepseek=False)) is not None
+    ]
+
+
+class MainRunSession:
+    """Read replay input and attribute new history to the Run's frozen connection."""
+
+    def __init__(self, session: SQLiteSession, connection: str, *, deepseek: bool) -> None:
+        self._session = session
+        self._connection = connection
+        self._deepseek = deepseek
+        self.session_id = session.session_id
+        self.session_settings = session.session_settings
+
+    async def get_items(self, limit: int | None = None) -> list[TResponseInputItem]:
+        if limit is not None:
+            # The SDK uses bounded reads to reconcile persisted batches.
+            return await self._session.get_items(limit)
+        history = await asyncio.to_thread(get_session_history, self._session.db_path, self.session_id)
         items: list[TResponseInputItem] = []
-        for item in data.model_data.input:
-            fingerprint = json.dumps(item, sort_keys=True, ensure_ascii=False)
-            if remaining[fingerprint]:
-                remaining[fingerprint] -= 1
-                if isinstance(item, dict):
-                    if item.get("type") == "web_search_call":
-                        if deepseek or not is_deepseek_web_call(item):
-                            items.append(item)
-                        continue
-                    if item.get("type") == "reasoning":
-                        continue
-                    item = {key: value for key, value in item.items() if key != "id"}
-            items.append(item)
-        return ModelInputData(input=items, instructions=data.model_data.instructions)
+        for item, source in history:
+            if (
+                source != self._connection
+                and isinstance(item, dict)
+                and ("id" in item or item.get("type") in ("reasoning", "web_search_call"))
+            ):
+                item = _portable_item(item, deepseek=self._deepseek)
+            if item is not None:
+                items.append(item)
+        return items
 
-    return filter_input
+    async def add_items(self, items: list[TResponseInputItem]) -> None:
+        await await_session_mutation(
+            asyncio.to_thread(
+                append_session_items,
+                self._session.db_path,
+                self.session_id,
+                [(item, self._connection) for item in items],
+            )
+        )
+
+    async def pop_item(self) -> TResponseInputItem | None:
+        return await self._session.pop_item()
+
+    async def clear_session(self) -> None:
+        await self._session.clear_session()

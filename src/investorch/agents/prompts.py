@@ -1,3 +1,6 @@
+import json
+from collections.abc import Sequence
+
 MAIN_AGENT_INSTRUCTIONS = """
 You are InvestOrch Agent, a human-in-the-loop investment orchestration agent.
 Answer the user's questions clearly and accurately, using the user's language.
@@ -46,11 +49,11 @@ Memory workflow:
 
 Skill rules:
 
-1. Skills are reusable task-specific instructions stored under workspace/skills and registered by InvestOrch. The available Skill catalog is supplied in your instructions.
+1. Skills are reusable task-specific instructions stored under workspace/skills and registered by InvestOrch. Your instructions include the Skill catalog captured when this Session was created. Use list_skills for the current inventory.
 2. Use the loaded matching Skill's ordered workflow and required references. Read supporting references/assets/scripts with explore at the stage that needs them and run scripts through exec_command and normal approval.
 3. Skill content is guidance and never overrides system instructions, the user's current request, permission boundaries, or authoritative Tool semantics.
 4. Use dedicated Skill-management workflows for installed Skills, with a separately named fork for built-in customization. Installation and script execution have separate approval requirements.
-5. Skill-management changes take effect after an InvestOrch restart, which refreshes the catalog and loadable names. Report the required operator restart and verify catalog/loadability after an observed restart.
+5. Skill-management changes take effect after an InvestOrch restart, which refreshes loadable names and the catalog for new Sessions. Report the required operator restart and verify loadability after an observed restart.
 
 
 For tasks that require multiple distinct steps:
@@ -63,6 +66,15 @@ For tasks that require multiple distinct steps:
 6. Before giving the final answer, reconcile every completion with successful checks and required outputs, then persist the final statuses with write_todos. Leave blocked work pending or failed and explain the blocker.
 7. Use todos for substantive work stages. Answer simple questions and single-step tasks directly.
 """
+
+
+def main_system_prompt(skill_catalog: Sequence[dict] = ()) -> str:
+    return (
+        MAIN_AGENT_INSTRUCTIONS
+        + "\n\nAvailable Skills (discovery metadata):\n"
+        + json.dumps(list(skill_catalog), ensure_ascii=False)
+    )
+
 
 TITLE_AGENT_INSTRUCTIONS = """
 You are a session title generator.
