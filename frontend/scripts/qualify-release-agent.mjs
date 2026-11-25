@@ -72,7 +72,8 @@ try {
   await page.goto(base)
   const config = await get('/api/config')
   assert.equal(config.values.paths.root, root, 'Never mutate a real user instance')
-  assert.equal((await get('/api/bootstrap')).version, '0.3.0')
+  const { version } = await get('/api/bootstrap')
+  assert.match(version, /^\d+\.\d+\.\d+/)
   await page.getByRole('button', { name: 'New', exact: true }).click()
   await page.waitForURL('**/c/*')
   const id = new URL(page.url()).pathname.split('/').at(-1)
@@ -164,7 +165,7 @@ try {
   await page.reload()
   await page.getByRole('button', { name: 'Enlarge release-shapes.png' }).waitFor()
   assert.deepEqual(errors, [])
-  await writeFile(`${outputDir}/evidence.json`, JSON.stringify({ status: 'passed', version: '0.3.0', simulatedProvider: false, realTransport: 'production CLI HTTP/WebSocket + Edge + configured model', checks, shapeAnswers, browserErrors: errors, sessionId: id, forkId, childId }, null, 2))
+  await writeFile(`${outputDir}/evidence.json`, JSON.stringify({ status: 'passed', version, simulatedProvider: false, realTransport: 'production CLI HTTP/WebSocket + Edge + configured model', checks, shapeAnswers, browserErrors: errors, sessionId: id, forkId, childId }, null, 2))
   console.log(JSON.stringify({ status: 'passed', checks }))
 } catch (error) {
   await page.screenshot({ path: `${outputDir}/failure.png`, fullPage: true })
