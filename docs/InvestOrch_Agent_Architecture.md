@@ -93,7 +93,7 @@ The Main Agent is cloned with captured model settings for each Run. Support agen
 - Title Agent names a Session when the Main answer completes with the Session still unnamed.
 - Activity Agent creates presentation-only labels for Tool calls.
 - Permission Agent may return approve, reject, or ask in review mode.
-- Compact Agent replaces SDK continuation history with a marked summary.
+- A new Session stores its fixed System Prompt and Skill discovery snapshot as the first `developer` message. Forks inherit that message. The SDK replays it with the Session history, and Compact replaces only the later messages with a marked summary.
 
 The runtime retains OpenAI Agents SDK and its Responses adapter. `models.<id>` defines reusable connections; `agents.<role>` selects a connection, actual model, effort and positive window for the five built-in roles. `AppConfig.model_connection()` and `agent_model()` resolve these separate values. Skill Review shares `agents.permission`. The Host owns `ModelConnectionClients`, reusing clients by connection and closing them on shutdown; each Run clones its model/settings without mutating the shared Agent template.
 
