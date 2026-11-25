@@ -1,12 +1,5 @@
-# Behavioral contract tests
+# End-to-end tests
 
-Tests protect observable behavior, not implementation structure.
+Run the suite with `uv run --locked pytest`.
 
-A test should survive an internal rewrite that preserves the contract.
-
-- Do not test private methods or fields.
-- Do not assert collaborator call counts.
-- Use real SQLite and filesystem resources where practical.
-- Use controlled fakes only at explicit external or application boundaries.
-- If a behavior cannot be tested without implementation coupling, leave it untested.
-- Coverage is diagnostic, not a target.
+Exercise a complete workflow through the Web API, a terminal command, or the Application Host. Assert the result a user or client can observe across the participating application layers. Use real SQLite and filesystem resources. Control models and other dependencies outside the workflow being exercised.

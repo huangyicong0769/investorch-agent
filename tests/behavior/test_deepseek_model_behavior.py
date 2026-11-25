@@ -1,18 +1,15 @@
 import asyncio
 import base64
 import json
-from dataclasses import replace
 
 import httpx2
 import pytest
-from agents import Agent, ModelSettings, Runner, WebSearchTool, function_tool
 from openai import AsyncOpenAI
 
 from investorch.application import ApplicationCallbacks, open_application_host
 from investorch.journal import read_session_journal
 from investorch.llm.clients import ModelConnectionClients
 from investorch.llm.deepseek import DeepSeekResponseError
-from investorch.output import consume_run_events, serialize_output_event
 from investorch.storage import get_session_title
 from tests.support.config import make_test_config
 from tests.support.runtime import run_options
@@ -163,48 +160,6 @@ async def test_safety_refusal_discards_the_streamed_answer_and_accounts_usage(
         assert "private-review-detail" not in repr(records)
 
 
-async def test_nonstream_title_and_input_safety_are_handled_by_the_model(tmp_path):
-    config = make_test_config(
-        tmp_path,
-        {
-            "models": {"test": {"type": "deepseek"}},
-            "agents": {"main": {"name": "deepseek-flash", "safety_check": "low"}},
-        },
-    )
-    rejected = False
-
-    def handle(request):
-        body = json.loads(request.content)
-        assert body["safety_check"] == {"level": "low"}
-        assert body["title"] == {"enabled": True}
-        if rejected:
-            return httpx2.Response(400, json={"error": {"message": "Content Exists Risk: private-review-detail"}})
-        return httpx2.Response(200, json=response([message()], title="Non-streamed title"))
-
-    clients = ModelConnectionClients(
-        config,
-        None,
-        client_factory=lambda **kwargs: AsyncOpenAI(
-            **kwargs,
-            http_client=httpx2.AsyncClient(transport=httpx2.MockTransport(handle)),
-        ),
-    )
-    try:
-        agent = Agent(
-            name="Main",
-            model=clients.resolve(config.agent_model("main")),
-            model_settings=ModelSettings(extra_body={"title": {"enabled": True}}),
-        )
-        result = await Runner.run(agent, "Hello", run_config={"tracing_disabled": True})
-        assert result.raw_responses[-1].title == "Non-streamed title"
-        rejected = True
-        with pytest.raises(DeepSeekResponseError, match="input safety review") as error:
-            await Runner.run(agent, "Reject this", run_config={"tracing_disabled": True})
-        assert "private-review-detail" not in str(error.value)
-    finally:
-        await clients.close()
-
-
 async def test_first_deepseek_title_is_committed_while_the_run_is_active(tmp_path, monkeypatch):
     config = make_test_config(
         tmp_path, {"models": {"test": {"type": "deepseek"}}, "agents": {"main": {"name": "deepseek-flash"}}}
@@ -337,63 +292,6 @@ async def test_flash_continues_a_session_after_a_local_tool_returns_an_image(tmp
         assert requests_with_image >= 2
 
 
-@pytest.mark.parametrize("citations_in_final_envelope", [False, True])
-async def test_streamed_citations_are_positioned_by_code_point_and_kept_once(tmp_path, citations_in_final_envelope):
-    config = make_test_config(tmp_path, {"models": {"test": {"type": "deepseek"}}})
-    text = "研究🙂值得关注。"
-    citation = {
-        "type": "url_citation",
-        "start_index": 0,
-        "end_index": 3,
-        "url": "https://example.org/results",
-        "title": "Results",
-    }
-    answer = message(text, annotations=[citation])
-    position = {"output_index": 0, "content_index": 0, "item_id": answer["id"]}
-
-    def handle(_):
-        records = [{"type": "response.output_text.delta", "delta": text, "logprobs": [], **position}]
-        if not citations_in_final_envelope:
-            records.append(
-                {
-                    "type": "response.output_text.annotation.added",
-                    "annotation": citation,
-                    "annotation_index": 0,
-                    **position,
-                }
-            )
-        done = message(text) if citations_in_final_envelope else answer
-        records.append({"type": "response.output_item.done", "output_index": 0, "item": done})
-        return sse(response([answer]), *records)
-
-    clients = ModelConnectionClients(
-        config,
-        None,
-        client_factory=lambda **kwargs: AsyncOpenAI(
-            **kwargs, http_client=httpx2.AsyncClient(transport=httpx2.MockTransport(handle))
-        ),
-    )
-    output = []
-
-    async def capture(event):
-        output.append(serialize_output_event(event))
-
-    try:
-        result = Runner.run_streamed(
-            Agent(name="Main", model=clients.resolve(config.agent_model("main"))),
-            "Search",
-            run_config={"tracing_disabled": True},
-        )
-        await consume_run_events(result, capture, "Main", deepseek=True)
-    finally:
-        await clients.close()
-
-    (final,) = [event for event in output if event["type"] == "assistant_message"]
-    assert final["text"] == text
-    assert final["display_text"] == "研究🙂 [1](<https://example.org/results>)值得关注。"
-    assert final["citations"] == [{key: value for key, value in citation.items() if key != "type"}]
-
-
 async def test_host_replays_signed_web_item_after_compact_fork_and_reopening(tmp_path, monkeypatch):
     config = make_test_config(
         tmp_path,
@@ -492,72 +390,3 @@ async def test_host_replays_signed_web_item_after_compact_fork_and_reopening(tmp
         read_steps = [record for record in web_steps if record["name"] == "URL reading"]
         assert [record["hosted_call_id"] for record in read_steps] == [call["id"]] * 3
         assert json.loads(read_steps[-1]["arguments"]) == {"kind": "read_link", "action": call["action"]}
-
-
-@pytest.mark.parametrize(
-    ("provider", "name", "switches", "effort", "sdk_tools", "wire_tools"),
-    [
-        (
-            "deepseek",
-            "deepseek-flash",
-            {},
-            "high",
-            ["function", "web_search"],
-            ["function", "deepseek_web_search", "deepseek_read_url"],
-        ),
-        ("deepseek", "deepseek-v4-flash", {"web_search": False}, "none", [], ["deepseek_read_url"]),
-        ("deepseek", "deepseek-flash", {"safety_check": "high"}, "none", ["function"], ["function"]),
-        ("deepseek", "deepseek-flash", {"web_search": False, "read_url": False}, "high", ["function"], ["function"]),
-        ("deepseek", "deepseek-v4-pro", {}, "high", ["function"], ["function", "web_search"]),
-        ("openai_compatible", "deepseek-flash", {}, "high", ["function"], ["function"]),
-    ],
-)
-async def test_responses_declares_native_tools_alongside_local_tools(
-    tmp_path, provider, name, switches, effort, sdk_tools, wire_tools
-):
-    config = make_test_config(tmp_path, {"models": {"test": {"type": provider}}})
-    requests = []
-
-    @function_tool
-    def lookup() -> str:
-        """Read a test fixture."""
-        return "fixture"
-
-    def handle(request):
-        requests.append(json.loads(request.content))
-        return httpx2.Response(200, json=response([message()]))
-
-    clients = ModelConnectionClients(
-        config,
-        None,
-        client_factory=lambda **kwargs: AsyncOpenAI(
-            **kwargs, http_client=httpx2.AsyncClient(transport=httpx2.MockTransport(handle))
-        ),
-    )
-    selected = replace(config.agent_model("main"), name=name, reasoning_effort=effort, **switches)
-    tools = {"function": lookup, "web_search": WebSearchTool()}
-    try:
-        agent = Agent(
-            name="Main",
-            model=clients.resolve(selected),
-            tools=[tools[tool] for tool in sdk_tools],
-            model_settings=ModelSettings(
-                reasoning={"effort": effort}, extra_body={"title": {"enabled": True}} if effort == "none" else None
-            ),
-        )
-        result = await Runner.run(agent, "Test", run_config={"tracing_disabled": True})
-    finally:
-        await clients.close()
-
-    assert result.final_output == "完成"
-    (request,) = requests
-    assert request["model"] == name
-    assert request["reasoning"]["effort"] == effort
-    assert request.get("tool_choice") != "none"
-    assert [tool["type"] for tool in request["tools"]] == wire_tools
-    local = "function" in sdk_tools
-    if local:
-        assert request["tools"][0]["name"] == "lookup"
-    if effort == "none":
-        assert ("title" in request) is not local
-        assert "safety_check" not in request

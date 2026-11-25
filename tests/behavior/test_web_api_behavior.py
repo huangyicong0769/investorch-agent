@@ -12,15 +12,6 @@ from tests.support.web import open_test_web
 
 
 @pytest.mark.asyncio
-async def test_health_exposes_ready_status(tmp_path: Path) -> None:
-    async with open_test_web(tmp_path) as web:
-        response = await web.client.get("/api/health")
-
-        assert response.status_code == 200
-        assert response.json()["status"] == "ok"
-
-
-@pytest.mark.asyncio
 async def test_portfolio_index_exposes_current_active_and_archived_summaries(tmp_path: Path) -> None:
     async with open_test_web(tmp_path) as web:
         active = await web.host.portfolios.create(
