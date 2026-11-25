@@ -394,11 +394,12 @@ async def test_api_key_model_instruction_placement_and_request_parameters(tmp_pa
         await auth.close()
 
     assert result.final_output == "ok"
-    assert result.to_input_list()[: len(history)] == history
+    expected = [{"role": "developer", "content": instructions}, *history]
+    initial_input = history if streamed else expected
+    assert result.to_input_list()[: len(initial_input)] == initial_input
     (request,) = requests
     assert request["max_output_tokens"] == 100
     assert request["temperature"] == 0.2
-    expected = [{"role": "developer", "content": instructions}, *history]
     assert model_inputs == [(None, expected)]
     assert request["input"] == expected
     assert "instructions" not in request

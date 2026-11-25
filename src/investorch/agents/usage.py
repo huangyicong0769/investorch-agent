@@ -5,9 +5,9 @@ from dataclasses import dataclass, fields
 from typing import Any
 
 from agents import Agent, ModelResponse, RunContextWrapper, RunHooks, Runner, RunResult, Usage
+from agents.items import ItemHelpers
 
 from investorch.llm.deepseek import DeepSeekResponseError
-from investorch.llm.models import with_developer_prompt
 
 
 @dataclass(frozen=True, slots=True)
@@ -129,8 +129,10 @@ async def run_with_usage(
     context = kwargs.pop("context", None)
     if not isinstance(context, RunContextWrapper):
         context = RunContextWrapper(context=context)
+    if prompt := await agent.get_system_prompt(context):
+        input = [{"role": "developer", "content": prompt}, *ItemHelpers.input_to_new_input_list(input)]
+        agent = agent.clone(instructions=None)
     tracker = UsageTracker(usage_handler)
-    kwargs["run_config"] = with_developer_prompt(kwargs.get("run_config"))
     try:
         return await Runner.run(agent, input, context=context, hooks=tracker, **kwargs)
     except DeepSeekResponseError as error:
