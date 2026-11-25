@@ -8,6 +8,7 @@ from collections.abc import Iterable
 from contextlib import closing
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from hashlib import sha256
 from pathlib import Path
 
 from agents import SQLiteSession, TResponseInputItem
@@ -389,6 +390,8 @@ def init_session_metadata(db_path: str | Path) -> None:
         columns = {row[1] for row in connection.execute("PRAGMA table_info(extra_session_metadata)")}
         if "model_config_json" not in columns:
             connection.execute("ALTER TABLE extra_session_metadata ADD COLUMN model_config_json TEXT")
+        if "history_connections_json" not in columns:
+            connection.execute("ALTER TABLE extra_session_metadata ADD COLUMN history_connections_json TEXT")
         if "archived_at" not in columns:
             connection.execute("ALTER TABLE extra_session_metadata ADD COLUMN archived_at TEXT")
         if "related_portfolio_ids_json" not in columns:
@@ -844,10 +847,59 @@ def get_session_model(db_path: str | Path, session_id: str) -> dict[str, object]
 
 def set_session_model(db_path: str | Path, session_id: str, model: dict[str, object]) -> None:
     with closing(sqlite3.connect(db_path)) as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        saved = connection.execute(
+            "SELECT model_config_json, history_connections_json FROM extra_session_metadata WHERE session_id = ?",
+            (session_id,),
+        ).fetchone()
+        previous_connection = json.loads(saved[0]).get("model") if saved and saved[0] else None
+        history_connections = saved[1] if saved else None
+        if previous_connection != model.get("model"):
+            known = json.loads(history_connections) if history_connections else {}
+            retained = {}
+            for (payload,) in connection.execute(
+                "SELECT message_data FROM agent_messages WHERE session_id = ?", (session_id,)
+            ):
+                item = json.loads(payload)
+                if not isinstance(item, dict) or (
+                    "id" not in item and item.get("type") not in ("reasoning", "web_search_call")
+                ):
+                    continue
+                key = session_history_key(item)
+                retained[key] = known.get(key, previous_connection)
+            history_connections = json.dumps(retained)
         connection.execute(
-            "INSERT INTO extra_session_metadata (session_id, title, model_config_json) VALUES (?, '', ?) "
-            "ON CONFLICT(session_id) DO UPDATE SET model_config_json = excluded.model_config_json",
-            (session_id, json.dumps(model, ensure_ascii=False)),
+            "INSERT INTO extra_session_metadata (session_id, title, model_config_json, history_connections_json) "
+            "VALUES (?, '', ?, ?) ON CONFLICT(session_id) DO UPDATE SET "
+            "model_config_json = excluded.model_config_json, history_connections_json = excluded.history_connections_json",
+            (session_id, json.dumps(model, ensure_ascii=False), history_connections),
+        )
+        connection.commit()
+
+
+def session_history_key(item: TResponseInputItem) -> str:
+    """Identify an item even when Fork or Compact copies it to a new database row."""
+    return sha256(json.dumps(item, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+
+
+def get_foreign_history_keys(db_path: Path, session_id: str, connection_id: str) -> set[str]:
+    with closing(sqlite3.connect(db_path)) as connection:
+        row = connection.execute(
+            "SELECT history_connections_json FROM extra_session_metadata WHERE session_id = ?", (session_id,)
+        ).fetchone()
+    sources = json.loads(row[0]) if row and row[0] else {}
+    return {key for key, source in sources.items() if source != connection_id}
+
+
+def copy_session_model(db_path: Path, source_session_id: str, target_session_id: str) -> None:
+    with closing(sqlite3.connect(db_path)) as connection:
+        connection.execute(
+            "INSERT INTO extra_session_metadata (session_id, title, model_config_json, history_connections_json) "
+            "SELECT ?, '', model_config_json, history_connections_json FROM extra_session_metadata "
+            "WHERE session_id = ? AND model_config_json IS NOT NULL "
+            "ON CONFLICT(session_id) DO UPDATE SET model_config_json = excluded.model_config_json, "
+            "history_connections_json = excluded.history_connections_json",
+            (target_session_id, source_session_id),
         )
         connection.commit()
 

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import inspect
 import json
 import logging
 import math
@@ -24,11 +23,16 @@ from investorch.llm.deepseek import DeepSeekResponseError, DeepSeekResponsesMode
 from investorch.llm.models import ChatGPTResponsesModel, chatgpt_tools
 from investorch.output import AssistantMessage, OutputEvent, OutputHandler, consume_run_events
 from investorch.output.stream import assistant_message_from_result
-from investorch.storage.sessions import get_session_title, split_session_history
+from investorch.storage.sessions import (
+    get_foreign_history_keys,
+    get_session_title,
+    session_history_key,
+    split_session_history,
+)
 
 from .compact import CompactionResult, _is_compacted_summary, compact_session, session_history_restore_failed
 from .context_projection import ContextBudget, ContextProjection, ContextProjectionBudgetError
-from .continuation import is_deepseek_web_call, portable_history_filter
+from .continuation import portable_history, portable_history_filter
 from .usage import TokenUsage, UsageHandler, UsageTracker
 
 if TYPE_CHECKING:
@@ -135,19 +139,15 @@ def should_auto_compact(
 
 
 def _run_model_input_filter(
-    history: list[TResponseInputItem],
+    portable_filter: Callable[[CallModelData], ModelInputData] | None,
     *,
     projection: ContextProjection | None = None,
     context_window_tokens: int = 0,
-    deepseek: bool = False,
 ) -> CallModelInputFilter:
     """Budget portable history and current Run state for each request."""
-    portable_filter = portable_history_filter(history, deepseek=deepseek)
 
     async def filter_input(data: CallModelData[AgentContext]) -> ModelInputData:
-        filtered = portable_filter(data)
-        if inspect.isawaitable(filtered):
-            filtered = await filtered
+        filtered = portable_filter(data) if portable_filter is not None else data.model_data
         system_message, input_items = split_session_history(filtered.input)
         tools = await data.agent.get_all_tools(RunContextWrapper(data.context)) if projection is not None else []
         extra_input: list[TResponseInputItem] = []
@@ -198,6 +198,16 @@ def _run_model_input_filter(
         return ModelInputData(input=[system_message, *model_input], instructions=None)
 
     return filter_input
+
+
+def _replay_history(
+    history: list[TResponseInputItem], agent: Agent, portable_filter: Callable[[CallModelData], ModelInputData] | None
+) -> list[TResponseInputItem]:
+    if portable_filter is None:
+        return history
+    return portable_filter(
+        CallModelData(agent=agent, context=None, model_data=ModelInputData(input=history, instructions=None))
+    ).input
 
 
 def _tool_schemas(tools: list[Tool]) -> list[dict[str, Any]]:
@@ -355,6 +365,15 @@ class AgentLoop:
         if not model_input:
             raise ValueError("Run requires user input or an application instruction")
 
+        history_items = await session.get_items()
+        _, history = split_session_history(history_items)
+        foreign_keys = await asyncio.to_thread(
+            get_foreign_history_keys, session.db_path, session_id, model_config.model
+        )
+        foreign_history = (
+            [item for item in history if session_history_key(item) in foreign_keys] if foreign_keys else []
+        )
+        portable_filter = portable_history_filter(foreign_history, deepseek=deepseek) if foreign_history else None
         await self._preflight_compact(
             session,
             run_agent,
@@ -363,6 +382,8 @@ class AgentLoop:
             model_config,
             record_preflight_usage,
             context_budget,
+            history=history_items,
+            portable_filter=portable_filter,
         )
         _, history = split_session_history(await session.get_items())
 
@@ -373,19 +394,16 @@ class AgentLoop:
         projection = ContextProjection(
             self._compaction_agent,
             self._config,
-            initial_history_count=sum(
-                item.get("type") != "reasoning" and (deepseek or not is_deepseek_web_call(item)) for item in history
-            ),
+            initial_history_count=len(_replay_history(history, run_agent, portable_filter)),
             usage_handler=record_auxiliary_usage,
             context_handler=record_context,
             context_budget=context_budget,
         )
         run_config = RunConfig(
             call_model_input_filter=_run_model_input_filter(
-                history,
+                portable_filter,
                 projection=projection,
                 context_window_tokens=model_config.context_window_tokens,
-                deepseek=deepseek,
             )
         )
         result = Runner.run_streamed(
@@ -505,8 +523,7 @@ class AgentLoop:
             flushed = await projection.flush(session)
             if projection.changed and not flushed and self._context_handler is not None:
                 retained = await session.get_items()
-                _, retained_history = split_session_history(retained)
-                portable = await _run_model_input_filter(retained_history, deepseek=deepseek)(
+                portable = await _run_model_input_filter(portable_filter)(
                     CallModelData(
                         model_data=ModelInputData(input=retained, instructions=None), agent=run_agent, context=None
                     )
@@ -553,10 +570,12 @@ class AgentLoop:
         model_config: AgentModelConfig,
         usage_handler: Callable[[TokenUsage], None] | None,
         context_budget: ContextBudget,
+        *,
+        history: list[TResponseInputItem],
+        portable_filter: Callable[[CallModelData], ModelInputData] | None,
     ) -> CompactionResult | None:
         context_window_tokens = model_config.context_window_tokens
         wrapper = RunContextWrapper(context)
-        history = await session.get_items()
         system_message, _ = split_session_history(history)
         tool_schemas = _tool_schemas(await agent.get_all_tools(wrapper))
         output_reserve = min(8192, max(256, context_window_tokens // 20))
@@ -565,11 +584,8 @@ class AgentLoop:
 
         def estimate(items: list[TResponseInputItem]) -> int:
             prompt, tail = split_session_history(items)
-            portable = portable_history_filter(tail, deepseek=isinstance(agent.model, DeepSeekResponsesModel))(
-                CallModelData(model_data=ModelInputData(input=tail, instructions=None), agent=agent, context=None)
-            )
             return context_budget.estimate(
-                [*portable.input, *model_input],
+                [*_replay_history(tail, agent, portable_filter), *model_input],
                 instructions=prompt["content"],
                 tool_schemas=tool_schemas,
             )
@@ -636,11 +652,12 @@ class AgentLoop:
 
         async def notify(compacting: bool) -> None:
             if self._context_handler is not None:
-                history = await session.get_items()
-                _, tail = split_session_history(history)
-                filtered = await _run_model_input_filter(tail)(
+                prompt, tail = split_session_history(await session.get_items())
+                filtered = await _run_model_input_filter(None)(
                     CallModelData(
-                        model_data=ModelInputData(input=history, instructions=None), agent=self._agent, context=None
+                        model_data=ModelInputData(input=[prompt, *portable_history(tail)], instructions=None),
+                        agent=self._agent,
+                        context=None,
                     )
                 )
                 estimate = context_budget.estimate(

@@ -127,3 +127,74 @@ async def test_main_chatgpt_web_search_uses_session_switch_and_records_sources(t
     ]
     first_answer = next(event for event in records if event["type"] == "assistant_message")
     assert first_answer["citations"][0]["url"] == citation["url"]
+
+
+async def test_main_replays_reasoning_from_the_selected_connection_after_switches_and_fork(tmp_path, monkeypatch):
+    config = make_test_config(
+        tmp_path,
+        {
+            "models": {
+                "first": {"type": "chatgpt", "credentials": "personal-first"},
+                "second": {"type": "chatgpt", "credentials": "personal-second"},
+            },
+            "agents": {"main": {"model": "first", "name": "gpt-6.2-sol", "auto_title": False}},
+        },
+    )
+    requests = []
+
+    def handle(request):
+        requests.append(json.loads(request.content))
+        number = len(requests)
+        output = [
+            {"type": "reasoning", "id": f"rs_{number}", "summary": [], "encrypted_content": f"opaque-{number}"},
+            {
+                "type": "message",
+                "id": f"msg_{number}",
+                "role": "assistant",
+                "status": "completed",
+                "content": [{"type": "output_text", "text": f"Answer {number}", "annotations": []}],
+            },
+        ]
+        return httpx2.Response(
+            200, headers={"content-type": "text/event-stream"}, content=events(response(output), streamed_output=output)
+        )
+
+    def factory(**kwargs):
+        return AsyncOpenAI(
+            **(kwargs | {"api_key": "test-oauth-token"}),
+            http_client=httpx2.AsyncClient(transport=httpx2.MockTransport(handle)),
+        )
+
+    def clients(app_config, auth):
+        return ModelConnectionClients(app_config, auth, client_factory=factory)
+
+    async def approve(*_):
+        return True
+
+    def reasoning_sent() -> list[str]:
+        return [item["encrypted_content"] for item in requests[-1]["input"] if item.get("type") == "reasoning"]
+
+    monkeypatch.setattr("investorch.application.host.ModelConnectionClients", clients)
+    async with open_application_host(config, manual_approval_handler=approve, enable_activity=False) as host:
+        session_id = host.initial_session_id
+        assert session_id is not None
+        await host.runtime.start_run(session_id, "Start", run_options()).task
+        await host.runtime.start_run(session_id, "Continue on the first connection", run_options()).task
+        assert reasoning_sent() == ["opaque-1"]
+
+        host.session_models.update(
+            session_id, model="second", name="gpt-6.2-sol", reasoning_effort="max", context_window_tokens=1000000
+        )
+        await host.runtime.start_run(session_id, "Switch connection", run_options()).task
+        assert reasoning_sent() == []
+        await host.runtime.start_run(session_id, "Continue on the second connection", run_options()).task
+        assert reasoning_sent() == ["opaque-3"]
+
+        fork = await host.sessions.fork(session_id)
+        await host.runtime.start_run(fork, "Continue in the fork", run_options()).task
+        assert reasoning_sent() == ["opaque-3", "opaque-4"]
+        host.session_models.update(
+            fork, model="first", name="gpt-6.2-sol", reasoning_effort="max", context_window_tokens=1000000
+        )
+        await host.runtime.start_run(fork, "Switch back to the first connection", run_options()).task
+        assert reasoning_sent() == ["opaque-1", "opaque-2"]

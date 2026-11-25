@@ -1,16 +1,14 @@
-import inspect
 import json
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from agents import Agent, Model, ModelSettings, RunConfig, RunContextWrapper, SQLiteSession, TResponseInputItem
-from agents.run_config import CallModelData, ModelInputData
+from agents import Agent, Model, ModelSettings, RunContextWrapper, SQLiteSession, TResponseInputItem
 
 from investorch.config import AppConfig
 from investorch.storage.sessions import SessionHistoryRestoreError, replace_session_tail, split_session_history
 
-from .continuation import latest_deepseek_web_round, portable_history_filter
+from .continuation import latest_deepseek_web_round, portable_history
 from .prompts import COMPACTION_AGENT_INSTRUCTIONS
 from .usage import TokenUsage, run_with_usage
 
@@ -144,7 +142,6 @@ async def summarize_history(
                     selected,
                     items,
                     max_turns=1,
-                    run_config=RunConfig(call_model_input_filter=portable_history_filter(items)),
                     usage_handler=record_usage,
                 )
             except Exception as error:
@@ -157,12 +154,7 @@ async def summarize_history(
                 logger.warning("Compaction returned an empty summary; retrying the same request once")
         raise ValueError("Compaction agent returned an empty summary.")
 
-    filtered = portable_history_filter(history)(
-        CallModelData(agent=agent, context=None, model_data=ModelInputData(input=history, instructions=instructions))
-    )
-    if inspect.isawaitable(filtered):
-        filtered = await filtered
-    current = [_quote_history_item(item) for item in filtered.input]
+    current = [_quote_history_item(item) for item in portable_history(history)]
     # Each pass must strictly reduce the serialized input; an expansive summary fails closed.
     while estimate_context_tokens(current) >= budget:
         fragments: list[TResponseInputItem] = []
